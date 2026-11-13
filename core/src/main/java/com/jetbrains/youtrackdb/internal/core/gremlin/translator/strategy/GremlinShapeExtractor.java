@@ -22,8 +22,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.EdgeVertexStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 
 /**
  * Cheap pre-walk extraction of the translation-cache key and this invocation's {@code ?} bindings.
@@ -80,24 +78,43 @@ final class GremlinShapeExtractor {
       @Nonnull DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
       @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
-      @Nullable Boolean polymorphic) {
-    return extractPartial(recognisers, transparentSteps, traversal, session,
-        orderIncludesMissingKey,
-        orderByNullsPlacements, polymorphic, null);
+      @Nullable Boolean polymorphic, TranslationEnvironment environment) {
+    return extract(recognisers, transparentSteps, traversal, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphic, environment,
+        new GremlinShapeEncoder(session.getSchema()));
   }
 
-  /** Captured inputs select private partial-policy identity, including unknown suffix inputs. */
+  // Encoder injection keeps the text-key reference oracle independent of structural storage.
+  static Extraction extract(Map<Class<?>, StepRecogniser> recognisers,
+      Set<Class<?>> transparentSteps, Traversal.Admin<?, ?> traversal,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic, TranslationEnvironment environment,
+      GremlinShapeEncoder encoder) {
+    return extractInternal(recognisers, transparentSteps, traversal, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphic, environment, encoder, null);
+  }
+
   static Extraction extractPartial(Map<Class<?>, StepRecogniser> recognisers,
       Set<Class<?>> transparentSteps, Traversal.Admin<?, ?> traversal,
-      DatabaseSessionEmbedded session, Boolean orderIncludesMissingKey,
+      DatabaseSessionEmbedded session, Boolean includesMissing,
+      ResolvedOrderByNullsPlacement nulls, Boolean polymorphic,
+      GremlinStepWalker.WalkInputs inputs) {
+    return extractInternal(recognisers, transparentSteps, traversal, inputs.includesMissing(),
+        inputs.nulls(), inputs.polymorphic(),
+        new TranslationEnvironment(session, inputs.edgeVerification(), inputs.productiveKeys()),
+        new GremlinShapeEncoder(inputs.schema()), inputs);
+  }
+
+  private static Extraction extractInternal(Map<Class<?>, StepRecogniser> recognisers,
+      Set<Class<?>> transparentSteps, Traversal.Admin<?, ?> traversal, Boolean includesMissing,
       ResolvedOrderByNullsPlacement orderByNullsPlacements, Boolean polymorphic,
-      @Nullable GremlinStepWalker.WalkInputs inputs) {
-    var extractor = new GremlinShapeExtractor(recognisers, transparentSteps,
-        new GremlinShapeEncoder(inputs == null ? session.getSchema() : inputs.schema()),
-        inputs != null);
-    extractor.appendStrategyFlags(
-        traversal, orderIncludesMissingKey, polymorphic, inputs);
-    extractor.visit(traversal, WalkerContext.VERTEX_ROOT_CLASS, true);
+      TranslationEnvironment environment, GremlinShapeEncoder encoder,
+      GremlinStepWalker.WalkInputs inputs) {
+    var extractor =
+        new GremlinShapeExtractor(recognisers, transparentSteps, encoder, inputs != null);
+    extractor.appendStrategyFlags(environment, includesMissing, polymorphic);
+    extractor.visit(traversal, null);
     int bulkingCapacity = inputs == null ? PropertyMapBulkingAdmission.capacity(traversal)
         : PropertyMapBulkingAdmission.capacity(traversal, inputs.permitsGrouping());
     if (bulkingCapacity > 0) {
@@ -113,43 +130,79 @@ final class GremlinShapeExtractor {
       extractor.encoder.appendToken("onp", orderByNullsPlacements.ascending().name()
           + "/" + orderByNullsPlacements.descending().name());
     }
-    return new Extraction(extractor.encoder.key(), extractor.encoder.bindings(),
-        extractor.encoder.complete(), extractor.encoder.hasContributions(),
-        List.copyOf(extractor.nativeOperands), !extractor.possibleOrderedExpand, bulkingCapacity,
-        List.copyOf(extractor.rootEnds));
+    return new Extraction(extractor.encoder.compactKey(), Map.of(),
+        extractor.encoder.complete(), List.of(),
+        extractor.nativeOperands, !extractor.possibleOrderedExpand, bulkingCapacity,
+        extractor.encoder, extractor.rootEnds);
   }
 
-  record Extraction(@Nonnull String key, @Nonnull Map<Object, Object> bindings, boolean complete,
-      @Nonnull java.util.List<HasBindingContext.Contribution> hasContributions,
-      @Nonnull java.util.List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent,
-      int propertyMapBulkingCapacity, List<BindingEnd> rootEnds) {
-    /** Select by prepared root position, not by slot or recognised operation count. */
+  record Extraction(@Nonnull GremlinShapeKey key, @Nonnull Map<Object, Object> bindings,
+      boolean complete, @Nonnull List<HasBindingContext.Contribution> hasContributions,
+      @Nonnull List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent,
+      int propertyMapBulkingCapacity, @Nullable GremlinShapeEncoder encoder,
+      List<BindingEnd> rootEnds) {
+
+    Extraction(GremlinShapeKey key, Map<Object, Object> bindings, boolean complete,
+        List<HasBindingContext.Contribution> hasContributions,
+        List<NativeHasOperands> nativeOperands, boolean orderedExpandAbsent,
+        int propertyMapBulkingCapacity) {
+      this(key, bindings, complete, hasContributions, nativeOperands, orderedExpandAbsent,
+          propertyMapBulkingCapacity, null, List.of());
+    }
+
+    /** Freeze the full harvest before making independent immutable prefix slices. */
     Extraction prefix(int extent, boolean orderedExpandAbsent, int bulkingCapacity) {
+      var values = bindings();
+      var contributions = hasContributions();
+      var operands = nativeOperands();
       var end = rootEnds.get(extent - 1);
-      var prefixBindings = new java.util.LinkedHashMap<Object, Object>();
+      var slice = new java.util.LinkedHashMap<Object, Object>();
       for (int slot = 0; slot < end.bindings(); slot++) {
-        prefixBindings.put(slot, bindings.get(slot));
+        slice.put(slot, values.get(slot));
       }
-      return new Extraction(key, java.util.Collections.unmodifiableMap(prefixBindings), complete,
-          hasContributions.subList(0, end.contributions()),
-          nativeOperands.subList(0, end.nativeOperands()), orderedExpandAbsent, bulkingCapacity,
-          rootEnds.subList(0, extent));
+      return new Extraction(key, java.util.Collections.unmodifiableMap(slice), complete,
+          List.copyOf(contributions.subList(0, end.contributions())),
+          List.copyOf(operands.subList(0, end.nativeOperands())), orderedExpandAbsent,
+          bulkingCapacity, null, List.copyOf(rootEnds.subList(0, extent)));
+    }
+
+    @Override
+    public Map<Object, Object> bindings() {
+      if (encoder == null) {
+        return bindings;
+      }
+      encoder.harvest();
+      return encoder.bindings();
+    }
+
+    @Override
+    public List<HasBindingContext.Contribution> hasContributions() {
+      if (encoder == null) {
+        return hasContributions;
+      }
+      encoder.harvest();
+      return encoder.hasContributions();
+    }
+
+    @Override
+    public List<NativeHasOperands> nativeOperands() {
+      return encoder == null ? nativeOperands : encoder.nativeOperands(nativeOperands);
     }
   }
 
-  private final java.util.List<BindingEnd> rootEnds = new java.util.ArrayList<>();
+  private final List<BindingEnd> rootEnds = new java.util.ArrayList<>();
 
   record BindingEnd(int bindings, int contributions, int nativeOperands) {
   }
 
   private void recordRootEnd() {
     if (strictNativeInputs) {
-      rootEnds.add(new BindingEnd(encoder.bindingCount(), encoder.contributionCount(),
-          nativeOperands.size()));
+      // Replay the checkpoint after the slots belonging to this root step and its children.
+      encoder.deferHarvest(() -> rootEnds.add(new BindingEnd(encoder.bindingCount(),
+          encoder.contributionCount(), nativeOperands.size())));
     }
   }
 
-  /** Conservative scope-local evidence accepts a slice on either side of the vertex hop. */
   static final class OrderedExpandEvidence {
     private boolean order;
     private boolean hop;
@@ -172,26 +225,80 @@ final class GremlinShapeExtractor {
 
   private boolean possibleOrderedExpand;
   private boolean globalOrder;
-  private HasBindingContext.VertexClassFacts schemaFacts;
+
+  /** Replay records hold only structural facts until bindings are actually requested. */
+  private static final class HarvestScope implements Runnable {
+    private final HarvestScope parent;
+    private String boundaryClass;
+    private String[] edgeClasses;
+    private boolean inheritedVertexRoot;
+
+    private HarvestScope(HarvestScope parent) {
+      this.parent = parent;
+    }
+
+    @Override
+    public void run() {
+      boundaryClass = parent == null ? WalkerContext.VERTEX_ROOT_CLASS : parent.boundaryClass;
+      inheritedVertexRoot = WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass);
+    }
+  }
+
+  private record ResetBoundary(HarvestScope scope, String boundary, String[] edgeClasses)
+      implements Runnable {
+    @Override
+    public void run() {
+      scope.boundaryClass = boundary;
+      scope.edgeClasses = edgeClasses;
+    }
+  }
+
+  private record HasHarvest(HarvestScope scope, HasStep<?> step, boolean initialVertexStart,
+      boolean folded, boolean pendingDeferred, boolean orderedFilter, GremlinShapeEncoder encoder,
+      List<NativeHasOperands> nativeOperands) implements Runnable {
+    @Override
+    public void run() {
+      var containers = step.getHasContainers();
+      boolean edgeOpen = scope.edgeClasses != null;
+      var provisionalLabel = initialVertexStart && scope.inheritedVertexRoot && folded
+          && !edgeOpen && !pendingDeferred
+          && !orderedFilter && WalkerContext.VERTEX_ROOT_CLASS.equals(scope.boundaryClass)
+              ? HasStepRecogniser.singleEqualityLabel(containers) : null;
+      var names = provisionalLabel == null
+          ? HasStepRecogniser.labelNames(containers, pendingDeferred) : List.of(provisionalLabel);
+      var context = edgeOpen ? HasBindingContext.forEdge(scope.edgeClasses)
+          : HasBindingContext.forVertex(names, scope.boundaryClass, folded,
+              orderedFilter ? HasBindingContext.Destination.ORDERED_FILTER
+                  : HasBindingContext.Destination.MATCH_VERTEX);
+      // Contribution and native operands must describe the very same HasStep enumeration.
+      HasStepRecogniser.harvest(containers, context, encoder);
+      if (orderedFilter) {
+        nativeOperands.add(NativeHasOperands.capture(containers));
+      }
+      if (provisionalLabel != null) {
+        scope.boundaryClass = provisionalLabel;
+      } else if (!edgeOpen && !names.isEmpty()) {
+        var candidate = HasStepRecogniser.narrowedClass(
+            HasBindingContext.schemaFacts(encoder.schema()), names, scope.boundaryClass,
+            !pendingDeferred && names.size() == 1, pendingDeferred);
+        if (candidate != null) {
+          scope.boundaryClass = candidate;
+        }
+      }
+    }
+  }
 
   private final java.util.List<NativeHasOperands> nativeOperands = new java.util.ArrayList<>();
 
   private void appendStrategyFlags(
-      Traversal.Admin<?, ?> traversal,
+      TranslationEnvironment environment,
       @Nullable Boolean orderIncludesMissingKey,
-      @Nullable Boolean polymorphic, @Nullable GremlinStepWalker.WalkInputs inputs) {
+      @Nullable Boolean polymorphic) {
     encoder.appendToken("poly", polymorphic == null ? "n" : (polymorphic ? "1" : "0"));
     encoder.appendToken(
         "elv",
-        (inputs == null
-            ? traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()
-            : inputs.edgeVerification()) ? "1" : "0");
-    var productiveKeys =
-        inputs != null ? inputs.productiveKeys() : traversal
-            .getStrategies()
-            .getStrategy(ProductiveByStrategy.class)
-            .map(ProductiveByStrategy::getProductiveKeys)
-            .orElse(null);
+        environment.edgeLabelVerification() ? "1" : "0");
+    var productiveKeys = environment.productiveKeys();
     // The resolved productive-order setting changes the emitted pattern: under the shipped default
     // the order-key IS DEFINED conjunct is omitted, under the opt-out it is emitted. The cache is
     // storage-wide, so without this token a plan built under one setting would be spliced verbatim
@@ -209,11 +316,11 @@ final class GremlinShapeExtractor {
     }
   }
 
-  private void visit(Traversal.Admin<?, ?> traversal, String inheritedBoundaryClass,
-      boolean root) {
+  private void visit(Traversal.Admin<?, ?> traversal, HarvestScope parentScope) {
     if (encodeLambda(traversal)) {
       return;
     }
+    boolean root = parentScope == null;
     int counted = 0;
     var orderedExpand = new OrderedExpandEvidence();
     // Reuse the existing count pass. This conservative check needs only three local bits and
@@ -232,18 +339,17 @@ final class GremlinShapeExtractor {
     encoder.appendToken("T", Integer.toString(counted));
     // Track only the facts needed to bind HasSteps. This does not dispatch or build a second
     // MATCH walk. A GraphStep opens the native fold; every other non-HasStep closes it.
-    String boundaryClass = inheritedBoundaryClass;
-    String[] edgeClasses = null;
-    boolean edgeOpen = false;
+    var scope = new HarvestScope(parentScope);
+    encoder.deferHarvest(scope);
     boolean folded = false;
     boolean ordered = false;
     boolean sourceSliced = false;
     boolean deferredHop = false;
     boolean pendingDeferred = false;
     var steps = traversal.getSteps();
-    boolean initialVertexStart = WalkerContext.VERTEX_ROOT_CLASS.equals(inheritedBoundaryClass)
-        && !steps.isEmpty() && steps.getFirst() instanceof GraphStep<?, ?> start
-        && start.returnsVertex();
+    boolean initialVertexStart =
+        !steps.isEmpty() && steps.getFirst() instanceof GraphStep<?, ?> start
+            && start.returnsVertex();
     for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
       Step<?, ?> step = steps.get(stepIndex);
       if (isTransparent(step)) {
@@ -264,29 +370,13 @@ final class GremlinShapeExtractor {
         continue;
       }
       encoder.appendToken("S", step.getClass().getName());
-      HasBindingContext hasContext = null;
-      java.util.List<String> hasLabels = java.util.List.of();
-      String provisionalLabel = null;
-      int slotStart = encoder.hasSlotCount();
       if (step instanceof HasStep<?> hasStep) {
-        // hasId RIDs stay structural in the shape key (appendPredicate). Walk-time markRidBearing
-        // is what bypasses GremlinPlanCache reuse — do not mark the extraction incomplete here.
         boolean orderedFilter = scopeOrderedExpand && deferredHop && (sourceSliced
             || followedByOrderedSlice(steps, stepIndex));
-        if (initialVertexStart && folded && !edgeOpen && !pendingDeferred && !orderedFilter
-            && WalkerContext.VERTEX_ROOT_CLASS.equals(boundaryClass)) {
-          provisionalLabel = HasStepRecogniser.singleEqualityLabel(hasStep.getHasContainers());
-        }
-        hasLabels = provisionalLabel == null
-            ? HasStepRecogniser.labelNames(hasStep.getHasContainers(), pendingDeferred)
-            : List.of(provisionalLabel);
-        hasContext = edgeOpen ? HasBindingContext.forEdge(edgeClasses)
-            : HasBindingContext.forVertex(hasLabels, boundaryClass, folded,
-                orderedFilter ? HasBindingContext.Destination.ORDERED_FILTER
-                    : HasBindingContext.Destination.MATCH_VERTEX);
-        encoder.setHasBindingContext(hasContext);
-        if (orderedFilter) {
-          nativeOperands.add(NativeHasOperands.capture(hasStep.getHasContainers()));
+        encoder.deferHarvest(new HasHarvest(scope, hasStep, initialVertexStart, folded,
+            pendingDeferred, orderedFilter, encoder, nativeOperands));
+        if (orderedFilter && hasStepHasUnrebuildableOperands(hasStep)) {
+          encoder.markIncomplete();
         }
       }
       var labels = GremlinStepLabels.userLabels(step);
@@ -296,53 +386,23 @@ final class GremlinShapeExtractor {
           : strictNativeInputs && !QuerySafetyAdmission.nativeShapeComplete(step, encoder)) {
         encoder.markIncomplete();
       }
-      if (hasContext != null) {
-        encoder.recordHasContribution(hasContext, slotStart);
-        if (hasContext.destination() == HasBindingContext.Destination.ORDERED_FILTER
-            && hasStepHasUnrebuildableOperands((HasStep<?>) step)) {
-          // A cold walk can use the original native predicate, but must not splice a template.
-          encoder.markIncomplete();
-        }
-        if (provisionalLabel != null) {
-          // This is query context, not schema validation. The full walker validates existence,
-          // vertex status and narrowing before a template can pass binding/layout agreement.
-          // Later property HasSteps still resolve this class through their real type gates.
-          boundaryClass = provisionalLabel;
-        } else if (!edgeOpen && !hasLabels.isEmpty()) {
-          // Captured children and complex constraints retain schema-based narrowing. Initialize
-          // these facts only on the fallback, never for an ordinary provisional equality label.
-          if (schemaFacts == null) {
-            schemaFacts = HasBindingContext.schemaFacts(encoder.schema());
-          }
-          var candidate = HasStepRecogniser.narrowedClass(schemaFacts, hasLabels,
-              boundaryClass, !pendingDeferred && hasLabels.size() == 1, pendingDeferred);
-          if (candidate != null) {
-            boundaryClass = candidate;
-          }
-        }
-      }
       if (!(step instanceof HasStep<?>) && (!pendingDeferred || !isNonSelectingRange(step))) {
         pendingDeferred = false;
       }
       if (step instanceof GraphStep<?, ?>) {
-        boundaryClass = WalkerContext.VERTEX_ROOT_CLASS;
-        edgeClasses = null;
-        edgeOpen = false;
+        encoder.deferHarvest(new ResetBoundary(scope, WalkerContext.VERTEX_ROOT_CLASS, null));
         ordered = false;
         sourceSliced = false;
         deferredHop = false;
         folded = true;
       } else if (step instanceof VertexStepContract<?> hop) {
-        boundaryClass = HasBindingContext.afterHopBoundary();
-        edgeClasses = hop.returnsEdge() ? hop.getEdgeLabels() : null;
-        edgeOpen = hop.returnsEdge();
+        encoder.deferHarvest(new ResetBoundary(scope, HasBindingContext.afterHopBoundary(),
+            hop.returnsEdge() ? hop.getEdgeLabels() : null));
         deferredHop = ordered && !hop.returnsEdge();
         pendingDeferred = deferredHop;
         folded = false;
       } else if (step instanceof EdgeVertexStep || step instanceof EdgeOtherVertexStep) {
-        edgeClasses = null;
-        edgeOpen = false;
-        boundaryClass = HasBindingContext.afterHopBoundary();
+        encoder.deferHarvest(new ResetBoundary(scope, HasBindingContext.afterHopBoundary(), null));
         folded = false;
       } else if (!(step instanceof HasStep<?>)) {
         folded = false;
@@ -362,7 +422,7 @@ final class GremlinShapeExtractor {
         // This also covers lambda modulators and unregistered TraversalParent implementations.
         for (var child : parent.getLocalChildren()) {
           encoder.appendToken("localChild");
-          visit(child.asAdmin(), boundaryClass, false);
+          visit(child.asAdmin(), scope);
           encoder.appendToken("childEnd");
           if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.ConnectiveStep<
               ?>) {
@@ -372,7 +432,7 @@ final class GremlinShapeExtractor {
         }
         for (var child : parent.getGlobalChildren()) {
           encoder.appendToken("globalChild");
-          visit(child.asAdmin(), boundaryClass, false);
+          visit(child.asAdmin(), scope);
           encoder.appendToken("childEnd");
         }
       }

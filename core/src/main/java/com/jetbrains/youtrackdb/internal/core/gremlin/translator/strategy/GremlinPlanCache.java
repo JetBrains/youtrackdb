@@ -41,7 +41,7 @@ public final class GremlinPlanCache
 
   private volatile long lastGlobalTimeout = GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
 
-  @Nullable private final Cache<String, StampedTranslation> translationCache;
+  @Nullable private final Cache<Object, StampedTranslation> translationCache;
 
   private final LongAdder translationHits = new LongAdder();
   private final LongAdder translationMisses = new LongAdder();
@@ -86,7 +86,7 @@ public final class GremlinPlanCache
   }
 
   /** Returns true only for a currently valid translation or decline entry. */
-  public boolean containsTranslation(String shapeKey) {
+  public boolean containsTranslation(Object shapeKey) {
     var entry = translationCache == null ? null : translationCache.getIfPresent(shapeKey);
     return entry != null && entry.generation() == generation.get();
   }
@@ -127,7 +127,7 @@ public final class GremlinPlanCache
   }
 
   @Nullable public static GremlinTranslationTemplate getTranslation(
-      String shapeKey, DatabaseSessionEmbedded db) {
+      Object shapeKey, DatabaseSessionEmbedded db) {
     if (db == null || shapeKey == null) {
       return null;
     }
@@ -136,7 +136,7 @@ public final class GremlinPlanCache
   }
 
   @Nullable public static GremlinTranslationTemplate putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long walkGeneration) {
     if (db == null || shapeKey == null || template == null) {
       return null;
@@ -146,7 +146,7 @@ public final class GremlinPlanCache
 
   /** Replaces only the exact rejected publication, while preserving valid concurrent winners. */
   @Nullable static GremlinTranslationTemplate putTranslation(
-      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long walkGeneration, @Nullable StampedTranslation rejected) {
     return instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration, rejected);
   }
@@ -202,13 +202,13 @@ public final class GremlinPlanCache
   }
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
-      String shapeKey, DatabaseSessionEmbedded db) {
+      Object shapeKey, DatabaseSessionEmbedded db) {
     var entry = getTranslationEntry(shapeKey, db);
     return entry == null ? null : entry.template();
   }
 
   @Nullable StampedTranslation getTranslationEntry(
-      String shapeKey, DatabaseSessionEmbedded db) {
+      Object shapeKey, DatabaseSessionEmbedded db) {
     if (db.getTxSchemaState() != null) {
       return null;
     }
@@ -225,13 +225,13 @@ public final class GremlinPlanCache
     return null;
   }
 
-  @Nullable GremlinTranslationTemplate putTranslationInternal(String shapeKey,
+  @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
       GremlinTranslationTemplate template,
       DatabaseSessionEmbedded db, long walkGeneration) {
     return putTranslationInternal(shapeKey, template, db, walkGeneration, null);
   }
 
-  @Nullable GremlinTranslationTemplate putTranslationInternal(String shapeKey,
+  @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
       GremlinTranslationTemplate template, DatabaseSessionEmbedded db, long walkGeneration,
       @Nullable StampedTranslation rejected) {
     if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null

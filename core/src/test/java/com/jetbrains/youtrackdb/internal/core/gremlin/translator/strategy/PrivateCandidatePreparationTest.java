@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -298,6 +297,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     var partial = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
         GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
         inputs.nulls(), inputs.polymorphic(), inputs);
+    partial.bindings();
     assertThat(partial.rootEnds()).hasSize(4);
   }
 
@@ -352,7 +352,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS);
     final List<InternalExecutionPlan> originals = new ArrayList<>();
     final List<InternalExecutionPlan> copies = new ArrayList<>();
-    String key;
+    Object key;
     Runnable beforeLookup = () -> {
     };
     java.util.function.Consumer<InternalExecutionPlan> onOriginal = plan -> {
@@ -375,7 +375,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         };
         callback.run();
         return call.callRealMethod();
-      }).when(cache).getTranslationEntry(anyString(), any());
+      }).when(cache).getTranslationEntry(any(Object.class), any());
       cache.getTranslationEntry("synchronise-timeout", session);
     }
 
@@ -450,7 +450,8 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         probe.cache.getTranslationEntry("synchronise", probe.session);
         probe.duringBuild = () -> config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
         try (var own = probe.prepare().prepare(query(30, 40), policy)) {
-          assertThat(probe.key).contains(":17001:");
+          assertThat(((PrivateCandidatePreparation.CandidateKey) probe.key).timeout())
+              .isEqualTo(17001L);
           assertThat(probe.cache.containsTranslation(probe.key)).isTrue();
           assertThat(own.plan().prettyPrint(0, 2).toString()).contains("17001ms");
           verify(probe.originals.getLast()).close();
@@ -463,7 +464,8 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         probe.duringBuild = () -> {
         };
         try (var fresh = probe.prepare().prepare(query(40, 30), policy)) {
-          assertThat(probe.key).contains(":29001:");
+          assertThat(((PrivateCandidatePreparation.CandidateKey) probe.key).timeout())
+              .isEqualTo(29001L);
           assertThat(fresh.cacheHit()).isFalse();
           assertThat(fresh.plan().prettyPrint(0, 2).toString()).contains("29001ms");
           verify(probe.originals.getLast()).close();
@@ -514,7 +516,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           verify(probe.originals.getLast()).close();
         }
         verify(probe.copies.getLast()).close();
-        verify(probe.cache, never()).putTranslationInternal(anyString(), any(), any(),
+        verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
             org.mockito.ArgumentMatchers.anyLong(), any());
       }
     }
@@ -572,7 +574,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           }
         }
         // One competitor publication and exactly one own publication, with no second repair.
-        verify(probe.cache, times(2)).putTranslationInternal(anyString(), any(), any(),
+        verify(probe.cache, times(2)).putTranslationInternal(any(Object.class), any(), any(),
             org.mockito.ArgumentMatchers.anyLong(), any());
         assertThat(probe.cache.getTranslationHits()).isEqualTo(3);
       }
@@ -624,7 +626,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         }
         verify(probe.copies.getLast()).close();
         // Seed, explicit rejection, competing repair and the losing repair. No second repair.
-        verify(probe.cache, times(4)).putTranslationInternal(anyString(), any(), any(),
+        verify(probe.cache, times(4)).putTranslationInternal(any(Object.class), any(), any(),
             org.mockito.ArgumentMatchers.anyLong(), any());
       }
     }
@@ -682,7 +684,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         verify(probe.copies.getLast()).close();
         assertThat(probe.cache.getTranslationHits()).isEqualTo(hits);
         assertThat(probe.cache.getTranslationMisses()).isEqualTo(misses);
-        verify(probe.cache, times(1)).putTranslationInternal(anyString(), any(), any(),
+        verify(probe.cache, times(1)).putTranslationInternal(any(Object.class), any(), any(),
             org.mockito.ArgumentMatchers.anyLong(), any());
       } finally {
         graph.tx().rollback();
@@ -707,7 +709,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         }
         verify(probe.copies.getLast()).close();
       }
-      verify(probe.cache, never()).putTranslationInternal(anyString(), any(), any(),
+      verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
           org.mockito.ArgumentMatchers.anyLong(), any());
     }
   }
@@ -824,7 +826,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         };
         if (stage.equals("publication")) {
           org.mockito.Mockito.doThrow(failure).when(probe.cache).putTranslationInternal(
-              anyString(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+              any(Object.class), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
         }
         assertThatThrownBy(() -> probe.prepare().prepare(query(30, 40), policy))
             .isSameAs(failure);

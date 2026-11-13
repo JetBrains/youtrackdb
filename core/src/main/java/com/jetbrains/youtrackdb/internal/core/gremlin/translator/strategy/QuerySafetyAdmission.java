@@ -58,7 +58,15 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
 final class QuerySafetyAdmission {
 
   enum Reason {
-    SAFE, WRITE, SIDE_EFFECT, USER_FUNCTION, UNKNOWN_BEHAVIOR, DUPLICATE_LABEL, SIDE_EFFECT_NAME, ONE_BULK_CHILD, MISSING_ROOT_RESULT, ADMISSION_FAILURE
+    SAFE, WRITE, SIDE_EFFECT, USER_FUNCTION, UNKNOWN_BEHAVIOR, DUPLICATE_LABEL, SIDE_EFFECT_NAME, ONE_BULK_CHILD, MISSING_ROOT_RESULT, ADMISSION_FAILURE;
+
+    // DeclineSignature owns its segments and exposes no mutation.
+    @SuppressWarnings("ImmutableEnumChecker")
+    private final DeclineSignature signature = DeclineSignature.text("safety:" + name());
+
+    DeclineSignature signature() {
+      return signature;
+    }
   }
 
   record Result(Reason reason, boolean oneBulk, int visitedSteps) {

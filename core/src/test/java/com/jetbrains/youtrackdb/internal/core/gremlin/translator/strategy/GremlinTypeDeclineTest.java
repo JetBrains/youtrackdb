@@ -47,9 +47,9 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
     assertThat(RootStepAdmission.admits(__.path().asAdmin().getStartStep())).isFalse();
   }
 
-  /** Type declines skip all execution-setting and extraction reads and invoke no map callback. */
+  /** Roots resolve settings and safety once, then refuse without callbacks or translation work. */
   @Test
-  public void typeDeclinesKeepNativeStepsWithoutSettingsExtractionWalkOrCache() {
+  public void rootDeclinesResolveSettingsOnceWithoutExtractionWalkPlanOrEntryLookup() {
     var support = new TranslatorEquivalenceSupport(this::graphSession);
     support.setTranslatorEnabled(true);
     var sharedCache = GremlinPlanCache.instance(graphSession());
@@ -72,13 +72,8 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
         long declines = metrics.getDeclines(), errors = metrics.getErrors();
         long hits = cache.getTranslationHits(), misses = cache.getTranslationMisses();
         try (var caches = mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS);
-            var settings = mockStatic(YTDBStrategyUtil.class, invocation -> {
-              if (List.of("orderIncludesMissingKey", "orderByNullsPlacements", "isPolymorphic")
-                  .contains(invocation.getMethod().getName())) {
-                throw new AssertionError("type decline resolved execution settings");
-              }
-              return CALLS_REAL_METHODS.answer(invocation);
-            }); var walker = mockStatic(GremlinStepWalker.class, invocation -> {
+            var settings = mockStatic(YTDBStrategyUtil.class, CALLS_REAL_METHODS);
+            var walker = mockStatic(GremlinStepWalker.class, invocation -> {
               if (invocation.getMethod().getName().equals("extractShape")) {
                 throw new AssertionError("type decline extracted shape");
               }
@@ -86,6 +81,8 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
             })) {
           caches.when(() -> GremlinPlanCache.instance(graphSession())).thenReturn(cache);
           strategy.apply(admin);
+          settings.verify(() -> YTDBStrategyUtil.translationSettings(admin, graphSession()),
+              org.mockito.Mockito.times(1));
         }
         assertThat(admin.getSteps()).containsExactlyElementsOf(steps);
         assertThat(metrics.getDeclines()).isEqualTo(declines + 1);
@@ -97,6 +94,34 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
       }
     }
     assertThat(callbacks.get()).isZero();
+  }
+
+  /** A prepared relative child refuses at the start gate without capture or settings work. */
+  @Test
+  public void preparedRelativeChildSkipsSettingsTimeoutCacheAndTranslation() {
+    new TranslatorEquivalenceSupport(this::graphSession).setTranslatorEnabled(true);
+    var child = __.out().asAdmin();
+    var root = graph.traversal().V().map(child).asAdmin();
+    child.setGraph(graph);
+    GremlinToMatchStrategy.instance().apply(root);
+    assertThat(QuerySafetyAdmission.stored(root).reason())
+        .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+    var session = org.mockito.Mockito.spy(graphSession());
+    var configuration = org.mockito.Mockito.spy(session.getConfiguration());
+    org.mockito.Mockito.doReturn(configuration).when(session).getConfiguration();
+    try (var util = mockStatic(YTDBStrategyUtil.class, CALLS_REAL_METHODS);
+        var caches = mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS);
+        var walker = mockStatic(GremlinStepWalker.class, CALLS_REAL_METHODS)) {
+      util.when(() -> YTDBStrategyUtil.resolveYtdbSession(child)).thenReturn(session);
+      GremlinToMatchStrategy.instance().apply(child);
+      util.verify(() -> YTDBStrategyUtil.translationSettings(child, session),
+          org.mockito.Mockito.never());
+      caches.verifyNoInteractions();
+      walker.verifyNoInteractions();
+      org.mockito.Mockito.verify(configuration, org.mockito.Mockito.never()).getValueAsLong(
+          com.jetbrains.youtrackdb.api.config.GlobalConfiguration.COMMAND_TIMEOUT);
+    }
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(child)).isZero();
   }
 
   /** Bad explicit values retain their error route before reserved labels on either root shape. */

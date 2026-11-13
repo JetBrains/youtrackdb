@@ -195,7 +195,9 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
       GremlinToMatchStrategy.instance().apply(warm);
       assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isEqualTo(1);
-      assertThat(reads.get()).as("only admission inspects the warm nested traversal").isEqualTo(1);
+      assertThat(reads.get())
+          .as("one safety scan, one hasDuplicateStepLabels, one selectCollidesWithSideEffect")
+          .isEqualTo(3);
       assertThat(extractorReads.get()).isPositive();
       assertThat(warm.toList()).hasSize(1);
       hits = cache.getTranslationHits();

@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShap
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 
@@ -19,9 +18,10 @@ final class PrivateCandidatePreparation {
       cuts = Set.copyOf(cuts);
     }
 
-    String key() {
-      return "private-candidate-v1:" + new TreeSet<>(cuts) + ":";
-    }
+  }
+
+  record CandidateKey(String namespace, Policy policy, boolean oneBulk, boolean sourceState,
+      long timeout, GremlinShapeKey shape) {
   }
 
   record Prepared(PrivatePrefixDiscovery.Reason reason, int extent, boolean cacheHit,
@@ -59,9 +59,8 @@ final class PrivateCandidatePreparation {
     var extraction = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
         GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
         inputs.nulls(), inputs.polymorphic(), inputs);
-    String key = policy.key() + safety.oneBulk() + ":"
-        + PartialSourceState.configured(traversal) + ":" + inputs.commandTimeout() + ":"
-        + extraction.key();
+    var key = new CandidateKey("private-candidate-v1", policy, safety.oneBulk(),
+        PartialSourceState.configured(traversal), inputs.commandTimeout(), extraction.key());
     boolean eligible = session.getTxSchemaState() == null && cache.isEnabled()
         && extraction.complete();
     GremlinPlanCache.StampedTranslation rejected = null;

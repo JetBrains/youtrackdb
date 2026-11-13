@@ -32,7 +32,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +63,10 @@ import org.slf4j.LoggerFactory;
  * <h2>Gating cascade</h2>
  *
  * The strategy declines (returns without mutating the traversal) when any of the following is
- * true, checked in order:
+ * true. Roots and children without evidence capture cache generation, eligibility and timeout,
+ * then resolve settings before safety and the early gates below. Children with stored evidence
+ * check safety and early gates before capture and settings. Each continuing application resolves
+ * settings once and reuses them for extraction and planning:
  *
  * <ol>
  *   <li><b>No YouTrackDB session / kill switch.</b> The traversal has no attached {@link
@@ -230,6 +232,15 @@ public final class GremlinToMatchStrategy
    */
   private static final TraversalTranslator PRODUCTION_TRANSLATOR = new TraversalTranslator() {
     @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement nulls, @Nullable Boolean polymorphic,
+        TranslationEnvironment environment) {
+      return GremlinStepWalker.production().walk(traversal, GremlinStepWalker.NO_CHILD_SCOPE,
+          orderIncludesMissingKey, nulls, polymorphic, environment);
+    }
+
+    @Nullable @Override
     public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal) {
       return GremlinToMatchTranslator.translate(traversal);
     }
@@ -322,6 +333,9 @@ public final class GremlinToMatchStrategy
     return INSTANCE;
   }
 
+  // Package-private seam observes extraction through the whole strategy application.
+  java.util.function.Consumer<GremlinShapeExtractor.Extraction> extractionObserver;
+
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
     // Throw-safety net: the whole body runs on every Gremlin compilation and the strategy is
@@ -358,29 +372,121 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
-    if (traversal.isRoot() && QuerySafetyAdmission.stored(traversal) == null) {
-      var options = traversal.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
-      YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, traversal);
-      YTDBStrategyUtil.explicitNullPlacements(options);
-      YTDBStrategyUtil.explicitPolymorphic(options);
+    var storedSafety = traversal.isRoot() ? null : QuerySafetyAdmission.stored(traversal);
+    if (storedSafety != null) {
+      var refusal = storedSafety.forChild();
+      if (refusal != QuerySafetyAdmission.Reason.SAFE) {
+        GremlinTranslationMetrics.of(session).recordDeclineSignature(refusal.signature());
+        return;
+      }
+      if (!passesEarlyGates(traversal, session)) {
+        return;
+      }
     }
-    var safety = QuerySafetyAdmission.prepare(traversal);
-    var refusal = safety == null ? QuerySafetyAdmission.Reason.MISSING_ROOT_RESULT
-        : traversal.isRoot() ? safety.reason() : safety.forChild();
-    if (refusal != QuerySafetyAdmission.Reason.SAFE) {
-      GremlinTranslationMetrics.of(session).recordDecline("safety:" + refusal.name());
+    // Capture before the first settings or metadata read, including early-declined roots.
+    var cache = GremlinPlanCache.instance(session);
+    var generation = cache.getGeneration();
+    var eligible = session.getTxSchemaState() == null && cache.isEnabled();
+    long commandTimeout =
+        session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    // Resolve all order settings once for this compilation. The shape key below and the walk
+    // further down both read these values. Two independent reads could straddle a runtime flip
+    // and file a plan built under one setting under the other setting's key, in a cache that is
+    // storage-wide and outlives the session.
+    var settings = YTDBStrategyUtil.translationSettings(traversal, session);
+    if (settings == null) {
       return;
     }
+    if (storedSafety == null) {
+      var safety = QuerySafetyAdmission.prepare(traversal);
+      var refusal = safety == null ? QuerySafetyAdmission.Reason.MISSING_ROOT_RESULT
+          : traversal.isRoot() ? safety.reason() : safety.forChild();
+      if (refusal != QuerySafetyAdmission.Reason.SAFE) {
+        GremlinTranslationMetrics.of(session).recordDeclineSignature(refusal.signature());
+        return;
+      }
+    }
+    if (storedSafety == null && !passesEarlyGates(traversal, session)) {
+      return;
+    }
+    var orderIncludesMissingKey = settings.orderIncludesMissingKey();
+    var orderByNullsPlacements = settings.nullPlacements();
+    var polymorphic = settings.polymorphic();
+    var environment = TranslationEnvironment.resolve(traversal, session);
+    var extraction =
+        GremlinStepWalker.extractShape(
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
+            environment);
+    var metrics = GremlinTranslationMetrics.of(session);
+    if (extractionObserver != null) {
+      extractionObserver.accept(extraction);
+    }
+    GremlinPlanCache.StampedTranslation rejected = null;
+    if (populateTranslationCache && eligible && extraction.complete()) {
+      var resident = cache.getTranslationEntry(extraction.key(), session);
+      var cached = resident == null ? null : resident.template();
+      if (cache.getGeneration() != generation) {
+        cached = null;
+      }
+      if (cached instanceof GremlinTranslationTemplate.Decline) {
+        metrics.recordDeclineTraversal(traversal);
+        return;
+      }
+      if (cached instanceof GremlinTranslationTemplate.Translate translate) {
+        // Complete structural identity needs no MATCH bindings for a resident native decision.
+        if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())
+            && cache.getGeneration() == generation) {
+          metrics.recordRuleNative();
+          return;
+        }
+        var boundShaping = extraction.bindings().size() == translate.bindingCount()
+            && matchingLayout(extraction.hasContributions(), translate.hasContributions())
+            && extraction.propertyMapBulkingCapacity()
+                == translate.shaping().propertyMapBulkingCapacity()
+                    ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
+        if (boundShaping != null && cache.getGeneration() == generation) {
+          spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
+          metrics.recordSuccess();
+          return;
+        }
+        rejected = resident;
+        agreementFailure.accept("Translation cache binding agreement failed");
+      }
+    }
+    var translation =
+        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
+            polymorphic, environment);
+    if (translation == null) {
+      if (populateTranslationCache && eligible && extraction.complete()) {
+        GremlinPlanCache.putTranslation(
+            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
+            rejected);
+      }
+      metrics.recordDeclineTraversal(traversal);
+      return;
+    }
+    var cacheScope = new CacheScope(generation, eligible, commandTimeout);
+    if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
+        rejected)) {
+      metrics.recordSuccess();
+    } else {
+      metrics.recordRuleNative();
+    }
+  }
+
+  /** Parent gates run after root admission, but before settings on prepared children. */
+  private static boolean passesEarlyGates(Traversal.Admin<?, ?> traversal,
+      DatabaseSessionEmbedded session) {
     // Start-shape gate is O(1). Already-translated traversals also fail hasVertexGraphStart
     // (start is a boundary, not a GraphStep), so check containsBoundaryStep before counting a
     // decline — re-applies must stay outside attempts. Fresh edge / non-vertex starts are product
     // gaps and count as declines; kill-switch / missing session already returned above.
     if (!hasVertexGraphStart(traversal)) {
       if (containsBoundaryStep(traversal)) {
-        return;
+        return false;
       }
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
-      return;
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
+      return false;
     }
     // Honour a per-traversal veto. RepeatDeclineStrategy marks a repeat-bearing traversal at
     // decoration time, but TinkerPop captures the strategy set before the first strategy runs, so
@@ -392,94 +498,27 @@ public final class GremlinToMatchStrategy
     // lives on the strategies reference's type rather than in the list itself. Variable-depth
     // repeat is out of scope — count as a decline like any other unsupported shape.
     if (RepeatDeclineStrategy.isVetoed(traversal)) {
-      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
-      return;
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
+      return false;
     }
     if (containsBoundaryStep(traversal)) {
-      return;
+      return false;
+    }
+    // Check before a template lookup: aliases cannot represent repeated path bindings or a
+    // side-effect value that belongs to this invocation.
+    if (GremlinStepWalker.hasDuplicateStepLabels(traversal)
+        || GremlinStepWalker.selectCollidesWithSideEffect(traversal)) {
+      GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
+      return false;
     }
     for (Step<?, ?> step : traversal.getSteps()) {
       if (!RootStepAdmission.admits(step)) {
-        // Validate explicit instructions without resolving execution settings or inspecting values.
-        var root = YTDBStrategyUtil.rootTraversal(traversal);
-        var options = root.getStrategies().getStrategy(OptionsStrategy.class).orElse(null);
-        YTDBStrategyUtil.explicitOrderIncludesMissingKey(options, root);
-        YTDBStrategyUtil.explicitNullPlacements(options);
-        YTDBStrategyUtil.explicitPolymorphic(options);
         GremlinStepWalker.rejectReservedPrefixLabels(traversal.getSteps());
-        GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
-        return;
+        GremlinTranslationMetrics.of(session).recordDeclineTraversal(traversal);
+        return false;
       }
     }
-    // Capture before any setting or metadata read can shape this call's keys or plans.
-    var cache = GremlinPlanCache.instance(session);
-    var generation = cache.getGeneration();
-    long commandTimeout =
-        session.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
-    var eligible = session.getTxSchemaState() == null && cache.isEnabled();
-    // Resolve all order settings once for this compilation. The shape key below and the walk
-    // further down both read these values. Two independent reads could straddle a runtime flip
-    // and file a plan built under one setting under the other setting's key, in a cache that is
-    // storage-wide and outlives the session.
-    var orderIncludesMissingKey = YTDBStrategyUtil.orderIncludesMissingKey(traversal);
-    var orderByNullsPlacements = YTDBStrategyUtil.orderByNullsPlacements(traversal);
-    var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
-    if (orderByNullsPlacements == null || polymorphic == null) {
-      return;
-    }
-    var extraction =
-        GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
-    var metrics = GremlinTranslationMetrics.of(session);
-    GremlinPlanCache.StampedTranslation rejected = null;
-    if (populateTranslationCache && eligible && extraction.complete()) {
-      var resident = cache.getTranslationEntry(extraction.key(), session);
-      var cached = resident == null ? null : resident.template();
-      if (cache.getGeneration() != generation) {
-        cached = null;
-      }
-      if (cached instanceof GremlinTranslationTemplate.Decline) {
-        metrics.recordDecline(stepShape(traversal));
-        return;
-      }
-      if (cached instanceof GremlinTranslationTemplate.Translate translate) {
-        var boundShaping = extraction.bindings().size() == translate.bindingCount()
-            && matchingLayout(extraction.hasContributions(), translate.hasContributions())
-            && extraction.propertyMapBulkingCapacity()
-                == translate.shaping().propertyMapBulkingCapacity()
-                    ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
-        if (boundShaping != null && cache.getGeneration() == generation) {
-          if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())) {
-            metrics.recordRuleNative();
-            return;
-          }
-          spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
-          metrics.recordSuccess();
-          return;
-        }
-        rejected = resident;
-        agreementFailure.accept("Translation cache binding agreement failed");
-      }
-    }
-    var translation =
-        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
-            polymorphic);
-    if (translation == null) {
-      if (populateTranslationCache && eligible && extraction.complete()) {
-        GremlinPlanCache.putTranslation(
-            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
-            rejected);
-      }
-      metrics.recordDecline(stepShape(traversal));
-      return;
-    }
-    var cacheScope = new CacheScope(generation, eligible, commandTimeout);
-    if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
-        rejected)) {
-      metrics.recordSuccess();
-    } else {
-      metrics.recordRuleNative();
-    }
+    return true;
   }
 
   /** The complete contribution boundary, gate, fold mode and every slot role must agree. */
@@ -1042,6 +1081,14 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean orderIncludesMissingKey,
         ResolvedOrderByNullsPlacement orderByNullsPlacements) {
       return translate(traversal, orderIncludesMissingKey);
+    }
+
+    /** Carries application-local session and flags. Fixture translators keep their existing seam. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal, @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement nulls, @Nullable Boolean polymorphic,
+        TranslationEnvironment environment) {
+      return translate(traversal, orderIncludesMissingKey, nulls, polymorphic);
     }
 
     /** Translates with the strategy's resolved polymorphic setting. */

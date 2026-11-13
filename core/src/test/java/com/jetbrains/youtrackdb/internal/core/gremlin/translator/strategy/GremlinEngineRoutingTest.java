@@ -12,14 +12,21 @@ import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.Reason;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Before;
 import org.junit.Test;
@@ -59,6 +66,434 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     checkCached(() -> graph.traversal().V().hasLabel("RouteVertex").order().by("name"), false,
         false);
     checkCached(() -> graph.traversal().V().hasLabel("MissingRouteVertex"), false, true);
+  }
+
+  /** Invalid options win before early gates, while valid options preserve safety diagnostics. */
+  @Test
+  public void earlyDeclinesDoNotIntroduceValidationOrChangeSignatures() {
+    for (int mode = 0; mode < 3; mode++) {
+      var source = graph.traversal();
+      if (mode == 0) {
+        source = source.with("orderByNullsPlacementAsc", "invalid");
+      } else if (mode == 2) {
+        source = source.with("orderIncludesMissingKey", true)
+            .withStrategies(StandardOrderSemanticsStrategy.instance());
+      }
+      var edge = source.E().as("$reserved").asAdmin();
+      var repeat = source.V().as("$reserved").repeat(__.out()).times(2).asAdmin();
+      RepeatDeclineStrategy.instance().apply(repeat);
+      var duplicate = source.V().as("$reserved").out().as("$reserved").asAdmin();
+      var collision = source.V().as("$reserved").select("side").asAdmin();
+      collision.getSideEffects().register("side", () -> "value", (a, b) -> b);
+      for (var traversal : List.of(edge, repeat, duplicate, collision)) {
+        var metrics = GremlinTranslationMetrics.of(db);
+        long attempts = metrics.getAttempts(), declines = metrics.getDeclines();
+        long errors = metrics.getErrors();
+        var signatures = metrics.topDeclinedShapes(256);
+        var steps = List.copyOf(traversal.getSteps());
+        if (mode == 2) {
+          assertThatThrownBy(() -> GremlinToMatchStrategy.instance().apply(traversal))
+              .isInstanceOf(ContradictoryOrderSemanticsException.class);
+          assertThat(metrics.getAttempts()).isEqualTo(attempts);
+        } else {
+          GremlinToMatchStrategy.instance().apply(traversal);
+          assertThat(metrics.getAttempts()).isEqualTo(attempts + 1);
+        }
+        assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+        assertThat(metrics.getErrors()).isEqualTo(errors + (mode == 0 ? 1 : 0));
+        assertThat(metrics.getDeclines()).isEqualTo(declines + (mode == 1 ? 1 : 0));
+        if (mode != 1) {
+          assertThat(metrics.topDeclinedShapes(256)).isEqualTo(signatures);
+          assertThat(QuerySafetyAdmission.stored(traversal)).isNull();
+        } else {
+          var reason = QuerySafetyAdmission.stored(traversal).reason();
+          var expected = traversal == duplicate ? "safety:DUPLICATE_LABEL"
+              : traversal == collision ? "safety:SIDE_EFFECT_NAME"
+                  : steps.stream().map(s -> s.getClass().getSimpleName())
+                      .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+          assertThat(reason).isEqualTo(traversal == duplicate
+              ? QuerySafetyAdmission.Reason.DUPLICATE_LABEL
+              : traversal == collision ? QuerySafetyAdmission.Reason.SIDE_EFFECT_NAME
+                  : QuerySafetyAdmission.Reason.SAFE);
+          assertThat(metrics.topDeclinedShapes(256))
+              .anyMatch(s -> s.shape().equals(expected));
+        }
+      }
+    }
+  }
+
+  /** Failed root validation leaves no evidence, so each of N children records its own error. */
+  @Test
+  public void invalidRootOptionsRecordOneErrorPerApplicationIncludingChildren() {
+    for (boolean inject : List.of(false, true)) {
+      var source = graph.traversal().with("orderByNullsPlacementAsc", "bad-asc");
+      var root = inject
+          ? source.inject(1).flatMap(__.V().hasLabel("RouteVertex")).asAdmin()
+          : source.V().filter(__.V().hasLabel("RouteVertex"))
+              .filter(__.V().hasLabel("RouteVertex")).asAdmin();
+      int children = inject ? 1 : 2;
+      var metrics = GremlinTranslationMetrics.of(db);
+      long errors = metrics.getErrors(), attempts = metrics.getAttempts();
+      long declines = metrics.getDeclines();
+      root.applyStrategies();
+      assertThat(QuerySafetyAdmission.stored(root)).isNull();
+      assertThat(metrics.getErrors()).isEqualTo(errors + children + 1);
+      assertThat(metrics.getAttempts()).isEqualTo(attempts + children + 1);
+      assertThat(metrics.getDeclines()).isEqualTo(declines);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(root)).isZero();
+    }
+  }
+
+  /** Root admission, cold walk, cached decline and child calls all report the base text once. */
+  @Test
+  public void remainingDeclineSitesPreserveTextAndAccounting() {
+    var child = __.V().hasLabel("MissingRouteVertex").asAdmin();
+    var parent = graph.traversal().V().union(child).asAdmin();
+    child.setGraph(graph);
+    QuerySafetyAdmission.prepare(parent);
+    var metrics = GremlinTranslationMetrics.of(db);
+    long attempts = metrics.getAttempts(), declines = metrics.getDeclines();
+    for (var traversal : List.of(graph.traversal().V().path().asAdmin(),
+        graph.traversal().V().hasLabel("MissingRouteVertex").asAdmin(),
+        graph.traversal().V().hasLabel("MissingRouteVertex").asAdmin(), child)) {
+      var expected = traversal.getSteps().stream().map(s -> s.getClass().getSimpleName())
+          .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+      long before = metrics.topDeclinedShapes(256).stream()
+          .filter(s -> s.shape().equals(expected)).mapToLong(s -> s.count()).sum();
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(metrics.topDeclinedShapes(256)).contains(
+          new GremlinTranslationMetrics.ShapeCount(expected, before + 1));
+    }
+    assertThat(parent.getSteps()).hasSize(2);
+    assertThat(metrics.getAttempts()).isEqualTo(attempts + 4);
+    assertThat(metrics.getDeclines()).isEqualTo(declines + 4);
+  }
+
+  /** Each application reads fresh defaults and root overrides, without retaining its snapshot. */
+  @Test
+  public void settingsSnapshotIsLocalAndMatchesIndividualResolvers() {
+    var configuration = db.getConfiguration();
+    var key = GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT;
+    var original = configuration.getValueAsBoolean(key);
+    try {
+      var traversal = graph.traversal().V().asAdmin();
+      for (boolean polymorphic : List.of(false, true, false)) {
+        configuration.setValue(key, polymorphic);
+        var settings =
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .translationSettings(traversal, db);
+        assertThat(settings.polymorphic()).isEqualTo(polymorphic);
+        assertThat(settings.orderIncludesMissingKey()).isEqualTo(
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .orderIncludesMissingKey(traversal));
+        assertThat(settings.nullPlacements()).isEqualTo(
+            com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+                .orderByNullsPlacements(traversal));
+      }
+      var child = __.V().asAdmin();
+      graph.traversal().with("polymorphicQuery", !original)
+          .with("orderIncludesMissingKey", false).with("orderByNullsPlacementAsc", "FIRST")
+          .V().union(child);
+      var settings =
+          com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .translationSettings(child, db);
+      assertThat(settings.polymorphic()).isEqualTo(!original);
+      assertThat(settings.orderIncludesMissingKey()).isFalse();
+      assertThat(settings.nullPlacements().ascending())
+          .isEqualTo(com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement.FIRST);
+      var session = org.mockito.Mockito.mock(DatabaseSessionEmbedded.class);
+      assertThat(com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+          .translationSettings(child, session)).isNull();
+      for (var type : List.of(GremlinToMatchStrategy.class,
+          org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversal.class)) {
+        assertThat(type.getDeclaredFields()).noneMatch(field -> field.getType().getSimpleName()
+            .equals("TranslationSettings"));
+      }
+    } finally {
+      configuration.setValue(key, original);
+    }
+  }
+
+  /** Invalidation during the first settings read makes this application's publication obsolete. */
+  @Test
+  public void cacheGenerationPrecedesSettingsAndSessionResolvesOnce() {
+    var cache = GremlinPlanCache.instance(db);
+    var session = spy(db);
+    var configuration = spy(db.getConfiguration());
+    org.mockito.Mockito.doReturn(configuration).when(session).getConfiguration();
+    var reads = new AtomicInteger();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      if (reads.incrementAndGet() == 1) {
+        cache.invalidate();
+      }
+      return invocation.callRealMethod();
+    }).when(configuration).getValueAsBoolean(
+        GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    var traversal = graph.traversal().V().hasLabel("MissingRouteVertex").asAdmin();
+    var generation = cache.getGeneration();
+    try (var util = org.mockito.Mockito.mockStatic(
+        com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      util.when(
+          () -> com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .resolveYtdbSession(traversal))
+          .thenReturn(session);
+      new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true)
+          .apply(traversal);
+      util.verify(
+          () -> com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
+              .resolveYtdbSession(traversal),
+          org.mockito.Mockito.times(1));
+    }
+    assertThat(cache.getGeneration()).isGreaterThan(generation);
+    assertThat(reads.get()).isEqualTo(1);
+    var extraction = GremlinStepWalker.extractShape(traversal, db);
+    assertThat(extraction.complete()).isTrue();
+    assertThat(cache.containsTranslation(extraction.key())).isFalse();
+  }
+
+  /** Reapplying one traversal and sharing strategies cannot retain settings from a previous call. */
+  @Test
+  public void repeatedApplicationsAndSharedStrategiesReadFreshSettings() {
+    var configuration = db.getConfiguration();
+    var key = GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT;
+    var original = configuration.getValueAsBoolean(key);
+    var observed = new ArrayList<Boolean>();
+    var strategy = new GremlinToMatchStrategy(new GremlinToMatchStrategy.TraversalTranslator() {
+      @Override
+      public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> t) {
+        throw new AssertionError("resolved settings must reach the translator");
+      }
+
+      @Override
+      public GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> t,
+          Boolean order, com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement n,
+          Boolean poly) {
+        observed.add(poly);
+        assertThat(order).isEqualTo(YTDBStrategyUtil.orderIncludesMissingKey(t));
+        assertThat(n).isEqualTo(YTDBStrategyUtil.orderByNullsPlacements(t));
+        return null;
+      }
+    });
+    try {
+      var root = graph.traversal().V().asAdmin();
+      var sibling = graph.traversal().V().asAdmin();
+      sibling.setStrategies(root.getStrategies());
+      var child = __.V().asAdmin();
+      var childRoot = graph.traversal().V().filter(child).asAdmin();
+      QuerySafetyAdmission.prepare(childRoot);
+      child.setGraph(graph);
+      for (boolean value : List.of(false, true, false)) {
+        configuration.setValue(key, value);
+        for (var t : List.of(root, sibling, child)) {
+          int before = observed.size();
+          strategy.apply(t);
+          assertThat(observed.size()).as("application %s graph %s", t, t.getGraph())
+              .isEqualTo(before + 1);
+        }
+      }
+      assertThat(observed).containsExactly(false, false, false, true, true, true,
+          false, false, false);
+      observed.clear();
+      YTDBStrategyUtil.rootTraversal(child).setStrategies(root.getStrategies());
+      for (boolean value : List.of(true, false, true)) {
+        root.getStrategies().addStrategies(OptionsStrategy.build()
+            .with("polymorphicQuery", value).with("orderIncludesMissingKey", true)
+            .with("orderByNullsPlacementAsc", "FIRST").create());
+        strategy.apply(root);
+        strategy.apply(sibling);
+        strategy.apply(child);
+      }
+      assertThat(observed).containsExactly(true, true, true, false, false, false, true, true, true);
+    } finally {
+      configuration.setValue(key, original);
+    }
+  }
+
+  /** Cold, warm, RID, child and union runs read settings once across the whole application. */
+  @Test
+  public void productionApplicationsResolveSessionAndSettingsExactlyOnce() {
+    var unchanged = graph.traversal().V().hasLabel("RouteVertex").asAdmin();
+    var child = __.V().hasLabel("MissingRouteVertex").asAdmin();
+    var childRoot = graph.traversal().V().filter(child).asAdmin();
+    QuerySafetyAdmission.prepare(childRoot);
+    child.setGraph(graph);
+    var sorted = graph.traversal().V(rid).out("RouteEdge").order().by("name").asAdmin();
+    var union = graph.traversal().V().union(__.out("RouteEdge"), __.in("RouteEdge"))
+        .order().by("name").asAdmin();
+    for (var traversal : List.of(unchanged, unchanged, sorted, child, union)) {
+      var strategies = spy(traversal.getStrategies().clone());
+      traversal.setStrategies(strategies);
+      var root = YTDBStrategyUtil.rootTraversal(traversal);
+      var rootStrategies = root == traversal ? strategies : spy(root.getStrategies().clone());
+      root.setStrategies(rootStrategies);
+      var options = spy(OptionsStrategy.build().create());
+      rootStrategies.addStrategies(options);
+      var session = spy(db);
+      var configuration = spy(db.getConfiguration());
+      org.mockito.Mockito.doReturn(configuration).when(session).getConfiguration();
+      try (var util = org.mockito.Mockito.mockStatic(YTDBStrategyUtil.class,
+          org.mockito.Mockito.CALLS_REAL_METHODS);
+          var nulls = org.mockito.Mockito.mockStatic(OrderByNullsUtil.class,
+              org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        util.when(() -> YTDBStrategyUtil.resolveYtdbSession(
+            org.mockito.ArgumentMatchers.any())).thenReturn(session);
+        // Exclude spy and mock setup, but retain every read made during apply.
+        org.mockito.Mockito.clearInvocations(session, configuration, strategies,
+            rootStrategies, options);
+        util.clearInvocations();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        util.verify(() -> YTDBStrategyUtil.translationSettings(traversal, session),
+            org.mockito.Mockito.times(1));
+        util.verify(() -> YTDBStrategyUtil.resolveYtdbSession(
+            org.mockito.ArgumentMatchers.any()), org.mockito.Mockito.times(1));
+        // The kill-switch is separate from settings. Cache and planner configuration access
+        // also occurs during apply, so count the settings reads by their specific operations.
+        verify(configuration, org.mockito.Mockito.times(1)).getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+        verify(configuration, org.mockito.Mockito.times(1)).getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+        verify(configuration, org.mockito.Mockito.times(1)).getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+        util.verify(() -> YTDBStrategyUtil.explicitNullPlacements(options),
+            org.mockito.Mockito.times(1));
+        nulls.verify(() -> OrderByNullsUtil.resolvePlacements(configuration),
+            org.mockito.Mockito.times(1));
+        verify(configuration, org.mockito.Mockito.times(2)).getContextKeys();
+        verify(options, org.mockito.Mockito.times(4)).getOptions();
+        verify(rootStrategies, org.mockito.Mockito.times(1)).getStrategy(OptionsStrategy.class);
+        verify(rootStrategies, org.mockito.Mockito.times(1))
+            .getStrategy(StandardOrderSemanticsStrategy.class);
+        verify(strategies, org.mockito.Mockito.times(1))
+            .getStrategy(EdgeLabelVerificationStrategy.class);
+        verify(strategies, org.mockito.Mockito.times(1)).getStrategy(ProductiveByStrategy.class);
+      }
+    }
+  }
+
+  /** Warm production entries are keyed by this application, not the first shared snapshot. */
+  @Test
+  public void defaultChangesSelectFreshColdAndWarmEntries() {
+    var key = GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT;
+    var configuration = db.getConfiguration();
+    var original = configuration.getValueAsBoolean(key);
+    var cache = GremlinPlanCache.instance(db);
+    cache.invalidate();
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    var root = graph.traversal().V().hasLabel("MissingRouteVertex").asAdmin();
+    try {
+      for (boolean value : List.of(false, true, false)) {
+        configuration.setValue(key, value);
+        GremlinToMatchStrategy.instance().apply(root);
+        assertThat(cache.containsTranslation(GremlinStepWalker.extractShape(root, db).key()))
+            .isTrue();
+      }
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses + 2);
+    } finally {
+      configuration.setValue(key, original);
+    }
+  }
+
+  /** Shared helpers preserve explicit overrides, standard-order opt-out and deliberate rejection. */
+  @Test
+  public void snapshotAndNativeResolversAgreeForAllOrderOverrides() {
+    for (boolean standard : List.of(false, true)) {
+      for (var explicit : List.of("absent", "true", "false")) {
+        var source = graph.traversal().with("polymorphicQuery", false)
+            .with("orderByNullsPlacementAsc", "FIRST")
+            .with("orderByNullsPlacementDesc", "LAST");
+        if (standard) {
+          source = source.withStrategies(StandardOrderSemanticsStrategy.instance());
+        } else {
+          source = source.withoutStrategies(StandardOrderSemanticsStrategy.class);
+        }
+        if (!explicit.equals("absent")) {
+          source = source.with("orderIncludesMissingKey", Boolean.valueOf(explicit));
+        }
+        var t = source.V().asAdmin();
+        var strategies = spy(t.getStrategies().clone());
+        t.setStrategies(strategies);
+        if (standard && explicit.equals("true")) {
+          assertThatThrownBy(() -> YTDBStrategyUtil.translationSettings(t, db))
+              .isInstanceOf(ContradictoryOrderSemanticsException.class);
+          assertThatThrownBy(() -> YTDBStrategyUtil.orderIncludesMissingKey(t))
+              .isInstanceOf(ContradictoryOrderSemanticsException.class);
+        } else {
+          var settings = YTDBStrategyUtil.translationSettings(t, db);
+          verify(strategies, org.mockito.Mockito.times(1))
+              .getStrategy(StandardOrderSemanticsStrategy.class);
+          assertThat(settings.orderIncludesMissingKey())
+              .isEqualTo(YTDBStrategyUtil.orderIncludesMissingKey(t));
+          assertThat(settings.nullPlacements())
+              .isEqualTo(YTDBStrategyUtil.orderByNullsPlacements(t));
+          assertThat(settings.polymorphic()).isEqualTo(YTDBStrategyUtil.isPolymorphic(t));
+        }
+      }
+    }
+  }
+
+  /** Competing failures retain order-before-null-before-poly on every late decline route. */
+  @Test
+  public void competingOptionFailuresKeepBasePrecedenceAndTelemetry() {
+    for (int path = 0; path < 4; path++) {
+      for (boolean contradiction : List.of(true, false)) {
+        var source = graph.traversal();
+        Traversal.Admin<?, ?> t;
+        if (path == 0) {
+          t = source.V().path().asAdmin();
+        } else if (path == 3) {
+          t = __.V().hasLabel("MissingRouteVertex").asAdmin();
+          source.V().filter(t);
+          t.setGraph(graph);
+        } else {
+          t = source.V().hasLabel("MissingRouteVertex").asAdmin();
+        }
+        if (path == 2) {
+          GremlinToMatchStrategy.instance().apply(t);
+          assertThat(GremlinPlanCache.instance(db).containsTranslation(
+              GremlinStepWalker.extractShape(t, db).key())).isTrue();
+        }
+        var root = YTDBStrategyUtil.rootTraversal(t);
+        var options = OptionsStrategy.build().with("polymorphicQuery", "invalid")
+            .with("orderByNullsPlacementAsc", "bad-asc")
+            .with("orderByNullsPlacementDesc", "bad-desc");
+        if (contradiction) {
+          options.with("orderIncludesMissingKey", true);
+          root.getStrategies().addStrategies(StandardOrderSemanticsStrategy.instance());
+        }
+        root.getStrategies().addStrategies(options.create());
+        var metrics = GremlinTranslationMetrics.of(db);
+        long attempts = metrics.getAttempts(), errors = metrics.getErrors();
+        long declines = metrics.getDeclines();
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        try (var util = org.mockito.Mockito.mockStatic(YTDBStrategyUtil.class,
+            org.mockito.Mockito.CALLS_REAL_METHODS)) {
+          util.when(() -> YTDBStrategyUtil.explicitNullPlacements(
+              org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+                try {
+                  return invocation.callRealMethod();
+                } catch (IllegalArgumentException ex) {
+                  failure.set(ex);
+                  throw ex;
+                }
+              });
+          if (contradiction) {
+            assertThatThrownBy(() -> GremlinToMatchStrategy.instance().apply(t))
+                .isInstanceOf(ContradictoryOrderSemanticsException.class);
+            assertThat(failure.get()).isNull();
+          } else {
+            GremlinToMatchStrategy.instance().apply(t);
+            assertThat(failure.get()).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("orderByNullsPlacementAsc").hasMessageContaining("bad-asc");
+          }
+        }
+        assertThat(metrics.getAttempts()).isEqualTo(attempts + (contradiction ? 0 : 1));
+        assertThat(metrics.getErrors()).isEqualTo(errors + (contradiction ? 0 : 1));
+        assertThat(metrics.getDeclines()).isEqualTo(declines);
+      }
+    }
   }
 
   private void checkCached(Supplier<GraphTraversal<?, ?>> shape, boolean nativeChoice,
@@ -229,6 +664,31 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
         graph.traversal().V().hasLabel("IndexedRouteVertex").has("name", (Object) null).asAdmin(),
         db);
     assertThat(first.key()).isNotEqualTo(number.key()).isNotEqualTo(nil.key());
+  }
+
+  /** A warm native decision builds neither bindings nor MATCH-only HasStep contexts. */
+  @Test
+  public void warmNativeHitLeavesHarvestAndMatchContextUntouched() {
+    createRoutingIndex();
+    var strategy = countingStrategy(new AtomicInteger(), new AtomicInteger());
+    strategy.apply(indexedRoute());
+    var observed = new java.util.ArrayList<GremlinShapeExtractor.Extraction>();
+    strategy.extractionObserver = observed::add;
+    try (var contexts = org.mockito.Mockito.mockStatic(HasBindingContext.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      var warm = indexedRoute();
+      strategy.apply(warm);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isZero();
+      assertThat(observed).hasSize(1);
+      assertThat(observed.getFirst().encoder().harvested()).isFalse();
+      contexts.verify(() -> HasBindingContext.forVertex(org.mockito.ArgumentMatchers.anyList(),
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+          org.mockito.ArgumentMatchers.any()), org.mockito.Mockito.never());
+      contexts.verify(() -> HasBindingContext.forEdge(org.mockito.ArgumentMatchers.any()),
+          org.mockito.Mockito.never());
+      contexts.verify(() -> HasBindingContext.schemaFacts(org.mockito.ArgumentMatchers.any()),
+          org.mockito.Mockito.never());
+    }
   }
 
   /** A failed proof signals once, keeps MATCH, and never catches fatal or input errors. */

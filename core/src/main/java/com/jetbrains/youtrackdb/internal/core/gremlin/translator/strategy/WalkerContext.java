@@ -346,6 +346,9 @@ final class WalkerContext implements RecognitionContext {
    *  class check as false. */
   @Nullable private final Schema schema;
 
+  // Owned by this walk, never attached to the traversal or its shared strategies.
+  @Nullable TranslationEnvironment environment;
+
   /** The recogniser registry a {@link #walkChild} sub-walk drives child sub-traversals against — the
    *  same registry the walker dispatches the top-level walk with, so a child dispatches identically.
    *  {@code null} for the test constructors that never drive a sub-walk; {@link #walkChild} fails

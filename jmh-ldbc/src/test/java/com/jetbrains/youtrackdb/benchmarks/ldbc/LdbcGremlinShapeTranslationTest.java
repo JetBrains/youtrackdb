@@ -149,6 +149,58 @@ public class LdbcGremlinShapeTranslationTest {
   private static final long KNOWS_ALICE_BOB_AT = 1_600_000_003_000L;
   private static final long KNOWS_ALICE_CAROL_AT = 1_600_000_002_000L;
 
+  /** The frozen text oracle covers all 43 benchmark shapes with two ordinary-value slots. */
+  @Test
+  public void compactKeysRefineTextKeysForEveryBenchmarkShape() {
+    g.executeInTx(t -> {
+      int count = 0;
+      for (var method : GremlinTraversalShapes.class.getDeclaredMethods()) {
+        if (!Traversal.class.isAssignableFrom(method.getReturnType())
+            || method.getName().equals("is1FullProfile")) {
+          continue;
+        }
+        count++;
+        for (int slot = 1; slot <= 2; slot++) {
+          var types = method.getParameterTypes();
+          Object[] args = new Object[types.length];
+          args[0] = t;
+          for (int i = 1; i < types.length; i++) {
+            if (types[i] == long.class) {
+              args[i] = (long) slot;
+            } else if (types[i] == String.class) {
+              args[i] = slot == 1 ? "Alice" : "Bob";
+            } else if (types[i] == Date.class) {
+              args[i] = new Date(POST_AT + slot);
+            } else {
+              assertEquals(Object.class, types[i]);
+              args[i] = aliceRid;
+            }
+          }
+          try {
+            var traversal = ((Traversal<?, ?>) method.invoke(null, args)).asAdmin();
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TextShapeOracle
+                .verify(traversal);
+          } catch (ReflectiveOperationException e) {
+            throw new AssertionError(method.getName(), e);
+          }
+        }
+      }
+      for (var form : GremlinTraversalShapes.BulkingForm.values()) {
+        for (boolean crossLabel : List.of(false, true)) {
+          if (crossLabel && form == GremlinTraversalShapes.BulkingForm.MOSTLY_UNIQUE) {
+            continue;
+          }
+          count++;
+          for (long slot : List.of(ALICE, FRANK)) {
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TextShapeOracle
+                .verify(form.traversal(t, slot, crossLabel).asAdmin());
+          }
+        }
+      }
+      assertEquals("All benchmark shapes must reach the differential oracle", 43, count);
+    });
+  }
+
   private static YouTrackDB db;
   private static YTDBGraphTraversalSource g;
   private static Path dbPath;

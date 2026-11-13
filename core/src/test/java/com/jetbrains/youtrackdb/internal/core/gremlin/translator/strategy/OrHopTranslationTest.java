@@ -158,8 +158,8 @@ public class OrHopTranslationTest extends GraphBaseTest {
     assertThat(local.complete()).isTrue();
     // Union's opaque constant selector prevents caching, but global children still need roles.
     assertThat(global.complete()).isFalse();
-    assertThat(local.key()).contains("10:localChild", "8:childEnd", "6:armEnd");
-    assertThat(global.key()).contains("11:globalChild", "8:childEnd");
+    assertThat(local.key().toString()).contains("10:localChild", "8:childEnd", "6:armEnd");
+    assertThat(global.key().toString()).contains("11:globalChild", "8:childEnd");
     assertThat(local.key()).isNotEqualTo(global.key());
     var translation = GremlinStepWalker.production().walk(cachedSelection("u", "yes").asAdmin());
     assertThat(translation).isNotNull();
@@ -377,8 +377,8 @@ public class OrHopTranslationTest extends GraphBaseTest {
       assertThat(ka.key()).isNotEqualTo(kb.key());
       // Removing all child delimiters reconstructs the ambiguous, unscoped representation.
       var childTokens = "children:1:[0-9]+|6:armEnd|10:localChild|11:globalChild|8:childEnd";
-      assertThat(ka.key().replaceAll(childTokens, ""))
-          .isEqualTo(kb.key().replaceAll(childTokens, ""));
+      assertThat(ka.key().toString().replaceAll(childTokens, ""))
+          .isEqualTo(kb.key().toString().replaceAll(childTokens, ""));
     });
     support.withTranslator(true, () -> {
       var cache = GremlinPlanCache.instance(graphSession());
