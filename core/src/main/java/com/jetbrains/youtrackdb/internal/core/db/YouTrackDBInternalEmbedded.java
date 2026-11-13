@@ -861,7 +861,9 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
     try (var prepared =
         DiskStorage.prepareBackupChain(name, ibuFilesSupplier, ibuInputStreamSupplier,
             expectedUUID, preparedCopyOutputDecoratorForTesting)) {
-      restoreStorage(name, (YouTrackDBConfigImpl) config, prepared.sourceFormat(),
+      var solvedConfig = solveConfig((YouTrackDBConfigImpl) config);
+      prepared.checkPageSize(solvedConfig.getConfiguration());
+      restoreStorage(name, solvedConfig, prepared.sourceFormat(),
           storage -> storage.restoreFromPreparedBackupChain(prepared));
     }
   }
@@ -953,6 +955,7 @@ public class YouTrackDBInternalEmbedded implements YouTrackDBInternal {
         // The repeated check runs immediately before the first destructive step. A target that
         // became a healthy database during the preparation therefore survives the restart.
         requireInterruptedRestoreTarget(name, targetPath);
+        prepared.checkPageSize(solvedConfig.getConfiguration());
         // The registration of an earlier failed restore attempt of this process leaves now. The
         // registration would otherwise pin an open storage over the deleted files.
         discardRestoreTargetRegistration(name, targetPath);

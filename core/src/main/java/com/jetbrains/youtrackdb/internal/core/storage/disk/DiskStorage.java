@@ -185,11 +185,13 @@ public class DiskStorage extends AbstractStorage {
   static final String IBU_EXTENSION = ".ibu";
   /// The v3 tail is a 74-byte block at the end of the unit. The v4 tail prefixes this block
   /// with an 8-byte metadata checksum and a 4-byte force-barrier flag. The shared block stores
-  /// version 4, 5 or 6 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
+  /// version 3, 4, 5, 6 or 7 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
   /// the full hash. The full hash covers every preceding byte, including ZIP, padding, checksum
   /// and flag. Zero padding places the 86-byte v4 tail inside one aligned 512-byte file sector.
   /// V6 adds a presence marker and two MSB-first UUIDs between the barrier and shared suffix.
   /// Its 122-byte tail keeps the discriminator at EOF-74. Both hashes cover the continuity block.
+  /// V7 adds a 4-byte page size in KB after continuity. Its tail is 126 bytes.
+  /// The discriminator stays at EOF-74 and both hashes cover the page size.
   /// The shared block has the following format:
   ///
   /// 1. Version of the backup metadata format is stored as a short value.
@@ -215,7 +217,8 @@ public class DiskStorage extends AbstractStorage {
 
   static final int IBU_V4_METADATA_SIZE = IBU_METADATA_SIZE + Long.BYTES + Integer.BYTES;
   static final int IBU_V6_METADATA_SIZE = 122;
-  static final int IBU_MAX_METADATA_SIZE = IBU_V6_METADATA_SIZE;
+  static final int IBU_V7_METADATA_SIZE = 126;
+  static final int IBU_MAX_METADATA_SIZE = IBU_V7_METADATA_SIZE;
   static final int CONTINUITY_PRESENT = 0x434F4E54;
   static final int CONTINUITY_ABSENT = 0;
   static final int IBU_SECTOR_SIZE = 512;
@@ -225,12 +228,14 @@ public class DiskStorage extends AbstractStorage {
 
   /** Only the exact marker claims that the payload force completed. */
   static boolean hasBackupBarrier(byte[] tail) {
-    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE)
+    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE
+        || tail.length == IBU_V7_METADATA_SIZE)
         && IntegerSerializer.deserializeLiteral(tail, Long.BYTES) == BARRIER_PRESENT;
   }
 
   private static boolean metadataChecksumMatches(byte[] tail) {
-    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE)
+    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE
+        || tail.length == IBU_V7_METADATA_SIZE)
         && LongSerializer.deserializeLiteral(tail, 0)
             == XX_HASH_64.hash(tail, Long.BYTES,
                 tail.length - 2 * Long.BYTES, METADATA_HASH_SEED);
@@ -268,10 +273,13 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>This build writes version 6 with optional tracker continuity. It reads versions 3, 4, 5, and 6.
+   * <p>This build writes version 7 with page size and optional tracker continuity.
+   * It reads versions 3, 4, 5, 6, and 7.
+   * Versions 3 to 6 record no page size and count as 8 KB.
+   * Versions 4 to 7 carry a metadata checksum.
    * Versions 1 and 2 are unsupported.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 6;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 7;
   static final int PREVIOUS_BACKUP_FORMAT_VERSION = 4;
   static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
   // Legacy headers have shorter tails, with the database UUID immediately after the version.
@@ -281,11 +289,11 @@ public class DiskStorage extends AbstractStorage {
   private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
 
   private static boolean hasBackupMetadataChecksum(int version) {
-    return version == 4 || version == 5 || version == 6;
+    return version == 4 || version == 5 || version == 6 || version == 7;
   }
 
   private static boolean isSupportedBackupVersion(int version) {
-    return version == 3 || version == 4 || version == 5 || version == 6;
+    return version == 3 || version == 4 || version == 5 || version == 6 || version == 7;
   }
 
   /** Unknown versions keep only the shared suffix for refusal diagnostics. */
@@ -293,6 +301,7 @@ public class DiskStorage extends AbstractStorage {
     return switch (version) {
       case 4, 5 -> IBU_V4_METADATA_SIZE;
       case 6 -> IBU_V6_METADATA_SIZE;
+      case 7 -> IBU_V7_METADATA_SIZE;
       default -> IBU_METADATA_SIZE;
     };
   }
@@ -1801,9 +1810,9 @@ public class DiskStorage extends AbstractStorage {
    * its own incomplete output joins the removable set. The walk then continues below the head,
    * because one unsupported older unit refuses the extension of the whole chain.
    *
-   * <p>With a tail read capability, a v4, v5 or v6 head candidate with a valid metadata checksum
+   * <p>With a tail read capability, a v4 to v7 head candidate with a valid metadata checksum
    * and a present barrier needs only header admission. A v3 head candidate needs full inspection.
-   * A v4, v5 or v6 candidate without a barrier also needs full inspection.
+   * A v4 to v7 candidate without a barrier also needs full inspection.
    * A candidate with a failed metadata checksum needs full inspection. Units below
    * the head use header admission from the tail, except when a failed checksum needs full
    * inspection. Without the capability, head candidates receive full inspection and older
@@ -1967,11 +1976,11 @@ public class DiskStorage extends AbstractStorage {
 
   /** Returns the minimum zero padding that places the complete tail in one aligned sector. */
   static int backupPadding(long payloadLength) {
-    if (IBU_V6_METADATA_SIZE > IBU_SECTOR_SIZE) {
+    if (IBU_V7_METADATA_SIZE > IBU_SECTOR_SIZE) {
       throw new IllegalStateException("Backup tail exceeds one sector");
     }
     var sectorOffset = (int) (payloadLength % IBU_SECTOR_SIZE);
-    return sectorOffset + IBU_V6_METADATA_SIZE <= IBU_SECTOR_SIZE
+    return sectorOffset + IBU_V7_METADATA_SIZE <= IBU_SECTOR_SIZE
         ? 0 : IBU_SECTOR_SIZE - sectorOffset;
   }
 
@@ -1984,7 +1993,7 @@ public class DiskStorage extends AbstractStorage {
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
       long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent,
       @Nullable BackupContinuity continuity) throws IOException {
-    var tailBytes = new ByteArrayOutputStream(IBU_V6_METADATA_SIZE);
+    var tailBytes = new ByteArrayOutputStream(IBU_V7_METADATA_SIZE);
     var dataOutputStream = new DataOutputStream(tailBytes);
     dataOutputStream.writeLong(0); // Filled after the fields covered by the metadata checksum.
     dataOutputStream.writeInt(barrierPresent ? BARRIER_PRESENT : BARRIER_ABSENT);
@@ -1998,6 +2007,7 @@ public class DiskStorage extends AbstractStorage {
         .writeLong(continuity == null ? 0 : continuity.generationId().getMostSignificantBits());
     dataOutputStream
         .writeLong(continuity == null ? 0 : continuity.generationId().getLeastSignificantBits());
+    dataOutputStream.writeInt(ProcessPageSize.kibibytes());
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
@@ -2023,10 +2033,10 @@ public class DiskStorage extends AbstractStorage {
     dataOutputStream.flush();
     var tail = tailBytes.toByteArray();
     var metadataChecksum = XX_HASH_64.hash(tail, Long.BYTES,
-        IBU_V6_METADATA_SIZE - 2 * Long.BYTES, METADATA_HASH_SEED);
+        IBU_V7_METADATA_SIZE - 2 * Long.BYTES, METADATA_HASH_SEED);
     ByteBuffer.wrap(tail).putLong(metadataChecksum);
     xxHashStream.xxHash64.update(tail, 0, tail.length);
-    var completeTail = ByteBuffer.allocate(IBU_V6_METADATA_SIZE)
+    var completeTail = ByteBuffer.allocate(IBU_V7_METADATA_SIZE)
         .put(tail).putLong(xxHashStream.xxHash64.getValue()).array();
     // Exactly one downstream write publishes the entire sector-local tail.
     xxHashStream.write(completeTail);
@@ -2057,8 +2067,9 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The classification separates three cases. A supported unit passes every header check and
    * every content check. A recognized incomplete unit carries the supported identity of this
-   * database and fails its full hash. A version 4, 5, or 6 metadata checksum mismatch with a valid full
-   * hash is unclassifiable and never removable.
+   * database and fails its full hash. Versions 6 and 7 also require a valid continuity marker.
+   * Version 7 also requires a valid recorded page size. A version 4 to 7 metadata checksum
+   * mismatch with a valid full hash is unclassifiable and never removable.
    *
    * <p>The unclassifiable outcome covers an old header and a header of another build. It also
    * covers a header without accepted creation completion evidence. It covers a disagreeing file
@@ -2112,7 +2123,7 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The admission checks the backup format version, the database feature format, the storage
    * layout version, the creation completion evidence, and the database identifier (UUID). A
-   * failed version 4, 5, or 6 metadata checksum triggers the full hash check. Only that fallback can
+   * failed version 4 to 7 metadata checksum triggers the full hash check. Only that fallback can
    * classify recognized incomplete output here.
    *
    * @param ibuFileName the name of the inspected unit
@@ -2173,7 +2184,7 @@ public class DiskStorage extends AbstractStorage {
       if (read == 0) {
         continue;
       }
-      // Keep at most 122 bytes. Bytes before the selected layout return to the hash below.
+      // Keep at most 126 bytes. Bytes before the selected layout return to the hash below.
       if (tailLength + read >= tail.length) {
         var displaced = tailLength + read - tail.length;
         var fromTail = Math.min(displaced, tailLength);
@@ -2237,7 +2248,7 @@ public class DiskStorage extends AbstractStorage {
     var sharedOffset = metaDataCandidate.length - IBU_METADATA_SIZE;
     var shared = Arrays.copyOfRange(metaDataCandidate, sharedOffset, metaDataCandidate.length);
     var metadataVersion = ShortSerializer.deserializeLiteral(shared, IBU_METADATA_VERSION_OFFSET);
-    // The v4/v5/v6 checksum protects every metadata field except itself and the full hash.
+    // The v4 through v7 checksum protects every metadata field except itself and the full hash.
     var checksumMatches = !hasBackupMetadataChecksum(metadataVersion)
         || metadataChecksumMatches(metaDataCandidate);
     var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(shared,
@@ -2277,12 +2288,16 @@ public class DiskStorage extends AbstractStorage {
           : StorageFormat.layoutVersionDisagreement("backup unit", metadataLayoutVersion,
               "open database", sourceFormat.layoutVersion());
     }
-    // Malformed continuity is not recognized output and can never authorize removal.
-    var marker = metadataVersion == 6
+    // Malformed continuity or page size can never authorize removal.
+    var marker = metadataVersion >= 6
         ? IntegerSerializer.deserializeLiteral(metaDataCandidate, 12) : CONTINUITY_ABSENT;
     var markerValid = marker == CONTINUITY_ABSENT || marker == CONTINUITY_PRESENT;
+    int pageSizeKiB = metadataVersion == 7
+        ? IntegerSerializer.deserializeLiteral(metaDataCandidate, 48) : 0;
+    var pageSizeValid = metadataVersion != 7
+        || StorageBootstrapMetadata.validPageSize(pageSizeKiB);
     // Generic admission has no source descriptor, but extension must not remove another layout.
-    var recognized = isSupportedBackupVersion(metadataVersion) && markerValid
+    var recognized = isSupportedBackupVersion(metadataVersion) && markerValid && pageSizeValid
         && headerFormat != null
         && semanticIdentity.equals(supportedBackupSemanticIdentity(headerFormat))
         && (sourceFormat == null || sourceFormat == headerFormat)
@@ -2460,8 +2475,12 @@ public class DiskStorage extends AbstractStorage {
 
     var lastLsn = new LogSequenceNumber(metadataLastLsnSegment, metadataEndLsnPosition);
 
+    if (!pageSizeValid) {
+      return unclassifiableUnit("The backup unit carries no valid page size."
+          + " Obtain a valid backup.");
+    }
     BackupContinuity continuity = null;
-    if (metadataVersion == 6 && marker == CONTINUITY_PRESENT) {
+    if (metadataVersion >= 6 && marker == CONTINUITY_PRESENT) {
       continuity = new BackupContinuity(
           new UUID(LongSerializer.deserializeLiteral(metaDataCandidate, 16),
               LongSerializer.deserializeLiteral(metaDataCandidate, 24)),
@@ -2471,21 +2490,21 @@ public class DiskStorage extends AbstractStorage {
     return new BackupUnitInspection(
         BackupUnitClassification.SUPPORTED,
         new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn,
-            metadataLastTxId, semanticIdentity, continuity),
+            metadataLastTxId, semanticIdentity, continuity, pageSizeKiB),
         false,
         calculatedHashCode == null
             ? "The unit passes every header check."
             : "The unit passes every header check and every content check.");
   }
 
-  /** Names the detected unsupported version and all four accepted versions. */
+  /** Names the detected unsupported version and all five accepted versions. */
   private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
       String storageName, int version) {
     LogManager.instance().warn(DiskStorage.class, storageName,
-        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, 5, and 6.",
+        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, 5, 6, and 7.",
         ibuFileName, version);
     return unclassifiableUnit("The header carries backup format version "
-        + version + ", and this build supports backup format versions 3, 4, 5, and 6 only.");
+        + version + ", and this build supports backup format versions 3, 4, 5, 6, and 7 only.");
   }
 
   /** Builds the inspection of one unit that this build cannot classify. */
@@ -2496,7 +2515,9 @@ public class DiskStorage extends AbstractStorage {
   /**
    * Builds the inspection of one unit that failed its full hash.
    *
-   * @param recognized true when a version 3, 4, 5, or 6 unit carries this database's header
+   * @param recognized true when a version 3 to 7 unit carries this database's supported identity
+   *     and matches the source layout when supplied. Versions 6 and 7 require a valid continuity
+   *     marker. Version 7 also requires a valid recorded page size.
    */
   private static BackupUnitInspection incompleteOrUnclassifiableUnit(boolean recognized,
       String detail) {
@@ -2872,6 +2893,7 @@ public class DiskStorage extends AbstractStorage {
       @Nullable String expectedUUID, @Nullable UnaryOperator<OutputStream> outputDecorator) {
     // The cheap checks of the request run before the first source read. An invalid expected
     // identifier therefore never triggers a chain-sized copy.
+    ProcessPageSize.checkConfiguration(null);
     UUID uuidExpectedInBackup = null;
     if (expectedUUID != null) {
       expectedUUID = expectedUUID.trim();
@@ -3000,6 +3022,18 @@ public class DiskStorage extends AbstractStorage {
             + storageName + "' refuses that name before any copy of it.");
   }
 
+  /** A zero denotes a unit from an earlier format, whose page size is assumed to be 8 KB. */
+  private static void requireBackupPageSize(int recorded) {
+    int size = recorded == 0 ? 8 : recorded;
+    if (size != ProcessPageSize.kibibytes()) {
+      throw new IllegalArgumentException("Backup page size is " + size + " KB"
+          + (recorded == 0 ? " (8 KB is assumed for an old-format backup unit)" : "")
+          + ". Configured page size is " + ProcessPageSize.kibibytes()
+          + " KB. Set youtrackdb.storage.diskCache.pageSize to the backup page size."
+          + " Restart the process after you change the setting.");
+    }
+  }
+
   /** Copies every selected unit into the prepared chain and validates the complete chain. */
   private static void copyAndValidateChain(PreparedBackupChain chain, List<String> ibuFiles,
       Function<String, InputStream> ibuInputStreamSupplier, @Nullable UUID uuidExpectedInBackup,
@@ -3040,6 +3074,7 @@ public class DiskStorage extends AbstractStorage {
                 + inspection.detail());
           }
           var backupMetadata = inspection.metadata();
+          requireBackupPageSize(backupMetadata.pageSizeKiB());
           var unitLayout = backupMetadata.semanticIdentity().storageLayoutVersion();
           if (chainLayout == null) {
             chainLayout = unitLayout;
@@ -3102,7 +3137,7 @@ public class DiskStorage extends AbstractStorage {
    */
   @Override
   public void restoreFromPreparedBackupChain(PreparedBackupChain chain) {
-    chain.requireComplete();
+    chain.checkPageSize(configuration == null ? null : configuration.getContextConfiguration());
     stateLock.writeLock().lock();
     try {
       final var aesKeyEncoded =
@@ -3602,7 +3637,8 @@ public class DiskStorage extends AbstractStorage {
       LogSequenceNumber endLsn,
       long lastTxId,
       BackupSemanticIdentity semanticIdentity,
-      @Nullable BackupContinuity continuity) {
+      @Nullable BackupContinuity continuity,
+      int pageSizeKiB) {
 
   }
 
@@ -3760,8 +3796,9 @@ public class DiskStorage extends AbstractStorage {
     /** The unit passes every header check and every content check. */
     SUPPORTED,
     /**
-     * A version 3, 4, 5, or 6 unit carries this database's supported identity and fails its full hash.
-     * Version 6 also requires a valid continuity marker.
+     * A version 3 to 7 unit carries this database's supported identity and fails its full hash.
+     * The unit matches the source layout when supplied. Versions 6 and 7 also require a valid
+     * continuity marker. Version 7 also requires a valid recorded page size.
      *
      * <p>Such a unit is incomplete output of an interrupted backup of this build. An incremental
      * backup removes such trailing output before the backup extends the chain.
@@ -3772,8 +3809,10 @@ public class DiskStorage extends AbstractStorage {
      *
      * <p>An unsupported header, a header of another build, and a header without accepted creation
      * completion evidence reach this outcome. A file name that disagrees with the header,
-     * unreadable output, and a version 4, 5, or 6 metadata checksum mismatch reach it as well. Such a
-     * unit stays in place forever, because it can hold a valuable backup of another build.
+     * unreadable output, and a version 4 to 7 metadata checksum mismatch with a valid full hash
+     * reach it as well. A version 7 unit with an invalid recorded page size is unclassifiable even
+     * when its full hash fails. An incremental backup refuses such a unit and keeps it in place.
+     * Such a unit can hold a valuable backup of another build.
      */
     UNCLASSIFIABLE
   }

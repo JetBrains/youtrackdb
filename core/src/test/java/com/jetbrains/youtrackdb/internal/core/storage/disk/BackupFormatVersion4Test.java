@@ -120,15 +120,15 @@ public class BackupFormatVersion4Test {
       var padding = DiskStorage.backupPadding(length);
       var start = length + padding;
       assertTrue(padding >= 0 && padding < DiskStorage.IBU_SECTOR_SIZE);
-      assertTrue((start % DiskStorage.IBU_SECTOR_SIZE) + 122
+      assertTrue((start % DiskStorage.IBU_SECTOR_SIZE) + 126
           <= DiskStorage.IBU_SECTOR_SIZE);
       if (padding > 0) {
-        assertTrue((length % DiskStorage.IBU_SECTOR_SIZE) + 122
+        assertTrue((length % DiskStorage.IBU_SECTOR_SIZE) + 126
             > DiskStorage.IBU_SECTOR_SIZE);
       }
     }
-    assertEquals(0, DiskStorage.backupPadding(390));
-    assertEquals(121, DiskStorage.backupPadding(391));
+    assertEquals(0, DiskStorage.backupPadding(386));
+    assertEquals(125, DiskStorage.backupPadding(387));
     assertEquals(1, DiskStorage.backupPadding(511));
     assertEquals(0, DiskStorage.backupPadding(512));
   }
@@ -166,7 +166,7 @@ public class BackupFormatVersion4Test {
           assertEquals("every write path must count the entire payload", length,
               count.getLong(writer));
           pad.invoke(null, writer);
-          var expectedPadding = length % DiskStorage.IBU_SECTOR_SIZE <= 390
+          var expectedPadding = length % DiskStorage.IBU_SECTOR_SIZE <= 386
               ? 0 : DiskStorage.IBU_SECTOR_SIZE - length % DiskStorage.IBU_SECTOR_SIZE;
           assertEquals("padding must use the counted payload length", length + expectedPadding,
               count.getLong(writer));
@@ -179,7 +179,7 @@ public class BackupFormatVersion4Test {
             assertEquals("the written padding must contain zeros", 0, written[index]);
           }
           assertTrue("the tail must fit inside one sector after the padding",
-              written.length % DiskStorage.IBU_SECTOR_SIZE + 122
+              written.length % DiskStorage.IBU_SECTOR_SIZE + 126
                   <= DiskStorage.IBU_SECTOR_SIZE);
         }
       }

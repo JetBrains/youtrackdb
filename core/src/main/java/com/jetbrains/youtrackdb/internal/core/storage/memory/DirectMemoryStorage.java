@@ -127,6 +127,9 @@ public class DirectMemoryStorage extends AbstractStorage {
 
   @Override
   public void restoreFromPreparedBackupChain(PreparedBackupChain chain) {
+    if (chain != null) {
+      chain.checkPageSize(configuration == null ? null : configuration.getContextConfiguration());
+    }
     throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
 

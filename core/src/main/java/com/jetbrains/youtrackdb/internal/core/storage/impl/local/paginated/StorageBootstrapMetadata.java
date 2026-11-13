@@ -1228,7 +1228,8 @@ public final class StorageBootstrapMetadata {
     return buffer;
   }
 
-  private static boolean validPageSize(int size) {
+  /** Recorded page sizes are positive powers of two that fit the identity record field. */
+  public static boolean validPageSize(int size) {
     return size > 0 && size <= 0xFFFF && (size & (size - 1)) == 0;
   }
 

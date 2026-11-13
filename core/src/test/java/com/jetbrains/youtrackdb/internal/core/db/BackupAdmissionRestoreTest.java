@@ -57,6 +57,302 @@ import org.junit.Test;
  */
 public class BackupAdmissionRestoreTest {
 
+  /** Every source entry checks later units before it creates, deletes, or changes target files. */
+  @Test
+  public void pageSizeMismatchInLaterUnitKeepsEveryTargetEntryAndByte() throws Exception {
+    int size = com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes();
+    var first = BackupUnitFiles.writeSupportedUnit(syntheticBackupPath, syntheticDatabaseId,
+        SOURCE, 0, true);
+    var second = BackupUnitFiles.writeSupportedUnit(syntheticBackupPath, syntheticDatabaseId,
+        SOURCE, 1, false);
+    var secondPath = syntheticBackupPath.resolve(second);
+    var bytes = Files.readAllBytes(secondPath);
+    Files.write(secondPath, BackupUnitFiles.version7Bytes(new byte[11],
+        java.util.Arrays.copyOfRange(bytes, bytes.length - 74, bytes.length), size == 8 ? 4 : 8));
+    try (var manager = openManager()) {
+      var internal = internalOf(manager);
+      var source = new TrackingBackupSource(syntheticBackupPath);
+      for (boolean streams : new boolean[] {false, true}) {
+        var rejection = assertThrows(IllegalArgumentException.class, () -> {
+          if (streams) {
+            internal.restore(TARGET, source.names(), source.streams(), null, null);
+          } else {
+            internal.restore(TARGET, syntheticBackupPath.toString(), null, null);
+          }
+        });
+        assertPageSizeMessage(rejection, size == 8 ? 4 : 8);
+        assertNoTargetExists(manager);
+      }
+      var absent = new com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage(
+          TARGET, databasesPath.resolve(TARGET).toString(), 901, null, null, 0, 0, internal);
+      assertThrows(IllegalArgumentException.class,
+          () -> absent.restoreFromBackup(syntheticBackupPath, null));
+      assertNoTargetExists(manager);
+      assertThrows(IllegalArgumentException.class,
+          () -> absent.restoreFromBackup(source.names(), source.streams(), null));
+      assertNoTargetExists(manager);
+      manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+      var disk = internal.getStorage(TARGET);
+      disk.synch();
+      var before = targetBytes();
+      assertThrows(IllegalArgumentException.class,
+          () -> disk.restoreFromBackup(syntheticBackupPath, null));
+      assertEquals(before, targetBytes());
+      assertThrows(IllegalArgumentException.class,
+          () -> disk.restoreFromBackup(source.names(), source.streams(), null));
+      assertEquals(before, targetBytes());
+      manager.drop(TARGET);
+      interruptRestoreOfTarget(manager);
+      before = targetBytes();
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restartInterruptedRestore(TARGET, syntheticBackupPath.toString(),
+              null, null));
+      assertEquals(before, targetBytes());
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restartInterruptedRestore(TARGET, source.names(), source.streams(),
+              null, null));
+      assertEquals(before, targetBytes());
+    }
+    assertTrue(Files.exists(syntheticBackupPath.resolve(first)));
+  }
+
+  /** New units round-trip, historical encodings imply eight, and malformed sizes never replay. */
+  @Test
+  public void everyBackupEncodingEnforcesItsPageSizeBeforeTargetBirth() throws Exception {
+    createSourceDatabaseAndBackup();
+    var unit = backupPath.resolve(realUnitNames().getFirst());
+    var original = Files.readAllBytes(unit);
+    for (int version : new int[] {7, 3, 4, 5, 6}) {
+      Files.write(unit, original);
+      if (version == 6) {
+        BackupUnitFiles.rewriteAsVersion6(unit, 0, null);
+      } else if (version != 7) {
+        BackupUnitFiles.rewriteAsVersion(unit, version);
+      }
+      try (var manager = openManager()) {
+        if (version == 7
+            || com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+                .kibibytes() == 8) {
+          internalOf(manager).restore(TARGET, backupPath.toString(), null, null);
+          try (var session = manager.open(TARGET, ADMIN, PASSWORD)) {
+            assertTrue(session.getMetadata().getSchema().existsClass(RECORD_CLASS));
+          }
+          manager.drop(TARGET);
+        } else {
+          var rejection = assertThrows(IllegalArgumentException.class,
+              () -> internalOf(manager).restore(TARGET, backupPath.toString(), null, null));
+          assertPageSizeMessage(rejection, 8);
+          assertTrue(rejection.getMessage().contains("8 KB is assumed"));
+          assertNoTargetExists(manager);
+        }
+      }
+      if (version != 7
+          && com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+              .kibibytes() != 8) {
+        assertRejectedEncodingPreservesTargets(IllegalArgumentException.class);
+      }
+    }
+    int size = com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes();
+    Files.write(unit, BackupUnitFiles.version7Bytes(new byte[0],
+        java.util.Arrays.copyOfRange(original, original.length - 74, original.length),
+        size == 8 ? 4 : 8));
+    assertRejectedEncodingPreservesTargets(IllegalArgumentException.class);
+    for (int invalid : new int[] {0, -1, 3, 65536}) {
+      Files.write(unit, BackupUnitFiles.version7Bytes(new byte[0],
+          java.util.Arrays.copyOfRange(original, original.length - 74, original.length), invalid));
+      try (var manager = openManager()) {
+        var rejection = assertThrows(UnsupportedBackupException.class,
+            () -> internalOf(manager).restore(TARGET, backupPath.toString(), null, null));
+        assertTrue(rejection.getMessage().contains("no valid page size"));
+        assertFalse(rejection.getMessage().contains("Set youtrackdb"));
+        assertNoTargetExists(manager);
+      }
+      assertRejectedEncodingPreservesTargets(UnsupportedBackupException.class);
+    }
+  }
+
+  /** Every source overload rejects the same bad encoding before target birth or mutation. */
+  private void assertRejectedEncodingPreservesTargets(Class<? extends RuntimeException> error)
+      throws Exception {
+    try (var manager = openManager()) {
+      var internal = internalOf(manager);
+      var source = new TrackingBackupSource(backupPath);
+      var absent = new com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage(
+          TARGET, databasesPath.resolve(TARGET).toString(), 904, null, null, 0, 0, internal);
+      assertThrows(error, () -> internal.restore(TARGET, backupPath.toString(), null, null));
+      assertNoTargetExists(manager);
+      assertThrows(error,
+          () -> internal.restore(TARGET, source.names(), source.streams(), null, null));
+      assertNoTargetExists(manager);
+      assertThrows(error, () -> absent.restoreFromBackup(backupPath, null));
+      assertNoTargetExists(manager);
+      assertThrows(error, () -> absent.restoreFromBackup(source.names(), source.streams(), null));
+      assertNoTargetExists(manager);
+      manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+      var disk = internal.getStorage(TARGET);
+      disk.synch();
+      var before = targetBytes();
+      assertThrows(error, () -> disk.restoreFromBackup(backupPath, null));
+      assertEquals(before, targetBytes());
+      assertThrows(error, () -> disk.restoreFromBackup(source.names(), source.streams(), null));
+      assertEquals(before, targetBytes());
+      manager.drop(TARGET);
+      interruptRestoreOfTarget(manager);
+      before = targetBytes();
+      assertThrows(error,
+          () -> internal.restartInterruptedRestore(TARGET, backupPath.toString(), null, null));
+      assertEquals(before, targetBytes());
+      assertThrows(error,
+          () -> internal.restartInterruptedRestore(TARGET, source.names(), source.streams(), null,
+              null));
+      assertEquals(before, targetBytes());
+      manager.drop(TARGET);
+    }
+  }
+
+  /** Configuration overrides and a setting changed after preparation preserve existing targets. */
+  @Test
+  @org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
+  public void restoreConfigurationChecksRunBeforeTargetChanges() throws Exception {
+    createSourceDatabaseAndBackup();
+    int size = com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes();
+    var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+    var different = size == 8 ? 4 : 8;
+    var config = com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(setting, different).build();
+    try (var manager = openManager();
+        var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
+            .prepareBackupChain(TARGET, backupPath, null)) {
+      var internal = internalOf(manager);
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restore(TARGET, backupPath.toString(), null, config));
+      assertNoTargetExists(manager);
+      var source = new TrackingBackupSource(backupPath);
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restore(TARGET, source.names(), source.streams(), null, config));
+      assertNoTargetExists(manager);
+      source.afterEachClose(() -> setting.setValue(different));
+      try {
+        assertThrows(IllegalArgumentException.class,
+            () -> internal.restore(TARGET, source.names(), source.streams(), null, null));
+        assertFalse(Files.exists(databasesPath.resolve(TARGET)));
+      } finally {
+        setting.setValue(size);
+      }
+      source.afterEachClose(() -> {
+      });
+      manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+      var disk = internal.getStorage(TARGET);
+      disk.synch();
+      var before = targetBytes();
+      // A per-storage override must fail even while the process setting remains unchanged.
+      var field = com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class
+          .getDeclaredField("configuration");
+      field.setAccessible(true);
+      var context =
+          ((com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration) field.get(disk))
+              .getContextConfiguration();
+      var previous = context.setValue(setting, different);
+      try {
+        assertThrows(IllegalArgumentException.class,
+            () -> disk.restoreFromBackup(backupPath, null));
+        assertEquals(before, targetBytes());
+        assertThrows(IllegalArgumentException.class,
+            () -> disk.restoreFromBackup(source.names(), source.streams(), null));
+        assertEquals(before, targetBytes());
+        assertThrows(IllegalArgumentException.class,
+            () -> disk.restoreFromPreparedBackupChain(prepared));
+        assertEquals(before, targetBytes());
+      } finally {
+        context.setValue(setting, previous);
+      }
+      manager.create("memory", DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+      try (var session = manager.open("memory", ADMIN, PASSWORD)) {
+        session.getMetadata().getSchema().createClass("Preserved");
+      }
+      var existingMemory = internal.getStorage("memory");
+      var memoryContext =
+          ((com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration) field
+              .get(existingMemory)).getContextConfiguration();
+      var memoryPrevious = memoryContext.setValue(setting, different);
+      try {
+        assertThrows(IllegalArgumentException.class,
+            () -> existingMemory.restoreFromPreparedBackupChain(prepared));
+        assertEquals(before, targetBytes());
+      } finally {
+        memoryContext.setValue(setting, memoryPrevious);
+      }
+      setting.setValue(different);
+      try {
+        assertThrows(IllegalArgumentException.class,
+            () -> disk.restoreFromPreparedBackupChain(prepared));
+        assertEquals(before, targetBytes());
+        var absent = new com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage(
+            "absent", databasesPath.resolve("absent").toString(), 902, null, null, 0, 0, internal);
+        assertThrows(IllegalArgumentException.class,
+            () -> absent.restoreFromPreparedBackupChain(prepared));
+        assertFalse(Files.exists(databasesPath.resolve("absent")));
+        assertThrows(IllegalArgumentException.class,
+            () -> existingMemory.restoreFromPreparedBackupChain(prepared));
+        assertEquals(before, targetBytes());
+        var memory = new com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage(
+            "absentMemory", databasesPath.resolve("absentMemory").toString(), 903, internal);
+        assertThrows(IllegalArgumentException.class,
+            () -> memory.restoreFromPreparedBackupChain(prepared));
+        assertFalse(Files.exists(databasesPath.resolve("absentMemory")));
+      } finally {
+        setting.setValue(size);
+      }
+      try (var session = manager.open("memory", ADMIN, PASSWORD)) {
+        assertTrue(session.getMetadata().getSchema().existsClass("Preserved"));
+      }
+      manager.drop(TARGET);
+      interruptRestoreOfTarget(manager);
+      before = targetBytes();
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restartInterruptedRestore(TARGET, backupPath.toString(), null, config));
+      assertEquals(before, targetBytes());
+      assertThrows(IllegalArgumentException.class,
+          () -> internal.restartInterruptedRestore(TARGET, source.names(), source.streams(),
+              null, config));
+      assertEquals(before, targetBytes());
+      source.afterEachClose(() -> setting.setValue(different));
+      try {
+        assertThrows(IllegalArgumentException.class,
+            () -> internal.restartInterruptedRestore(TARGET, source.names(), source.streams(),
+                null, null));
+        assertEquals(before, targetBytes());
+      } finally {
+        setting.setValue(size);
+      }
+    }
+  }
+
+  private static void assertPageSizeMessage(IllegalArgumentException rejection, int backupSize) {
+    assertTrue(rejection.getMessage().contains("Backup page size is " + backupSize + " KB"));
+    assertTrue(rejection.getMessage().contains("Configured page size is "
+        + com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+            .kibibytes()
+        + " KB"));
+    assertTrue(rejection.getMessage().contains("youtrackdb.storage.diskCache.pageSize"));
+  }
+
+  /** Hex encoding keeps equality byte-exact and includes the complete recursive entry-name set. */
+  private java.util.Map<String, String> targetBytes() throws IOException {
+    var target = databasesPath.resolve(TARGET);
+    var bytes = new java.util.TreeMap<String, String>();
+    try (var paths = Files.walk(target)) {
+      for (var entry : paths.toList()) {
+        bytes.put(target.relativize(entry).toString(), Files.isDirectory(entry) ? "directory"
+            : java.util.HexFormat.of().formatHex(Files.readAllBytes(entry)));
+      }
+    }
+    return bytes;
+  }
+
   private static final String ADMIN = "admin";
   private static final String PASSWORD = "adminpwd";
   private static final String RECORD_CLASS = "AdmittedClass";
@@ -86,7 +382,7 @@ public class BackupAdmissionRestoreTest {
    *
    * <p>An old header carries no semantic database format and no creation completion evidence. The
    * scenario restores one chain of such headers through the path entry. The expected outcome has
-   * three parts. The restore names version 2 and all four accepted versions. No target database exists.
+   * three parts. The restore names version 2 and all five accepted versions. No target database exists.
    * No directory of the target name exists.
    */
   @Test
@@ -102,7 +398,7 @@ public class BackupAdmissionRestoreTest {
                   .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, 6, and 7"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -121,7 +417,7 @@ public class BackupAdmissionRestoreTest {
               .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, 6, and 7"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -240,10 +536,10 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * A real version 3 full backup and version 6 increment restore together.
+   * A real version 3 full backup and version 7 increment restore together at 8 KB.
    *
    * <p>The original full unit retains real database content and a valid version 3 hash. The
-   * version 6 increment alone carries a second record. The restore must recover that record,
+   * version 7 increment alone carries a second record. The restore must recover that record,
    * not just the class and record from the full unit.
    */
   @Test
@@ -274,6 +570,15 @@ public class BackupAdmissionRestoreTest {
     assertEquals("the full unit must still have version 3",
         BackupUnitFiles.VERSION_3, backupFormatVersion(fullUnitPath));
 
+    if (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes() != 8) {
+      try (var manager = openManager()) {
+        assertThrows(IllegalArgumentException.class,
+            () -> internalOf(manager).restore(TARGET, backupPath.toString(), null, null));
+        assertNoTargetExists(manager);
+      }
+      return;
+    }
     try (var youTrackDB = openManager()) {
       internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null);
 
@@ -295,10 +600,10 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * A version 7 increment refuses restore before any target file exists.
+   * A version 8 increment refuses restore before any target file exists.
    *
-   * <p>The full unit is a real version 6 backup. The unsupported increment carries a valid
-   * header and hash, so refusal must follow the version check, not the content check.
+   * <p>The full unit is a real version 7 backup. The unsupported increment carries a valid
+   * header and hash. Refusal must follow the version check, not the content check.
    */
   @Test
   public void pathRestoreRefusesFutureVersionIncrementBeforeAnyTargetChange() throws Exception {
@@ -312,8 +617,8 @@ public class BackupAdmissionRestoreTest {
       var refusal = assertThrows(UnsupportedBackupException.class,
           () -> internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null));
 
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 7"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 8"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, 6, and 7"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -1953,6 +2258,14 @@ public class BackupAdmissionRestoreTest {
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
     writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 27,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    if (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes() != 8) {
+      assertThrows(IllegalArgumentException.class,
+          () -> com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
+              .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString()));
+      assertFalse(Files.exists(databasesPath.resolve(TARGET)));
+      return;
+    }
     try (var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
         .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString())) {
       try (var copies = Files.list(prepared.temporaryDirectory())) {
@@ -1980,7 +2293,7 @@ public class BackupAdmissionRestoreTest {
    * target keeps every file and reports the interrupted-restore reason.
    */
   private void interruptRestoreOfTarget(YouTrackDBImpl youTrackDB) throws Exception {
-    var interruptingChain = Files.createDirectories(root.resolve("interrupting-chain"));
+    var interruptingChain = Files.createTempDirectory(root, "interrupting-chain-");
     BackupUnitFiles.writeSupportedUnit(interruptingChain, UUID.randomUUID(), SOURCE, 0, true);
 
     assertThrows(
@@ -2023,7 +2336,7 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
-  /** All accepted versions store their version at EOF-74, with longer v4/v5/v6 tails. */
+  /** Versions 3 to 7 store their version at EOF-74, with longer v4 to v7 tails. */
   private static short backupFormatVersion(Path unitPath) throws IOException {
     var bytes = Files.readAllBytes(unitPath);
     return ByteBuffer.wrap(bytes, bytes.length - 74, Short.BYTES).getShort();
