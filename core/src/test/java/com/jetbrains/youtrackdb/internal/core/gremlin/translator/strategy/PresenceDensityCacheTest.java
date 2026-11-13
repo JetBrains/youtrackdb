@@ -57,7 +57,7 @@ public class PresenceDensityCacheTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(t);
     }, (s, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true);
     var first = query(strategy, 1, List.of(0, 100, 200, 300, 400));
     assertThat(first).contains("<----");

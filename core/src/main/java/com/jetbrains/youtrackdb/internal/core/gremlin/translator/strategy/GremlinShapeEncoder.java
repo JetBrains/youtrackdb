@@ -37,6 +37,8 @@ final class GremlinShapeEncoder {
 
   private boolean complete = true;
 
+  @Nullable private final RuntimeRidStartEligibility.EligibleStart runtimeRidStart;
+
   private HasBindingContext hasBindingContext;
 
   private final List<HasBindingContext.Slot> hasSlots = new ArrayList<>();
@@ -69,7 +71,23 @@ final class GremlinShapeEncoder {
   }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
+    this(schema, null);
+  }
+
+  GremlinShapeEncoder(@Nullable Schema schema,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     this.schema = schema;
+    this.runtimeRidStart = runtimeRidStart;
+  }
+
+  @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return runtimeRidStart;
+  }
+
+  /** The marker separates runtime and literal shapes without retaining the RID value. */
+  void appendRuntimeRidStart() {
+    appendToken("rrs");
+    bindParam(runtimeRidStart.rid());
   }
 
   @Nullable Schema schema() {

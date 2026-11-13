@@ -51,7 +51,9 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * <h2>Single-vs-multi-ID handling</h2>
  *
  * <ul>
- *   <li>Every non-empty ID case — one ID or many — lands on {@code aliasFilters} as {@code WHERE
+ *   <li>An eligible root walk binds its RID as parameter slot zero. It adds no {@code @rid IN}
+ *       filter and does not call {@code markRidBearing}. The runtime-start plan may be cached.</li>
+ *   <li>Other non-empty ID cases land on {@code aliasFilters} as {@code WHERE
  *       @rid IN [#X1:Y1, #X2:Y2, …]}. The planner's {@code promoteStaticRidsFromFilters} lifts that
  *       static list into the alias's RID slot, so {@code createSelectStatement} emits
  *       {@code SELECT FROM [#X1:Y1, …]} at any arity rather than a class scan with an {@code @rid}
@@ -116,7 +118,10 @@ final class StartStepRecogniser implements StepRecogniser {
     // Normalise the start step's ids to distinct RIDs in one pass. A null return declines the whole
     // traversal (an unconvertible id, or a duplicate the set-semantics @rid IN filter cannot
     // reproduce). The empty-id g.V() case returns an empty list, not null.
-    var rids = normaliseIds(graphStep.getIds());
+    var runtimeStart = ctx.runtimeRidStart();
+    boolean runtimeOwner = runtimeStart != null && runtimeStart.startStep() == graphStep
+        && runtimeStart.idContainer() == null;
+    var rids = runtimeOwner ? List.<RecordIdInternal>of() : normaliseIds(graphStep.getIds());
     if (rids == null) {
       return Outcome.DECLINE;
     }
@@ -125,8 +130,10 @@ final class StartStepRecogniser implements StepRecogniser {
     ctx.addNode(BOUNDARY_ALIAS, WalkerContext.VERTEX_ROOT_CLASS);
     ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
 
-    // All ID sources flow through a WHERE @rid IN [...] filter; the empty-ID g.V() case carries no
-    // filter. The planner's promoteStaticRidsFromFilters lifts the IN list into pinned RIDs, which
+    // An eligible root walk binds its RID as parameter slot zero. It adds no @rid IN filter and
+    // does not call markRidBearing. Its runtime-start plan may be cached.
+    // Other ID sources use a WHERE @rid IN [...] filter. The empty-ID g.V() case has no filter.
+    // The planner's promoteStaticRidsFromFilters lifts the IN list into pinned RIDs, which
     // turns the alias's fetch into SELECT FROM [#X:Y, …] instead of a class scan with an @rid
     // post-filter. That promotion reads the filter through SQLWhereClause.findRidInList(), which
     // has to see through the bare (unwrapped) condition this recogniser installs — the clause is
@@ -134,7 +141,9 @@ final class StartStepRecogniser implements StepRecogniser {
     // No @class narrowing is applied: for a bare g.V() (and g.V(ids) with no folded label) the
     // native pipeline returns the full polymorphic set regardless of the polymorphic flag, so
     // @class = 'V' would wrongly exclude subclass instances.
-    if (!rids.isEmpty()) {
+    if (runtimeOwner) {
+      ctx.bindRuntimeRidStart(BOUNDARY_ALIAS);
+    } else if (!rids.isEmpty()) {
       ctx.markRidBearing();
       ctx.putAliasFilter(BOUNDARY_ALIAS, WHERE.wrap(buildRidInExpression(rids)));
     }
@@ -161,6 +170,11 @@ final class StartStepRecogniser implements StepRecogniser {
       hasContainers = holder.getHasContainers().size();
     }
     encoder.appendToken("hc", Integer.toString(hasContainers));
+    var runtimeStart = encoder.runtimeRidStart();
+    if (runtimeStart != null && runtimeStart.startStep() == graphStep
+        && runtimeStart.idContainer() == null) {
+      encoder.appendRuntimeRidStart();
+    }
     return true;
   }
 
