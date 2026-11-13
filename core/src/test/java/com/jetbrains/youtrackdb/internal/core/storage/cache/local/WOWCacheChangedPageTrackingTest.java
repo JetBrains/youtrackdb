@@ -1073,8 +1073,7 @@ public class WOWCacheChangedPageTrackingTest {
   /** Checkpoint forces cannot acknowledge pending retention, even after real log rotation. */
   @Test
   public void checkpointForceDoesNotReleasePendingCopy() throws Exception {
-    var log = installLiveLog(1_000_000);
-    setField(cache, "callFsync", true);
+    var log = installLiveLog(1_000_000, true);
     long file = cache.addFile("checkpoint-pending.tst");
     writePattern(file, 0, (byte) 61);
     liveBatch();
@@ -1232,10 +1231,9 @@ public class WOWCacheChangedPageTrackingTest {
   /** A failed force makes a successful real write unresolved until a new append and rewrite. */
   @Test
   public void failedForceCannotBeResolvedByLaterForceAlone() throws Exception {
-    installLiveLog(512);
+    installLiveLog(512, true);
     long file = cache.addFile("force.tst");
     var handle = observeDataFile(file);
-    setField(cache, "callFsync", true);
     writePattern(file, 0, (byte) 11);
     // Drain asynchronous blank-page validation before stubbing the same file handle.
     flushExecutor().submit(() -> {
@@ -1355,7 +1353,7 @@ public class WOWCacheChangedPageTrackingTest {
   /** Keeping an old segment does not request another force when no new rotation occurs. */
   @Test
   public void retainedTailDoesNotForceEveryDurableBatch() throws Exception {
-    var log = installLiveLog(1_000_000);
+    var log = installLiveLog(1_000_000, true);
     long file = cache.addFile("rotation-live.tst");
     var handle = tearWrites(file);
     writePattern(file, 0, (byte) 1);
@@ -1368,7 +1366,6 @@ public class WOWCacheChangedPageTrackingTest {
     long stamp = damagedPointer.acquireExclusiveLock();
     long healthy = cache.addFile("rotation-healthy.tst");
     try {
-      setField(cache, "callFsync", true);
       writePattern(healthy, 0, (byte) 2);
       liveBatch();
       org.mockito.Mockito.clearInvocations(handle);
@@ -1385,9 +1382,8 @@ public class WOWCacheChangedPageTrackingTest {
   /** A removed container entry is not covered by a force and cannot release a pending record. */
   @Test
   public void missingFileIsNotAcknowledgedByRotationOrCloseForce() throws Exception {
-    installLiveLog(1_000_000);
+    installLiveLog(1_000_000, true);
     long file = cache.addFile("missing-live.tst");
-    setField(cache, "callFsync", true);
     writePattern(file, 0, (byte) 1);
     liveBatch();
     var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
@@ -1442,12 +1438,11 @@ public class WOWCacheChangedPageTrackingTest {
   }
 
   private void assertPendingLimit(boolean restoreMode) throws Exception {
-    var log = installLiveLog(1_000_000_000);
+    var log = installLiveLog(1_000_000_000, true);
     if (restoreMode) {
       log.restoreModeOn();
     }
     long file = cache.addFile("limit-live.tst");
-    setField(cache, "callFsync", true);
     var handle = observeDataFile(file);
     writePattern(file, 0, (byte) 1);
     liveBatch();
@@ -1476,6 +1471,277 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
+  /** Recovery must use the retained copy after unrelated rotations reclaim other old segments. */
+  @Test
+  public void reopenRecoversTornPageAfterUnrelatedCleanup() throws Exception {
+    assertReopenRecoversTornPage(true);
+  }
+
+  /** Disabling fsync must not release a failed write, even though successful writes release early. */
+  @Test
+  public void reopenRecoversTornPageWithFsyncDisabled() throws Exception {
+    assertReopenRecoversTornPage(false);
+  }
+
+  private void assertReopenRecoversTornPage(boolean fsync) throws Exception {
+    var log = installLiveLog(512, fsync);
+    long damaged = cache.addFile("reopen-torn.tst");
+    long healthy = cache.addFile("reopen-healthy.tst");
+    var handle = tearWrites(damaged);
+    writePattern(damaged, 0, (byte) 71);
+    assertThrows(WriteCacheException.class, () -> cache.flush(damaged));
+    var expected = savedPage(log, damaged, 0);
+    assertTornData(handle, expected);
+    var protectedFiles = dwlBytes();
+    assertEquals(1, protectedFiles.size());
+    rotateWithUnrelatedWrites(healthy);
+    for (var entry : protectedFiles.entrySet()) {
+      assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+    }
+    var reopenedLog = crashAndReopen();
+    assertLoadedPage(damaged, 0, expected, (byte) 71);
+    org.mockito.Mockito.verify(reopenedLog).loadPage(cache.internalFileId(damaged), 0, pool);
+  }
+
+  /** A successful rewrite makes the data page sufficient after its failed-write copy is reclaimed. */
+  @Test
+  public void reopenReadsSuccessfulRetryAfterCopyReclamation() throws Exception {
+    var log = installLiveLog(512, true);
+    long file = cache.addFile("reopen-retry.tst");
+    long healthy = cache.addFile("retry-healthy.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 72);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var expected = savedPage(log, file, 0);
+    var protectedFiles = dwlBytes();
+    allowWrites(handle);
+    cache.flush(file);
+    rotateWithUnrelatedWrites(healthy);
+    assertReclaimed(protectedFiles);
+    var reopenedLog = crashAndReopen();
+    assertNull(reopenedLog.loadPage(cache.internalFileId(file), 0, pool));
+    org.mockito.Mockito.clearInvocations(reopenedLog);
+    assertLoadedPage(file, 0, expected, (byte) 72);
+    org.mockito.Mockito.verify(reopenedLog, org.mockito.Mockito.never())
+        .loadPage(anyInt(), anyInt(), org.mockito.ArgumentMatchers.any());
+  }
+
+  /** A force failure leaves a recovery copy even when a later force succeeds without a rewrite. */
+  @Test
+  public void reopenRecoversUnsynchronizedPageAfterLaterForceAndCleanup() throws Exception {
+    var log = installLiveLog(512, true);
+    long file = cache.addFile("reopen-force.tst");
+    long healthy = cache.addFile("force-healthy.tst");
+    var handle = observeDataFile(file);
+    writePattern(file, 0, (byte) 73);
+    flushExecutor().submit(() -> {
+    }).get(10, TimeUnit.SECONDS);
+    org.mockito.Mockito.doThrow(new StorageException("marks", "injected force"))
+        .when(handle).synch();
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var expected = savedPage(log, file, 0);
+    org.mockito.Mockito.doCallRealMethod().when(handle).synch();
+    cache.flush(file);
+    rotateWithUnrelatedWrites(healthy);
+    // A failed force cannot promise survival after power loss. Model loss of the second half.
+    handle.write(pageSize / 2, java.nio.ByteBuffer.allocate(pageSize / 2));
+    assertTornData(handle, expected);
+    var reopenedLog = crashAndReopen();
+    assertLoadedPage(file, 0, expected, (byte) 73);
+    org.mockito.Mockito.verify(reopenedLog).loadPage(cache.internalFileId(file), 0, pool);
+  }
+
+  /** Successful deletion permits reclamation and a fresh cache cannot load the removed page. */
+  @Test
+  public void reopenDoesNotRestoreDeletedFileAfterSupersessionCleanup() throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("reopen-delete.tst");
+    long healthy = cache.addFile("delete-healthy.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 74);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    assertEquals(pageSize, savedPage(log, file, 0).length);
+    var protectedFiles = dwlBytes();
+    var physicalPath = cache.getRootDirectory().resolve("reopen-delete_"
+        + cache.internalFileId(file) + ".tst");
+    cache.deleteFile(file);
+    assertFalse(Files.exists(physicalPath));
+    rotateWithUnrelatedWrites(healthy);
+    assertReclaimed(protectedFiles);
+    var reopenedLog = crashAndReopen();
+    assertEquals(-1, cache.fileIdByName("reopen-delete.tst"));
+    assertFalse(cache.files().containsValue(file));
+    assertNull(reopenedLog.loadPage(cache.internalFileId(file), 0, pool));
+    // Deleted IDs have no loadable file. Do not call load with an unregistered ID.
+    assertFalse(cache.exists(file));
+  }
+
+  /** Shrink and lower-page retry permit cleanup. Reopen reads only the surviving lower page. */
+  @Test
+  public void reopenReadsLowerPageButNotSupersededShrinkRange() throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("reopen-shrink.tst");
+    long healthy = cache.addFile("shrink-healthy.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 75);
+    writePattern(file, 1, (byte) 76);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var expected = savedPage(log, file, 0);
+    assertEquals(pageSize, savedPage(log, file, 1).length);
+    assertTrue(cache.shrinkFile(file, pageSize));
+    assertEquals(1, cache.getFilledUpTo(file));
+    // Retry the lower page so the shared segment can be reclaimed before checking removed content.
+    allowWrites(handle);
+    cache.flush(file);
+    var oldFiles = dwlBytes();
+    rotateWithUnrelatedWrites(healthy);
+    assertReclaimed(oldFiles);
+    var reopenedLog = crashAndReopen();
+    assertEquals(1, cache.getFilledUpTo(file));
+    assertLoadedPage(file, 0, expected, (byte) 75);
+    assertNull(cache.load(file, 1,
+        new com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean(), true));
+    assertNull(reopenedLog.loadPage(cache.internalFileId(file), 1, pool));
+  }
+
+  /** A close guard rejection preserves the only complete page for the next cache instance. */
+  @Test
+  public void reopenRecoversAfterUnresolvedForegroundCloseFailure() throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("reopen-close.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 77);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var expected = savedPage(log, file, 0);
+    var before = dwlBytes();
+    var pointer = cache.load(file, 0,
+        new com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean(), true);
+    long stamp = pointer.acquireExclusiveLock();
+    try {
+      assertThrows(WriteCacheException.class, cache::close);
+      assertDwlBytes(before);
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+      pointer.decrementReadersReferrer();
+    }
+    var reopenedLog = crashAndReopen();
+    assertLoadedPage(file, 0, expected, (byte) 77);
+    org.mockito.Mockito.verify(reopenedLog).loadPage(cache.internalFileId(file), 0, pool);
+  }
+
+  /** A stored background error blocks close. Disposing old handles must still allow DWL recovery. */
+  @Test
+  public void reopenRecoversAfterStoredBackgroundErrorRejectsClose() throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("reopen-background.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 78);
+    flushExecutor().submit(() -> cache.executePeriodicFlush(new PeriodicFlushTask(cache)))
+        .get(10, TimeUnit.SECONDS);
+    assertTrue(field(cache, "flushError") != null);
+    var expected = savedPage(log, file, 0);
+    var before = dwlBytes();
+    assertThrows(WriteCacheException.class, cache::close);
+    assertDwlBytes(before);
+    var reopenedLog = crashAndReopen();
+    assertNull(field(cache, "flushError"));
+    assertLoadedPage(file, 0, expected, (byte) 78);
+    org.mockito.Mockito.verify(reopenedLog).loadPage(cache.internalFileId(file), 0, pool);
+  }
+
+  private void allowWrites(File handle) throws Exception {
+    org.mockito.Mockito.doCallRealMethod().when(handle).write(
+        org.mockito.ArgumentMatchers.<
+            List<com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+  }
+
+  private void rotateWithUnrelatedWrites(long healthy) throws Exception {
+    for (int i = 0; i < 3; i++) {
+      writePattern(healthy, 0, (byte) (i + 1));
+      cache.flush(healthy);
+      assertTrue("unrelated segments must be reclaimed", dwlBytes().size() <= 2);
+    }
+  }
+
+  private void assertReclaimed(Map<Path, byte[]> oldFiles) {
+    assertFalse(oldFiles.isEmpty());
+    for (var path : oldFiles.keySet()) {
+      assertFalse("superseded copy must be reclaimed: " + path, Files.exists(path));
+    }
+  }
+
+  private byte[] savedPage(DoubleWriteLogGL log, long file, int page) throws Exception {
+    log.restoreModeOn();
+    try {
+      var pointer = log.loadPage(cache.internalFileId(file), page, pool);
+      assertTrue("fixture must contain a complete DWL page", pointer != null);
+      try {
+        var bytes = new byte[pageSize];
+        pointer.getNativeByteBuffer().get(0, bytes);
+        return bytes;
+      } finally {
+        pool.release(pointer);
+      }
+    } finally {
+      log.restoreModeOff();
+    }
+  }
+
+  private void assertTornData(File handle, byte[] expected) throws Exception {
+    var torn = java.nio.ByteBuffer.allocate(pageSize);
+    handle.read(0, torn, true);
+    assertEquals(expected[100], torn.get(100));
+    assertEquals(0, torn.get(pageSize - 1));
+    assertFalse(java.util.Arrays.equals(expected, torn.array()));
+  }
+
+  private void assertLoadedPage(long file, int page, byte[] expected, byte pattern)
+      throws Exception {
+    var hit = new com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean();
+    var pointer = cache.load(file, page, hit, true);
+    assertTrue("fresh cache must load the page", pointer != null);
+    try {
+      assertFalse("reopen must not reuse an old write-cache pointer", hit.getValue());
+      var actual = new byte[pageSize];
+      pointer.getBuffer().get(0, actual);
+      assertArrayEquals("all page bytes must survive recovery", expected, actual);
+      // The payload oracle is independent of the DWL copy used for the full-page comparison.
+      for (int offset = 64; offset < pageSize; offset++) {
+        assertEquals("written payload at offset " + offset, pattern, actual[offset]);
+      }
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+  }
+
+  // This models a process crash, not power loss.
+  // Closing fsync-enabled data-file handles can force their bytes.
+  private DoubleWriteLogGL crashAndReopen() throws Exception {
+    var path = cache.getRootDirectory();
+    boolean fsync = (boolean) field(cache, "callFsync");
+    var before = dwlBytes();
+    // Drain the shared worker without shutting it down. Never invoke DWL close during a crash.
+    cache.pauseBackgroundFlush();
+    readCache.clear();
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    for (long file : cache.files().values()) {
+      cache.close(file, false);
+      handles.remove(file);
+    }
+    ((DoubleWriteLogGL) field(cache, "doubleWriteLog")).closeAfterFailedOpen();
+    assertDwlBytes(before);
+    assertEquals(0, readCache.getUsedMemory());
+    var log = spy(new DoubleWriteLogGL(512, 512, fsync));
+    cache = new WOWCache(pageSize, fsync, pool, wal, log, 0, 10000,
+        128L * pageSize, path, "marks", new ClosableLinkedContainer<Long, File>(128), 1,
+        ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, ChecksumMode.StoreAndThrow,
+        null, null, false, io, new ChangedPageTracker());
+    cache.loadRegisteredFiles();
+    cache.restoreModeOn();
+    return log;
+  }
+
   private void liveBatch() throws Exception {
     var future = flushExecutor().submit(
         () -> cache.executePeriodicFlush(new PeriodicFlushTask(cache)));
@@ -1491,8 +1757,13 @@ public class WOWCacheChangedPageTrackingTest {
   }
 
   private DoubleWriteLogGL installLiveLog(long segmentSize) throws Exception {
+    return installLiveLog(segmentSize, (boolean) field(cache, "callFsync"));
+  }
+
+  private DoubleWriteLogGL installLiveLog(long segmentSize, boolean fsync) throws Exception {
     cache.close();
-    var log = spy(new DoubleWriteLogGL(segmentSize, 512, false));
+    setField(cache, "callFsync", fsync);
+    var log = spy(new DoubleWriteLogGL(segmentSize, 512, fsync));
     setField(cache, "doubleWriteLog", log);
     cache.loadRegisteredFiles();
     setField(cache, "deferDwlCleanup", false);
