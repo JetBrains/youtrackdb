@@ -199,8 +199,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     tx.readWrite();
     var db = tx.getDatabaseSession();
     for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
-      for (var labels : List.of(new String[] {"first"}, new String[] {"first", "second"})) {
+      for (var labels : List.of(new String[0], new String[] {"first"},
+          new String[] {"first", "second"})) {
         for (int arm = 0; arm < 6; arm++) {
+          if (labels.length == 0 && (arm == 3 || arm == 4)) {
+            continue;
+          }
           for (boolean hasId : List.of(false, true)) {
             String previous = null;
             for (var rid : List.of(new RecordId(25, 7), new RecordId(25, 8))) {

@@ -1115,6 +1115,398 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Every unlabeled direction and final operation uses one template across both warm routes.
+   * Parallel edges, subclasses, self-loops and absent values preserve occurrence multiplicity.
+   * A large unindexed target population prevents literal prefetch, making READ comparison useful.
+   */
+  @Test
+  public void unlabeledFinalsReuseTemplatesWithoutExtraTargetLoads() {
+    var a = graph.addVertex(T.label, "UnlabeledVertex", "group", 1, "name", "a");
+    var b = graph.addVertex(T.label, "UnlabeledVertex", "group", 2, "name", "b");
+    var targets = new java.util.ArrayList<org.apache.tinkerpop.gremlin.structure.Vertex>();
+    var schema = db(graph).getMetadata().getSchema();
+    schema.createClass("UnlabeledChild", schema.getClass("E"));
+    Object edgeId = null;
+    for (int i = 0; i < 600; i++) {
+      var target = i % 3 == 0
+          ? graph.addVertex(T.label, "UnlabeledVertex", "group", i % 2 + 1)
+          : graph.addVertex(T.label, "UnlabeledVertex", "group", i % 2 + 1,
+              "name", "target" + i);
+      targets.add(target);
+      var start = i % 2 == 0 ? a : b;
+      var edge = start.addEdge(i % 3 == 0 ? "UnlabeledChild" : "unlabeledOther", target);
+      edgeId = edge.id();
+      if (i % 5 == 0) {
+        start.addEdge("UnlabeledChild", target);
+      }
+      target.addEdge("unlabeledOther", start);
+    }
+    a.addEdge("UnlabeledChild", a);
+    a.addEdge("UnlabeledChild", a);
+    b.addEdge("unlabeledOther", b);
+    // Each predicate independently excludes a reachable target in every direction.
+    for (var start : List.of(a, b)) {
+      var wrongGroup = graph.addVertex(T.label, "UnlabeledVertex", "group", 0,
+          "name", "excludedProperty");
+      var wrongLabel = graph.addVertex(T.label, "UnlabeledOtherVertex", "group", 2,
+          "name", "excludedLabel");
+      for (var target : List.of(wrongGroup, wrongLabel)) {
+        targets.add(target);
+        start.addEdge("unlabeledOther", target);
+        target.addEdge("unlabeledOther", start);
+      }
+    }
+    graph.tx().commit();
+    // Commit rewrites ChangeableRecordId coordinates. Hash only immutable, persistent copies.
+    var ids = targets.stream().map(target -> new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        (com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) target.id()))
+        .collect(java.util.stream.Collectors.toSet());
+    var session = db(graph);
+    var cache = GremlinPlanCache.instance(session);
+    var runs = new AtomicInteger();
+    var inputs = new java.util.ArrayList<
+        com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs>();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      runs.incrementAndGet();
+      inputs.add(input);
+    };
+    var loads = new AtomicInteger();
+    RecordHook hook = new RecordHook() {
+      @Override
+      public void onUnregister() {
+      }
+
+      @Override
+      public void onTrigger(TYPE type, DBRecord record) {
+        if (type == TYPE.READ && ids.contains(record.getIdentity())) {
+          loads.incrementAndGet();
+        }
+      }
+    };
+    var flag =
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY;
+    var original = session.getConfiguration().getValueAsBoolean(flag);
+    try {
+      for (boolean missing : List.of(false, true)) {
+        session.getConfiguration().setValue(flag, missing);
+        for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+          for (boolean hasId : List.of(false, true)) {
+            for (boolean filtered : List.of(false, true)) {
+              for (int arm = 0; arm < 7; arm++) {
+                if (filtered && (arm == 0 || arm == 6)) {
+                  continue;
+                }
+                cache.invalidate();
+                runs.set(0);
+                inputs.clear();
+                InternalExecutionPlan template = null;
+                List<?> cold = null;
+                for (int route = 0; route < 3; route++) {
+                  Object id = route == 0 ? a.id() : b.id();
+                  int value = route == 0 ? 1 : 2;
+                  var source = graph.traversal().withStrategies(
+                      GremlinToMatchStrategy.withTranslationCache(route != 1));
+                  graph.tx().commit();
+                  session = db(graph);
+                  session.getLocalCache().clear();
+                  loads.set(0);
+                  session.registerHook(hook);
+                  var query = unlabeled(source, id, hasId, direction, arm, filtered, value)
+                      .asAdmin();
+                  var hits = cache.getHits();
+                  var translationHits = cache.getTranslationHits();
+                  query.applyStrategies();
+                  assertThat(query.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+                  var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+                  if (template == null) {
+                    template = boundary.getPlan();
+                  }
+                  assertThat(boundary.getPlan()).isSameAs(template);
+                  assertThat(runs.get()).isEqualTo(1);
+                  assertThat(cache.getHits()).isEqualTo(hits + (route == 1 ? 1 : 0));
+                  assertThat(cache.getTranslationHits())
+                      .isEqualTo(translationHits + (route == 2 ? 1 : 0));
+                  List<?> rows;
+                  try {
+                    rows = query.toList();
+                  } finally {
+                    session.unregisterHook(hook);
+                  }
+                  int runtimeLoads = loads.get();
+                  if (!filtered && (arm == 1 || arm == 6)) {
+                    long expectedCount = switch (direction) {
+                      case OUT -> route == 0 ? 364L : 363L;
+                      case IN -> route == 0 ? 304L : 303L;
+                      case BOTH -> route == 0 ? 668L : 666L;
+                    };
+                    assertThat(rows).isEqualTo(List.of(expectedCount));
+                  }
+                  if (filtered) {
+                    if (arm == 1) {
+                      long expectedCount = switch (direction) {
+                        case OUT -> route == 0 ? 362L : 361L;
+                        case IN -> route == 0 ? 302L : 301L;
+                        case BOTH -> route == 0 ? 664L : 662L;
+                      };
+                      assertThat(rows).isEqualTo(List.of(expectedCount));
+                    } else {
+                      assertThat(rows).isNotEmpty();
+                      if (arm == 2) {
+                        assertThat(rows.stream().map(Object::toString).toList())
+                            .doesNotContain("excludedProperty", "excludedLabel");
+                      } else {
+                        assertThat(rows).allSatisfy(row -> {
+                          var vertex = (org.apache.tinkerpop.gremlin.structure.Vertex) row;
+                          assertThat(vertex.label()).isEqualTo("UnlabeledVertex");
+                          assertThat((int) vertex.value("group")).isGreaterThanOrEqualTo(value);
+                        });
+                      }
+                    }
+                  }
+                  assertThat(boundary.getPlan()).isNotSameAs(template);
+                  var expected = new java.util.LinkedHashMap<Object, Object>();
+                  expected.put(0, id);
+                  if (filtered) {
+                    expected.put(1, value);
+                    expected.put(2, value);
+                  }
+                  assertThat(boundary.getPlan().getContext().getInputParameters())
+                      .isEqualTo(expected);
+                  assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+                  assertThat(template.prettyPrint(0, 2)).contains("FETCH FROM RID PARAMETER")
+                      .doesNotContain("PREFETCH", "INDEX ORDERED", a.id().toString(),
+                          b.id().toString());
+                  var nativeRows = unlabeled(
+                      source.withoutStrategies(GremlinToMatchStrategy.class), id, hasId,
+                      direction, arm, filtered, value).toList();
+                  cache.setRuntimeRidStartEnabled(false);
+                  graph.tx().commit();
+                  session = db(graph);
+                  session.getLocalCache().clear();
+                  loads.set(0);
+                  session.registerHook(hook);
+                  try {
+                    var literal = unlabeled(source, id, hasId, direction, arm, filtered, value)
+                        .asAdmin();
+                    literal.applyStrategies();
+                    var literalBoundary = (YTDBMatchPlanStep<?, ?>) literal.getStartStep();
+                    assertThat(literalBoundary.getPlan().prettyPrint(0, 2))
+                        // Literal RID sources can prefetch the single root. Target aliases must not.
+                        .doesNotContain("PREFETCH $g2m_anon");
+                    assertThat(matchStructure(boundary.getPlan()))
+                        .isEqualTo(matchStructure(literalBoundary.getPlan()));
+                    assertThat(inputs.getFirst().orderCollationClasses())
+                        .isEqualTo(inputs.getLast().orderCollationClasses());
+                    var literalRows = literal.toList();
+                    if (arm == 2) {
+                      assertThat(loads.get()).as("values must observe real target READs")
+                          .isPositive();
+                    }
+                    assertThat(runtimeLoads).as("target READs outside prefetch")
+                        .isLessThanOrEqualTo(loads.get());
+                    if (arm >= 3 && arm <= 5) {
+                      assertThat(rows).isEqualTo(nativeRows).isEqualTo(literalRows);
+                    } else {
+                      assertThat(TranslatorEquivalenceSupport.sortedIdsOrValues(rows))
+                          .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(nativeRows))
+                          .isEqualTo(TranslatorEquivalenceSupport.sortedIdsOrValues(literalRows));
+                    }
+                  } finally {
+                    session.unregisterHook(hook);
+                    cache.setRuntimeRidStartEnabled(true);
+                  }
+                  runs.decrementAndGet();
+                  if (route == 0) {
+                    cold = rows;
+                  } else {
+                    // Each RID has distinct scalar counts as well as distinct vertex/value rows.
+                    assertThat(rows).isNotEqualTo(cold);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      // An edge passed to V is a wrong-class start, not an incident-edge count.
+      for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+        for (var id : List.of(edgeId, new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+            ((com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal) a.id())
+                .getCollectionId(),
+            Long.MAX_VALUE))) {
+          assertThat(graph.traversal().V(id).to(direction).count().toList())
+              .containsExactly(0L);
+        }
+      }
+    } finally {
+      db(graph).getConfiguration().setValue(flag, original);
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  /** Start-only filters retain warm runtime count templates for written vertex and edge hops. */
+  @Test
+  public void startFilteredUnlabeledCountsReuseTemplates() {
+    var a = graph.addVertex(T.label, "StartFiltered", "group", 1);
+    var b = graph.addVertex(T.label, "StartFiltered", "group", 2);
+    a.addEdge("startFilteredLink", b);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      assertThat(input.runtimeRidStarts()).hasSize(1);
+      runs.incrementAndGet();
+    };
+    try {
+      for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+        for (boolean edge : List.of(false, true)) {
+          cache.invalidate();
+          runs.set(0);
+          InternalExecutionPlan template = null;
+          for (int route = 0; route < 3; route++) {
+            var id = route == 0 ? a.id() : b.id();
+            int value = route == 0 ? 1 : 2;
+            var source = graph.traversal().withStrategies(
+                GremlinToMatchStrategy.withTranslationCache(route != 1));
+            var query = startFilteredCount(source, id, value, direction, edge).asAdmin();
+            query.applyStrategies();
+            assertThat(query.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+            var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+            if (template == null) {
+              template = boundary.getPlan();
+            }
+            assertThat(boundary.getPlan()).isSameAs(template);
+            assertThat(template.prettyPrint(0, 2)).contains("FETCH FROM RID PARAMETER");
+            assertThat(runs.get()).isEqualTo(1);
+            var rows = query.toList();
+            assertThat(rows).isEqualTo(startFilteredCount(
+                source.withoutStrategies(GremlinToMatchStrategy.class),
+                id, value, direction, edge).toList());
+            cache.setRuntimeRidStartEnabled(false);
+            cache.beforeUncachedPlanning = null;
+            try {
+              assertThat(rows).isEqualTo(
+                  startFilteredCount(source, id, value, direction, edge).toList());
+            } finally {
+              cache.setRuntimeRidStartEnabled(true);
+              cache.beforeUncachedPlanning = (input, context) -> {
+                assertThat(input.runtimeRidStarts()).hasSize(1);
+                runs.incrementAndGet();
+              };
+            }
+          }
+        }
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, Long>
+      startFilteredCount(
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource source,
+          Object id, int value, org.apache.tinkerpop.gremlin.structure.Direction direction,
+          boolean edge) {
+    var start = source.V(id).has("group", value);
+    return edge ? start.toE(direction).count() : start.to(direction).count();
+  }
+
+  /** An existing isolated vertex returns scalar zero from the same template as a connected start. */
+  @Test
+  public void isolatedUnlabeledCountUsesWarmRuntimeTemplate() {
+    var a = graph.addVertex(T.label, "IsolatedStart");
+    var empty = graph.addVertex(T.label, "IsolatedStart");
+    var target = graph.addVertex(T.label, "IsolatedStart");
+    a.addEdge("isolatedLink", target);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      assertThat(input.runtimeRidStarts()).hasSize(1);
+      runs.incrementAndGet();
+    };
+    try {
+      for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+        cache.invalidate();
+        runs.set(0);
+        var cold = graph.traversal().V(a.id()).to(direction).count().asAdmin();
+        cold.applyStrategies();
+        var template = ((YTDBMatchPlanStep<?, ?>) cold.getStartStep()).getPlan();
+        cold.toList();
+        for (boolean translation : List.of(false, true)) {
+          var source = graph.traversal().withStrategies(
+              GremlinToMatchStrategy.withTranslationCache(translation));
+          var warm = source.V(empty.id()).to(direction).count().asAdmin();
+          warm.applyStrategies();
+          assertThat(warm.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+          assertThat(((YTDBMatchPlanStep<?, ?>) warm.getStartStep()).getPlan())
+              .isSameAs(template);
+          assertThat(template.prettyPrint(0, 2)).contains("FETCH FROM RID PARAMETER");
+          assertThat(warm.toList()).containsExactly(0L);
+          assertThat(runs.get()).isEqualTo(1);
+          assertThat(source.withoutStrategies(GremlinToMatchStrategy.class)
+              .V(empty.id()).to(direction).count().toList()).containsExactly(0L);
+        }
+        cache.setRuntimeRidStartEnabled(false);
+        cache.beforeUncachedPlanning = null;
+        try {
+          assertThat(graph.traversal().V(empty.id()).to(direction).count().toList())
+              .containsExactly(0L);
+        } finally {
+          cache.setRuntimeRidStartEnabled(true);
+          cache.beforeUncachedPlanning = (input, context) -> {
+            assertThat(input.runtimeRidStarts()).hasSize(1);
+            runs.incrementAndGet();
+          };
+        }
+      }
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  private static List<String> matchStructure(InternalExecutionPlan plan) {
+    // The RID parameter shifts predicate slots by one relative to literal translation.
+    return plan.getSteps().stream()
+        .filter(
+            step -> step instanceof com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchStep)
+        .map(step -> ((com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchStep) step)
+            .prettyPrint(0, 2).replaceAll("\\?\\d+", "?"))
+        .toList();
+  }
+
+  private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      unlabeled(
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource source,
+          Object id, boolean hasId, org.apache.tinkerpop.gremlin.structure.Direction direction,
+          int arm, boolean filtered, int value) {
+    var start = hasId ? source.V().hasId(id) : source.V(id);
+    if (filtered) {
+      start.has("group", value);
+    }
+    if (arm == 6) {
+      return start.toE(direction).count();
+    }
+    var hop = start.to(direction);
+    if (filtered) {
+      hop.hasLabel("UnlabeledVertex").has("group",
+          org.apache.tinkerpop.gremlin.process.traversal.P.gte(value));
+    }
+    return switch (arm) {
+      case 0 -> hop;
+      case 1 -> hop.count();
+      case 2 -> hop.values("name");
+      case 3 -> hop.order().by("name");
+      case 4 -> hop.order().by("name").by(T.id);
+      default -> hop.order().by("name", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+          .by(T.id, org.apache.tinkerpop.gremlin.process.traversal.Order.desc);
+    };
+  }
+
   /** Removal after a real builder return never makes the surviving shared template owned. */
   @Test
   public void postReturnInvalidationStillCopiesOnOpen() throws Exception {

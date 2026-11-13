@@ -157,7 +157,7 @@ final class RuntimeRidStartEligibility {
     }
     boolean targetLabel = false;
     for (; cursor < steps.size() && steps.get(cursor).getClass() == HasStep.class; cursor++) {
-      if (edgeOutput || hop.getEdgeLabels().length == 0) {
+      if (edgeOutput) {
         return false;
       }
       var containers = ((HasStep<?>) steps.get(cursor)).getHasContainers();
@@ -180,10 +180,10 @@ final class RuntimeRidStartEligibility {
     }
     int remaining = steps.size() - cursor;
     if (remaining == 0) {
-      // Preserve the baseline's unlabeled bare vertex hop, including start filters.
-      return !edgeOutput;
+      // An unlabeled vertex hop can end here only when it has no target filters.
+      return !edgeOutput && (hop.getEdgeLabels().length != 0 || cursor == index + 1);
     }
-    if (remaining != 1 || hop.getEdgeLabels().length == 0) {
+    if (remaining != 1) {
       return false;
     }
     var terminal = steps.getLast();
@@ -207,7 +207,8 @@ final class RuntimeRidStartEligibility {
       var range = (RangeGlobalStepContract<?>) terminal;
       var low = range.getLowRange();
       var high = range.getHighRange();
-      return low != null && high != null && low >= 0 && high >= low && high < Long.MAX_VALUE;
+      return hop.getEdgeLabels().length != 0
+          && low != null && high != null && low >= 0 && high >= low && high < Long.MAX_VALUE;
     }
     return terminal.getClass() == OrderGlobalStep.class
         && allowedOrder(root, (OrderGlobalStep<?, ?>) terminal);

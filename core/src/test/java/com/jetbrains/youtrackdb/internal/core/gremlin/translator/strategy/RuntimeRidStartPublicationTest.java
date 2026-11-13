@@ -88,6 +88,104 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
     }
   }
 
+  /** Edge-label verification makes an eligible runtime count decline without plan publication. */
+  @Test
+  public void verifiedUnlabeledRuntimeCountDeclinesWithoutPublication() {
+    var a = graph.addVertex(T.label, "VerifiedStart");
+    var b = graph.addVertex(T.label, "VerifiedStart");
+    a.addEdge("verifiedLink", b);
+    graph.tx().commit();
+    var source = graph.traversal().withStrategies(
+        org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy
+            .build().create());
+    var raw = source.V(a.id()).out().count().asAdmin();
+    var decision = RuntimeRidStartEligibility.evaluate(raw, true);
+    assertThat(decision).isNotNull();
+    assertThat(GremlinStepWalker.production().walk(raw, GremlinStepWalker.NO_CHILD_SCOPE,
+        null, null, null, true, decision))
+        .isNull();
+    var cache = GremlinPlanCache.instance(db(graph));
+    cache.invalidate();
+    var builds = new AtomicInteger();
+    var publications = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> builds.incrementAndGet();
+    cache.afterPlanPublication = publications::incrementAndGet;
+    try {
+      for (int attempt = 0; attempt < 2; attempt++) {
+        var query = source.V(a.id()).out().count().asAdmin();
+        query.applyStrategies();
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(query)).isZero();
+        assertThat(query.toList()).containsExactly(1L);
+        assertThat(source.withoutStrategies(GremlinToMatchStrategy.class)
+            .V(a.id()).out().count().toList()).containsExactly(1L);
+      }
+      assertThat(builds.get()).isZero();
+      assertThat(publications.get()).isZero();
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.afterPlanPublication = null;
+    }
+  }
+
+  /**
+   * Unlabeled slices never publish runtime starts, even when adjacency bag order changes the
+   * selected row. Compare the fallback with literal translation, not an assumed native order.
+   */
+  @Test
+  public void unlabeledSlicesStayLiteralOnOrderSensitiveAdjacency() {
+    var a = graph.addVertex(T.label, "SliceStart");
+    for (String label : List.of("sliceZ", "sliceA", "sliceM")) {
+      var b = graph.addVertex(T.label, "SliceTarget", "name", label);
+      a.addEdge(label, b);
+      b.addEdge(label, a);
+    }
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(db(graph));
+    var sawDifferentOrder = false;
+    cache.beforeUncachedPlanning =
+        (input, context) -> assertThat(input.runtimeRidStarts()).isEmpty();
+    try {
+      for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+        for (boolean hasId : List.of(false, true)) {
+          for (boolean filtered : List.of(false, true)) {
+            for (boolean range : List.of(false, true)) {
+              cache.invalidate();
+              var nativeSource = graph.traversal().withoutStrategies(GremlinToMatchStrategy.class);
+              var nativeHop = (hasId ? nativeSource.V().hasId(a.id()) : nativeSource.V(a.id()))
+                  .to(direction);
+              if (filtered) {
+                nativeHop.has("name", P.neq("absent"));
+              }
+              var nativeRows = (range ? nativeHop.range(1, 2) : nativeHop.limit(1)).toList();
+              List<String> literalRows = null;
+              for (boolean runtime : List.of(false, true)) {
+                cache.setRuntimeRidStartEnabled(runtime);
+                var source = graph.traversal();
+                var hop = (hasId ? source.V().hasId(a.id()) : source.V(a.id())).to(direction);
+                if (filtered) {
+                  hop.has("name", P.neq("absent"));
+                }
+                var query = (range ? hop.range(1, 2) : hop.limit(1)).asAdmin();
+                var rows = TranslatorEquivalenceSupport.sortedIds(query.toList());
+                if (runtime) {
+                  assertThat(rows).isEqualTo(literalRows);
+                } else {
+                  literalRows = rows;
+                  sawDifferentOrder |= !rows.equals(
+                      TranslatorEquivalenceSupport.sortedIds(nativeRows));
+                }
+              }
+            }
+          }
+        }
+      }
+      assertThat(sawDifferentOrder).as("fixture exposes an order-sensitive slice").isTrue();
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
   private GraphTraversal<?, ?> negative(int arm, Object a, Object b, boolean nativeOnly) {
     var g = nativeOnly ? graph.traversal().withoutStrategies(GremlinToMatchStrategy.class)
         : graph.traversal();
@@ -517,7 +615,7 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
         var callerId = new ChangeableRecordId(id);
         var query = graph.traversal().withStrategies(
             GremlinToMatchStrategy.withTranslationCache(route != 1))
-            .V(callerId).out("auditLink").asAdmin();
+            .V(callerId).out().asAdmin();
         var planHits = cache.getHits();
         var translationHits = cache.getTranslationHits();
         query.applyStrategies();
@@ -530,7 +628,7 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
           template = boundary.getPlan();
         }
         assertThat(boundary.getPlan()).isSameAs(template);
-        var decisionQuery = graph.traversal().V(id).out("auditLink").asAdmin();
+        var decisionQuery = graph.traversal().V(id).out().asAdmin();
         var decision = RuntimeRidStartEligibility.evaluate(decisionQuery, true);
         var extraction = GremlinStepWalker.extractShape(decisionQuery, db(graph),
             YTDBStrategyUtil.orderIncludesMissingKey(decisionQuery),

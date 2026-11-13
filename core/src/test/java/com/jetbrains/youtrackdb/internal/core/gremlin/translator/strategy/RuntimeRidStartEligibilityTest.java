@@ -295,11 +295,55 @@ public class RuntimeRidStartEligibilityTest {
     }
   }
 
-  // A final operation is a single labeled-hop suffix, never an arbitrary terminal chain.
+  // Unlabeled directions admit only bounded final-operation grammar, not slices or edge filters.
+  @Test
+  public void unlabeledFinalsQualifyButSlicesAndUnfinishedFiltersStayLiteral() {
+    for (var direction : org.apache.tinkerpop.gremlin.structure.Direction.values()) {
+      for (boolean hasId : List.of(false, true)) {
+        for (boolean filtered : List.of(false, true)) {
+          for (int arm = 0; arm < 5; arm++) {
+            var start = hasId ? __.V().hasId(A) : __.V(A);
+            var hop = start.has("start", 1).to(direction);
+            if (filtered) {
+              hop.hasLabel("Person").has("key", P.within(1, 2));
+            }
+            var query = switch (arm) {
+              case 0 -> hop.count();
+              case 1 -> hop.values("name");
+              case 2 -> hop.order().by("name");
+              case 3 -> hop.order().by("name").by(new RecordIdSortKeyTraversal(), Order.asc);
+              default -> hop.order().by("name",
+                  org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+                  .by(new RecordIdSortKeyTraversal(), Order.desc);
+            };
+            var admin = query.asAdmin();
+            admin.setStrategies(new DefaultTraversalStrategies().addStrategies(
+                InlineFilterStrategy.instance(), ByModulatorOptimizationStrategy.instance(),
+                com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBOrderRidTieBreakStrategy
+                    .instance()));
+            admin.applyStrategies();
+            assertThat(RuntimeRidStartEligibility.evaluate(admin, true))
+                .as("%s filtered %s arm %s", direction, filtered, arm).isNotNull();
+          }
+          var start = hasId ? __.V().hasId(A) : __.V(A);
+          assertThat(RuntimeRidStartEligibility.evaluate(
+              postStrategy(start.toE(direction).count()), true)).isNotNull();
+        }
+      }
+      reject(__.V(A).to(direction).limit(1), __.V(A).to(direction).range(1, 2),
+          __.V(A).to(direction).has("key", 1).limit(1),
+          __.V(A).to(direction).has("key", 1).range(1, 2),
+          __.V(A).to(direction).has("key", 1),
+          __.V(A).toE(direction).has("key", 1).count(),
+          __.V(A).toE(direction).values("key"),
+          __.V(A).toE(direction));
+    }
+  }
+
+  // A final operation is a single hop suffix, never an arbitrary terminal chain.
   @Test
   public void excludedTerminalPayloadsAndChainsStayLiteral() {
-    reject(__.V(A).out().count(), __.V(A).out().values("name"),
-        __.V(A).out().limit(1), __.V(A).out().order().by("name"),
+    reject(__.V(A).out().limit(1),
         __.V(A).out("a").properties("name"), __.V(A).out("a").values(),
         __.V(A).out("a").values("name", "age"), __.V(A).out("a").skip(1),
         __.V(A).out("a").range(0, Long.MAX_VALUE),
@@ -636,7 +680,7 @@ public class RuntimeRidStartEligibilityTest {
         __.V(A).out("a").hasLabel("Person", "Other"),
         __.V(A).out("a").hasId(B), __.V(A).out("a").hasId(B.toString()),
         __.V(A).out().has("key", 1),
-        __.V(A).out().hasLabel("Person"), __.V(A).has("key", 1).out().count(),
+        __.V(A).out().hasLabel("Person"),
         __.V(A).inE("a").has("key", 1).outV(),
         __.V(A).inE("a").has("key", 1).inV(),
         __.V(A).bothE("a").has("key", 1).otherV(),
