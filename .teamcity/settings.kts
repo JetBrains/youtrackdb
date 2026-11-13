@@ -6,11 +6,11 @@ import jetbrains.buildServer.configs.kotlin.triggers.vcs
 version = "2026.03"
 
 val token = "tc_token_id:CID_6f70430be90149234d7210e12aa15ea9:-1:6eedf048-c2e9-4675-ba2f-6e73f59c04b0"
-// Accept only the named phases and same-repository pull requests.
+// Accept the named phases. The unit trigger accepts only same-repository PRs.
 // The root preserves develop and the full queue path as logical branch names.
 val queueBranches = "+:gh-readonly-queue/develop/*"
 val unitTrigger = "+:develop\n+pr: sourceRepo=same"
-val allBranches = "+:develop\n+:gh-readonly-queue/develop/*\n+pr: sourceRepo=same"
+val allBranches = "+:develop\n+:gh-readonly-queue/develop/*\n+:pull/*"
 
 fun BuildType.configure(branches: String, agent: String? = null, status: String? = null) {
   vcs {
@@ -69,15 +69,11 @@ val DetectChanges = BuildType({
         "integration_scope", "integration_modules")) {
       text("detect.$key", "", allowEmpty = true)
     }
-    text("teamcity.pullRequest.source.branch", "", allowEmpty = true)
-    text("teamcity.pullRequest.target.branch", "", allowEmpty = true)
-    param("env.TC_PR_SOURCE", "%teamcity.pullRequest.source.branch%")
-    param("env.TC_PR_TARGET", "%teamcity.pullRequest.target.branch%")
   }
   steps {
     script {
       name = "Detect build scope"
-      scriptContent = "set -euo pipefail\npython3 .github/scripts/teamcity-build.py detect"
+      scriptContent = "#!/bin/bash\nset -euo pipefail\npython3 .github/scripts/teamcity-build.py detect"
     }
   }
 })
@@ -101,12 +97,13 @@ val UnitTestsLinuxX86 = BuildType({
   steps {
     script {
       name = "Validate Detect changes result"
-      scriptContent = "set -euo pipefail\npython3 .github/scripts/teamcity-build.py guard"
+      scriptContent = "#!/bin/bash\nset -euo pipefail\npython3 .github/scripts/teamcity-build.py guard"
     }
     script {
       name = "Run unit tests"
       conditions { equals("dep.${DetectChanges.id}.detect.should_build", "true") }
       scriptContent = """
+        #!/bin/bash
         set -euo pipefail
         ./mvnw -s .github/workflows/settings.xml clean package -B \
           -Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci \
@@ -116,7 +113,7 @@ val UnitTestsLinuxX86 = BuildType({
     script {
       name = "Check reports and test count"
       conditions { equals("dep.${DetectChanges.id}.detect.should_build", "true") }
-      scriptContent = "set -euo pipefail\npython3 .github/scripts/teamcity-build.py verify"
+      scriptContent = "#!/bin/bash\nset -euo pipefail\npython3 .github/scripts/teamcity-build.py verify"
       executionMode = BuildStep.ExecutionMode.ALWAYS
     }
   }

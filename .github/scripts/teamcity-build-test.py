@@ -21,15 +21,123 @@ class TeamCityTest(unittest.TestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {
             "TC_BUILD_ID": "99", "TC_SHOULD_BUILD": "true",
-            "TC_VCS_BRANCH": "refs/heads/develop", "TC_PR_SOURCE": "refs/heads/topic",
-            "TC_PR_TARGET": "refs/heads/develop", "TC_URL": "https://example.test",
+            "TC_VCS_BRANCH": "refs/heads/develop", "TC_URL": "https://example.test",
             "TC_USER": "user", "TC_PASSWORD": "secret"}, clear=True)
         self.env.start()
         self.addCleanup(self.env.stop)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.system = pathlib.Path(directory.name) / "build.properties"
+        self.config = pathlib.Path(directory.name) / "config.properties"
+        self.system.write_text("teamcity.configuration.properties.file="
+                               + str(self.config).replace("\\", "\\\\") + "\n")
+        os.environ["TEAMCITY_BUILD_PROPERTIES_FILE"] = str(self.system)
+        self.pr_facts()
         self.output = io.StringIO()
         redirect = contextlib.redirect_stdout(self.output)
         redirect.__enter__()
         self.addCleanup(redirect.__exit__, None, None, None)
+
+    def pr_facts(self, source="refs/heads/topic", target="refs/heads/develop"):
+        self.config.write_text("teamcity.pullRequest.source.branch=" + source + "\n"
+                               + "teamcity.pullRequest.target.branch=" + target + "\n",
+                               encoding="iso-8859-1")
+
+    def test_properties_decode_java_escapes_separators_and_continuations(self):
+        self.config.write_bytes(
+            b"  # comment\r\n!comment\rkey\\:part\\=x : va\\:l\\=ue\\\\path\n"
+            b"white\\ key value\\ with\\ spaces\nunicode=\\u0064\\u00e9\n"
+            b"continued=de\\\r\n \t vel\\\n  op\n"
+            b"blank=\\\n  #value\ncontrols=\\t\\n\\r\\f\\z\n"
+            b"even=two\\\\\ncolon:ok\nbare\nsame=first\nsame=last\nlatin=\xe9\n")
+        self.assertEqual(tc.properties(self.config), {
+            "key:part=x": "va:l=ue\\path", "white key": "value with spaces",
+            "unicode": "dé", "continued": "develop", "blank": "#value",
+            "controls": "\t\n\r\fz", "even": "two\\", "colon": "ok",
+            "bare": "", "same": "last", "latin": "é"})
+
+    def test_pr_reads_both_properties_files_and_accepts_both_target_forms(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/12/head"
+        # The path in the first file also needs Java properties unescaping.
+        renamed = self.config.with_name("config:= file.properties")
+        self.config.rename(renamed)
+        self.config = renamed
+        self.system.write_text("teamcity.configuration.properties.file="
+                               + str(renamed).replace(":", r"\:").replace("=", r"\=")
+                               .replace(" ", r"\ ") + "\n")
+        for target in ("develop", "refs/heads/develop", r"refs/heads/de\u0076elop"):
+            with self.subTest(target=target):
+                self.pr_facts(target=target)
+                with patch.object(tc.detect, "main", return_value=0) as detector, \
+                     patch.object(tc.detect, "git", return_value=b"a" * 40) as git:
+                    self.assertEqual(tc.detect_build(), 0)
+                    self.assertIn("--same-repository", detector.call_args.args[0])
+                    self.assertEqual(detector.call_args.args[0][-1], "a" * 40)
+                    self.assertEqual(git.call_args_list[1].args[-1], "refs/heads/develop")
+
+    def test_pr_without_source_or_readable_valid_files_fails_before_git_or_detection(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/1/head"
+        for content in ("", "teamcity.pullRequest.source.branch=\n",
+                        r"teamcity.pullRequest.source.branch=\u12xy",
+                        "teamcity.pullRequest.source.branch=topic\\"):
+            with self.subTest(content=content):
+                self.config.write_text(content)
+                self.assert_pr_failure()
+        self.pr_facts()
+        for path in (self.system, self.config):
+            with self.subTest(missing=path):
+                data = path.read_bytes()
+                path.unlink()
+                self.assert_pr_failure()
+                path.write_bytes(data)
+        for path in (self.system, self.config):
+            original = pathlib.Path.read_text
+
+            def read(file, *args, **kwargs):
+                if file == path:
+                    raise PermissionError("Unreadable agent properties")
+                return original(file, *args, **kwargs)
+
+            with self.subTest(unreadable=path), patch.object(pathlib.Path, "read_text", read):
+                self.assert_pr_failure()
+        for content in ("unrelated=value", r"broken=\uXXXX"):
+            self.system.write_text(content)
+            self.assert_pr_failure()
+        del os.environ["TEAMCITY_BUILD_PROPERTIES_FILE"]
+        self.assert_pr_failure()
+
+    def assert_pr_failure(self):
+        self.output.seek(0)
+        self.output.truncate()
+        with patch.object(tc.detect, "git") as git, patch.object(tc.detect, "main") as detector, \
+             patch.object(tc.sys, "argv", ["script", "detect"]):
+            self.assertEqual(tc.main(), 1)
+            git.assert_not_called()
+            detector.assert_not_called()
+            self.assertIn("status='ERROR'", self.output.getvalue())
+
+    def test_hostile_pr_text_never_becomes_a_service_message_or_git_option(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/1/head"
+        for target in ("", "--upload-pack=evil", "refs/heads/--upload-pack=evil",
+                       r"develop\n##teamcity[buildStatus status='SUCCESS']",
+                       "refs/heads/topic", "refs/heads/develop:other", "develop "):
+            self.output.seek(0)
+            self.output.truncate()
+            self.pr_facts(source=r"topic\n##teamcity[forged]", target=target)
+            with self.subTest(target=target), \
+                 patch.object(tc.detect, "git") as git, \
+                 patch.object(tc.detect, "main", return_value=0) as detector:
+                self.assertEqual(tc.detect_build(), 0)
+                git.assert_not_called()
+                self.assertEqual(detector.call_args.args[0][-1], "")
+                self.assertIn("WARNING", self.output.getvalue())
+        self.pr_facts(source=r"topic\n##teamcity[forged]", target="develop")
+        with patch.object(tc.detect, "git", return_value=b"a" * 40) as git, \
+             patch.object(tc.detect, "main", return_value=0):
+            self.assertEqual(tc.detect_build(), 0)
+            self.assertEqual(git.call_args_list[1].args[-1], "refs/heads/develop")
+        self.assertNotIn("##teamcity[forged]", self.output.getvalue())
+        self.assertNotIn("##teamcity[buildStatus", self.output.getvalue())
 
     def test_guard_rejects_malformed_values_but_explains_skip(self):
         for value in ("", "TRUE", "##teamcity[buildStatus status='SUCCESS']"):
@@ -129,7 +237,8 @@ class TeamCityTest(unittest.TestCase):
                     tc.detect_build()
                     self.assertEqual(detector.call_args.args[0][-1], "")
         for branch, source in (("refs/heads/topic", "x"), ("refs/pull/1/head", "")):
-            os.environ.update(TC_VCS_BRANCH=branch, TC_PR_SOURCE=source)
+            os.environ["TC_VCS_BRANCH"] = branch
+            self.pr_facts(source=source)
             with self.assertRaises(ValueError):
                 tc.detect_build()
 

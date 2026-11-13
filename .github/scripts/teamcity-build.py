@@ -72,13 +72,69 @@ def baseline(branch):
     return "/app/rest/builds/id:" + str(int(latest["id"]))
 
 
+def properties(path):
+    """Read Java properties, including escaped separators and continued lines."""
+    def unescape(value):
+        result = []
+        index = 0
+        while index < len(value):
+            char = value[index]
+            index += 1
+            if char == "\\":
+                if index == len(value):
+                    raise ValueError("Incomplete properties escape")
+                char = value[index]
+                index += 1
+                if char == "u":
+                    digits = value[index:index + 4]
+                    if not re.fullmatch(r"[0-9a-fA-F]{4}", digits):
+                        raise ValueError("Invalid properties Unicode escape")
+                    char = chr(int(digits, 16))
+                    index += 4
+                else:
+                    char = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}.get(char, char)
+            result.append(char)
+        return "".join(result)
+
+    result = {}
+    pending = ""
+    continuing = False
+    for line in re.split(r"\r\n|\r|\n", pathlib.Path(path).read_text(encoding="iso-8859-1")):
+        line = line.lstrip(" \t\f")
+        if not continuing and (not line or line.startswith(("#", "!"))):
+            continue
+        pending += line
+        trailing = len(pending) - len(pending.rstrip("\\"))
+        if trailing % 2:
+            pending = pending[:-1]
+            continuing = True
+            continue
+        continuing = False
+        match = re.fullmatch(r"((?:\\.|[^ \t\f:=\\])*)[ \t\f]*[=:]?[ \t\f]*(.*)",
+                             pending)
+        if match is None:
+            raise ValueError("Malformed properties entry")
+        result[unescape(match[1])] = unescape(match[2])
+        pending = ""
+    if continuing:
+        raise ValueError("Incomplete properties continuation")
+    return result
+
+
+def pr_properties():
+    # Read only at run time. PR parameters do not exist on other build phases.
+    system = properties(os.environ["TEAMCITY_BUILD_PROPERTIES_FILE"])
+    return properties(system["teamcity.configuration.properties.file"])
+
+
 def detect_build():
     branch = os.environ["TC_VCS_BRANCH"]
     args = ["--root", ".", "--head", "HEAD"]
     if re.fullmatch(r"(?:refs/)?pull/[0-9]+(?:/head)?", branch):
-        if not os.environ.get("TC_PR_SOURCE"):
+        facts = pr_properties()
+        if not facts.get("teamcity.pullRequest.source.branch"):
             raise ValueError("Refusing a PR without a same-repository source")
-        kind, base = "pr", os.environ["TC_PR_TARGET"]
+        kind, base = "pr", facts.get("teamcity.pullRequest.target.branch", "")
         args += ["--same-repository"]
     elif branch.startswith("refs/heads/gh-readonly-queue/develop/"):
         kind, base = "merge-queue", "refs/heads/develop"
@@ -104,8 +160,10 @@ def detect_build():
     else:
         raise ValueError("Unsupported VCS branch")
     try:
-        if not base.startswith("refs/heads/"):
+        # Only develop is a target in this phase table. Never pass PR text to git.
+        if base not in ("develop", "refs/heads/develop"):
             raise ValueError("Invalid target branch")
+        base = "refs/heads/develop"
         detect.git(".", "check-ref-format", base)
         detect.git(".", "-c", "credential.helper=", "-c", "http.extraHeader=", "fetch",
                    "https://github.com/JetBrains/youtrackdb.git", base)
