@@ -353,6 +353,13 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     final List<InternalExecutionPlan> originals = new ArrayList<>();
     final List<InternalExecutionPlan> copies = new ArrayList<>();
     String key;
+    Runnable beforeLookup = () -> {
+    };
+    java.util.function.Consumer<InternalExecutionPlan> onOriginal = plan -> {
+    };
+    java.util.function.Consumer<InternalExecutionPlan> onCopy = plan -> {
+    };
+    boolean translationCacheable = true;
     Runnable duringWalk = () -> {
     };
     Runnable duringBuild = () -> {
@@ -363,6 +370,10 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
       statics.when(() -> GremlinPlanCache.instance(session)).thenReturn(cache);
       doAnswer(call -> {
         key = call.getArgument(0);
+        var callback = beforeLookup;
+        beforeLookup = () -> {
+        };
+        callback.run();
         return call.callRealMethod();
       }).when(cache).getTranslationEntry(anyString(), any());
       cache.getTranslationEntry("synchronise-timeout", session);
@@ -375,7 +386,12 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
             duringWalk = () -> {
             };
             callback.run();
-            return GremlinStepWalker.production().walkObserved(traversal, inputs, obs);
+            var translation = GremlinStepWalker.production().walkObserved(traversal, inputs, obs);
+            if (translation != null && !translationCacheable) {
+              translation = spy(translation);
+              doReturn(false).when(translation).cacheEligible();
+            }
+            return translation;
           }, (db, translation, scope) -> {
             duringBuild.run();
             var original = spy(GremlinToMatchStrategy.buildPlan(db, translation, scope));
@@ -384,8 +400,10 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
             doAnswer(call -> {
               var copy = spy((InternalExecutionPlan) call.callRealMethod());
               copies.add(copy);
+              onCopy.accept(copy);
               return copy;
             }).when(original).copy(any(CommandContext.class));
+            onOriginal.accept(original);
             return original;
           }));
     }
@@ -421,33 +439,83 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     }
   }
 
-  /** A live timeout change cannot relabel a candidate built from the captured old timeout. */
+  /** Timeout flips preserve the captured plan setting and separate cache identities. */
   @Test
-  public void timeoutChangeBetweenLookupAndPublicationCannotBeReused() {
+  public void timeoutSnapshotKeysSurviveAnUnobservedRoundTrip() {
     try (var probe = new PublicationProbe()) {
       var config = probe.session.getConfiguration();
       long old = config.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
       try {
         config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
         probe.cache.getTranslationEntry("synchronise", probe.session);
-        long generation = probe.cache.getGeneration();
         probe.duringBuild = () -> config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
         try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+          assertThat(probe.key).contains(":17001:");
+          assertThat(probe.cache.containsTranslation(probe.key)).isTrue();
           assertThat(own.plan().prettyPrint(0, 2).toString()).contains("17001ms");
-          assertThat(own.cacheHit()).isFalse();
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.getFirst()).close();
+          verify(own.plan(), never()).close();
         }
-        // Lookup observes the new timeout and clears the old-snapshot publication.
-        assertThat(probe.resident()).isNull();
-        assertThat(probe.cache.getGeneration()).isGreaterThan(generation);
+        verify(probe.copies.getLast()).close();
+        // Capture T2, then restore T1 before lookup. The lazy timeout stamp stays at T1.
+        probe.beforeLookup = () -> config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
         probe.duringBuild = () -> {
         };
         try (var fresh = probe.prepare().prepare(query(40, 30), policy)) {
+          assertThat(probe.key).contains(":29001:");
           assertThat(fresh.cacheHit()).isFalse();
           assertThat(fresh.plan().prettyPrint(0, 2).toString()).contains("29001ms");
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.get(probe.copies.size() - 2)).close();
         }
-        assertThat(probe.cache.getTranslationHits()).isZero();
+        verify(probe.copies.getLast()).close();
       } finally {
         config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, old);
+      }
+    }
+  }
+
+  /** A newer translated resident must not even be copied under the older snapshot. */
+  @Test
+  public void invalidationBeforeLookupRejectsNewerResident() {
+    try (var probe = new PublicationProbe()) {
+      try (var seed = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(seed.cacheHit()).isFalse();
+      }
+      var candidate = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+      var template = candidate.translation().planTemplate();
+      probe.beforeLookup = () -> {
+        probe.cache.invalidate();
+        probe.cache.putTranslationInternal(probe.key, candidate,
+            probe.session, probe.cache.getGeneration());
+      };
+      try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(own.cacheHit()).isFalse();
+        assertThat(own.extent()).isEqualTo(3);
+        assertThat(own.bindings()).containsEntry(0, 30);
+        verify(template, never()).copy(any(CommandContext.class));
+      }
+    }
+  }
+
+  /** Translation eligibility and copied-template eligibility independently forbid publication. */
+  @Test
+  public void partialTranslationAndTemplateCacheabilityGates() {
+    for (boolean translationGate : List.of(true, false)) {
+      try (var probe = new PublicationProbe()) {
+        probe.translationCacheable = !translationGate;
+        if (!translationGate) {
+          probe.onCopy = copy -> doReturn(false).when(copy).canBeCached();
+        }
+        try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+          assertThat(own.extent()).isEqualTo(3);
+          assertThat(probe.resident()).isNull();
+          verify(probe.originals.getLast()).close();
+        }
+        verify(probe.copies.getLast()).close();
+        verify(probe.cache, never()).putTranslationInternal(anyString(), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
       }
     }
   }
@@ -457,8 +525,13 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
   public void coldLosersKeepOwnCompleteOutcomeAndNeverRepairWinner() {
     for (int kind = 0; kind < 3; kind++) {
       try (var probe = new PublicationProbe()) {
-        var winner = new GremlinTranslationTemplate.Candidate(-1,
-            PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, null);
+        var winnerPlan = org.mockito.Mockito.mock(InternalExecutionPlan.class);
+        var winnerTranslation =
+            org.mockito.Mockito.mock(GremlinTranslationTemplate.Translate.class);
+        doReturn(winnerPlan).when(winnerTranslation).planTemplate();
+        doReturn(2).when(winnerTranslation).bindingCount();
+        var winner = new GremlinTranslationTemplate.Candidate(1,
+            PrivatePrefixDiscovery.Reason.SELECTED, winnerTranslation);
         var envelope = new java.util.concurrent.atomic.AtomicReference<
             GremlinPlanCache.StampedTranslation>();
         probe.duringWalk = () -> {
@@ -477,12 +550,25 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           assertThat(own.cacheHit()).isFalse();
           assertThat(probe.resident()).isSameAs(envelope.get());
           assertThat(probe.resident().template()).isSameAs(winner);
+          assertThat(winner.translation().bindingCount()).isEqualTo(2);
+          verify(winnerPlan, never()).close();
           if (kind != 2) {
+            assertThat(own.extent()).isEqualTo(3);
+            assertThat(own.bindings()).isEqualTo(kind == 0 ? java.util.Map.of(0, 30)
+                : java.util.Map.of());
+            assertThat(own.shaping()).isEqualTo(
+                com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping.NONE);
             assertThat(own.plan()).isNotSameAs(probe.originals.getFirst())
                 .isNotSameAs(probe.copies.getFirst());
             verify(probe.originals.getFirst()).close();
             verify(probe.copies.getFirst()).close();
             verify(own.plan(), never()).close();
+            assertPlanNames(own.plan(), "second");
+          } else {
+            assertThat(own.extent()).isEqualTo(-1);
+            assertThat(own.bindings()).isEmpty();
+            assertThat(own.shaping()).isNull();
+            assertThat(own.plan()).isNull();
           }
         }
         // One competitor publication and exactly one own publication, with no second repair.
@@ -532,7 +618,11 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 2);
           assertThat(probe.resident()).isSameAs(winner.get());
           verify(valid.translation().planTemplate(), times(closes)).close();
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.get(probe.copies.size() - 2)).close();
+          verify(own.plan(), never()).close();
         }
+        verify(probe.copies.getLast()).close();
         // Seed, explicit rejection, competing repair and the losing repair. No second repair.
         verify(probe.cache, times(4)).putTranslationInternal(anyString(), any(), any(),
             org.mockito.ArgumentMatchers.anyLong(), any());
@@ -586,7 +676,10 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         try (var own = prepare.prepare(query(40, 30), policy)) {
           assertThat(own.cacheHit()).isFalse();
           assertThat(own.plan()).isNotNull();
+          verify(probe.originals.getLast()).close();
+          verify(own.plan(), never()).close();
         }
+        verify(probe.copies.getLast()).close();
         assertThat(probe.cache.getTranslationHits()).isEqualTo(hits);
         assertThat(probe.cache.getTranslationMisses()).isEqualTo(misses);
         verify(probe.cache, times(1)).putTranslationInternal(anyString(), any(), any(),
@@ -632,8 +725,14 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
         verify(template).close();
         verify(probe.originals.getFirst()).close();
+        var warmCopies = new ArrayList<InternalExecutionPlan>();
+        doAnswer(call -> {
+          var copy = spy((InternalExecutionPlan) call.callRealMethod());
+          warmCopies.add(copy);
+          return copy;
+        }).when(template).copy(any(CommandContext.class));
         long hits = probe.cache.getTranslationHits();
-        try (var warm = prepare.prepare(query(40, 30), policy)) {
+        try (var warm = prepare.prepare(query(30, 30), policy)) {
           assertThat(warm.cacheHit()).isTrue();
           assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 1);
           assertThat(warm.plan()).isNotSameAs(template).isNotSameAs(cold.plan());
@@ -645,11 +744,14 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           // Shared templates are closed before publication, not by eviction or replacement.
           verify(template).close();
           assertThat(cold.plan().getContext().getInputParameters()).containsEntry(0, 30);
-          assertThat(warm.plan().getContext().getInputParameters()).containsEntry(0, 40);
-          assertThat(cold.plan().prettyPrint(0, 2).toString()).isNotEmpty();
-          assertThat(warm.plan().prettyPrint(0, 2).toString()).isNotEmpty();
+          assertThat(warm.plan().getContext().getInputParameters()).containsEntry(0, 30);
           verify(cold.plan(), never()).close();
+          verify(warmCopies.getFirst(), never()).close();
+          assertPlanNames(warm.plan(), "second");
         }
+        verify(warmCopies.getFirst()).close();
+        assertPlanNames(cold.plan(), "second");
+        verify(cold.plan(), never()).close();
       }
       verify(probe.copies.getLast()).close();
     }
@@ -674,6 +776,68 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           .isInstanceOf(IllegalStateException.class).hasMessage("copy failure");
       verify(probe.originals.getFirst()).close();
       assertThat(probe.resident()).isNull();
+    }
+  }
+
+  /** Fully consume and close execution streams, checking literal element properties. */
+  private void assertPlanNames(InternalExecutionPlan plan, String... expected) {
+    var context = plan.getContext();
+    var names = new ArrayList<String>();
+    var stream = plan.start();
+    try {
+      while (stream.hasNext(context)) {
+        var row = stream.next(context);
+        var element = row.getProperty("$g2m_anon_0");
+        var id = ((com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable) element)
+            .getIdentity();
+        names.add(context.getDatabaseSession().loadEntity(id).getProperty("name"));
+      }
+    } finally {
+      stream.close(context);
+    }
+    assertThat(names).containsExactlyInAnyOrder(expected);
+  }
+
+  /** Each cacheable-path failure propagates and closes the original without corrupting residency. */
+  @Test
+  public void cacheablePreparationFailuresPreserveOwnership() {
+    for (String stage : List.of("template copy", "template close", "publication",
+        "returned copy")) {
+      try (var probe = new PublicationProbe()) {
+        var failure = new IllegalStateException(stage);
+        probe.onOriginal = original -> {
+          if (stage.equals("template copy")) {
+            org.mockito.Mockito.doThrow(failure).when(original).copy(any(CommandContext.class));
+          } else if (stage.equals("returned copy")) {
+            doAnswer(call -> {
+              var template = spy((InternalExecutionPlan) call.callRealMethod());
+              probe.copies.add(template);
+              org.mockito.Mockito.doThrow(failure).when(original).copy(any(CommandContext.class));
+              return template;
+            }).when(original).copy(any(CommandContext.class));
+          }
+        };
+        probe.onCopy = copy -> {
+          if (stage.equals("template close")) {
+            org.mockito.Mockito.doThrow(failure).when(copy).close();
+          }
+        };
+        if (stage.equals("publication")) {
+          org.mockito.Mockito.doThrow(failure).when(probe.cache).putTranslationInternal(
+              anyString(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        }
+        assertThatThrownBy(() -> probe.prepare().prepare(query(30, 40), policy))
+            .isSameAs(failure);
+        verify(probe.originals.getFirst()).close();
+        assertThat(probe.resident() != null).isEqualTo(stage.equals("returned copy"));
+        if (!probe.copies.isEmpty()) {
+          verify(probe.copies.getFirst()).close();
+          if (stage.equals("returned copy")) {
+            var resident = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+            assertThat(resident.translation().planTemplate()).isSameAs(probe.copies.getFirst());
+          }
+        }
+      }
     }
   }
 
