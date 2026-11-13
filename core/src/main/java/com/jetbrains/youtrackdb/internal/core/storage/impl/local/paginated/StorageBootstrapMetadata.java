@@ -37,7 +37,7 @@ public final class StorageBootstrapMetadata {
           "storage-bootstrap-0.bsm", "storage-bootstrap-1.bsm", "storage-bootstrap-2.bsm");
 
   private static final long MAGIC = 0x5954444242534D31L;
-  private static final int ENCODING_VERSION = 1;
+  private static final int ENCODING_VERSION = 2;
   private static final int RECORD_SIZE = 80;
 
   private static final int CHECKSUM_OFFSET = RECORD_SIZE - Long.BYTES;
@@ -181,11 +181,19 @@ public final class StorageBootstrapMetadata {
    * @throws StorageAdmissionException when one named cause rejects this storage image
    */
   public Snapshot readActiveRequired() throws StorageAdmissionException {
+    return readActiveRequired(snapshot -> {
+    });
+  }
+
+  /** Checks the selected identity before any repair can republish an authority copy. */
+  public Snapshot readActiveRequired(java.util.function.Consumer<Snapshot> identityCheck)
+      throws StorageAdmissionException {
     try {
       return withAuthorityLock(
           false,
           () -> {
             final var admitted = admitLocked();
+            identityCheck.accept(admitted.snapshot());
             repairAfterAdmissionLocked(admitted);
             return admitted.snapshot();
           });
@@ -300,7 +308,7 @@ public final class StorageBootstrapMetadata {
                   current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.ACTIVE,
-                  floor);
+                  floor, current.pageSizeKiB());
           publish(next);
           if (current.state() == State.BIRTH_IN_PROGRESS) {
             liveBirth = null;
@@ -343,7 +351,7 @@ public final class StorageBootstrapMetadata {
                   current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.RESTORE_IN_PROGRESS,
-                  current.sequenceFloor());
+                  current.sequenceFloor(), current.pageSizeKiB());
           publish(next);
           // The birth ended with this publication, so no later call may continue that birth.
           liveBirth = null;
@@ -607,7 +615,7 @@ public final class StorageBootstrapMetadata {
                   current.storageFormat(),
                   nextGeneration(current.generation()),
                   State.RESTORE_IN_PROGRESS,
-                  targetFloor);
+                  targetFloor, current.pageSizeKiB());
           publish(next);
           return next;
         });
@@ -827,6 +835,21 @@ public final class StorageBootstrapMetadata {
       }
     }
 
+    for (var record : records) {
+      if (record.snapshot().pageSizeKiB() != first.pageSizeKiB()) {
+        throw StorageAdmissionException.pageSizeFailure(
+            directory,
+            "The storage identity record is inconsistent. Copies disagree on database page size: "
+                + (first.pageSizeKiB() == 0 ? "no recorded page size" : first.pageSizeKiB() + " KB")
+                + " and "
+                + (record.snapshot().pageSizeKiB() == 0 ? "no recorded page size"
+                    : record.snapshot().pageSizeKiB() + " KB")
+                + ". Configured page size is " + ProcessPageSize.kibibytes()
+                + " KB. Changing youtrackdb.storage.diskCache.pageSize does not help."
+                + " Restore the database from a backup.");
+      }
+    }
+
     final Map<Long, Snapshot> generations = new HashMap<>();
     for (var record : records) {
       final var prior = generations.putIfAbsent(record.snapshot().generation(), record.snapshot());
@@ -972,17 +995,28 @@ public final class StorageBootstrapMetadata {
           Reason.AUTHORITY_INVALID_CONTENT, "Invalid bootstrap authority magic: " + magic);
     }
     final var encodingVersion = buffer.getInt();
-    if (encodingVersion != ENCODING_VERSION) {
+    if (encodingVersion != 1 && encodingVersion != ENCODING_VERSION) {
       throw admissionFailure(
           Reason.UNSUPPORTED_ENCODING_VERSION,
           "Unsupported bootstrap encoding version: " + encodingVersion);
     }
-    final var formatVersion = buffer.getInt();
+    // Encoding two splits the feature word into unsigned page-size and feature halves.
+    final var featureWord = buffer.getInt();
+    final var formatVersion = encodingVersion == 1 ? featureWord : featureWord & 0xFFFF;
+    final var pageSizeKiB = encodingVersion == 1 ? 0 : featureWord >>> 16;
     if (formatVersion != expectedFormat.version()) {
       // A checksum-valid foreign format came from software this reader does not understand.
       throw admissionFailure(
           Reason.UNSUPPORTED_FEATURE_FORMAT_VERSION,
           "Unsupported feature format version: " + formatVersion);
+    }
+    if (encodingVersion == 2 && !validPageSize(pageSizeKiB)) {
+      throw StorageAdmissionException.pageSizeFailure(
+          directory,
+          "Invalid database page size " + pageSizeKiB + " KB. Configured page size is "
+              + ProcessPageSize.kibibytes() + " KB. The storage identity record is invalid."
+              + " Changing youtrackdb.storage.diskCache.pageSize does not help."
+              + " Restore the database from a backup.");
     }
     final var format = new FeatureFormatIdentity(formatVersion);
     final var generation = buffer.getLong();
@@ -1010,7 +1044,7 @@ public final class StorageBootstrapMetadata {
           "Invalid bootstrap authority highest issued value: " + highestIssued);
     }
     final var floor = new LogicalSequenceFloor(storageIdentity, lineageIdentity, highestIssued);
-    return new Snapshot(format, storageFormat, generation, state, floor);
+    return new Snapshot(format, storageFormat, generation, state, floor, pageSizeKiB);
   }
 
   private void publish(final Snapshot snapshot) throws IOException {
@@ -1158,7 +1192,8 @@ public final class StorageBootstrapMetadata {
   }
 
   private static boolean isLegalSuccessor(final Snapshot prior, final Snapshot next) {
-    if (prior.storageFormat() != next.storageFormat()
+    if (prior.pageSizeKiB() != next.pageSizeKiB()
+        || prior.storageFormat() != next.storageFormat()
         || !prior.storageIdentity().equals(next.storageIdentity())
         || next.sequenceFloor().highestIssued() < prior.sequenceFloor().highestIssued()) {
       return false;
@@ -1178,8 +1213,8 @@ public final class StorageBootstrapMetadata {
   private static ByteBuffer encode(final Snapshot snapshot) {
     final var buffer = ByteBuffer.allocate(RECORD_SIZE).order(ByteOrder.BIG_ENDIAN);
     buffer.putLong(MAGIC);
-    buffer.putInt(ENCODING_VERSION);
-    buffer.putInt(snapshot.format().version());
+    buffer.putInt(snapshot.pageSizeKiB() == 0 ? 1 : ENCODING_VERSION);
+    buffer.putInt(snapshot.format().version() | (snapshot.pageSizeKiB() << 16));
     buffer.putLong(snapshot.generation());
     buffer.putInt(snapshot.state().code);
     // The selected image layout occupies offset 28 without changing the record encoding.
@@ -1191,6 +1226,10 @@ public final class StorageBootstrapMetadata {
     buffer.putLong(XX_HASH_64.hash(bytes, 0, CHECKSUM_OFFSET, XX_HASH_SEED));
     buffer.flip();
     return buffer;
+  }
+
+  private static boolean validPageSize(int size) {
+    return size > 0 && size <= 0xFFFF && (size & (size - 1)) == 0;
   }
 
   private static long nextGeneration(final long generation) {
@@ -1307,13 +1346,34 @@ public final class StorageBootstrapMetadata {
       StorageFormat storageFormat,
       long generation,
       State state,
-      LogicalSequenceFloor sequenceFloor) {
+      LogicalSequenceFloor sequenceFloor,
+      int pageSizeKiB) {
+
+    public Snapshot(FeatureFormatIdentity format, StorageFormat storageFormat,
+        long generation, State state, LogicalSequenceFloor sequenceFloor) {
+      this(format, storageFormat, generation, state, sequenceFloor, ProcessPageSize.kibibytes());
+    }
+
+    /** Zero preserves encoding one. It is not a recorded page size. */
+    public int effectivePageSizeKiB() {
+      return pageSizeKiB == 0 ? 8 : pageSizeKiB;
+    }
+
+    public void checkPageSize() {
+      ProcessPageSize.requireDatabaseSize(effectivePageSizeKiB(), pageSizeKiB == 0);
+    }
 
     public Snapshot {
       Objects.requireNonNull(format, "format");
       Objects.requireNonNull(storageFormat, "storageFormat");
       Objects.requireNonNull(state, "state");
       Objects.requireNonNull(sequenceFloor, "sequenceFloor");
+      if (pageSizeKiB != 0 && !validPageSize(pageSizeKiB)) {
+        throw new IllegalArgumentException("Invalid recorded page size: " + pageSizeKiB);
+      }
+      if (pageSizeKiB != 0 && format.version() > 0xFFFF) {
+        throw new IllegalArgumentException("Feature version does not fit encoding two");
+      }
       if (generation <= 0) {
         throw new IllegalArgumentException("Bootstrap generation must be positive");
       }
@@ -1328,7 +1388,7 @@ public final class StorageBootstrapMetadata {
     }
 
     private Snapshot withFloor(final LogicalSequenceFloor floor, final long nextGeneration) {
-      return new Snapshot(format, storageFormat, nextGeneration, state, floor);
+      return new Snapshot(format, storageFormat, nextGeneration, state, floor, pageSizeKiB);
     }
   }
 }

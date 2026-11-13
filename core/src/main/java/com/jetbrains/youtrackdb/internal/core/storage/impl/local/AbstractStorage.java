@@ -130,6 +130,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -830,7 +831,7 @@ public abstract class AbstractStorage
   }
 
   private static void checkPageSizeAndRelatedParametersInGlobalConfiguration(String dbName) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
     var bTreeMaxKeySize = (int) (pageSize * 0.3);
 
@@ -870,6 +871,7 @@ public abstract class AbstractStorage
   }
 
   public final void open(final ContextConfiguration contextConfiguration) {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     try {
       stateLock.readLock().lock();
       try {
@@ -1616,6 +1618,7 @@ public abstract class AbstractStorage
   protected void doCreate(ContextConfiguration contextConfiguration,
       @Nullable StorageFormat sourceFormat)
       throws IOException, java.lang.InterruptedException {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1736,7 +1739,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setPageSize(
                   atomicOperation,
-                  GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10);
+                  ProcessPageSize.bytes());
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
@@ -2047,7 +2050,7 @@ public abstract class AbstractStorage
   protected abstract void initIv() throws IOException;
 
   private void checkPageSizeAndRelatedParameters(AtomicOperation atomicOperation) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     final var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
 
     if (configuration.getPageSize(atomicOperation) != -1

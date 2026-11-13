@@ -68,6 +68,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
@@ -353,8 +354,6 @@ public class DiskStorage extends AbstractStorage {
       ".bsm.tmp",
       ".bsml"
   };
-
-  private static final int ONE_KB = 1024;
 
   private final int deleteMaxRetries;
   private final int deleteWaitTime;
@@ -736,22 +735,20 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void readStorageIdentity() {
     try {
-      var active = bootstrapMetadata().readActiveRequired();
+      var active = bootstrapMetadata().readActiveRequired(
+          StorageBootstrapMetadata.Snapshot::checkPageSize);
       requireUsableOperationIdFloor(
           active.sequenceFloor().highestIssued(), "bootstrap authority admission");
       bootstrapSnapshot = active;
       selectStorageFormat(active.storageFormat());
       updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
     } catch (StorageAdmissionException rejection) {
-      // The cause already names the admission reason and the storage path. This message therefore
-      // states the cause in plain words and never repeats the reason identifier.
+      // Keep general admission advice unless page-size or layout details guide the operator.
       throw BaseException.wrapException(
           new StorageException(
               name,
               "Cannot open database '" + name + "'. "
-                  + (rejection.reason()
-                      == StorageAdmissionException.Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION
-                          ? rejection.detail() : rejection.reason().description())),
+                  + rejection.operatorMessage()),
           rejection,
           name);
     } catch (IOException exception) {
@@ -1478,7 +1475,7 @@ public class DiskStorage extends AbstractStorage {
     writeAheadLog.addCheckpointListener(this);
 
     final var pageSize =
-        contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_CACHE_PAGE_SIZE) * ONE_KB;
+        ProcessPageSize.bytes();
     final var diskCacheSize =
         contextConfiguration.getValueAsLong(GlobalConfiguration.DISK_CACHE_SIZE) * 1024 * 1024;
     final var writeCacheSize =

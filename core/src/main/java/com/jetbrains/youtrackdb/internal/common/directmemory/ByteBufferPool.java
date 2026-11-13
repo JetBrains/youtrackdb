@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -73,15 +74,7 @@ public final class ByteBufferPool implements ByteBufferPoolMXBean {
       return instance;
     }
 
-    int bufferSize;
-    if (contextConfiguration != null) {
-      bufferSize =
-          contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_CACHE_PAGE_SIZE);
-    } else {
-      bufferSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger();
-    }
-
-    final var newInstance = new ByteBufferPool(bufferSize * 1024);
+    final var newInstance = new ByteBufferPool(ProcessPageSize.bytes());
     if (INSTANCE_HOLDER.compareAndSet(null, newInstance)) {
       return newInstance;
     }

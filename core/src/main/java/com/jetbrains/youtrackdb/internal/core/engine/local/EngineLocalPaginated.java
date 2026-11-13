@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -94,7 +95,7 @@ public class EngineLocalPaginated extends EngineAbstract {
     final var diskCacheSize =
         calculateReadCacheMaxMemory(
             GlobalConfiguration.DISK_CACHE_SIZE.getValueAsLong() * 1024 * 1024);
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() * 1024;
+    final var pageSize = ProcessPageSize.bytes();
 
     if (GlobalConfiguration.DIRECT_MEMORY_PREALLOCATE.getValueAsBoolean()) {
       final var pageCount = (int) (diskCacheSize / pageSize);

@@ -69,6 +69,148 @@ public class StorageBootstrapMetadataTest {
     assertThat(StorageBootstrapMetadata.processLockCountForTests()).isZero();
   }
 
+  /** Every ordinary admission reason keeps the base choice of operator message, byte for byte. */
+  @Test
+  public void ordinaryAdmissionMessagesKeepBaseSelection() {
+    for (var reason : Reason.values()) {
+      var rejection = new StorageAdmissionException(reason, directory, "specific detail");
+      assertThat(rejection.operatorMessage()).isEqualTo(
+          reason == Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION
+              ? "specific detail" : reason.description());
+    }
+    var pageSize = StorageAdmissionException.pageSizeFailure(directory, "size-specific advice");
+    assertThat(pageSize.reason()).isEqualTo(Reason.AUTHORITY_INVALID_CONTENT);
+    assertThat(pageSize.operatorMessage()).isEqualTo("size-specific advice");
+  }
+
+  /** Birth records the process page size in encoding two without changing the record length. */
+  @Test
+  public void birthRecordsProcessPageSize() throws IOException {
+    metadata().createBirth(STORAGE, LINEAGE_ONE);
+    var bytes = Files.readAllBytes(authorityPath(0));
+    assertThat(bytes).hasSize(80);
+    assertThat(ByteBuffer.wrap(bytes).getInt(8)).isEqualTo(2);
+    assertThat(ByteBuffer.wrap(bytes).getInt(12) >>> 16).isEqualTo(
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+            .getValueAsInteger());
+  }
+
+  /** A checksum-valid encoding-two record without a size fails instead of assuming eight. */
+  @Test
+  public void missingNewPageSizeIsRejectedWithoutWrites() throws IOException {
+    metadata().createBirth(STORAGE, LINEAGE_ONE);
+    var bytes = Files.readAllBytes(authorityPath(0));
+    ByteBuffer.wrap(bytes).putInt(8, 2).putInt(12, FORMAT.version());
+    updateChecksum(bytes);
+    Files.write(authorityPath(0), bytes);
+    var before = Files.readAllBytes(authorityPath(0));
+
+    var rejection = admissionRejection(metadata()::readRequired);
+
+    assertThat(rejection.reason()).isEqualTo(Reason.AUTHORITY_INVALID_CONTENT);
+    assertThat(rejection).hasMessageContaining("Invalid database page size 0 KB")
+        .hasMessageContaining("Configured page size is " + ProcessPageSize.kibibytes() + " KB")
+        .hasMessageContaining("youtrackdb.storage.diskCache.pageSize");
+    assertThat(Files.readAllBytes(authorityPath(0))).isEqualTo(before);
+    assertThat(authorityFiles()).containsExactly(authorityPath(0));
+  }
+
+  /** Encoding two accepts its smallest and largest power-of-two sizes without truncation. */
+  @Test
+  public void recordedPageSizeBoundariesRoundTrip() throws IOException {
+    metadata().createBirth(STORAGE, LINEAGE_ONE);
+    for (int size : new int[] {1, 32768}) {
+      var bytes = Files.readAllBytes(authorityPath(0));
+      ByteBuffer.wrap(bytes).putInt(12, (size << 16) | FORMAT.version());
+      updateChecksum(bytes);
+      Files.write(authorityPath(0), bytes);
+      assertThat(metadata().readRequired().pageSizeKiB()).isEqualTo(size);
+    }
+  }
+
+  /** A checksum-valid non-power-of-two size fails without repair or file changes. */
+  @Test
+  public void nonPowerOfTwoRecordedPageSizeIsRejectedWithoutWrites() throws IOException {
+    metadata().createBirth(STORAGE, LINEAGE_ONE);
+    var bytes = Files.readAllBytes(authorityPath(0));
+    ByteBuffer.wrap(bytes).putInt(12, (3 << 16) | FORMAT.version());
+    updateChecksum(bytes);
+    Files.write(authorityPath(0), bytes);
+    assertThatThrownBy(metadata()::readRequired)
+        .isInstanceOf(StorageAdmissionException.class)
+        .hasMessageContaining("Invalid database page size 3 KB")
+        .hasMessageContaining("Configured page size is " + ProcessPageSize.kibibytes() + " KB")
+        .hasMessageContaining("youtrackdb.storage.diskCache.pageSize");
+    assertThat(Files.readAllBytes(authorityPath(0))).isEqualTo(bytes);
+    assertThat(authorityFiles()).containsExactly(authorityPath(0));
+  }
+
+  /** Encoding two rejects feature overflow and sizes outside its unsigned power-of-two field. */
+  @Test
+  public void newSnapshotRejectsUnrepresentableFields() {
+    var floor = new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 0);
+    for (int size : new int[] {-1, 3, 65536}) {
+      assertThatThrownBy(() -> new StorageBootstrapMetadata.Snapshot(
+          FORMAT, StorageFormat.LAYOUT_27, 1, StorageBootstrapMetadata.State.ACTIVE, floor, size))
+          .isInstanceOf(IllegalArgumentException.class)
+          .hasMessageContaining("Invalid recorded page size");
+    }
+    assertThatThrownBy(() -> new StorageBootstrapMetadata.Snapshot(
+        new FeatureFormatIdentity(65536), StorageFormat.LAYOUT_27, 1,
+        StorageBootstrapMetadata.State.ACTIVE, floor, 4))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Feature version does not fit encoding two");
+    assertThat(new StorageBootstrapMetadata.Snapshot(
+        new FeatureFormatIdentity(65535), StorageFormat.LAYOUT_27, 1,
+        StorageBootstrapMetadata.State.ACTIVE, floor, 4).format().version()).isEqualTo(65535);
+  }
+
+  /** Copies must agree on page size even when their generations are not consecutive. */
+  @Test
+  public void conflictingPageSizesAreRejectedWithoutWrites() throws IOException {
+    var metadata = metadata();
+    metadata.activate(metadata.createBirth(STORAGE, LINEAGE_ONE));
+    var bytes = Files.readAllBytes(authorityPath(1));
+    var buffer = ByteBuffer.wrap(bytes);
+    int size = buffer.getInt(12) >>> 16;
+    buffer.putInt(12, ((size == 4 ? 8 : 4) << 16) | FORMAT.version());
+    buffer.putLong(16, 5);
+    updateChecksum(bytes);
+    Files.write(authorityPath(1), bytes);
+    var before = Files.readAllBytes(authorityPath(0));
+
+    assertThatThrownBy(metadata()::readRequired)
+        .isInstanceOf(StorageAdmissionException.class)
+        .hasMessageContaining("database page size: " + size + " KB and "
+            + (size == 4 ? 8 : 4) + " KB")
+        .hasMessageContaining("Configured page size is " + ProcessPageSize.kibibytes() + " KB")
+        .hasMessageContaining("youtrackdb.storage.diskCache.pageSize");
+    assertThat(Files.readAllBytes(authorityPath(0))).isEqualTo(before);
+    assertThat(Files.readAllBytes(authorityPath(1))).isEqualTo(bytes);
+  }
+
+  /** Repair and a later generation retain encoding one and never add an assumed size. */
+  @Test
+  public void legacyRepairAndAdvanceKeepOriginalEncoding() throws IOException {
+    var metadata = metadata();
+    metadata.activate(metadata.createBirth(STORAGE, LINEAGE_ONE));
+    for (var path : authorityFiles()) {
+      var bytes = Files.readAllBytes(path);
+      ByteBuffer.wrap(bytes).putInt(8, 1).putInt(12, FORMAT.version());
+      updateChecksum(bytes);
+      Files.write(path, bytes);
+    }
+    var reopened = metadata();
+    var active = reopened.readActiveRequired();
+    reopened.advanceFloor(active,
+        new LogicalSequenceFloor(STORAGE, LINEAGE_ONE, 7));
+    for (var path : authorityFiles()) {
+      var bytes = Files.readAllBytes(path);
+      assertThat(ByteBuffer.wrap(bytes).getInt(8)).isEqualTo(1);
+      assertThat(ByteBuffer.wrap(bytes).getInt(12)).isEqualTo(FORMAT.version());
+    }
+  }
+
   /** Initial establishment writes only durable BIRTH_IN_PROGRESS authority in the first slot. */
   @Test
   public void birthEstablishesOnlyPendingAuthority() throws IOException {
