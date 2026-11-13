@@ -3,13 +3,19 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.api.gremlin.__;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinTranslationMetrics;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import org.apache.tinkerpop.gremlin.process.traversal.Order;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.PropertyMapStep;
 import org.apache.tinkerpop.gremlin.structure.Column;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -42,11 +48,17 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * --gremlin-arms both} to {@code jmh-compare.py}. That axis is for recogniser and kill-switch work,
  * not for the default PR regression comment.
  *
- * <h2>Two shape groups</h2>
+ * <h2>Routing groups</h2>
  *
  * <p><b>Translating shapes</b> carry one {@link AbstractMatchPlanStep} with the kill-switch on. In
  * CI (translator on both sides) their head-vs-base delta is a regression on the MATCH pipeline. In
  * the optional on/off A/B, the same shape's delta is MATCH vs native on one commit.
+ *
+ * <p><b>Proven plain shapes</b> carry no boundary step with translation enabled. Equality index
+ * access is proved on the first cache-eligible call and the decision is reused by shape until
+ * metadata generation invalidation. An uncached index start keeps MATCH. Exact per-value reverses
+ * around at most one fold are neutral. Ordered pages remain MATCH witnesses. A routing change
+ * makes head-vs-base an engine-selection comparison rather than a MATCH-only comparison.
  *
  * <p><b>Declining shapes</b> carry no boundary step even with the kill-switch on — the translator
  * walks and declines, or vetoes before the walk ({@code RepeatDeclineStrategy}). Both CI arms
@@ -188,10 +200,8 @@ public final class GremlinTraversalShapes {
   /**
    * LDBC: none. Translator primitive: the {@link #knowsFirstNames} walk under {@code fold()}.
    *
-   * <p>The list-shaping terminator the boundary step drains through a {@code ListShapingOp}, and
-   * the newest recogniser this harness covers. Its assertion doubles as a classpath check: a
-   * {@code youtrackdb-core} without the {@code FoldStep} registry entry declines the shape, both
-   * arms measure the native path, and the two numbers coincide instead of failing loudly.
+   * <p>One fold is a neutral boundary operation. With proven equality index access this shape
+   * runs natively even when translation is enabled. The ordered-page shape is the MATCH witness.
    */
   public static YTDBGraphTraversal<Vertex, List<String>> knowsFirstNamesFolded(
       YTDBGraphTraversalSource g, long personId) {
@@ -1047,7 +1057,7 @@ public final class GremlinTraversalShapes {
   /**
    * LDBC: IS4 fragment — {@code coalesce(imageFile, content)}.
    *
-   * <p>Translating twin without coalesce: {@link #is4MessageContent}.
+   * <p>Recognised twin without coalesce: {@link #is4MessageContent}.
    *
    * <p>Gap (whole shape declines):
    * <ul>
@@ -1080,6 +1090,157 @@ public final class GremlinTraversalShapes {
         .out(HAS_CREATOR_LABEL)
         .optional(__.out(KNOWS_LABEL))
         .values("firstName");
+  }
+
+  /** Exact two-hop valueMap forms for the G6 measurement gate. No form adds a barrier itself. */
+  public enum BulkingForm {
+    DUPLICATE, ONE_ROW, UNIQUE, MOSTLY_UNIQUE;
+
+    public YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource g, long id) {
+      return switch (this) {
+        case DUPLICATE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).out(KNOWS_LABEL).valueMap("id", "firstName", "lastName");
+        case ONE_ROW -> g.V().hasLabel(MESSAGE_LABEL).has("id", id)
+            .out(HAS_CREATOR_LABEL).out(IS_LOCATED_IN_LABEL).valueMap("name");
+        case UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(KNOWS_LABEL).in(HAS_CREATOR_LABEL).valueMap("id", "creationDate", "length");
+        case MOSTLY_UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id)
+            .out(LIKES_LABEL).out(HAS_CREATOR_LABEL).valueMap("id", "firstName", "lastName");
+      };
+    }
+
+    /** Cross-label forms keep a non-plain filter before the native grouping boundary. */
+    public YTDBGraphTraversal<Vertex, Map<Object, Object>> traversal(
+        YTDBGraphTraversalSource g, long id, boolean crossLabel) {
+      if (!crossLabel) {
+        return traversal(g, id);
+      }
+      return switch (this) {
+        case DUPLICATE -> g.V().hasLabel(PERSON_LABEL).has("id", id).as("a")
+            .out(KNOWS_LABEL).out(KNOWS_LABEL).where(P.neq("a"))
+            .valueMap("id", "firstName", "lastName");
+        case ONE_ROW -> g.V().hasLabel(MESSAGE_LABEL).has("id", id).as("a")
+            .out(HAS_CREATOR_LABEL).out(IS_LOCATED_IN_LABEL).where(P.neq("a"))
+            .valueMap("name");
+        case UNIQUE -> g.V().hasLabel(PERSON_LABEL).has("id", id).as("a")
+            .out(KNOWS_LABEL).in(HAS_CREATOR_LABEL).where(P.neq("a"))
+            .valueMap("id", "creationDate", "length");
+        case MOSTLY_UNIQUE -> throw new IllegalArgumentException(
+            "No cross-label benchmark for " + this);
+      };
+    }
+
+    /** Rejects empty feeds and feeds that do not exercise the named duplicate or control case. */
+    void requireCounts(long id, int rows, int distinct) {
+      boolean valid = rows > 0 && switch (this) {
+        case DUPLICATE -> distinct < rows;
+        case ONE_ROW -> rows == 1;
+        case UNIQUE -> distinct == rows;
+        case MOSTLY_UNIQUE -> true;
+      };
+      if (!valid) {
+        throw new IllegalStateException(
+            "G6 " + this + " parameter " + id + ": invalid feed, rows=" + rows
+                + ", distinct elements=" + distinct);
+      }
+    }
+  }
+
+  /** Requires a native bulking barrier immediately before the actual valueMap, not another hop. */
+  static void requireNativeValueMapBarrier(String shape, Traversal.Admin<?, ?> nativeTraversal) {
+    requireNotTranslated(shape, nativeTraversal);
+    var projection = nativeTraversal.getEndStep();
+    if (!(projection instanceof PropertyMapStep)
+        || !(projection.getPreviousStep() instanceof NoOpBarrierStep)) {
+      throw new IllegalStateException(
+          "G6 " + shape + ": no native barrier before valueMap. Steps: "
+              + nativeTraversal.getSteps());
+    }
+  }
+
+  /** Checks the measured pipelines, then counts element identities before map construction. */
+  static void checkBulkingForm(BulkingForm form, long id,
+      Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal) {
+    checkBulkingForm(form, id, translated, nativeTraversal, false);
+  }
+
+  /** Wider forms require actual native label retraction and optional core-capacity evidence. */
+  static void checkBulkingForm(BulkingForm form, long id,
+      Traversal.Admin<?, ?> translated, Traversal.Admin<?, ?> nativeTraversal, boolean crossLabel) {
+    var tx = (YTDBTransaction) translated.getGraph().orElseThrow().tx();
+    tx.readWrite();
+    var metrics = GremlinTranslationMetrics.of(tx.getDatabaseSession());
+    long nativeBefore = metrics.getRuleNative();
+    long declinesBefore = metrics.getDeclines();
+    long errorsBefore = metrics.getErrors();
+    translated.applyStrategies();
+    if (crossLabel) {
+      requireTranslated("G6 " + form, translated);
+      requireBulkingCapacityIfAvailable(translated.getStartStep());
+    } else {
+      if (metrics.getRuleNative() != nativeBefore + 1
+          || metrics.getDeclines() != declinesBefore || metrics.getErrors() != errorsBefore) {
+        throw new IllegalStateException("G6 " + form + ": expected a proved rule-native decision");
+      }
+      // Plain G6 forms need no MATCH boundary. A retained ordered-page witness proves the
+      // enabled translator still engages rather than accepting a permanently disabled harness.
+      var witness = translated.getGraph().orElseThrow().traversal().V()
+          .hasLabel("Person").has("id", id).out("KNOWS").order().by("firstName")
+          .range(1, 3).values("firstName").asAdmin();
+      witness.applyStrategies();
+      requireTranslated("knowsOrderedPage", witness);
+      requireNotTranslated("plain G6 " + form, translated);
+    }
+    // Clone before strategies lock the walk and drop only valueMap. Counting maps would conflate
+    // different elements with equal properties and could hide a defective duplicate feed.
+    var elements = nativeTraversal.clone();
+    elements.removeStep(elements.getSteps().size() - 1);
+    nativeTraversal.applyStrategies();
+    requireNativeValueMapBarrier(form.toString(), nativeTraversal);
+    if (crossLabel) {
+      var barrier = (NoOpBarrierStep<?>) nativeTraversal.getEndStep().getPreviousStep();
+      if (!(barrier.getPreviousStep() instanceof WherePredicateStep<?> where)
+          || where.getKeepLabels() == null || !where.getKeepLabels().isEmpty()
+          || !where.getLabels().isEmpty() || !barrier.getLabels().isEmpty()
+          || !nativeTraversal.getEndStep().getLabels().isEmpty()) {
+        throw new IllegalStateException("G6 " + form + ": no native empty-path retraction");
+      }
+      // Inspect the actual barrier output on a clone, leaving the caller's map traversal unused.
+      var probe = nativeTraversal.clone();
+      var nativeBarrier = (NoOpBarrierStep<?>) probe.getEndStep().getPreviousStep();
+      try {
+        while (nativeBarrier.hasNext()) {
+          if (!nativeBarrier.next().path().isEmpty()) {
+            throw new IllegalStateException("G6 " + form + ": labelled path at native barrier");
+          }
+        }
+      } finally {
+        org.apache.tinkerpop.gremlin.structure.util.CloseableIterator.closeIterator(probe);
+      }
+    }
+    var identities = new HashSet<Object>();
+    var rows = elements.toList();
+    for (var row : rows) {
+      identities.add(((Vertex) row).id());
+    }
+    form.requireCounts(id, rows.size(), identities.size());
+    System.out.println("G6 " + form + " parameter " + id + ": verified route, native barrier, rows="
+        + rows.size() + ", distinct elements=" + identities.size());
+  }
+
+  /** Track 6 has no accessor. Reflection keeps the identical benchmark module usable on both cores. */
+  static void requireBulkingCapacityIfAvailable(Object boundary) {
+    try {
+      var accessor = boundary.getClass().getMethod("getPropertyMapBulkingCapacity");
+      if (((Number) accessor.invoke(boundary)).intValue() <= 0) {
+        throw new IllegalStateException("G6 cross-label: core capacity must be positive");
+      }
+    } catch (NoSuchMethodException ignored) {
+      // The G6-off core has no capacity API. All other preflight checks still apply.
+    } catch (ReflectiveOperationException error) {
+      throw new IllegalStateException("G6 cross-label: cannot read core capacity", error);
+    }
   }
 
   // ---------------------------------------------------------------------------------------------

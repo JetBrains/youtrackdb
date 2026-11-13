@@ -157,8 +157,9 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
     if (ctx instanceof WalkerContext walker && !ctx.emitGroupEntries()) {
-      var session = YTDBStrategyUtil.resolveYtdbSession(
-          YTDBStrategyUtil.rootTraversal(orderStep.getTraversal()));
+      var session = walker.environment != null ? walker.environment.session()
+          : YTDBStrategyUtil.resolveYtdbSession(
+              YTDBStrategyUtil.rootTraversal(orderStep.getTraversal()));
       if (session != null) {
         var schema = session.getMetadata().getImmutableSchemaSnapshot();
         if (schema != null) {
@@ -192,8 +193,9 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
    */
   private static boolean hasDeclaredUnionCollation(
       OrderGlobalStep<?, ?> step, RecognitionContext ctx, String boundary) {
-    var session = YTDBStrategyUtil.resolveYtdbSession(
-        YTDBStrategyUtil.rootTraversal(step.getTraversal()));
+    var session = ctx instanceof WalkerContext walker && walker.environment != null
+        ? walker.environment.session() : YTDBStrategyUtil.resolveYtdbSession(
+            YTDBStrategyUtil.rootTraversal(step.getTraversal()));
     if (session == null) {
       return false;
     }

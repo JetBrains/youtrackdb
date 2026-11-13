@@ -25,6 +25,10 @@ import org.junit.Test;
 /** Deterministic two-map generation races and explicit ownership tests. */
 public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** Another session misses both maps after advance, before clear, and after late old insertion. */
   @Test
   public void advanceBeforeClearAndLatePublicationMissInBothMaps() throws Exception {

@@ -81,6 +81,85 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
+  /** Equality-source evidence is invocation-local and does not authorize another value or tail. */
+  @Test
+  public void nativeIndexedSourceRequiresCompleteNativeEvidence() {
+    var person = session.createVertexClass("ProofPerson");
+    person.createProperty("id", PropertyType.LONG).createIndex(INDEX_TYPE.UNIQUE);
+    graph.addVertex(T.label, "ProofPerson", "id", 1L);
+    graph.tx().commit();
+    var nativeSession = session();
+    var raw = graph.traversal().V().hasLabel("ProofPerson").has("id", 1L).asAdmin();
+    var translation = GremlinToMatchTranslator.translate(raw);
+    var context = new BasicCommandContext(nativeSession);
+    context.setInputParameters(translation.inputParameters());
+    var plan = GremlinToMatchStrategy.buildPlan(nativeSession, translation,
+        new GremlinToMatchStrategy.CacheScope(0, false));
+    try {
+      var evidence = NativeStartProof.prove(raw, nativeSession);
+      assertThat(evidence).isNotNull();
+      var source =
+          (InternalExecutionPlan) new com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQuery(
+              "SELECT FROM ProofPerson WHERE id = :value", Map.of("value", 1L), 1)
+              .explain(nativeSession);
+      try {
+        assertThat(evidence.matches(source, source.getContext(), "WrongClass")).isFalse();
+        var savedExtract = source.getSteps().get(1);
+        source.getSteps().set(1,
+            new com.jetbrains.youtrackdb.internal.core.sql.executor.GetValueFromIndexEntryStep(
+                context, new it.unimi.dsi.fastutil.ints.IntArrayList(new int[] {999}), false));
+        assertThat(evidence.matches(source, source.getContext(), "ProofPerson")).isFalse();
+        source.getSteps().set(1, savedExtract);
+        source.getSteps().add(mock(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.LimitExecutionStep.class));
+        assertThat(evidence.matches(source, source.getContext(), "ProofPerson")).isFalse();
+        source.getSteps().removeLast();
+      } finally {
+        source.close();
+      }
+      assertThat(
+          PlainBoundaryClassifier.classify(plan, translation, evidence, context, false).plain())
+          .isTrue();
+      assertThat(NativeStartProof.prove(
+          graph.traversal().V().hasLabel("ProofPerson").has("id", 999L).asAdmin(),
+          nativeSession)).isNotNull();
+      assertThat(NativeStartProof.prove(
+          graph.traversal().V().hasLabel("ProofPerson").has("id", (Object) null).asAdmin(),
+          nativeSession)).isNull();
+      context.setInputParameters(Map.of(0, 2L));
+      assertThat(
+          PlainBoundaryClassifier.classify(plan, translation, evidence, context, false).plain())
+          .isFalse();
+      for (String sql : List.of(
+          "SELECT FROM ProofPerson WHERE id > :value",
+          "SELECT FROM ProofPerson WHERE id = :value AND id < 10",
+          "SELECT FROM ProofPerson WHERE id = :value OR id = 2")) {
+        var rejected =
+            (InternalExecutionPlan) new com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQuery(
+                sql, Map.of("value", 1L), 1).explain(nativeSession);
+        try {
+          assertThat(evidence.matches(rejected, rejected.getContext(), "ProofPerson")).isFalse();
+        } finally {
+          rejected.close();
+        }
+      }
+      assertThat(NativeStartProof.prove(
+          graph.traversal().V().hasLabel("ProofPerson").has("id", P.gt(0L)).asAdmin(),
+          nativeSession)).isNull();
+      assertThat(NativeStartProof.prove(
+          graph.traversal().V().hasLabel("ProofPerson").has("id", 1L)
+              .has("name", org.apache.tinkerpop.gremlin.process.traversal.TextP.containing("x"))
+              .asAdmin(),
+          nativeSession)).isNull();
+    } finally {
+      plan.close();
+    }
+  }
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::session);
 

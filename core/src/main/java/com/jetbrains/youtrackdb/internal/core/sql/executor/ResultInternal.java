@@ -28,7 +28,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.EmbeddedSet
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkListResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkMapResultImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.LinkSetResultImpl;
-import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import com.jetbrains.youtrackdb.internal.core.util.DateHelper;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
@@ -51,14 +50,14 @@ public class ResultInternal implements Result, BasicResultInternal {
   protected Map<String, Object> temporaryContent;
   protected Map<String, Object> metadata;
 
-  // Ordinary SQL rows only remember the checked transaction. MATCH creates the token on binding.
-  private FrontendTransactionImpl checkedTransaction;
+  // Capture the scope at the checked read, not when a later row binds the alias.
+  private MatchedRecord checkedRecord;
   private Map<String, MatchedRecord> matchedRecords;
 
   /** Only call after the normal checked session read, never for an arbitrary bound record. */
   public static ResultInternal fromCheckedRecord(DatabaseSessionEmbedded session, DBRecord record) {
     var result = new ResultInternal(session, record);
-    result.checkedTransaction = session.getActiveTransaction();
+    result.checkedRecord = new MatchedRecord(record, session, session.getActiveTransaction());
     return result;
   }
 
@@ -96,9 +95,8 @@ public class ResultInternal implements Result, BasicResultInternal {
   }
 
   @Nullable protected static MatchedRecord matchedRecordFrom(Object value) {
-    if (value instanceof ResultInternal result && result.checkedTransaction != null
-        && result.identifiable instanceof DBRecord record) {
-      return new MatchedRecord(record, result.session, result.checkedTransaction);
+    if (value instanceof ResultInternal result) {
+      return result.checkedRecord;
     }
     return null;
   }
@@ -108,7 +106,8 @@ public class ResultInternal implements Result, BasicResultInternal {
     return matchedRecords == null ? null : matchedRecords.get(name);
   }
 
-  @Nullable private DBRecord getReusableRecord(String name) {
+  /** Returns execution-local evidence only while its original checked-read scope remains valid. */
+  @Nullable public DBRecord getReusableRecord(String name) {
     var retained = getMatchedRecord(name);
     return retained == null ? null : retained.reusableIn(session);
   }
@@ -117,7 +116,7 @@ public class ResultInternal implements Result, BasicResultInternal {
     // All callers invoke this before replacing an identifier with its loaded record.
     if (identifiable instanceof RID && record instanceof RecordAbstract loaded
         && loaded.txEntry == null) {
-      checkedTransaction = session.getActiveTransaction();
+      checkedRecord = new MatchedRecord(record, session, session.getActiveTransaction());
     }
   }
 
@@ -742,7 +741,7 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   public void setSession(@Nullable DatabaseSessionEmbedded session) {
     if (this.session != session) {
-      checkedTransaction = null;
+      checkedRecord = null;
       matchedRecords = null;
     }
     this.session = session;
@@ -1020,7 +1019,7 @@ public class ResultInternal implements Result, BasicResultInternal {
 
   public void setIdentifiable(Identifiable identifiable) {
     assert checkSession();
-    checkedTransaction = null;
+    checkedRecord = null;
     matchedRecords = null;
 
     if (identifiable instanceof Entity entity && entity.isEmbedded()) {

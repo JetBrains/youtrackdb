@@ -39,7 +39,7 @@ public class PrefilterMetricsDefinitionTest {
 
   /**
    * GLOBAL_METRICS must contain the disk-cache / prefilter originals, the tx-result-cache rates,
-   * the Gremlin plan-cache hit/miss rates, and the Gremlin translation success/decline/error
+   * the Gremlin plan-cache hit/miss rates, and the Gremlin translation success/decline/error/rule-native
    * ratios. This catches both accidental additions and accidental removals.
    */
   @Test
@@ -58,7 +58,8 @@ public class PrefilterMetricsDefinitionTest {
         CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE,
         CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO,
         CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO,
-        CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO);
+        CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO,
+        CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
   }
 
   // ---- Config entry assertions ----

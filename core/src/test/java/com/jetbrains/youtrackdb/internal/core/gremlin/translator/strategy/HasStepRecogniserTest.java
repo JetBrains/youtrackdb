@@ -1102,8 +1102,8 @@ public class HasStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * Real extraction of ordinary equality and scalar predicates performs no class lookup. Each
-   * excluded spelling still resolves the named class through the narrowing fallback.
+   * Structural extraction performs no class lookup for ordinary or fallback spellings. Value
+   * collection still resolves every fallback class and preserves its contribution layout.
    */
   @Test
   public void ordinaryEqualityExtraction_skipsSchemaReadsButFallbackStillResolvesClass() {
@@ -1139,7 +1139,9 @@ public class HasStepRecogniserTest extends GraphBaseTest {
         graph.traversal().V().where(__.hasLabel("ReadPerson")).asAdmin());
     for (var fallback : fallbacks) {
       clearInvocations(schema);
-      GremlinStepWalker.extractShape(fallback, extractionSession);
+      var deferred = GremlinStepWalker.extractShape(fallback, extractionSession);
+      verify(schema, never()).getClass(anyString());
+      deferred.bindings();
       verify(schema, atLeastOnce()).getClass("ReadPerson");
     }
   }

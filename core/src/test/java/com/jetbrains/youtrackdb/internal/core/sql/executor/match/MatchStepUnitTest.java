@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.VertexFromLinkBagIterable;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.QueryPlanningInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
@@ -42,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFieldMatchPathItem;
@@ -331,6 +333,57 @@ public class MatchStepUnitTest extends DbTestBase {
       }
     } finally {
       session.activateOnCurrentThread();
+      session.rollback();
+    }
+  }
+
+  /** Hop, projection and order reads keep checked evidence through layers and plan copies. */
+  @Test
+  public void layeredProjectionOrderingAndHopInputsDoNotRequestCheckedRecordsAgain() {
+    session.begin();
+    var vertex = session.newVertex("V");
+    vertex.setProperty("name", "first");
+    var other = session.newVertex("V");
+    other.setProperty("name", "second");
+    session.commit();
+    session.begin();
+    var reads = new ArrayList<DBRecord>();
+    var hook = observeReads(reads);
+    try {
+      var source = ResultInternal.fromLoadedRecord(session, session.load(vertex.getIdentity()));
+      var otherSource = ResultInternal.fromLoadedRecord(session, session.load(other.getIdentity()));
+      var row = new MatchResultRow(session, firstRow(source), "b", otherSource);
+      var ctx = createCommandContext();
+      var property = ProjectionExpressionFactories.aliasProperty("a", "name");
+      var identity = ProjectionExpressionFactories.aliasRecordAttribute("a", "@rid");
+      int before = reads.size();
+      assertEquals("first", property.execute(row, ctx));
+      assertEquals("first", property.copy().execute(row, ctx));
+      assertEquals(vertex.getIdentity(), identity.copy().execute(row, ctx));
+      var second = new MatchResultRow(session, row, "a", otherSource);
+      var order = ProjectionExpressionFactories.orderByProperty("a", "name", true).copy();
+      assertTrue(order.compare(row, second, ctx,
+          ResolvedOrderByNullsPlacement.SHIPPED) < 0);
+      var edge = createTestEdgeTraversal();
+      var traverser = new MatchEdgeTraverser(row, edge) {
+        @Override
+        protected ExecutionStream executeTraversal(CommandContext context, SQLMatchPathItem path,
+            Result startingPoint, int depth, PathNode pathToHere, RidSet visited) {
+          assertSame(source.asRecord(), startingPoint.asRecord());
+          return ExecutionStream.empty();
+        }
+      };
+      assertFalse(traverser.hasNext(ctx));
+      assertEquals(before, reads.size());
+      // Replacing and removing a local alias must not uncover the parent's checked evidence.
+      row.setProperty("a", other.getIdentity());
+      assertEquals("second", property.execute(row, ctx));
+      assertEquals(before + 1, reads.size());
+      row.removeProperty("a");
+      assertNull(property.execute(row, ctx));
+      assertEquals(before + 1, reads.size());
+    } finally {
+      session.unregisterHook(hook);
       session.rollback();
     }
   }

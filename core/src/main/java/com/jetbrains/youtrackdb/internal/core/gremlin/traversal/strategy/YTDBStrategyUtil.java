@@ -95,17 +95,11 @@ public final class YTDBStrategyUtil {
       return null;
     }
 
-    final Boolean value = explicitPolymorphic(rootOptions(traversal));
-    if (value != null) {
-      return value;
-    }
-
-    final var configuration = session.getConfiguration();
-    if (configuration == null) {
-      return null;
-    }
-    return configuration.getValueAsBoolean(
-        GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    return resolvePolymorphic(explicitPolymorphic(rootOptions(traversal)), () -> {
+      var configuration = session.getConfiguration();
+      return configuration == null ? null : configuration.getValueAsBoolean(
+          GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    });
   }
 
   /// Resolves both null placements for one traversal. Each explicit per-traversal option overrides
@@ -124,7 +118,11 @@ public final class YTDBStrategyUtil {
     }
 
     final var configured = OrderByNullsUtil.resolvePlacements(session.getConfiguration());
-    final var explicit = explicitNullPlacements(rootOptions(traversal));
+    return resolveNullPlacements(configured, explicitNullPlacements(rootOptions(traversal)));
+  }
+
+  private static ResolvedOrderByNullsPlacement resolveNullPlacements(
+      ResolvedOrderByNullsPlacement configured, ExplicitNullPlacements explicit) {
     if (explicit == NO_NULL_OVERRIDES) {
       return configured;
     }
@@ -160,24 +158,53 @@ public final class YTDBStrategyUtil {
   /// `orderIncludesMissingKey=true` option with the standard-order strategy. An unresolved setting
   /// keeps records unless the strategy is present.
   public static boolean orderIncludesMissingKey(Admin<?, ?> traversal) {
-    final Boolean explicit = explicitOrderIncludesMissingKey(rootOptions(traversal), traversal);
-    if (Boolean.FALSE.equals(explicit)) {
-      return false;
-    }
+    var options = rootOptions(traversal);
+    var standard = hasStandardOrderSemanticsStrategy(traversal);
+    return resolveOrder(explicitOrderIncludesMissingKey(options, standard), standard, () -> {
+      var session = resolveYtdbSession(traversal);
+      return session == null || session.getConfiguration() == null
+          || session.getConfiguration().getValueAsBoolean(
+              GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
+    });
+  }
 
-    if (explicit == null) {
-      final var session = resolveYtdbSession(traversal);
-      if (session != null && session.getConfiguration() != null
-          && !session.getConfiguration().getValueAsBoolean(
-              GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY)) {
-        return false;
-      }
-    }
+  private static boolean resolveOrder(@Nullable Boolean explicit, boolean standard,
+      java.util.function.BooleanSupplier configured) {
+    return (explicit != null ? explicit : configured.getAsBoolean()) && !standard;
+  }
 
-    if (!hasStandardOrderSemanticsStrategy(traversal)) {
-      return true;
+  private static @Nullable Boolean resolvePolymorphic(@Nullable Boolean explicit,
+      java.util.function.Supplier<Boolean> configured) {
+    return explicit != null ? explicit : configured.get();
+  }
+
+  /** Settings for one translator application only. Call after capturing the cache generation. */
+  public record TranslationSettings(boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement nullPlacements, boolean polymorphic) {
+  }
+
+  /**
+   * Resolves the execution settings using the session already opened by the translator.
+   * The returned value must remain local to the current application, not attached to strategies.
+   */
+  public static @Nullable TranslationSettings translationSettings(
+      Admin<?, ?> traversal, DatabaseSessionEmbedded session) {
+    var root = rootTraversal(traversal);
+    var options = rootOptions(root);
+    var configuration = session.getConfiguration();
+    if (configuration == null) {
+      return null;
     }
-    return false;
+    boolean standard = hasStandardOrderSemanticsStrategy(root);
+    boolean includeMissing = resolveOrder(explicitOrderIncludesMissingKey(options, standard),
+        standard, () -> configuration.getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY));
+    var placements = resolveNullPlacements(OrderByNullsUtil.resolvePlacements(configuration),
+        explicitNullPlacements(options));
+    boolean polymorphic = resolvePolymorphic(explicitPolymorphic(options),
+        () -> configuration.getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT));
+    return new TranslationSettings(includeMissing, placements, polymorphic);
   }
 
   private static @Nullable OptionsStrategy rootOptions(Admin<?, ?> traversal) {
@@ -187,8 +214,21 @@ public final class YTDBStrategyUtil {
   /** Reads only the explicit Boolean option and its deliberate order-mode contradiction. */
   public static @Nullable Boolean explicitOrderIncludesMissingKey(
       @Nullable OptionsStrategy options, Admin<?, ?> traversal) {
+    // Keep the cast before the strategy lookup on explicit-validation-only paths.
     Boolean value = (Boolean) explicitValue(options, YTDBQueryConfigParam.orderIncludesMissingKey);
-    if (Boolean.TRUE.equals(value) && hasStandardOrderSemanticsStrategy(traversal)) {
+    return validateExplicitOrder(value,
+        Boolean.TRUE.equals(value) && hasStandardOrderSemanticsStrategy(traversal));
+  }
+
+  private static @Nullable Boolean explicitOrderIncludesMissingKey(
+      @Nullable OptionsStrategy options, boolean standard) {
+    return validateExplicitOrder(
+        (Boolean) explicitValue(options, YTDBQueryConfigParam.orderIncludesMissingKey), standard);
+  }
+
+  private static @Nullable Boolean validateExplicitOrder(@Nullable Boolean value,
+      boolean standard) {
+    if (Boolean.TRUE.equals(value) && standard) {
       throw new ContradictoryOrderSemanticsException(
           "StandardOrderSemanticsStrategy conflicts with the explicit "
               + "orderIncludesMissingKey=true option. Remove the strategy with "

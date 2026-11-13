@@ -307,7 +307,15 @@ public class MatchEdgeTraverser implements ExecutionStream {
    */
   protected void init(CommandContext ctx) {
     if (downstream == null) {
-      var startingElem = sourceRecord.getProperty(getStartingPointAlias());
+      Object startingElem = sourceRecord.getProperty(getStartingPointAlias());
+      if (sourceRecord instanceof ResultInternal row) {
+        var record = row.getReusableRecord(getStartingPointAlias());
+        if (record != null && record.getIdentity().equals(startingElem)
+            && row.getBoundedToSession() == ctx.getDatabaseSession()) {
+          // The next hop consumes the same checked record, not a fresh RID-only wrapper.
+          startingElem = ResultInternal.fromCheckedRecord(ctx.getDatabaseSession(), record);
+        }
+      }
       if (!(startingElem instanceof Result)) {
         startingElem = ResultInternal.toResultInternal(startingElem, ctx.getDatabaseSession());
       }

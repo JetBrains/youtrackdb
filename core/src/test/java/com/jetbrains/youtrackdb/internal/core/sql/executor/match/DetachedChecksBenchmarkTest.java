@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,6 +47,12 @@ public class DetachedChecksBenchmarkTest {
       benchmark.scenario = scenario;
       try {
         benchmark.setup();
+        // These frozen measured-loss forms stay MATCH under the strict rule A inventory.
+        if (scenario.equals("distinct-nested")
+            && java.util.List.of("EXISTS", "OR", "NOT_OR").contains(kind)) {
+          assertThat(benchmark.witness.engine()).isEqualTo("translated");
+          assertThat(benchmark.witness.paths()).anyMatch(path -> path.startsWith("nested-"));
+        }
         benchmark.verifyExecutionChecksum(benchmark.execute());
         benchmark.verifyExecutionChecksum(benchmark.execute());
       } finally {

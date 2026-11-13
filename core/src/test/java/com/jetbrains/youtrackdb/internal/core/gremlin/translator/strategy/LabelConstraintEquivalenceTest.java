@@ -17,6 +17,10 @@ import org.junit.Test;
 /** Label conjunctions decline to native without losing a condition in either polymorphism mode. */
 public class LabelConstraintEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> ((YTDBTransaction) graph.tx()).getDatabaseSession());
 

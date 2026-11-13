@@ -39,6 +39,10 @@ import org.junit.Test;
  */
 public class GremlinPlanCacheTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::graphSession);
 
@@ -46,6 +50,77 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
   public void enableTranslator() {
     support.setTranslatorEnabled(true);
     GremlinPlanCache.instance(graphSession()).invalidate();
+  }
+
+  /** Capacity-one translation eviction must lose the old shape and admit its fresh replacement. */
+  @Test
+  public void translationEntriesEvictAndCanBeRebuilt() {
+    var cache = new GremlinPlanCache(1);
+    var firstKey = new GremlinShapeKey(new Object[] {"first"});
+    var secondKey = new GremlinShapeKey(new Object[] {"second"});
+    var first = new GremlinTranslationTemplate.Decline();
+    var second = new GremlinTranslationTemplate.Decline();
+    var generation = cache.getGeneration();
+    cache.putTranslationInternal(firstKey, first, graphSession(), generation);
+    cache.putTranslationInternal(secondKey, second, graphSession(), generation);
+    assertThat(cache.containsTranslation(firstKey)).isFalse();
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isNull();
+    assertThat(cache.getTranslationInternal(secondKey, graphSession())).isSameAs(second);
+    var rebuilt = new GremlinTranslationTemplate.Decline();
+    assertThat(cache.putTranslationInternal(firstKey, rebuilt, graphSession(), generation))
+        .isSameAs(rebuilt);
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isSameAs(rebuilt);
+    assertThat(cache.containsTranslation(secondKey)).isFalse();
+  }
+
+  /** Same-generation cold publication keeps the first resident, but its explicit repair can win. */
+  @Test
+  public void rejectedPublicationIsReplacedWithoutChangingColdFirstWins() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    var rejected = new GremlinTranslationTemplate.Decline();
+    var fresh = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation("repair", rejected, graphSession(), generation);
+    var envelope = cache.getTranslationEntry("repair", graphSession());
+    assertThat(GremlinPlanCache.putTranslation("repair", fresh, graphSession(), generation))
+        .isSameAs(rejected);
+    assertThat(GremlinPlanCache.putTranslation("repair", fresh, graphSession(), generation,
+        envelope)).isSameAs(fresh);
+    assertThat(GremlinPlanCache.getTranslation("repair", graphSession())).isSameAs(fresh);
+  }
+
+  /** A delayed repair must not replace a competing repair, even with an equal record payload. */
+  @Test
+  public void delayedRepairKeepsAnotherSameGenerationWinner() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    var rejected = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation("repair", rejected, graphSession(), generation);
+    var envelope = cache.getTranslationEntry("repair", graphSession());
+    var winner = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation("repair", winner, graphSession(), generation, envelope);
+    assertThat(GremlinPlanCache.putTranslation("repair", new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation, envelope)).isSameAs(winner);
+    assertThat(GremlinPlanCache.getTranslation("repair", graphSession())).isSameAs(winner);
+  }
+
+  /** Invalidation forbids an old repair from publishing into an empty or a newer generation. */
+  @Test
+  public void obsoleteRepairCannotPublishOrReplaceCurrentEntry() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    GremlinPlanCache.putTranslation("repair", new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation);
+    var envelope = cache.getTranslationEntry("repair", graphSession());
+    cache.invalidate();
+    assertThat(GremlinPlanCache.putTranslation("repair", new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation, envelope)).isNull();
+    assertThat(cache.containsTranslation("repair")).isFalse();
+    var current = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation("repair", current, graphSession(), cache.getGeneration());
+    assertThat(GremlinPlanCache.putTranslation("repair", new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation, envelope)).isNull();
+    assertThat(GremlinPlanCache.getTranslation("repair", graphSession())).isSameAs(current);
   }
 
   /** {@code eq(null)} (bare {@code IS NULL}) and scalar {@code eq(v)} ({@code = ?}) differ in fingerprint. */

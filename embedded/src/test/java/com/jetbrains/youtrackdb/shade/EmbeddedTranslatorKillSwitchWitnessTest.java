@@ -21,7 +21,7 @@ import org.junit.Test;
  * translator-on arm while its log claims otherwise. The Cucumber suite in this module has no
  * known-good scenario count that would expose that mistake, so the arm is asserted here: the
  * fork's own view of {@code youtrackdb.query.gremlin.toMatchTranslator.enabled} must agree with
- * whether a bare {@code g.V()} carries a boundary step after {@code applyStrategies()}.
+ * whether {@code g.V().order().by("name")} carries a boundary step after {@code applyStrategies()}.
  *
  * <p>Both directions assert something, so neither can pass on a broken fixture. With the switch
  * unset or true — the default build and CI — the traversal must carry exactly one boundary step,
@@ -34,8 +34,8 @@ public class EmbeddedTranslatorKillSwitchWitnessTest {
   private static final String DB_NAME = "killswitchwitness";
 
   /**
-   * Asserts that the boundary-step count of a bare {@code g.V()} matches the kill-switch value the
-   * fork received: exactly one boundary step when the switch is unset or true, and zero when it is
+   * Asserts that the boundary-step count of {@code g.V().order().by("name")} matches the switch
+   * value the fork received: exactly one boundary step when unset or true, and zero when it is
    * explicitly {@code false}. A mis-set switch — passed inside {@code -DargLine=}, misspelled, or
    * swallowed before the fork — leaves the property unset while the assertion still demands the
    * on-arm shape, so an off-arm run that never turned the translator off fails here rather than
@@ -56,9 +56,13 @@ public class EmbeddedTranslatorKillSwitchWitnessTest {
         g.executeInTx(tx -> tx.addV("Person").property("name", "Alice").next());
 
         int boundarySteps = g.computeInTx(tx -> {
-          var admin = tx.V().asAdmin();
+          // Sorting keeps MATCH when translation is enabled, unlike a plain vertex scan.
+          var admin = tx.V().order().by("name").asAdmin();
           admin.applyStrategies();
-          return countBoundarySteps(admin.getSteps());
+          var count = countBoundarySteps(admin.getSteps());
+          assertEquals(List.of("Alice"), admin.toList().stream()
+              .map(vertex -> vertex.value("name")).toList());
+          return count;
         });
 
         System.out.println("[kill-switch witness] " + key + "=" + forkSetting
@@ -66,7 +70,7 @@ public class EmbeddedTranslatorKillSwitchWitnessTest {
 
         assertEquals(
             "the kill-switch the fork received (" + key + "=" + forkSetting
-                + ") disagrees with the plan of a bare g.V()",
+                + ") disagrees with the plan of g.V().order().by(name)",
             expectedBoundarySteps, boundarySteps);
       }
 

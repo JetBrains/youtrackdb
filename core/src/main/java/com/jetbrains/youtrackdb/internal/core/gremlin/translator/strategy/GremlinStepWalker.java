@@ -434,9 +434,18 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
+    return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphic, TranslationEnvironment.resolve(traversal, session));
+  }
+
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements, @Nullable Boolean polymorphic,
+      TranslationEnvironment environment) {
     return GremlinShapeExtractor.extract(
         PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session,
-        orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic, environment);
   }
 
   /**
@@ -502,6 +511,15 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphicSetting, null);
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting, @Nullable TranslationEnvironment environment) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -544,25 +562,25 @@ final class GremlinStepWalker {
     // Resolve the EdgeLabelVerificationStrategy presence once too, so resolveEdgeLabel reads a
     // boolean instead of scanning the strategy list per hop.
     boolean edgeLabelVerification =
-        traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent();
+        environment != null ? environment.edgeLabelVerification()
+            : traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class)
+                .isPresent();
 
-    // Resolve the schema snapshot once for the has(...) recogniser's non-String Text type gate. The
-    // isPolymorphic resolution above already proved an attached YTDB session (it returns null
-    // otherwise, declining the walk), so the session resolves here too; a null schema is a defensive
-    // fallback that disables the type gate, translating string predicates best-effort.
-    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    // Reuse the translator's borrowed session. Direct callers resolve their own session here.
+    // A null schema disables the has(...) recogniser's declared-String type gate.
+    var session = environment != null ? environment.session()
+        : YTDBStrategyUtil.resolveYtdbSession(traversal);
     Schema schema = session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     ctx.setWalkedTraversal(traversal);
+    ctx.environment = environment;
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
     ctx.setProductiveByKeys(
-        traversal
-            .getStrategies()
-            .getStrategy(ProductiveByStrategy.class)
-            .map(ProductiveByStrategy::getProductiveKeys)
-            .orElse(null));
+        environment != null ? environment.productiveKeys()
+            : traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
+                .map(ProductiveByStrategy::getProductiveKeys).orElse(null));
     // Resolve order behavior through the same entry points used by native execution.
     ctx.setOrderIncludesMissingKey(
         Boolean.TRUE.equals(
@@ -610,6 +628,10 @@ final class GremlinStepWalker {
     if (childScopeBoundary != NO_CHILD_SCOPE || ctx.shaping().emitGroupEntries()
         || !ctx.shaping().accumulateMap()) {
       ctx.shaping = ctx.shaping().withPropertyGroupCount(null);
+    }
+    if (childScopeBoundary == NO_CHILD_SCOPE) {
+      ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
+          PropertyMapBulkingAdmission.capacity(traversal));
     }
     return buildResult(ctx);
   }

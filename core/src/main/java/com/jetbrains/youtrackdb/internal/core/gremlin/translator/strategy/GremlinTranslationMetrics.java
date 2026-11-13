@@ -10,7 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import javax.annotation.Nullable;
@@ -19,11 +18,11 @@ import javax.annotation.Nullable;
  * Per-database counters for Gremlin-to-MATCH translation outcomes. Lives on {@code SharedContext}
  * beside {@link GremlinPlanCache}. Counts translation <em>attempts</em>: shapes the strategy tried
  * to cover — successes, declines (unsupported walk, edge / non-vertex start, repeat veto, cached
- * decline), and throw-safety-net errors. Kill-switch / missing session and idempotent re-applies
+ * decline), rule-native choices, and throw-safety-net errors. Kill-switch / missing session and idempotent re-applies
  * (boundary already present) are not attempts.
  *
- * <p>Each recording also feeds three engine-global {@link Ratio} metrics in {@link CoreMetrics}
- * (success / decline / error share of attempts). Shape frequencies for declines are bounded
+ * <p>Each recording also feeds four engine-global {@link Ratio} metrics in {@link CoreMetrics}
+ * (success / decline / error / rule-native share of attempts). Shape frequencies for declines are bounded
  * ({@link #MAX_TRACKED_SHAPES}) so a long-running process cannot grow an unbounded map of rare
  * shapes.
  */
@@ -35,12 +34,16 @@ public final class GremlinTranslationMetrics {
   private final LongAdder successes = new LongAdder();
   private final LongAdder declines = new LongAdder();
   private final LongAdder errors = new LongAdder();
+  private final LongAdder ruleNative = new LongAdder();
+  private final LongAdder nativeProofErrors = new LongAdder();
 
-  private final ConcurrentHashMap<String, LongAdder> declineShapes = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<DeclineSignature, LongAdder> declineShapes =
+      new ConcurrentHashMap<>();
 
   private final Ratio successRatio;
   private final Ratio declineRatio;
   private final Ratio errorRatio;
+  private final Ratio ruleNativeRatio;
 
   public GremlinTranslationMetrics() {
     this(YouTrackDBEnginesManager.instance().getMetricsRegistry());
@@ -53,6 +56,7 @@ public final class GremlinTranslationMetrics {
     this.successRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO);
     this.declineRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO);
     this.errorRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO);
+    this.ruleNativeRatio = globalRatio(registry, CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
   }
 
   /** Resolves the metrics holder for {@code session}'s shared context. */
@@ -66,6 +70,7 @@ public final class GremlinTranslationMetrics {
     successRatio.record(1, 1);
     declineRatio.record(0, 1);
     errorRatio.record(0, 1);
+    ruleNativeRatio.record(0, 1);
   }
 
   /**
@@ -74,10 +79,21 @@ public final class GremlinTranslationMetrics {
    * tracked in the frequency map.
    */
   public void recordDecline(@Nullable String shape) {
+    recordDeclineSignature(shape == null || shape.isBlank() ? null : DeclineSignature.text(shape));
+  }
+
+  /** Records the same diagnostic signature without joining text on every compilation. */
+  void recordDeclineTraversal(
+      org.apache.tinkerpop.gremlin.process.traversal.Traversal.Admin<?, ?> traversal) {
+    recordDeclineSignature(DeclineSignature.traversal(traversal));
+  }
+
+  private void recordDeclineSignature(@Nullable DeclineSignature shape) {
     declines.increment();
     successRatio.record(0, 1);
     declineRatio.record(1, 1);
     errorRatio.record(0, 1);
+    ruleNativeRatio.record(0, 1);
     trackShape(declineShapes, shape);
   }
 
@@ -90,6 +106,35 @@ public final class GremlinTranslationMetrics {
     successRatio.record(0, 1);
     declineRatio.record(0, 1);
     errorRatio.record(1, 1);
+    ruleNativeRatio.record(0, 1);
+  }
+
+  /** Records a supported translation whose complete plan and boundary are proved plain. */
+  public void recordRuleNative() {
+    ruleNative.increment();
+    successRatio.record(0, 1);
+    declineRatio.record(0, 1);
+    errorRatio.record(0, 1);
+    ruleNativeRatio.record(1, 1);
+  }
+
+  /** Counts failed optional proofs separately from final routing outcomes and safety-net errors. */
+  public void recordNativeProofError() {
+    nativeProofErrors.increment();
+  }
+
+  /** Lifetime optional proof failures. Warm reuse of a failed proof does not increment this. */
+  public long getNativeProofErrors() {
+    return nativeProofErrors.sum();
+  }
+
+  public long getRuleNative() {
+    return ruleNative.sum();
+  }
+
+  /** Lifetime rule-native share of all attempts, or zero before the first attempt. */
+  public double ruleNativeShare() {
+    return share(getRuleNative());
   }
 
   public long getSuccesses() {
@@ -104,9 +149,9 @@ public final class GremlinTranslationMetrics {
     return errors.sum();
   }
 
-  /** Successes + declines + errors. */
+  /** Successes + declines + errors + rule-native choices. */
   public long getAttempts() {
-    return getSuccesses() + getDeclines() + getErrors();
+    return getSuccesses() + getDeclines() + getErrors() + getRuleNative();
   }
 
   /**
@@ -146,8 +191,9 @@ public final class GremlinTranslationMetrics {
     return attempts == 0 ? 0.0 : (double) numerator / (double) attempts;
   }
 
-  private static void trackShape(ConcurrentHashMap<String, LongAdder> map, @Nullable String shape) {
-    if (shape == null || shape.isBlank()) {
+  private static void trackShape(ConcurrentHashMap<DeclineSignature, LongAdder> map,
+      @Nullable DeclineSignature shape) {
+    if (shape == null) {
       return;
     }
     var existing = map.get(shape);
@@ -162,21 +208,22 @@ public final class GremlinTranslationMetrics {
     map.computeIfAbsent(shape, ignored -> new LongAdder()).increment();
   }
 
-  private static List<ShapeCount> topShapes(ConcurrentHashMap<String, LongAdder> map, int limit) {
+  private static List<ShapeCount> topShapes(
+      ConcurrentHashMap<DeclineSignature, LongAdder> map, int limit) {
     if (limit <= 0 || map.isEmpty()) {
       return List.of();
     }
-    var entries = new ArrayList<Map.Entry<String, LongAdder>>(map.size());
-    entries.addAll(map.entrySet());
-    entries.sort(
-        Comparator.<Map.Entry<String, LongAdder>>comparingLong(e -> e.getValue().sum())
-            .reversed()
-            .thenComparing(Map.Entry::getKey));
+    var entries = new ArrayList<ShapeCount>(map.size());
+    for (var entry : map.entrySet()) {
+      entries.add(new ShapeCount(entry.getKey().toString(), entry.getValue().sum()));
+    }
+    entries.sort(Comparator.comparingLong(ShapeCount::count).reversed()
+        .thenComparing(ShapeCount::shape));
     var n = Math.min(limit, entries.size());
     var out = new ArrayList<ShapeCount>(n);
     for (int i = 0; i < n; i++) {
       var e = entries.get(i);
-      out.add(new ShapeCount(e.getKey(), e.getValue().sum()));
+      out.add(e);
     }
     return List.copyOf(out);
   }

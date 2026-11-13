@@ -49,6 +49,10 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class TranslatedMatchSessionTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private Object previousThreshold;
 
   @Override
@@ -529,8 +533,12 @@ public class TranslatedMatchSessionTest extends GraphBaseTest {
           graph.tx().rollback();
         }
       };
-      var first = executor.submit(task);
-      var second = executor.submit(task);
+      var first = executor.submit(
+          () -> com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule
+              .callWithMatch(task));
+      var second = executor.submit(
+          () -> com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule
+              .callWithMatch(task));
       var a = first.get(30, TimeUnit.SECONDS);
       var b = second.get(30, TimeUnit.SECONDS);
       assertThat(a[0]).isSameAs(b[0]);

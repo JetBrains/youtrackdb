@@ -947,7 +947,14 @@ public class MatchExecutionPlanner {
       // GROUP BY, ORDER BY, UNWIND, SKIP, LIMIT handling
       var info = new QueryPlanningInfo();
       info.projection = translatedReturnProjection();
-      info.distinct = info.projection != null && info.projection.isDistinct();
+      var identityAlias = identityDistinctAlias();
+      if (identityAlias != null) {
+        // All MATCH predicates and detached checks have run. Preserve survivor rows and their
+        // checked records, then let the normal projection build only the unique output rows.
+        result.chain(new DistinctExecutionStep(context, enableProfiling, identityAlias));
+      }
+      info.distinct = identityAlias == null
+          && info.projection != null && info.projection.isDistinct();
       if (info.projection != null) {
         info.projection.setDistinct(false);
       }
@@ -1107,6 +1114,70 @@ public class MatchExecutionPlanner {
 
     SelectExecutionPlanner.optimizeQuery(info, context);
     SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+  }
+
+  /**
+   * Direct references can use identity only when bindings stay links throughout the pattern.
+   *
+   * <p>The boolean tree runs before DISTINCT, so duplicate suppression sees only survivors.
+   * FILTER leaves read the outer row and PROBE leaves write a detached copy. Probe aliases,
+   * including depth/path metadata with the returned alias's name, cannot replace the outer key.
+   * Consequently booleanCheck needs no alias-overwrite veto here. GremlinStepWalker also allows
+   * only projection after captured DISTINCT, so it cannot move a later boolean filter before it.
+   * Keep these placement and row-isolation contracts when adding boolean leaf implementations.
+   */
+  @Nullable private String identityDistinctAlias() {
+    if (!returnDistinct || groupBy != null || orderBy != null || unwind != null
+        || skip != null || limit != null || returnItems.isEmpty()) {
+      return null;
+    }
+    String alias = null;
+    for (var i = 0; i < returnItems.size(); i++) {
+      var expression = returnItems.get(i);
+      if (returnNestedProjections.get(i) != null || !expression.isBaseIdentifier()) {
+        return null;
+      }
+      var current = expression.getDefaultAlias().getStringValue();
+      var node = pattern.aliasToNode.get(current);
+      if (node == null || node.isOptionalNode() || (alias != null && !alias.equals(current))) {
+        return null;
+      }
+      alias = current;
+    }
+    // Field and custom-method paths can produce scalars or embedded entities. Even a graph
+    // WHILE path can emit its starting value, so require graph-only paths throughout the pattern.
+    // Compound paths are not part of this proof and retain projected DISTINCT.
+    // Both entry paths populate the pattern. Pre-built inputs need not supply matchExpressions.
+    // Each edge belongs to its source node's outgoing set, so inspect it there once.
+    for (var node : pattern.aliasToNode.values()) {
+      for (var edge : node.out) {
+        var item = edge.item;
+        if (item.getMethod() == null || !item.getMethod().isBidirectional()
+            || overwritesIdentityAlias(item.getFilter(), alias)) {
+          return null;
+        }
+      }
+    }
+    for (var expressions : List.of(matchExpressions, notMatchExpressions, existsMatchExpressions)) {
+      for (var expression : expressions) {
+        if (overwritesIdentityAlias(expression.getOrigin(), alias)) {
+          return null;
+        }
+        for (var item : expression.getItems()) {
+          if (item.getMethod() == null || !item.getMethod().isBidirectional()
+              || overwritesIdentityAlias(item.getFilter(), alias)) {
+            return null;
+          }
+        }
+      }
+    }
+    return alias;
+  }
+
+  private static boolean overwritesIdentityAlias(SQLMatchFilter filter, String alias) {
+    // Traversal metadata uses setProperty and can replace any previously bound alias.
+    return filter != null
+        && (alias.equals(filter.getDepthAlias()) || alias.equals(filter.getPathAlias()));
   }
 
   private SQLProjection translatedReturnProjection() {
@@ -4084,15 +4155,10 @@ public class MatchExecutionPlanner {
       Long existing = aliasRowEstimate.get(targetAlias);
       if (existing == null || targetRows < existing) {
         aliasRowEstimate.put(targetAlias, targetRows);
-        // Propagate the source's root sample size. If the target already
-        // had a fresher root sample size from {@code estimatedRootEntries}
-        // (e.g. it's itself a class-rooted alias), keep that — fresh
-        // class-based statistics outrank inherited lineage from a tiny
-        // upstream sample.
-        Long existingRoot = aliasRootSampleSize.get(targetAlias);
-        if (existingRoot == null && sourceRootSize != null) {
-          aliasRootSampleSize.put(targetAlias, sourceRootSize);
-        }
+        // The winning row estimate and its root lineage must move together.
+        // Fan-out does not create independent root samples for the CLT gate.
+        assert sourceRootSize != null;
+        aliasRootSampleSize.put(targetAlias, sourceRootSize);
       }
     }
   }

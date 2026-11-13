@@ -61,6 +61,10 @@ import org.junit.Test;
  */
 public class OrderRangeStepRecogniserTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final Set<Class<?>> TRANSPARENT = Set.of(NoOpBarrierStep.class);
 

@@ -41,6 +41,10 @@ import org.junit.Test;
 /** Actual ordered cache engagement, bound predicates, and private execution across graph sessions. */
 public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** A complete warm single-plan hit skips both seams and rebinds alternating source and target values. */
   @Test
   public void warmSinglePlanSkipsWalkerAndPlannerAndMatchesNativeForAlternatingBindings()
@@ -62,12 +66,15 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
     var successRatio = mock(Ratio.class);
     var declineRatio = mock(Ratio.class);
     var errorRatio = mock(Ratio.class);
+    var ruleNativeRatio = mock(Ratio.class);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO))
         .thenReturn(successRatio);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO))
         .thenReturn(declineRatio);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO))
         .thenReturn(errorRatio);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO))
+        .thenReturn(ruleNativeRatio);
     var metrics = new GremlinTranslationMetrics(registry);
     // This fixture owns its database. Replace only its holder, never the engine-global registry.
     var metricsField = SharedContext.class.getDeclaredField("gremlinTranslationMetrics");
@@ -104,6 +111,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
     verify(successRatio, times(3)).record(1, 1);
     verify(declineRatio, times(3)).record(0, 1);
     verify(errorRatio, times(3)).record(0, 1);
+    verify(ruleNativeRatio, times(3)).record(0, 1);
   }
 
   /** Multi-plan calls rerun the walker but both eligible ordered children hit physical templates. */
@@ -163,7 +171,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchStrategy.buildPlan(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
-    var keys = new ArrayList<String>();
+    var keys = new ArrayList<GremlinShapeKey>();
     var templates = new ArrayList<InternalExecutionPlan>();
     for (var minimum : List.of(0, "0", 4, "1")) {
       var traversal = guardedOrdered(minimum);
