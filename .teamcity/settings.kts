@@ -6,11 +6,11 @@ import jetbrains.buildServer.configs.kotlin.triggers.vcs
 version = "2026.03"
 
 val token = "tc_token_id:CID_6f70430be90149234d7210e12aa15ea9:-1:6eedf048-c2e9-4675-ba2f-6e73f59c04b0"
-// The root exposes only develop, queue branches and the pilot default branch.
-// Queue logical names contain only the wildcard suffix, so select them by exclusion.
-val queueBranches = "+:*\n-:<default>\n-:refs/heads/develop\n-pr:*"
-val unitTrigger = "+:refs/heads/develop\n+pr: sourceRepo=same"
-val allBranches = "+:*\n-:<default>\n-pr:*\n+pr: sourceRepo=same\n+:refs/heads/develop"
+// Accept only the named phases and same-repository pull requests.
+// The root preserves develop and the full queue path as logical branch names.
+val queueBranches = "+:gh-readonly-queue/develop/*"
+val unitTrigger = "+:develop\n+pr: sourceRepo=same"
+val allBranches = "+:develop\n+:gh-readonly-queue/develop/*\n+pr: sourceRepo=same"
 
 fun BuildType.configure(branches: String, agent: String? = null, status: String? = null) {
   vcs {
@@ -22,7 +22,6 @@ fun BuildType.configure(branches: String, agent: String? = null, status: String?
   if (agent != null) {
     requirements { equals("cloud.amazon.agent-name-prefix", agent) }
     params {
-      param("env.TC_BRANCH", "%teamcity.build.branch%")
       param("env.TC_VCS_BRANCH", "%teamcity.build.vcs.branch.YouTrackDB_Settings%")
       param("env.TC_URL", "%teamcity.serverUrl%")
       param("env.TC_USER", "%system.teamcity.auth.userId%")

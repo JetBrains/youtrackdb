@@ -20,7 +20,7 @@ SPEC.loader.exec_module(tc)
 class TeamCityTest(unittest.TestCase):
     def setUp(self):
         self.env = patch.dict(os.environ, {
-            "TC_BUILD_ID": "99", "TC_BRANCH": "pull/1", "TC_SHOULD_BUILD": "true",
+            "TC_BUILD_ID": "99", "TC_SHOULD_BUILD": "true",
             "TC_VCS_BRANCH": "refs/heads/develop", "TC_PR_SOURCE": "refs/heads/topic",
             "TC_PR_TARGET": "refs/heads/develop", "TC_URL": "https://example.test",
             "TC_USER": "user", "TC_PASSWORD": "secret"}, clear=True)
@@ -60,17 +60,43 @@ class TeamCityTest(unittest.TestCase):
             self.assertIn("ERROR", self.output.getvalue())
 
     def test_baseline_paginates_and_uses_latest_finished_same_branch(self):
-        pages = [{"build": [{"id": 1, "branchName": "pull/1", "finishDate": "2"}],
+        def build(id, logical, full, finished):
+            return {"id": id, "branchName": logical, "finishDate": finished,
+                    "revisions": {"revision": [{"version": "a" * 40, "vcsBranchName": full}]}}
+
+        pages = [{"build": [build(1, "old-logical-name", "refs/pull/1/head", "2")],
                   "nextHref": "/app/rest/builds?next"},
-                 {"build": [{"id": 2, "branchName": "pull/1", "finishDate": "1"},
-                            {"id": 3, "branchName": "develop", "finishDate": "9"}]}]
-        with patch.object(tc, "rest", side_effect=pages):
-            self.assertEqual(tc.baseline("pull/1"), "/app/rest/builds/id:1")
+                 {"build": [build(2, "pull/1", "refs/pull/1/head", "1"),
+                            build(3, "pull/1", "refs/pull/2/head", "9"),
+                            build(99, "pull/1", "refs/pull/1/head", "9")]}]
+        with patch.object(tc, "rest", side_effect=pages) as rest:
+            self.assertEqual(tc.baseline("refs/pull/1/head"), "/app/rest/builds/id:1")
+            query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(
+                rest.call_args_list[0].args[0]).query)
+            self.assertIn("revisions(revision(version,vcsBranchName))", query["fields"][0])
+            self.assertNotIn("refs/pull/1/head", query["locator"][0])
+        with patch.object(tc, "rest", return_value={
+                "build": [build(4, "<default>", "refs/heads/develop", "3")]}):
+            self.assertEqual(tc.baseline("refs/heads/develop"), "/app/rest/builds/id:4")
+            self.assertIsNone(tc.baseline("refs/pull/1/head"))
         for page in ({}, {"count": 0, "nextHref": "https://evil.test"}):
             with patch.object(tc, "rest", return_value=page), self.assertRaises(ValueError):
-                tc.baseline("pull/1")
+                tc.baseline("refs/pull/1/head")
         with patch.object(tc, "rest", return_value={"count": 0}):
-            self.assertIsNone(tc.baseline("pull/1"))
+            self.assertIsNone(tc.baseline("refs/pull/1/head"))
+
+    def test_baseline_rejects_missing_or_unreadable_vcs_branches(self):
+        for revisions in ([], [{}], [{"vcsBranchName": None}], [{"vcsBranchName": ""}],
+                          [{"vcsBranchName": 1}], [{"vcsBranchName": "   "}]):
+            with self.subTest(revisions=revisions), patch.object(tc, "rest", return_value={
+                    "build": [{"id": 1, "branchName": "other", "finishDate": "9",
+                               "revisions": {"revision": revisions}}]}):
+                with self.assertRaises(ValueError):
+                    tc.baseline("refs/heads/develop")
+                with patch.object(tc.detect, "main", return_value=0) as detector:
+                    self.assertEqual(tc.detect_build(), 0)
+                    self.assertIn("--full", detector.call_args.args[0])
+                    self.assertIn("WARNING", self.output.getvalue())
 
     def test_develop_diff_and_external_failures_choose_full_with_warning(self):
         with patch.object(tc.detect, "main", return_value=0) as detector:
@@ -108,6 +134,7 @@ class TeamCityTest(unittest.TestCase):
                 tc.detect_build()
 
     def test_count_fallback_zero_drop_errors_and_gate_failure(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/1/head"
         with tempfile.TemporaryDirectory() as directory:
             old = os.getcwd()
             os.chdir(directory)
@@ -124,6 +151,7 @@ class TeamCityTest(unittest.TestCase):
                         tc.verify()
                 report.write_text("<testsuite tests='2'/>")
                 for previous in ("2", "3", "bad"):
+                    baseline.reset_mock()
                     baseline.side_effect = [None, "/b"]
                     rest.return_value = {"value": previous}
                     if previous == "2":
@@ -131,6 +159,12 @@ class TeamCityTest(unittest.TestCase):
                     else:
                         with self.assertRaises(ValueError):
                             tc.verify()
+                    self.assertEqual(baseline.call_args_list,
+                                     [unittest.mock.call("refs/pull/1/head"),
+                                      unittest.mock.call("refs/heads/develop")])
+                baseline.side_effect = ValueError("Unreadable TeamCity VCS branch")
+                with self.assertRaises(ValueError):
+                    tc.verify()
                 for mock in (baseline, rest, gate):
                     baseline.side_effect = None
                     baseline.return_value = "/b"

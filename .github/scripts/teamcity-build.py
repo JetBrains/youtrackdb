@@ -45,7 +45,7 @@ def baseline(branch):
     # Filter branch names locally, not inside REST locator syntax from PR text.
     query = urllib.parse.urlencode({
         "locator": f"buildType:{BUILD},state:finished,tag:ran-tests,defaultFilter:false,count:100",
-        "fields": "count,build(id,branchName,finishDate),nextHref"})
+        "fields": "count,build(id,finishDate,revisions(revision(version,vcsBranchName))),nextHref"})
     path = "/app/rest/builds?" + query
     builds = []
     while path:
@@ -56,8 +56,16 @@ def baseline(branch):
             raise ValueError("Unreadable TeamCity build list")
         builds.extend(page.get("build", []))
         path = page.get("nextHref")
-    matches = [b for b in builds if b["branchName"] == branch
-               and str(b["id"]) != os.environ["TC_BUILD_ID"]]
+    matches = []
+    for build in builds:
+        revisions = build["revisions"]["revision"]
+        if not isinstance(revisions, list) or not revisions:
+            raise ValueError("Unreadable TeamCity build revisions")
+        branches = [revision.get("vcsBranchName") for revision in revisions]
+        if any(not isinstance(name, str) or not name.strip() for name in branches):
+            raise ValueError("Unreadable TeamCity VCS branch")
+        if branch in branches and str(build["id"]) != os.environ["TC_BUILD_ID"]:
+            matches.append(build)
     if not matches:
         return None
     latest = max(matches, key=lambda b: b["finishDate"])
@@ -133,8 +141,8 @@ def verify():
         raise ValueError("No tests were reported")
     message("buildStatisticValue", key="ytdb.tests", value=count)
     print("##teamcity[addBuildTag 'ran-tests']")
-    previous = baseline(os.environ["TC_BRANCH"])
-    if previous is None and os.environ["TC_BRANCH"] != "refs/heads/develop":
+    previous = baseline(os.environ["TC_VCS_BRANCH"])
+    if previous is None and os.environ["TC_VCS_BRANCH"] != "refs/heads/develop":
         previous = baseline("refs/heads/develop")
     if previous is None:
         print("No test-count comparison point exists.")
