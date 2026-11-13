@@ -493,6 +493,64 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     assertThat(calls.get()).isZero();
   }
 
+  /** A prepared union translation checks reserved fork labels through the ordinary walker. */
+  @Test
+  public void ordinaryUnionForkRetainsReservedLabelErrors() {
+    support.withTranslator(true, () -> {
+      var root = graph.traversal().inject(1)
+          .map(__.V().union(__.out().as("$fork"), __.in())).asAdmin();
+      assertThatThrownBy(root::applyStrategies).isInstanceOf(ReservedAliasException.class);
+      assertThat(QuerySafetyAdmission.stored(root).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+    });
+  }
+
+  /** Every reason owns one immutable signature with its exact production telemetry text. */
+  @Test
+  public void everySafetyReasonReusesItsExactSignature() {
+    for (var reason : QuerySafetyAdmission.Reason.values()) {
+      var signature = reason.signature();
+      for (int retry = 0; retry < 3; retry++) {
+        assertThat(reason.signature()).isSameAs(signature);
+        assertThat(reason.signature().toString()).isEqualTo("safety:" + reason.name());
+      }
+    }
+  }
+
+  /** The production child refusal path passes the enum-owned object to telemetry on retries. */
+  @Test
+  public void repeatedProductionRefusalsUsePrecomputedSafetySignatures() {
+    support.withTranslator(true, () -> {
+      for (var reason : QuerySafetyAdmission.Reason.values()) {
+        if (reason == QuerySafetyAdmission.Reason.SAFE) {
+          continue;
+        }
+        var child = __.V().asAdmin();
+        var root = graph.traversal().inject(1).map(child).asAdmin();
+        // Inject structural evidence to exercise every diagnostic without fabricating user code.
+        root.setStrategies(new QuerySafetyAdmission.Evidence(root.getStrategies(),
+            new QuerySafetyAdmission.Result(reason, false, 1)));
+        child.setGraph(graph);
+        var metrics = org.mockito.Mockito.spy(GremlinTranslationMetrics.of(session));
+        try (var registry = org.mockito.Mockito.mockStatic(GremlinTranslationMetrics.class,
+            org.mockito.Mockito.CALLS_REAL_METHODS)) {
+          registry.when(() -> GremlinTranslationMetrics.of(org.mockito.ArgumentMatchers.any()))
+              .thenReturn(metrics);
+          for (int retry = 0; retry < 3; retry++) {
+            GremlinToMatchStrategy.instance().apply(child);
+          }
+          var signatures = org.mockito.ArgumentCaptor.forClass(DeclineSignature.class);
+          org.mockito.Mockito.verify(metrics, org.mockito.Mockito.times(3))
+              .recordDeclineSignature(signatures.capture());
+          assertThat(signatures.getAllValues()).allSatisfy(signature -> {
+            assertThat(signature).isSameAs(reason.signature());
+            assertThat(signature.toString()).isEqualTo("safety:" + reason.name());
+          });
+        }
+      }
+    });
+  }
+
   /** Safety-passing roots and eligible children retain errors on cold, warm and retry calls. */
   @Test
   public void reservedLabelsRetainTranslationPathErrors() {

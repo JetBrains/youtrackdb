@@ -289,16 +289,228 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
 
   /** Full-only extraction does not allocate private root checkpoints. */
   @Test
-  public void checkpointsBelongOnlyToPartialExtraction() {
+  public void checkpointsBelongOnlyToPartialExtraction() throws Exception {
     var traversal = query(30, 40);
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
-    assertThat(GremlinStepWalker.extractShape(traversal, session).rootEnds()).isEmpty();
+    var production = GremlinStepWalker.extractShape(traversal, session);
+    assertThat(production.rootEnds()).isEmpty();
+    assertThat(production.encoder().harvested()).isFalse();
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     var partial = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
         GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
         inputs.nulls(), inputs.polymorphic(), inputs);
+    var harvest = GremlinShapeEncoder.class.getDeclaredField("harvest");
+    harvest.setAccessible(true);
+    int productionActions = ((List<?>) harvest.get(production.encoder())).size();
+    int privateActions = ((List<?>) harvest.get(partial.encoder())).size();
+    assertThat(privateActions - productionActions).isEqualTo(traversal.getSteps().size());
+    production.bindings();
+    assertThat(production.rootEnds()).isEmpty();
     partial.bindings();
     assertThat(partial.rootEnds()).hasSize(4);
+  }
+
+  /** Every root boundary freezes the completed slots, independently of prefix access order. */
+  @Test
+  public void deferredPrefixesKeepIndependentSnapshotsAcrossScopesAndHops() {
+    for (boolean reverse : List.of(false, true)) {
+      var traversal = graph.traversal().V().has("age", 11)
+          .and(__.has("age", 22), __.filter(__.has("age", 33)))
+          .out("candidateKnows").has("age", 44).asAdmin();
+      var extraction = partialExtraction(traversal);
+      assertThat(extraction.encoder().harvested()).isFalse();
+      assertThat(extraction.rootEnds()).isEmpty();
+      // Removing the traversal after extraction makes a second structural visit observable.
+      while (!traversal.getSteps().isEmpty()) {
+        traversal.removeStep(0);
+      }
+      var extents = reverse ? List.of(5, 4, 3, 2, 1) : List.of(1, 2, 3, 4, 5);
+      int[] counts = {0, 1, 3, 3, 4};
+      for (int extent : extents) {
+        var prefix = extraction.prefix(extent, true, 0);
+        int count = counts[extent - 1];
+        assertThat(prefix.bindings()).hasSize(count);
+        for (int slot = 0; slot < count; slot++) {
+          assertThat(prefix.bindings()).containsEntry(slot, 11 * (slot + 1));
+        }
+        assertThat(prefix.hasContributions())
+            .containsExactlyElementsOf(extraction.hasContributions().subList(0, count));
+        assertThat(prefix.bindings()).isSameAs(prefix.bindings());
+        assertThat(prefix.hasContributions()).isSameAs(prefix.hasContributions());
+        assertThatThrownBy(() -> prefix.bindings().put(99, 99))
+            .isInstanceOf(UnsupportedOperationException.class);
+      }
+      assertThat(extraction.bindings()).hasSize(4);
+      assertThat(extraction.rootEnds()).extracting(GremlinShapeExtractor.BindingEnd::bindings)
+          .containsExactly(0, 1, 3, 3, 4);
+    }
+    for (boolean reverse : List.of(false, true)) {
+      var traversal = graph.traversal().V().order().by("age").limit(2)
+          .out("candidateKnows").has("age", 30).out("candidateKnows")
+          .has("age", 40).asAdmin();
+      var extraction = partialExtraction(traversal);
+      var first = extraction.prefix(reverse ? 7 : 5, false, 0);
+      var second = extraction.prefix(reverse ? 5 : 7, false, 0);
+      var shortPrefix = reverse ? second : first;
+      var longPrefix = reverse ? first : second;
+      // Ordered-filter operands are native values, not SQL parameter slots.
+      assertThat(shortPrefix.bindings()).isEmpty();
+      assertThat(longPrefix.bindings()).isEmpty();
+      var firstOperand = NativeHasOperands.capture(List.of(
+          new org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer("age",
+              org.apache.tinkerpop.gremlin.process.traversal.P.eq(30))));
+      var secondOperand = NativeHasOperands.capture(List.of(
+          new org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer("age",
+              org.apache.tinkerpop.gremlin.process.traversal.P.eq(40))));
+      assertThat(shortPrefix.nativeOperands()).containsExactly(firstOperand);
+      assertThat(longPrefix.nativeOperands()).containsExactly(firstOperand, secondOperand);
+      assertThat(longPrefix.nativeOperands()).hasSize(2)
+          .containsExactlyElementsOf(extraction.nativeOperands());
+      assertThat(shortPrefix.nativeOperands()).isSameAs(shortPrefix.nativeOperands());
+      assertThatThrownBy(() -> shortPrefix.nativeOperands().clear())
+          .isInstanceOf(UnsupportedOperationException.class);
+    }
+  }
+
+  private DatabaseSessionEmbedded graphSession() {
+    return YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+  }
+
+  private GremlinShapeExtractor.Extraction partialExtraction(Traversal.Admin<?, ?> traversal) {
+    var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+    return GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), inputs.includesMissing(),
+        inputs.nulls(), inputs.polymorphic(), inputs);
+  }
+
+  /** Composite equality compares every field, including colliding shapes and unordered cuts. */
+  @Test
+  public void candidateKeysCompareEveryFieldWithoutRendering() {
+    var shape = new GremlinShapeKey(new Object[] {"Aa"});
+    var collision = new GremlinShapeKey(new Object[] {"BB"});
+    var base = new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 7,
+        shape);
+    var equalPolicy = new PrivateCandidatePreparation.Policy(
+        new java.util.LinkedHashSet<>(List.of(6, 5, 4, 3, 2, 1)));
+    var equal = new PrivateCandidatePreparation.CandidateKey("private", equalPolicy, false, false,
+        7, new GremlinShapeKey(new Object[] {"Aa"}));
+    assertThat(base).isEqualTo(equal);
+    var changed = List.of(
+        new PrivateCandidatePreparation.CandidateKey("other", policy, false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private",
+            new PrivateCandidatePreparation.Policy(Set.of(1)), false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, true, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, true, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 8, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 7,
+            collision));
+    var entries = new java.util.HashMap<PrivateCandidatePreparation.CandidateKey, Integer>();
+    entries.put(base, -1);
+    for (int index = 0; index < changed.size(); index++) {
+      assertThat(changed.get(index)).isNotEqualTo(base);
+      entries.put(changed.get(index), index);
+    }
+    assertThat(changed.getLast().hashCode()).isEqualTo(base.hashCode());
+    assertThat(entries.get(equal)).isEqualTo(-1);
+    assertThat(entries).hasSize(changed.size() + 1);
+    for (int index = 0; index < changed.size(); index++) {
+      assertThat(entries.get(changed.get(index))).isEqualTo(index);
+    }
+  }
+
+  /** Cold publication and warm lookup must never render shape, policy or composite key text. */
+  @Test
+  public void warmCandidateLookupNeverRendersShapeOrPolicy() {
+    var prepare = preparation(false);
+    var unrenderablePolicy = spy(policy);
+    org.mockito.Mockito.doThrow(new AssertionError("candidate lookup rendered the policy"))
+        .when(unrenderablePolicy).toString();
+    var token = new Object() {
+      @Override
+      public String toString() {
+        throw new AssertionError("candidate lookup rendered the structural key");
+      }
+    };
+    var key = new GremlinShapeKey(new Object[] {token});
+    try (var extractor = mockStatic(GremlinShapeExtractor.class, invocation -> {
+      var result = CALLS_REAL_METHODS.answer(invocation);
+      if (invocation.getMethod().getName().equals("extractPartial")) {
+        var shape = (GremlinShapeExtractor.Extraction) result;
+        return new GremlinShapeExtractor.Extraction(key, shape.bindings(), shape.complete(),
+            shape.hasContributions(), shape.nativeOperands(), shape.orderedExpandAbsent(),
+            shape.propertyMapBulkingCapacity(), shape.encoder(), shape.rootEnds());
+      }
+      return result;
+    })) {
+      for (int call = 0; call < 2; call++) {
+        try (var candidate = prepare.prepare(query(30 + call, 40), unrenderablePolicy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.cacheHit()).isEqualTo(call == 1);
+          assertThat(candidate.bindings()).containsEntry(0, 30 + call);
+        }
+      }
+    }
+  }
+
+  /** Captured flags govern both identity and walking even when every live resolver disagrees. */
+  @Test
+  public void capturedSettingsRemainAuthoritativeForExtractionAndWalking() {
+    var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+        .order().by("age").asAdmin();
+    var session = graphSession();
+    var nulls = com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.REVERSED;
+    var settings = new YTDBStrategyUtil.TranslationSettings(true, nulls, false);
+    var environment = new TranslationEnvironment(session, true, Set.of("age"));
+    var inputs = GremlinStepWalker.WalkInputs.resolved(settings, environment,
+        session.getMetadata().getImmutableSchemaSnapshot(), false, 17001);
+    assertThat(inputs.polymorphic()).isFalse();
+    assertThat(inputs.includesMissing()).isTrue();
+    assertThat(inputs.nulls()).isEqualTo(nulls);
+    assertThat(inputs.edgeVerification()).isTrue();
+    assertThat(inputs.productiveKeys()).containsExactly("age");
+    assertThat(inputs.permitsGrouping()).isFalse();
+    assertThat(inputs.commandTimeout()).isEqualTo(17001);
+    var expected = GremlinShapeExtractor.extract(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, true, nulls, false, environment);
+    try (var util = mockStatic(YTDBStrategyUtil.class, CALLS_REAL_METHODS)) {
+      util.when(() -> YTDBStrategyUtil.isPolymorphic(traversal)).thenReturn(true);
+      util.when(() -> YTDBStrategyUtil.orderIncludesMissingKey(traversal)).thenReturn(false);
+      util.when(() -> YTDBStrategyUtil.orderByNullsPlacements(traversal)).thenReturn(
+          com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED);
+      util.clearInvocations();
+      var actual = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, false,
+          com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED,
+          true, inputs);
+      assertThat(actual.key()).isEqualTo(expected.key());
+      var result = GremlinStepWalker.production().walkObserved(traversal, inputs, null);
+      assertThat(result).isNotNull();
+      util.verify(() -> YTDBStrategyUtil.isPolymorphic(traversal), never());
+      util.verify(() -> YTDBStrategyUtil.orderIncludesMissingKey(traversal), never());
+      util.verify(() -> YTDBStrategyUtil.orderByNullsPlacements(traversal), never());
+    }
+  }
+
+  /** Incomplete private native identity must not disable a reusable production native decline. */
+  @Test
+  public void strictPrivateIdentityDoesNotRestrictProductionNativeDeclines() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var metrics = GremlinTranslationMetrics.of(graphSession());
+    long hits = cache.getTranslationHits();
+    long declines = metrics.getDeclines();
+    for (int call = 0; call < 2; call++) {
+      var traversal = graph.traversal().V().filter(__.path().from("unbound")).asAdmin();
+      assertThat(partialExtraction(traversal).complete()).isFalse();
+      assertThat(GremlinStepWalker.extractShape(traversal, graphSession()).complete()).isTrue();
+      try (var candidate = preparation(false).prepare(traversal.clone(), policy)) {
+        assertThat(candidate.cacheHit()).isFalse();
+      }
+      var steps = List.copyOf(traversal.getSteps());
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + call);
+      assertThat(metrics.getDeclines()).isEqualTo(declines + call + 1);
+    }
   }
 
   /** Unsafe queries and disabled translation refuse before any recognition or planning. */

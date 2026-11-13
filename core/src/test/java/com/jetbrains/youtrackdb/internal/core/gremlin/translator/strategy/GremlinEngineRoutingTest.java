@@ -122,6 +122,119 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     }
   }
 
+  /** Unsafe roots retain safety telemetry before each later parent gate. */
+  @Test
+  public void safetyPrecedesEveryParentEarlyGate() {
+    var edge = graph.traversal().E().filter(t -> true).asAdmin();
+    var repeat = graph.traversal().V().repeat(__.out()).times(2).filter(t -> true).asAdmin();
+    RepeatDeclineStrategy.instance().apply(repeat);
+    var duplicate = graph.traversal().V().as("same").out().as("same")
+        .filter(t -> true).asAdmin();
+    var rootStep = graph.traversal().V().path().filter(t -> true).asAdmin();
+    for (var traversal : List.of(edge, repeat, duplicate, rootStep)) {
+      var metrics = GremlinTranslationMetrics.of(db);
+      long errors = metrics.getErrors(), declines = metrics.getDeclines();
+      GremlinToMatchStrategy.instance().apply(traversal);
+      // A duplicate is detected before the later lambda in the same safety scan.
+      var reason = traversal == duplicate ? QuerySafetyAdmission.Reason.DUPLICATE_LABEL
+          : QuerySafetyAdmission.Reason.USER_FUNCTION;
+      assertThat(QuerySafetyAdmission.stored(traversal).reason()).isEqualTo(reason);
+      assertThat(metrics.topDeclinedShapes(256)).anyMatch(
+          s -> s.shape().equals("safety:" + reason.name()));
+      assertThat(metrics.getDeclines()).isEqualTo(declines + 1);
+      assertThat(metrics.getErrors()).isEqualTo(errors);
+    }
+  }
+
+  /** Normal strategy application admits independent vertex children under three native roots. */
+  @Test
+  public void safeChildrenOfNativeRootsTranslateWithoutManualPreparation() {
+    for (int kind = 0; kind < 3; kind++) {
+      var child = __.V().hasLabel("RouteVertex").order().by("name");
+      var root = switch (kind) {
+        case 0 -> graph.traversal().inject(1).map(child).asAdmin();
+        case 1 -> graph.traversal().V().repeat(__.out()).times(2).map(child).asAdmin();
+        default -> graph.traversal().V().path().map(child).asAdmin();
+      };
+      root.applyStrategies();
+      assertThat(QuerySafetyAdmission.stored(root).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(child.asAdmin())).isEqualTo(1);
+    }
+  }
+
+  /** Generation, timeout and settings retain their order on early roots and admitted children. */
+  @Test
+  public void capturePrecedesTimeoutAndSettingsForEarlyRootsAndPreparedChildren() {
+    for (boolean childCall : List.of(false, true)) {
+      var child = __.V().hasLabel("RouteVertex").asAdmin();
+      var root = graph.traversal().inject(1).map(child).asAdmin();
+      QuerySafetyAdmission.prepare(root);
+      child.setGraph(graph);
+      var traversal = childCall ? child : graph.traversal().E().asAdmin();
+      var cache = spy(GremlinPlanCache.instance(db));
+      var session = spy(db);
+      var configuration = spy(db.getConfiguration());
+      org.mockito.Mockito.doReturn(configuration).when(session).getConfiguration();
+      var events = new java.util.ArrayList<String>();
+      org.mockito.Mockito.doAnswer(invocation -> {
+        events.add("generation");
+        return invocation.callRealMethod();
+      }).when(cache).getGeneration();
+      org.mockito.Mockito.doAnswer(invocation -> {
+        if (java.util.Arrays.stream(Thread.currentThread().getStackTrace())
+            .noneMatch(frame -> frame.getClassName().equals(GremlinPlanCache.class.getName()))) {
+          events.add("timeout");
+        }
+        return invocation.callRealMethod();
+      }).when(configuration).getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+      try (var util = org.mockito.Mockito.mockStatic(YTDBStrategyUtil.class,
+          org.mockito.Mockito.CALLS_REAL_METHODS);
+          var caches = org.mockito.Mockito.mockStatic(GremlinPlanCache.class,
+              org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        util.when(() -> YTDBStrategyUtil.resolveYtdbSession(traversal)).thenReturn(session);
+        util.when(() -> YTDBStrategyUtil.translationSettings(traversal, session))
+            .thenAnswer(invocation -> {
+              events.add("settings");
+              return invocation.callRealMethod();
+            });
+        caches.when(() -> GremlinPlanCache.instance(session)).thenReturn(cache);
+        events.clear();
+        util.clearInvocations();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        assertThat(events.indexOf("generation")).isZero();
+        assertThat(events.indexOf("timeout")).isGreaterThan(events.indexOf("generation"));
+        assertThat(events.indexOf("settings")).isGreaterThan(events.indexOf("timeout"));
+        util.verify(() -> YTDBStrategyUtil.translationSettings(traversal, session),
+            org.mockito.Mockito.times(1));
+        // Cache freshness checks have their own timeout reads, outside invocation capture.
+        assertThat(events.stream().filter("timeout"::equals).count()).isEqualTo(1);
+      }
+    }
+  }
+
+  /** Each invalid option wins over safety, reserved labels and every parent gate on roots. */
+  @Test
+  public void invalidOptionsPrecedeUnsafeEarlyRoots() {
+    for (String option : List.of("orderIncludesMissingKey", "orderByNullsPlacementAsc",
+        "orderByNullsPlacementDesc", "polymorphicQuery")) {
+      var source = graph.traversal().with(option, "invalid");
+      var edge = source.E().as("$reserved").filter(t -> true).asAdmin();
+      var repeat = source.V().repeat(__.out()).times(2).filter(t -> true).asAdmin();
+      RepeatDeclineStrategy.instance().apply(repeat);
+      var duplicate = source.V().as("same").out().as("same").filter(t -> true).asAdmin();
+      var rootStep = source.V().path().filter(t -> true).asAdmin();
+      for (var traversal : List.of(edge, repeat, duplicate, rootStep)) {
+        var metrics = GremlinTranslationMetrics.of(db);
+        long errors = metrics.getErrors(), declines = metrics.getDeclines();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        assertThat(QuerySafetyAdmission.stored(traversal)).isNull();
+        assertThat(metrics.getErrors()).isEqualTo(errors + 1);
+        assertThat(metrics.getDeclines()).isEqualTo(declines);
+      }
+    }
+  }
+
   /** Failed root validation leaves no evidence, so each of N children records its own error. */
   @Test
   public void invalidRootOptionsRecordOneErrorPerApplicationIncludingChildren() {
@@ -369,6 +482,20 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
         verify(strategies, org.mockito.Mockito.times(1)).getStrategy(ProductiveByStrategy.class);
       }
     }
+  }
+
+  /** Explicit true order mode still performs one standard-order lookup, with no such strategy. */
+  @Test
+  public void explicitTrueOrderModeLooksUpStandardStrategyOnce() {
+    var traversal = graph.traversal().with("orderIncludesMissingKey", true).V()
+        .hasLabel("RouteVertex").asAdmin();
+    var strategies = spy(traversal.getStrategies().clone());
+    traversal.setStrategies(strategies);
+    assertThat(strategies.getStrategy(StandardOrderSemanticsStrategy.class)).isEmpty();
+    org.mockito.Mockito.clearInvocations(strategies);
+    GremlinToMatchStrategy.instance().apply(traversal);
+    verify(strategies, org.mockito.Mockito.times(1))
+        .getStrategy(StandardOrderSemanticsStrategy.class);
   }
 
   /** Warm production entries are keyed by this application, not the first shared snapshot. */
