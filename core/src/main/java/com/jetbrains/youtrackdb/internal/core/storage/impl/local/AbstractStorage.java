@@ -470,6 +470,9 @@ public abstract class AbstractStorage
   protected final ScalableRWLock stateLock;
 
   protected volatile StorageConfiguration configuration;
+
+  // Published when configuration is created or loaded, including after a restore.
+  private volatile int recordedMaxIndexKeySize;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
   protected final String name;
   private final AtomicLong version = new AtomicLong();
@@ -954,6 +957,7 @@ public abstract class AbstractStorage
                   configuration = new CollectionBasedStorageConfiguration(this);
                   ((CollectionBasedStorageConfiguration) configuration)
                       .load(contextConfiguration, atomicOperation);
+                  refreshRecordedMaxIndexKeySize(atomicOperation);
 
                   // otherwise delayed to disk based storage to convert old format to new format.
                 }
@@ -1736,6 +1740,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
+          refreshRecordedMaxIndexKeySize(atomicOperation);
 
           generateDatabaseInstanceId(atomicOperation);
           clearStorageDirty();
@@ -2066,6 +2071,16 @@ public abstract class AbstractStorage
               + " but current value is "
               + maxKeySize);
     }
+  }
+
+  /** Returns the loaded key limit without accessing configuration locks or closed caches. */
+  public int getRecordedMaxIndexKeySize() {
+    return recordedMaxIndexKeySize;
+  }
+
+  /** Refreshes the published limit before indexes can use a created or loaded configuration. */
+  protected final void refreshRecordedMaxIndexKeySize(AtomicOperation atomicOperation) {
+    recordedMaxIndexKeySize = configuration.getMaxKeySize(atomicOperation);
   }
 
   @Override

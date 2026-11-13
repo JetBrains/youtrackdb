@@ -15,6 +15,146 @@ import org.junit.Test;
 
 public class EmbeddedSetTest extends DbTestBase {
 
+  /** Nulls are neutral, mixed history is sticky, and every bulk removal can reset empty. */
+  @Test
+  public void exactItemClassTracksEveryMutationPath() {
+    var set = new EntityEmbeddedSetImpl<Object>();
+    Assert.assertTrue(set.hasExactItemClass(Integer.class));
+    set.add(null);
+    Assert.assertTrue(set.hasExactItemClass(Integer.class));
+    set.addInternal(1);
+    set.addInternal(1);
+    Assert.assertTrue(set.hasExactItemClass(Integer.class));
+    set.addAll(List.of(2, 3));
+    Assert.assertTrue(set.hasExactItemClass(Integer.class));
+    set.add(1L);
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    // Adding a third class cannot restore exactness after mixed history.
+    set.add("third class");
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    Assert.assertFalse(set.hasExactItemClass(Long.class));
+    Assert.assertFalse(set.hasExactItemClass(String.class));
+    set.remove("third class");
+    set.remove(1L);
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    set.removeAll(List.of(1, 2, 3));
+    Assert.assertFalse(set.hasExactItemClass(Integer.class)); // null remains
+    set.remove(null);
+    Assert.assertTrue(set.hasExactItemClass(Long.class));
+    for (int path = 0; path < 5; path++) {
+      set.addAll(List.of(1, 1L));
+      switch (path) {
+        case 0 -> set.clear();
+        case 1 -> set.removeAll(List.of(1, 1L));
+        case 2 -> set.retainAll(List.of());
+        case 3 -> set.removeIf(value -> true);
+        default -> {
+          var iterator = set.iterator();
+          while (iterator.hasNext()) {
+            iterator.next();
+            iterator.remove();
+          }
+        }
+      }
+      Assert.assertTrue(set.isEmpty());
+      Assert.assertTrue(set.hasExactItemClass(String.class));
+    }
+    set.disableTracking(null);
+    set.addInternal("a");
+    set.add("b");
+    Assert.assertTrue(set.hasExactItemClass(String.class));
+    set.enableTracking(null);
+    set.add(1);
+    Assert.assertFalse(set.hasExactItemClass(String.class));
+  }
+
+  /** Unknown state cannot become exact through insertion and resets only on empty. */
+  @Test
+  public void unknownItemClassIsConservative() throws Exception {
+    var set = new EntityEmbeddedSetImpl<Object>();
+    var field = EntityEmbeddedSetImpl.class.getDeclaredField("itemClass");
+    field.setAccessible(true);
+    field.set(set, null);
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    set.add(1);
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    set.remove(1);
+    Assert.assertTrue(set.hasExactItemClass(Integer.class));
+    // Java serialization is not supported by the nonserializable tracker.
+    var bytes = new java.io.ByteArrayOutputStream();
+    try (var output = new java.io.ObjectOutputStream(bytes)) {
+      Assert.assertThrows(java.io.NotSerializableException.class, () -> output.writeObject(set));
+    }
+    Assert.assertEquals(-2165381831007960531L,
+        java.io.ObjectStreamClass.lookup(EntityEmbeddedSetImpl.class).getSerialVersionUID());
+  }
+
+  /** Rollback uses tracked mutations and a copied set establishes fresh type evidence. */
+  @Test
+  public void rollbackAndCopyRebuildTypeEvidence() {
+    session.begin();
+    var set = new EntityEmbeddedSetImpl<Object>();
+    set.add(1);
+    set.add(1L);
+    set.rollbackChanges(session.getActiveTransaction());
+    Assert.assertTrue(set.isEmpty());
+    Assert.assertTrue(set.hasExactItemClass(String.class));
+    set.addInternal(1);
+    set.addInternal(1L);
+    set.remove(1L);
+    Assert.assertFalse(set.hasExactItemClass(Integer.class));
+    var copy = (EntityEmbeddedSetImpl<
+        ?>) com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.EMBEDDEDSET
+            .copy(set, session);
+    Assert.assertTrue(copy.hasExactItemClass(Integer.class));
+    session.rollback();
+  }
+
+  /** Full-value loading and delta application establish and maintain exact class evidence. */
+  @Test
+  public void serializedValueAndDeltaMaintainTypeEvidence() throws Exception {
+    session.begin();
+    var entity = (EntityImpl) session.newEntity();
+    var source = (EntityEmbeddedSetImpl<Object>) entity.<Object>newEmbeddedSet("items");
+    source.add(1L);
+    var serializer =
+        com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializerDelta
+            .instance();
+    var bytes =
+        new com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer();
+    com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.EntitySerializerDelta
+        .serializeValue(session, bytes, source,
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.EMBEDDEDSET,
+            null);
+    var input =
+        new com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer(
+            bytes.fitBytes());
+    var loaded = (EntityEmbeddedSetImpl<?>) serializer.deserializeValue(session, input,
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.EMBEDDEDSET,
+        null);
+    Assert.assertTrue(loaded.hasExactItemClass(Long.class));
+    session.getActiveTransaction().preProcessRecordsAndExecuteCallCallbacks();
+    source.add(1);
+    var deltaBytes =
+        new com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.BytesContainer();
+    var write = serializer.getClass().getDeclaredMethod("serializeDeltaEmbeddedSet",
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+        deltaBytes.getClass(), EntityEmbeddedSetImpl.class);
+    write.setAccessible(true);
+    write.invoke(null, session, deltaBytes, source);
+    var targetSet = new EntityEmbeddedSetImpl<Object>();
+    targetSet.add(1L);
+    var read = serializer.getClass().getDeclaredMethod("deserializeDeltaEmbeddedSet",
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+        deltaBytes.getClass(), EntityEmbeddedSetImpl.class);
+    read.setAccessible(true);
+    deltaBytes.offset = 0;
+    read.invoke(serializer, session, deltaBytes, targetSet);
+    Assert.assertEquals(Set.of(1L, 1), targetSet);
+    Assert.assertFalse(targetSet.hasExactItemClass(Long.class));
+    session.rollback();
+  }
+
   @Test
   public void testAddOne() {
     session.begin();

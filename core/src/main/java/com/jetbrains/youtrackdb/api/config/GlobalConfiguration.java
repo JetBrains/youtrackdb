@@ -598,8 +598,9 @@ public enum GlobalConfiguration {
 
   BTREE_MAX_KEY_SIZE(
       "youtrackdb.btree.maxKeySize",
-      "Maximum size of a key, which can be put in the SBTree in bytes (-1 by default, calculated"
-          + " automatically from the page size)",
+      "Maximum index key size in bytes (-1 uses 30% of the page size). Recorded at database"
+          + " creation. Oversized string and binary keys in single-field indexes are shortened"
+          + " to a fixed prefix when the recorded limit is positive.",
       Integer.class,
       -1),
 
