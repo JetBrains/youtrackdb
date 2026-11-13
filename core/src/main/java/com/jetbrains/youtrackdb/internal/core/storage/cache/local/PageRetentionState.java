@@ -89,19 +89,7 @@ final class PageRetentionState {
   void synchronizeOnFlushExecutor(@Nullable final Set<Long> fileIds,
       final Synchronization synchronization) throws IOException, InterruptedException {
     checkOwner();
-    final var covered = new ArrayList<WriteAttempt>();
-    if (fileIds == null) {
-      for (final var pages : files.values()) {
-        collectPending(pages, covered);
-      }
-    } else {
-      for (final long fileId : fileIds) {
-        final var pages = files.get(fileId);
-        if (pages != null) {
-          collectPending(pages, covered);
-        }
-      }
-    }
+    final var covered = collectPending(fileIds);
     try {
       synchronization.run();
     } catch (IOException | InterruptedException | RuntimeException | Error failure) {
@@ -115,13 +103,20 @@ final class PageRetentionState {
     }
   }
 
-  private static void collectPending(Long2ObjectOpenHashMap<WriteAttempt> pages,
-      ArrayList<WriteAttempt> covered) {
-    for (final var attempt : pages.values()) {
-      if (attempt.state == State.SYNC_PENDING) {
-        covered.add(attempt);
+  private ArrayList<WriteAttempt> collectPending(@Nullable final Set<Long> fileIds) {
+    final var covered = new ArrayList<WriteAttempt>();
+    final Set<Long> selectedFiles = fileIds == null ? files.keySet() : fileIds;
+    for (final long fileId : selectedFiles) {
+      final var pages = files.get(fileId);
+      if (pages != null) {
+        for (final var attempt : pages.values()) {
+          if (attempt.state == State.SYNC_PENDING) {
+            covered.add(attempt);
+          }
+        }
       }
     }
+    return covered;
   }
 
   /** Discard only physically removed contents, while writers remain excluded. */
