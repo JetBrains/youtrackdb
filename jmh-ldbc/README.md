@@ -122,10 +122,176 @@ Run them only by hand. The nightly and pull request comparison workflows exclude
 The project measures these benchmarks by hand in a forked Java virtual machine (JVM), a separate process.
 The nightly cache-warming step uses no forked JVM, which these benchmarks reject.
 
-Set `LDBC_JAVA_OPTS` as shown under [Two steps](#two-steps-package--dskiptests-then-java--jar), then build the executable benchmark jar with `./mvnw -pl jmh-ldbc -am package -DskipTests`.
-Run the reader and writer group with `java "${LDBC_JAVA_OPTS[@]}" -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar ReaderWriterBenchmark -f 1 -tg 1,3`.
-For writers, first prepare seeds with `java "${LDBC_JAVA_OPTS[@]}" -cp jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar com.jetbrains.youtrackdb.benchmarks.pagelock.RecordWorkload /tmp/page-lock-seeds 1 17`.
-Then run `java "${LDBC_JAVA_OPTS[@]}" -jar jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar 'WriterBenchmark[.]singleRecords1' -f 1 -p seedRoot=/tmp/page-lock-seeds -p commitLimit=17`.
+These are controlled throughput comparisons, not proof for production workloads.
+See the [protocol reference](../docs-internal/storage/page-set-lock.md) for locking and counter meanings.
+Use one fixed Java Development Kit (JDK) version and the same machine for both sides of each pair.
+Run one benchmark process at a time. Build the two sides one after the other.
+
+### Prepare two builds
+
+Use separate working copies for the branch and a chosen develop commit.
+The develop copy must receive the branch benchmark sources and benchmark module `pom.xml`.
+Do not copy branch core sources. Record the core commit before copying benchmark files.
+Set these absolute paths to your working copies and an output directory outside both copies:
+
+```bash
+BRANCH=/path/to/branch
+DEVELOP=/path/to/develop
+OUT=/path/to/page-lock-results
+mkdir -p "$OUT"
+git -C "$BRANCH" rev-parse HEAD > "$OUT/branch-core.txt"
+git -C "$DEVELOP" rev-parse HEAD > "$OUT/develop-core.txt"
+cp -R "$BRANCH/jmh-ldbc/src/." "$DEVELOP/jmh-ldbc/src/"
+cp "$BRANCH/jmh-ldbc/pom.xml" "$DEVELOP/jmh-ldbc/pom.xml"
+(cd "$BRANCH" && ./mvnw -pl jmh-ldbc -am package -DskipTests)
+(cd "$DEVELOP" && ./mvnw -pl jmh-ldbc -am package -DskipTests)
+sha256sum "$BRANCH/jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar" \
+  > "$OUT/branch-jar.sha256"
+sha256sum "$DEVELOP/jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar" \
+  > "$OUT/develop-jar.sha256"
+```
+
+Set the Bash array `LDBC_JAVA_OPTS` as shown under
+[Two steps](#two-steps-package--dskiptests-then-java--jar).
+Use that array for seed preparation and every run.
+No LDBC dataset is needed for these page-lock cases.
+
+The develop seed commands require `-Dpagelock.expectUnavailable=true` in `SEED_ARGS`.
+The develop measurement commands require `-jvmArgsAppend -Dpagelock.expectUnavailable=true` in `SIDE_ARGS`.
+Seed commands run Java directly.
+Measurement commands use Java Microbenchmark Harness (JMH) to start forked JVMs.
+
+Absent develop counters must show `not available`, never zero.
+A partial or unexpected counter interface fails setup.
+
+### Prepare seeds for each side
+
+Select one side at a time. Keep its data outside both working copies:
+
+```bash
+SIDE=branch                         # Change to develop for the other side.
+BUILD="$BRANCH"                     # Use "$DEVELOP" for develop.
+JAR="$BUILD/jmh-ldbc/target/youtrackdb-jmh-ldbc-0.5.0-SNAPSHOT.jar"
+DATA="$OUT/data-$SIDE"
+mkdir -p "$DATA"
+SEED_ARGS=()
+SIDE_ARGS=()
+# For develop only, set both arrays:
+# SEED_ARGS=(-Dpagelock.expectUnavailable=true)
+# SIDE_ARGS=(-jvmArgsAppend -Dpagelock.expectUnavailable=true)
+PKG=com.jetbrains.youtrackdb.benchmarks.pagelock
+java "${LDBC_JAVA_OPTS[@]}" "${SEED_ARGS[@]}" -cp "$JAR" "$PKG.RecordWorkload" "$DATA/seeds" 1 1024
+java "${LDBC_JAVA_OPTS[@]}" "${SEED_ARGS[@]}" -cp "$JAR" "$PKG.RecordWorkload" "$DATA/seeds" 4 1024
+java "${LDBC_JAVA_OPTS[@]}" "${SEED_ARGS[@]}" -cp "$JAR" "$PKG.NearLimitWorkload" \
+  "$DATA/seeds" 4 4096 20 8 1024 1.0
+```
+
+`RecordWorkload` takes `seed-root writers commit-limit`.
+It prepares the full record dataset used by both normal and small-cache cases.
+`NearLimitWorkload` takes `seed-root writers buffer-MiB write-percent page-KiB commit-limit pin-percent`.
+Run these entry points before measurement, separately for each side's jar.
+
+Reader seeds are created by `PageLockBenchmarkState` during trial setup, outside measured time.
+Each reader trial uses a disposable copy. The first sanity run can prepare its seed.
+
+### Writer cases
+
+Choose `METHOD` and `BUFFER` from this table. The method selects the writer thread count.
+
+| Case | METHOD | BUFFER (MiB) | Writers |
+|---|---|---|---|
+| W3 | `singleRecords1` | 1024 | 1 |
+| W4 | `singleRecords4` | 1024 | 4 |
+| W2 | `nearLimit4` | 4096 | 4 |
+| S1 | `smallCache1` | 80 | 1 |
+| S4 | `smallCache4` | 80 | 4 |
+
+The writer benchmark default of `pinPercent` is 4.
+These commands explicitly use 1.0, the engine default.
+The small-cache methods enforce an 80 MiB total cache with a 64 MiB read cache.
+Do not override `recordCount` for a comparison.
+
+```bash
+METHOD=singleRecords1
+BUFFER=1024
+FLAGS=(-f 1 -foe true -wi 3 -w 5s -i 5 -r 10s)
+# For a short sanity run instead:
+# FLAGS=(-f 1 -foe true -wi 1 -w 2s -i 1 -r 3s)
+STEM="$OUT/pair-0-$SIDE-$METHOD"
+CMD=(java "${LDBC_JAVA_OPTS[@]}" -jar "$JAR" "WriterBenchmark[.]$METHOD$"
+  -p seedRoot="$DATA/seeds" -p runRoot="$DATA/runs"
+  -p bufferMiB="$BUFFER" -p writeCachePercent=20 -p pageKiB=8
+  -p commitLimit=1024 -p pinPercent=1.0 -p recordCount=262144
+  "${FLAGS[@]}" -rf json -rff "$STEM.json" "${SIDE_ARGS[@]}")
+```
+
+### Reader cases
+
+Use `ReaderWriterBenchmark.pages` with one writer and three readers (`-tg 1,3`).
+Run each pattern with both `PAGES=1` and `PAGES=32`.
+
+`DISJOINT` reads different pages of the writer component.
+`SHARED` reads pages that the writer changes in that component.
+`DIFFERENT` reads a separate component.
+`sharedPages=-1` means all reader pages overlap for `SHARED`, not a negative overlap count.
+The other patterns have no overlap.
+
+```bash
+PATTERN=DISJOINT                    # Also SHARED and DIFFERENT.
+PAGES=1                            # Also 32.
+STEM="$OUT/pair-0-$SIDE-$PATTERN-$PAGES"
+CMD=(java "${LDBC_JAVA_OPTS[@]}"
+  -Dpagelock.data="$DATA/reader"
+  -Dyoutrackdb.storage.diskCache.bufferSize=1024
+  -Dyoutrackdb.storage.diskCache.writeCachePart=20
+  -Dyoutrackdb.storage.diskCache.pageSize=8
+  -Dyoutrackdb.storage.diskCache.commitPageLimit=1024
+  -Dyoutrackdb.storage.diskCache.commitPinBudgetPercent=1.0
+  -jar "$JAR" 'ReaderWriterBenchmark[.]pages$' -tg 1,3
+  -p pattern="$PATTERN" -p pagesPerRead="$PAGES" -p pagesPerCommit=64 -p sharedPages=-1
+  "${FLAGS[@]}" -rf json -rff "$STEM.json" "${SIDE_ARGS[@]}")
+```
+
+### Execute and validate a pair
+
+Execute the selected `CMD` after each template. Save the exact command and exit status:
+
+```bash
+printf '%q ' "${CMD[@]}" > "$STEM.command"
+printf '\n' >> "$STEM.command"
+sha256sum "$JAR" > "$STEM.sha256"
+grep -m1 'model name' /proc/cpuinfo > "$STEM.processor"
+"${CMD[@]}" > "$STEM.output" 2>&1
+RC=$?
+printf '%s\n' "$RC" > "$STEM.exit-status"
+```
+
+Keep the JSON result file, complete output, exact command, jar checksum, processor model, and exit status.
+Use a new `STEM` for every run. Do not overwrite an invalid run.
+
+First run short sanity checks on both sides. Then use the full flags for comparisons.
+For zero-based even pairs, run branch then develop. For odd pairs, run develop then branch.
+Change `SIDE`, `BUILD`, `JAR`, `DATA`, `SEED_ARGS`, and `SIDE_ARGS` together before building the other side's command.
+
+Both runs of a pair must use the same case and machine.
+
+A branch run is valid only when at least 99 percent of its measured mutating commits use `PAGE_SET`.
+Exclude `ZERO_CHANGE` from the denominator.
+`IterationCounters` sums measured commit deltas, not warmup deltas.
+Writer trial teardown calls `WriterRunValidity.finish()` and rejects a lower aggregate share or no mutating commits.
+The writer failure record also retains unexpected errors from warmup, operations, setup, and cleanup.
+
+Reader trials print shares but do not enforce the aggregate threshold at teardown.
+For readers, sum the `commit.PAGE_SET` values in `PAGELOCK` lines whose `phase` is `MEASUREMENT`.
+Divide by the sum of all `commit.*` values except `commit.ZERO_CHANGE` in those same lines.
+Reject a zero denominator or a share below the threshold.
+`PAGELOCK` lines in the saved output include each iteration's `pageSetShare` and counter values.
+
+The develop side reports unavailable shares and does not apply the branch share check.
+
+Any unexpected error makes a run invalid. `-foe true` makes JMH fail on benchmark errors.
+Require exit status 0 and a result file, then check output and the branch share.
+Report invalid runs with their records. Never replace one silently.
 
 ## Prerequisites
 

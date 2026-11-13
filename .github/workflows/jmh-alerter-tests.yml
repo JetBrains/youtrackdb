@@ -10,14 +10,12 @@ on:
     paths:
       - 'jmh-ldbc/jmh-regression-alert.py'
       - 'jmh-ldbc/jmh-compare.py'
-      - 'jmh-ldbc/page-lock-runner.py'
       - 'jmh-ldbc/tests/**'
       - '.github/workflows/jmh-alerter-tests.yml'
   pull_request:
     paths:
       - 'jmh-ldbc/jmh-regression-alert.py'
       - 'jmh-ldbc/jmh-compare.py'
-      - 'jmh-ldbc/page-lock-runner.py'
       - 'jmh-ldbc/tests/**'
       - '.github/workflows/jmh-alerter-tests.yml'
   # Allow manual re-runs (e.g. after a transient GitHub Actions outage)

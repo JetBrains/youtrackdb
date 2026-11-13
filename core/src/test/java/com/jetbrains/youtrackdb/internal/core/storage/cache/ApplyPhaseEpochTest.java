@@ -11,12 +11,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
- * Tests for the {@link ApplyPhaseEpoch} reader/writer protocol (YTDB-1178): writers
- * bracket the commit-time page-apply section with enterApplyPhase()/exitApplyPhase();
- * readers capture both counters in {@link OptimisticReadScope#reset()} and re-check them
- * in {@link OptimisticReadScope#validateOrThrow()}. A reader must fail whenever any apply
- * phase overlaps its read window — including the parity-defeating interleaving where two
- * writers' apply phases overlap each other.
+ * Tests for the {@link ApplyPhaseEpoch} fallback reader/writer protocol (YTDB-1178).
+ * Fallback writers bracket commit-time page apply with enterApplyPhase() and exitApplyPhase().
+ * Readers capture both counters in {@link OptimisticReadScope#reset()} and re-check them
+ * in {@link OptimisticReadScope#validateOrThrow()}. A reader must fail when fallback apply
+ * overlaps its read window, including when two fallback writers overlap each other.
  */
 public class ApplyPhaseEpochTest {
 

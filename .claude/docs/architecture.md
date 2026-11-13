@@ -12,6 +12,9 @@ Reference material for working on YouTrackDB internals. Load on demand from `CLA
 - **WAL** (Write-Ahead Logging): `LogSequenceNumber` (segment, position) pairs, atomic operations
 - **StorageComponent**: Base class for all storage-backed data structures (durable and non-durable)
 
+For work on commit apply, optimistic reads, or page cache pins, read
+[Page-set lock](../../docs-internal/storage/page-set-lock.md).
+
 ## Gremlin Integration
 
 - Uses a **custom fork** of Apache TinkerPop (group ID `io.youtrackdb` instead of `org.apache.tinkerpop`)
