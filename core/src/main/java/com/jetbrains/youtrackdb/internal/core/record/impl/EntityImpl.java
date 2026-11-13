@@ -3724,6 +3724,13 @@ public class EntityImpl extends RecordAbstract implements Entity {
     }
 
     if (speculativeSuccess) {
+      // Precondition: this RawPageBuffer came from a validated optimistic storage read.
+      // Its final scope check already verified cached-frame identity before the result
+      // reached fillFromPage. A cached frame changes only under its exclusive frame lock.
+      // A frame that left the cache gets new content only after the frame pool takes its
+      // exclusive lock on reuse. Either way, any earlier stamp becomes invalid.
+      // A valid stamp therefore proves that these bytes equal the bytes that passed the
+      // read's final identity check.
       // Validate stamp AFTER deserialization — optimistic read pattern.
       // Use localFrame/localStamp since the entity's fields may have been
       // cleared by the serializer's clearSource() call during deserialization.

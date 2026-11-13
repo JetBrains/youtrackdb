@@ -4,6 +4,9 @@
 import argparse
 import importlib.util
 import json
+import os
+import re
+import shlex
 from pathlib import Path
 import subprocess
 import tempfile
@@ -29,6 +32,77 @@ def result(name, params=None, score=1.0, score_error=MISSING):
   if score_error is not MISSING:
     metric["scoreError"] = score_error
   return {"benchmark": name, "params": params or {}, "primaryMetric": metric}
+
+
+def assert_manual_only_selection(test, argument, environment, baseline):
+  """Replay both shells and Java Pattern.find against source-derived JMH names."""
+  # Resolve the unrelated Actions output path before replaying shell expansion.
+  argument = re.sub(r"\$\{\{.*?\}\}", "123", argument)
+  # The workflow shell expands variables inside the Maven property first.
+  outer = subprocess.check_output(
+      ["/bin/sh", "-c", "printf '%s' " + argument],
+      env={**os.environ, **environment}, text=True)
+  inner = subprocess.check_output(
+      ["/bin/sh", "-c", "python3 -c "
+       + shlex.quote("import json,sys; print(json.dumps(sys.argv[1:]))")
+       + " " + outer], text=True)
+  args = json.loads(inner)
+  test.assertEqual(1, args.count("-e"), "append to one comma list, not a second -e")
+  patterns = args[args.index("-e") + 1].split(",")
+
+  sources = {}
+  for path in (ROOT / "jmh-ldbc/src/main/java").rglob("*.java"):
+    source = path.read_text()
+    package = re.search(r"^package ([\w.]+);", source, re.M)
+    if package:
+      sources[package[1] + "." + path.stem] = source
+
+  def methods(name):
+    source = sources[name]
+    found = set()
+    for match in re.finditer(
+        r"^[ \t]*@Benchmark\b(?P<annotations>.*?)public\s+[^({]+?\s+(\w+)\s*\(",
+        source, re.S | re.M):
+      group = re.search(r'@Group\("([^"]+)"\)', match["annotations"])
+      found.add(group[1] if group else match[2])
+    parent = re.search(r"class\s+\w+\s+extends\s+(\w+)", source)
+    if parent:
+      parent_name = name.rsplit(".", 1)[0] + "." + parent[1]
+      if parent_name in sources:
+        found.update(methods(parent_name))
+    return found
+
+  names = {name + "." + method for name, source in sources.items()
+           if "abstract class " not in source for method in methods(name)}
+  test.assertFalse(any(name.endswith((".class", ".setUp")) for name in names),
+                   "Javadoc mentions of @Benchmark are not benchmark annotations")
+  pages = {name for name in names if ".pagelock." in name}
+  ldbc = {name for name in names if ".ldbc." in name}
+  test.assertGreaterEqual(len(pages), 7)
+  test.assertGreater(len(ldbc), 40)
+  # Future descendants and similar package names check namespace boundaries.
+  pages.add("com.jetbrains.youtrackdb.benchmarks.pagelock.future.NewBenchmark.work")
+  names |= pages | {"com.jetbrains.youtrackdb.benchmarks.pagelocks.OtherBenchmark.work"}
+  expected = pages | {name for name in names if any(old in name for old in baseline)}
+  # Use Java itself, not Python's subtly different regex engine.
+  with tempfile.TemporaryDirectory() as directory:
+    source = Path(directory) / "Selection.java"
+    source.write_text("""
+import java.util.Arrays;
+import java.util.Scanner;
+import java.util.regex.Pattern;
+class Selection {
+  public static void main(String[] args) {
+    var patterns = Arrays.stream(args).map(Pattern::compile).toList();
+    new Scanner(System.in).useDelimiter("\\\\n").tokens()
+        .filter(n -> patterns.stream().anyMatch(p -> p.matcher(n).find()))
+        .forEach(System.out::println);
+  }
+}
+""")
+    excluded = subprocess.check_output(
+        ["java", str(source), *patterns], input="\n".join(sorted(names)), text=True)
+  test.assertEqual(expected, set(excluded.splitlines()))
 
 
 class TargetTest(unittest.TestCase):
@@ -517,6 +591,28 @@ class WorkflowContractTest(unittest.TestCase):
     path = ROOT / ".github/workflows/ldbc-jmh-compare.yml"
     self.text = path.read_text()
     self.workflow = yaml.load(self.text, Loader=yaml.BaseLoader)
+
+  def test_all_compare_selections_exclude_only_the_page_lock_package(self):
+    """Warmup, inventory and measurement keep LDBC's existing selection unchanged."""
+    steps = self.workflow["jobs"]["benchmark"]["steps"]
+    run = next(s["run"] for s in steps
+               if s.get("name") == "Run baseline and target benchmarks")
+    arguments = re.findall(r'-Djmh.args=("[^"\n]*")', run)
+    self.assertEqual(3, len(arguments))
+    environment = {"FIXED_EXCLUSION": self.workflow["env"]["FIXED_EXCLUSION"],
+                   "SELECTION": "", "PARAM": ""}
+    for argument in arguments:
+      with self.subTest(argument=argument):
+        assert_manual_only_selection(
+            self, argument, environment, ["LdbcSingleThreadBothEBenchmark"])
+        with self.assertRaises(AssertionError):
+          assert_manual_only_selection(
+              self, argument, {**environment, "FIXED_EXCLUSION": environment[
+                  "FIXED_EXCLUSION"].split(",")[0]}, ["LdbcSingleThreadBothEBenchmark"])
+        with self.assertRaises(AssertionError):
+          assert_manual_only_selection(
+              self, argument.replace("-e ", "-e ignored -e ", 1),
+              environment, ["LdbcSingleThreadBothEBenchmark"])
 
   def test_manual_inputs_are_xor_and_concurrency_never_cancels(self):
     """Manual dispatch exposes PR or SHA targets without a branch backdoor or cancellation."""

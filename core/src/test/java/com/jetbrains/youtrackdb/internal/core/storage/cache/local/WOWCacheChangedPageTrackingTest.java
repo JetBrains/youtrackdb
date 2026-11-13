@@ -87,7 +87,8 @@ public class WOWCacheChangedPageTrackingTest {
     tracker = new ChangedPageTracker();
     io = Executors.newCachedThreadPool();
     wal = new CASDiskWriteAheadLog("marks", path, path, ContextConfiguration.WAL_DEFAULT_NAME,
-        12000, 128, null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 25, true, Locale.US,
+        12000, 128, null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, true,
+        Locale.US,
         -1, 1000, false, false, true, 10);
     cache = new WOWCache(pageSize, false, pool, wal, new DoubleWriteLogNoOP(), 0, 10000,
         128L * pageSize, path, "marks", new ClosableLinkedContainer<Long, File>(128), 1,
@@ -112,6 +113,66 @@ public class WOWCacheChangedPageTrackingTest {
         GlobalConfiguration.FILE_LOCK.setValue(fileLock);
       }
     }
+  }
+
+  // Pinning is clean. A flush before locking can remove old dirt, but the new start LSN survives
+  // a flush in the publish window. The locked page is counted as skipped and later reaches disk.
+  @Test
+  public void pageSetPublishWindowPreservesDirtyRecordAndBackupMark() throws Exception {
+    cache.pauseBackgroundFlush();
+    long file = cache.addFile("page-set.tst");
+    write(file, 0);
+    var boundary = spy(cache);
+    try (var pins = readCache.tryReserveWritePins(1)) {
+      var entry = pins.pin(0, file, 0, boundary, false);
+      cache.flush(file);
+      assertNull(cache.getMinimalNotFlushedSegment());
+      var seal = tracker.beginBackup();
+      pins.lock(0);
+      pins.prepare(0, new LogSequenceNumber(7, 1), null);
+      assertPages(file, 0L);
+      entry.getCachePointer().getBuffer().putInt(100, 123456);
+      long skips = cache.pageCacheCounters().flushSkips();
+      // Keep the existing page flush-eligible before the reservation publishes it again.
+      cache.store(file, 0, entry.getCachePointer());
+      doAnswer(call -> {
+        // Force a flush exactly before store, not after publication has already finished.
+        var flush = io.submit(() -> {
+          cache.flush(file);
+          return null;
+        });
+        flush.get(10, TimeUnit.SECONDS);
+        assertEquals(0, entry.getCachePointer().getPageFrame().tryOptimisticRead());
+        assertTrue(cache.pageCacheCounters().flushSkips() > skips);
+        assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
+        return call.callRealMethod();
+      }).when(boundary).store(anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+      cache.flush(file);
+      assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
+      pins.publishAndUnlock(0);
+      // A second acquisition locks a page that is already in the write cache.
+      // Flush must use try-lock, report the skip, and leave the dirty record intact.
+      entry.acquireExclusiveLock();
+      try {
+        cache.flush(file);
+        assertTrue(cache.pageCacheCounters().flushSkips() > skips);
+        assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
+      } finally {
+        entry.releaseExclusiveLock();
+      }
+      cache.flush(file);
+      assertNull(cache.getMinimalNotFlushedSegment());
+      // Force a new frame and a disk read rather than checking the cached copy.
+      // The reservation pin is still held, so use the write cache non-extending disk load.
+      var diskPointer = cache.loadIfPresent(file, 0, false);
+      try {
+        assertEquals(123456, diskPointer.getBuffer().getInt(100));
+      } finally {
+        diskPointer.decrementReadersReferrer();
+      }
+      tracker.mergeBack(seal);
+    }
+    assertEquals(0, readCache.reservedWritePins());
   }
 
   // A page stays dirty across a switch. Its second real write acquisition must mark the new
@@ -677,7 +738,8 @@ public class WOWCacheChangedPageTrackingTest {
   }
 
   // A real mark allocation failure revokes established trust and reaches the write caller
-  // before dirty bookkeeping can retain WAL. The same entry can then be acquired and cleared,
+  // before content changes. No dirty record remains without a published page.
+  // The same entry can then be acquired and cleared,
   // proving balanced lock and reference use.
   @Test
   public void failedMarkRevokesTrustAndReleasesRealCacheEntry() throws Exception {
@@ -702,8 +764,14 @@ public class WOWCacheChangedPageTrackingTest {
     assertSame(failure, assertThrows(OutOfMemoryError.class,
         () -> readCache.loadOrAddForWrite(file, 0, cache, false, null)));
     assertFalse(tracker.isTrusted());
-    assertNull("a failed mark must not publish dirty bookkeeping before the retry",
-        cache.getMinimalNotFlushedSegment());
+    assertNull(cache.getMinimalNotFlushedSegment());
+    try (var pins = readCache.tryReserveWritePins(1)) {
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
+      assertSame(failure, assertThrows(OutOfMemoryError.class,
+          () -> pins.prepare(0, new LogSequenceNumber(7, 1), null)));
+    }
+    assertNull(cache.getMinimalNotFlushedSegment());
     armed.set(false);
     var worker = Executors.newSingleThreadExecutor();
     try {
@@ -852,6 +920,96 @@ public class WOWCacheChangedPageTrackingTest {
         session.executeInTx(tx -> assertEquals(1, session.countClass("V")));
       }
     }
+  }
+
+  // The forced-drain point is fixed at 107 percent independently of the commit pin budget.
+  // A real disk load crosses forced drain with every resident page pinned and must finish.
+  // After release, the next real add must retry eviction and restore the capacity bound.
+  @Test(timeout = 30000)
+  public void pinnedRealLoadsCrossForcedDrainAndNextAddRetries() throws Exception {
+    cache.pauseBackgroundFlush();
+    long file = cache.addFile("pinned-drain.tst");
+    var held = new ArrayList<CacheEntry>();
+    try {
+      var loads = io.submit(() -> {
+        for (int page = 0; page < 140; page++) {
+          held.add(readCache.loadForRead(file, page, cache, false));
+        }
+      });
+      loads.get(10, TimeUnit.SECONDS);
+      assertTrue(readCache.getUsedMemory() > 1.07 * 128 * pageSize);
+      assertTrue(readCache.counters().evictionStops() > 0);
+      assertTrue(readCache.counters().largestExcess() >= 12);
+    } finally {
+      for (var entry : held) {
+        readCache.releaseFromRead(entry);
+      }
+    }
+    var next = readCache.loadForRead(file, 140, cache, false);
+    readCache.releaseFromRead(next);
+    assertTrue(readCache.getUsedMemory() <= 128L * pageSize);
+  }
+
+  // Background flush must force the real unflushed WAL end LSN before the first data write.
+  // File flush is not used because it forces WAL independently of the page end LSN.
+  @Test
+  @SuppressWarnings("unchecked")
+  public void reservationEndLsnReachesWalBeforeBackgroundPageWrite() throws Exception {
+    cache.pauseBackgroundFlush();
+    long file = cache.addFile("page-set-wal.tst");
+    write(file, 0);
+    cache.flush(file);
+    wal.flush();
+    var end = wal.log(
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord());
+    assertTrue(wal.getFlushedLsn().compareTo(end) < 0);
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    var actual = handles.remove(file);
+    var observed = spy(actual);
+    var writes = new java.util.concurrent.atomic.AtomicInteger();
+    doAnswer(call -> {
+      assertTrue("WAL must reach the reservation end LSN before data write",
+          wal.getFlushedLsn().compareTo(end) >= 0);
+      writes.incrementAndGet();
+      return call.callRealMethod();
+    }).when(observed).write(org.mockito.ArgumentMatchers.anyList());
+    handles.add(file, observed);
+    try (var pins = readCache.tryReserveWritePins(1)) {
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
+      pins.prepare(0, end, end);
+      entry.getCachePointer().getBuffer().putInt(100, 654321);
+      pins.publishAndUnlock(0);
+    }
+    var flush = WOWCache.class.getDeclaredMethod(
+        "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
+    flush.setAccessible(true);
+    flush.invoke(cache, end.getSegment(), end.getSegment() + 1, 128);
+    assertTrue(writes.get() > 0);
+    assertNull(cache.getMinimalNotFlushedSegment());
+    var disk = cache.loadIfPresent(file, 0, false);
+    try {
+      assertEquals(654321, disk.getBuffer().getInt(100));
+    } finally {
+      disk.decrementReadersReferrer();
+    }
+  }
+
+  // Prepare creates a dirty record even if apply is skipped. Cleanup must publish that page.
+  @Test
+  public void preparedUnchangedExistingPageDoesNotRetainWal() throws Exception {
+    cache.pauseBackgroundFlush();
+    long file = cache.addFile("prepared.tst");
+    write(file, 0);
+    cache.flush(file);
+    try (var pins = readCache.tryReserveWritePins(1)) {
+      var entry = pins.pin(0, file, 0, cache, false);
+      pins.lock(0);
+      pins.prepare(0, new LogSequenceNumber(7, 1), null);
+    }
+    assertEquals(Long.valueOf(7), cache.getMinimalNotFlushedSegment());
+    cache.flush(file);
+    assertNull(cache.getMinimalNotFlushedSegment());
   }
 
   private void write(long file, int page) {

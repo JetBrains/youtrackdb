@@ -19,7 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
-import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import javax.annotation.Nullable;
@@ -83,6 +83,18 @@ public interface ReadCache {
       long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums)
       throws IOException;
 
+  /** Whether shared pinned reads participate in optimistic attempt validation. */
+  default boolean supportsOptimisticReads() {
+    return false;
+  }
+
+  /** A shared load for an attempt. Disk implementations must not extend the file. */
+  default CacheEntry loadForRead(
+      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      OptimisticReadScope scope) throws IOException {
+    return loadForRead(fileId, pageIndex, writeCache, verifyChecksums);
+  }
+
   CacheEntry silentLoadForRead(
       final long extFileId,
       final int pageIndex,
@@ -92,6 +104,49 @@ public interface ReadCache {
   void releaseFromRead(CacheEntry cacheEntry);
 
   void releaseFromWrite(CacheEntry cacheEntry, WriteCache writeCache, boolean changed);
+
+  /**
+   * Reserves commit pins before any page load. Null selects the caller's fallback protocol.
+   * Implementations without a disk page cache do not support reservations.
+   */
+  @Nullable default WriteReservation tryReserveWritePins(int pages) {
+    return null;
+  }
+
+  /** Per-commit page limit captured when the shared cache is created. */
+  default int commitPageLimit() {
+    return (Integer) GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getDefValue();
+  }
+
+  /** Cache-wide commit pin capacity. Zero disables page-set application. */
+  default int writePinBudget() {
+    return 0;
+  }
+
+  /**
+   * Thread-confined resources for page-set application. Slots are consecutive from zero,
+   * in strictly increasing canonical file/page order. Pin returns the entry for that slot.
+   * All pins in one reservation must use the same {@link WriteCache}.
+   * Pin rejects a different write cache with {@link IllegalArgumentException} before changing the slot.
+   * Load every pin before locking any page. Prepare successfully before touching page content.
+   * Close unlocks every page before releasing pins. A failed publish keeps its pin and budget.
+   */
+  interface WriteReservation extends AutoCloseable {
+    CacheEntry pin(int slot, long fileId, long pageIndex, WriteCache writeCache,
+        boolean verifyChecksums);
+
+    /** Returns the entry of an already pinned slot while this reservation is open. */
+    CacheEntry entry(int slot);
+
+    void lock(int slot);
+
+    void prepare(int slot, LogSequenceNumber startLSN, LogSequenceNumber endLSN);
+
+    void publishAndUnlock(int slot);
+
+    @Override
+    void close();
+  }
 
   long getUsedMemory();
 
@@ -139,21 +194,20 @@ public interface ReadCache {
    */
   void closeStorage(WriteCache writeCache) throws IOException;
 
-  void changeMaximumAmountOfMemory(long calculateReadCacheMaxMemory);
-
   /**
-   * Optimistic cache lookup: returns the PageFrame for the given page without CAS-based
-   * pinning. Returns null on cache miss, evicted entry, or null CachePointer.
-   *
-   * <p>The caller must take an optimistic stamp from the returned PageFrame and validate
-   * it after reading data to ensure the page was not evicted or modified.
+   * Returns an unpinned identity token for final optimistic validation, or null on miss.
+   * The caller records this entry with its frame and stamp. Final validation checks
+   * that the recorded entry is alive and still holds that frame, without another lookup.
+   * Implementations without optimistic reads return null.
    */
-  @Nullable PageFrame getPageFrameOptimistic(long fileId, long pageIndex);
+  @Nullable default CacheEntry getCacheEntryOptimistic(long fileId, long pageIndex) {
+    return null;
+  }
 
   /**
    * Records a successful optimistic read access for the given page, updating the
-   * frequency sketch used by the eviction policy. Call this after stamp validation
-   * succeeds, to keep eviction decisions accurate.
+   * frequency sketch used by the eviction policy. Call this after cached-frame identity,
+   * stamps, and the apply-phase epoch have passed validation.
    *
    * <p>If the entry has been evicted between validation and this call, the access
    * is silently skipped (acceptable — one missed frequency bump is harmless).

@@ -296,7 +296,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         return bucket.getValue(index, keySerializer, serializerFactory);
       }
 
-      // Internal node: follow child pointer, then validate the stamp to catch eviction
+      // Internal node: follow child pointer, then validate the stamp to catch writes or frame-pool reuse
       // before chasing a potentially stale page index.
       if (index >= 0) {
         pageIndex = bucket.getRight(index);

@@ -665,6 +665,102 @@ public class WTinyLFUPolicyTest {
     clearPointers(wTinyLFU);
   }
 
+  // All candidates are pinned. Eviction must stop, preserve accounting, and try on the next add.
+  @Test(timeout = 10000)
+  public void pinnedCandidatesLeaveMeasuredExcessAndNextAddRetries() {
+    var pool = new ByteBufferPool(1, new DirectMemoryAllocator(), 0);
+    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var size = new AtomicInteger();
+    var counters =
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters.Eviction();
+    var policy = new WTinyLFUPolicy(data, mock(Admittor.class), size, counters);
+    policy.setMaxSize(15);
+    var entries = new CacheEntry[22];
+    var pointers = new CachePointer[22];
+    generateEntries(entries, pointers, pool);
+    try {
+      for (int i = 0; i < 21; i++) {
+        Assert.assertTrue(entries[i].acquireEntry());
+        data.put(1, i, entries[i]);
+        size.incrementAndGet();
+        policy.onAdd(entries[i]);
+      }
+      Assert.assertEquals(21, size.get());
+      Assert.assertTrue(counters.evictionStops() > 0);
+      Assert.assertEquals(6, counters.largestExcess());
+      policy.assertSize();
+      policy.assertConsistency();
+      policy.setMaxSize(15);
+      for (int i = 0; i < 21; i++) {
+        entries[i].releaseEntry();
+      }
+      data.put(1, 21, entries[21]);
+      size.incrementAndGet();
+      policy.onAdd(entries[21]);
+      Assert.assertEquals(15, size.get());
+      Assert.assertEquals(6, counters.largestExcess());
+      policy.assertSize();
+      policy.assertConsistency();
+    } finally {
+      clearPointers(policy);
+      pool.clear();
+    }
+  }
+
+  // Pending adds inflate the shared size but do not mean eviction stopped on a pinned page.
+  @Test
+  public void queuedAddsWithoutPinsDoNotCountAsEvictionStops() {
+    var pool = new ByteBufferPool(1, new DirectMemoryAllocator(), 0);
+    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var size = new AtomicInteger(30);
+    var counters =
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters.Eviction();
+    var policy = new WTinyLFUPolicy(data, mock(Admittor.class), size, counters);
+    policy.setMaxSize(15);
+    var entries = new CacheEntry[30];
+    var pointers = new CachePointer[30];
+    generateEntries(entries, pointers, pool);
+    try {
+      for (int i = 0; i < entries.length; i++) {
+        data.put(1, i, entries[i]);
+        policy.onAdd(entries[i]);
+        Assert.assertEquals(0, counters.evictionStops());
+        Assert.assertEquals(0, counters.largestExcess());
+      }
+      policy.assertSize();
+    } finally {
+      clearPointers(policy);
+      pool.clear();
+    }
+  }
+
+  // An evicted frame can still belong to the write cache. Eviction must not wait on its lock.
+  @Test(timeout = 10000)
+  public void removalDoesNotLockAFrameStillHeldByTheWriteCache() {
+    var pool = new ByteBufferPool(1, new DirectMemoryAllocator(), 0);
+    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var size = new AtomicInteger();
+    var policy = new WTinyLFUPolicy(data, mock(Admittor.class), size);
+    policy.setMaxSize(15);
+    var entries = new CacheEntry[1];
+    var pointers = new CachePointer[1];
+    generateEntries(entries, pointers, pool);
+    var entry = entries[0];
+    var pointer = pointers[0];
+    pointer.incrementWritersReferrer();
+    policy.onAdd(entry);
+    long stamp = pointer.acquireExclusiveLock();
+    try {
+      Assert.assertTrue(entry.freeze());
+      policy.onRemove(entry);
+      Assert.assertTrue(entry.isDead());
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+      pointer.decrementWritersReferrer();
+      pool.clear();
+    }
+  }
+
   private static CacheEntry[] toArray(Iterator<CacheEntry> iterator) {
     final List<CacheEntry> entries = new ArrayList<>();
     while (iterator.hasNext()) {

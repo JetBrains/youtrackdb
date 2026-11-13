@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -56,6 +57,9 @@ import it.unimi.dsi.fastutil.ints.IntSets;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import java.io.IOException;
@@ -79,6 +83,13 @@ import javax.annotation.Nullable;
  * @since 12/3/13
  */
 final class AtomicOperationBinaryTracking implements AtomicOperation {
+
+  // Instance-local test override. Production selects the protocol before any page load.
+  private boolean forceEpochApplyForTesting;
+
+  void setForceEpochApplyForTesting(boolean forced) {
+    forceEpochApplyForTesting = forced;
+  }
 
   private final int storageId;
   private long operationCommitTs = -1;
@@ -163,14 +174,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // because tests install the hook on the test thread while commitChanges may run on a
   // separate writer thread.
   @Nullable private volatile PageApplyHook pageApplyHook;
+  @Nullable private volatile PageSetPauseHook pageSetPauseHook;
 
-  // Standalone test/tooling fallback. Production writers bracket the stable epochs of
-  // their locked logical components instead.
+  // Standalone test/tooling fallback. Production fallback commits bracket the stable
+  // epochs of their locked logical components. Page-set commits enter no epoch.
   @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
+  private final CommitProtocolCounters commitProtocolCounters;
 
   /**
-   * Production constructor. Optimistic scopes receive their epoch from the component
-   * starting each read, and commits receive epochs from their locked components.
+   * Standalone constructor with private counters. Optimistic scopes receive their epoch from
+   * the component starting each read, and commits receive epochs from their locked components.
    */
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -202,6 +215,28 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
       @Nonnull AtomicLong edgeSnapshotIndexSize,
       @Nullable ApplyPhaseEpoch applyPhaseEpoch) {
+    this(readCache, writeCache, writeAheadLog, storageId, snapshot, sharedSnapshotIndex,
+        sharedVisibilityIndex, snapshotIndexSize, sharedEdgeSnapshotIndex,
+        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, applyPhaseEpoch,
+        new CommitProtocolCounters());
+  }
+
+  /** Production construction receives the owning storage manager's shared counters. */
+  AtomicOperationBinaryTracking(
+      final ReadCache readCache,
+      final WriteCache writeCache,
+      @Nullable final WriteAheadLog writeAheadLog,
+      final int storageId,
+      @Nonnull AtomicOperationsSnapshot snapshot,
+      @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex,
+      @Nonnull AtomicLong snapshotIndexSize,
+      @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
+      @Nonnull AtomicLong edgeSnapshotIndexSize,
+      @Nullable ApplyPhaseEpoch applyPhaseEpoch,
+      @Nonnull CommitProtocolCounters commitProtocolCounters) {
+    this.commitProtocolCounters = commitProtocolCounters;
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -305,6 +340,32 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   @Nullable @Override
   public CacheEntry loadPageForRead(long fileId, final long pageIndex) throws IOException {
+    final boolean attempt =
+        optimisticReadScope.isAttemptActive() && readCache.supportsOptimisticReads();
+    if (attempt && optimisticReadScope.isFailed()) {
+      return null;
+    }
+    try {
+      final var entry = loadPageForReadInternal(fileId, pageIndex);
+      if (attempt && entry == null) {
+        optimisticReadScope.fail(OptimisticReadFailureCounters.Cause.LOOKUP_MISS);
+      }
+      return entry;
+    } catch (Exception | Error failure) {
+      if (!attempt) {
+        throw failure;
+      }
+      // Errors from operation bookkeeping or a cache implementation may not be repeatable.
+      // Defer them until traversal cleanup, just like Errors kept by the shared cache.
+      if (failure instanceof Error) {
+        optimisticReadScope.preserveLoadFailure(failure);
+      }
+      optimisticReadScope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+      return null;
+    }
+  }
+
+  private CacheEntry loadPageForReadInternal(long fileId, long pageIndex) throws IOException {
     checkIfActive();
 
     fileId = checkFileIdCompatibility(fileId, storageId);
@@ -317,7 +378,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     final var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
-      return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+      return loadSharedPageForRead(fileId, pageIndex);
     }
 
     if (changesContainer.isNew) {
@@ -332,20 +393,31 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
       if (checkChangesFilledUpTo(changesContainer, pageIndex)) {
         if (pageChangesContainer == null) {
-          return readCache.loadForRead(fileId, pageIndex, writeCache, true);
+          return loadSharedPageForRead(fileId, pageIndex);
         } else {
           if (pageChangesContainer.isNew) {
             return pageChangesContainer;
           } else {
             // Need to load the page again from cache for locking reasons
-            pageChangesContainer.delegate =
-                readCache.loadForRead(fileId, pageIndex, writeCache, true);
+            final var delegate = loadSharedPageForRead(fileId, pageIndex);
+            if (delegate == null && optimisticReadScope.isAttemptActive()
+                && readCache.supportsOptimisticReads()) {
+              return null;
+            }
+            pageChangesContainer.delegate = delegate;
             return pageChangesContainer;
           }
         }
       }
     }
     return null;
+  }
+
+  private CacheEntry loadSharedPageForRead(long fileId, long pageIndex) throws IOException {
+    if (optimisticReadScope.isAttemptActive() && readCache.supportsOptimisticReads()) {
+      return readCache.loadForRead(fileId, pageIndex, writeCache, true, optimisticReadScope);
+    }
+    return readCache.loadForRead(fileId, pageIndex, writeCache, true);
   }
 
   /**
@@ -1002,11 +1074,14 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         writeAheadLog.log(new FileDeletedWALRecord(operationCommitTs, deletedFileId));
       }
 
+      final var commitPages = new CommitPageSet(fileChanges.size());
+      boolean hasFileLifecycleChanges = !deletedFiles.isEmpty();
       for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
         final var fileChanges = fileChangesEntry.getValue();
         final var fileId = fileChangesEntry.getLongKey();
         final boolean nonDurable = nonDurableFlags.get(fileId);
 
+        hasFileLifecycleChanges |= fileChanges.isNew;
         if (fileChanges.isNew && !nonDurable) {
           if (!walUnitStarted) {
             startLSN = emitWalUnitStart(writeAheadLog, commitTs);
@@ -1016,16 +1091,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
               new FileCreatedWALRecord(operationCommitTs, fileChanges.fileName, fileId));
         }
 
-        if (nonDurable) {
-          // Skip WAL logging for non-durable files. Page changes are applied
-          // to cache below and empty entries are cleaned up in the cache loop.
-          continue;
-        }
-
         // Only changed new pages determine the highest new index. Applying that index
         // extends the physical file through every intervening index, even if an
         // intervening allocation had no changes and was removed from this map.
         long highestNewPage = -1;
+        LongArrayList changedPages = null;
         final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
             fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
         while (filePageChangesIterator.hasNext()) {
@@ -1036,6 +1106,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
           if (filePageChanges.changes.hasChanges()) {
             final var pageIndex = filePageChangesEntry.getLongKey();
+
+            // Create the per-file list only on the first change, then reuse it.
+            if (changedPages == null) {
+              changedPages = commitPages.addFile(fileId);
+            }
+            changedPages.add(pageIndex);
+            commitPages.pageCount++;
+            if (nonDurable) {
+              continue;
+            }
 
             // All durable page types must register PageOperations, which are
             // flushed to WAL at component boundaries by flushPendingOperations().
@@ -1102,13 +1182,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         flushEdgeSnapshotBuffers();
       }
 
-      // Apply-phase epoch bracket: enter every locked logical component before the first
-      // shared-cache mutation, then exit all of them after the complete apply section.
-      // This covers the readCache.deleteFile loop plus the whole per-file apply loop
-      // (addFile/loadOrAddForWrite/releaseFromWrite).
-      // Pages are applied one at a time in hash order, so a concurrent optimistic
-      // reader overlapping this section could see a mix of pre- and post-commit pages
-      // with every per-page stamp still valid; its component epoch detects the overlap.
+      // Choose before any page load. tryApplyPageSet owns a successful reservation
+      // immediately and closes it on every exit. A failure propagates, never falls back.
+      // Page-set commits lock every frame before the first change. Frame stamps,
+      // cached-frame identity and the pinned-load rules protect optimistic readers.
+      // WAL collection already identifies every file lifecycle and changed page.
+      // Reuse those facts so zero-change selection needs no file-map scan.
+      final var mutatesSharedCache = hasFileLifecycleChanges || commitPages.pageCount > 0;
+      final var outcome = forceEpochApplyForTesting ? CommitProtocolCounters.Outcome.FORCED
+          : hasFileLifecycleChanges ? CommitProtocolCounters.Outcome.FILE_LIFECYCLE
+              : tryApplyPageSet(commitPages, nonDurableFlags, txEndLsn);
+      if (outcome == CommitProtocolCounters.Outcome.PAGE_SET) {
+        commitProtocolCounters.record(mutatesSharedCache ? outcome
+            : CommitProtocolCounters.Outcome.ZERO_CHANGE);
+        return txEndLsn;
+      }
+
+      // The epoch protects readers against fallback commits only. Enter every locked
+      // logical component before the first shared-cache mutation, including file
+      // lifecycle changes, then exit all of them after the complete fallback apply.
       // Entry happens inside the try so partial entry is unwound if a later component
       // cannot be entered. Exits remain in finally to balance apply-time exceptions.
       // Rolled-back operations never reach commitChanges (see the gate in
@@ -1122,7 +1214,6 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // perform no readCache calls in the section below, so bumping the epoch for them
       // would only spuriously invalidate every concurrently overlapping optimistic
       // read in the storage.
-      final var mutatesSharedCache = commitMutatesSharedCache();
       var enteredComponentCount = 0;
       var standaloneEpochEntered = false;
       try {
@@ -1171,31 +1262,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           // and updateDirtyPagesTable (Track 4) skips them regardless.
           final var fileStartLSN = nonDurable ? null : startLSN;
 
-          // Snapshot the test hook once per file so a concurrent (test-side) uninstall
-          // cannot switch paths mid-file. Null in production — the fast path below is
-          // byte-for-byte the pre-seam loop.
+          // Both paths consume the exact set built during WAL validation. No page
+          // opened only for write can reach cache application.
+          final var pages = commitPages.pages(fileId);
           final var hook = pageApplyHook;
           if (hook == null) {
-            final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-                fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-            while (filePageChangesIterator.hasNext()) {
-              final var filePageChangesEntry =
-                  filePageChangesIterator.next();
-
-              if (filePageChangesEntry.getValue().changes.hasChanges()) {
-                applyPageChangesToCache(
-                    fileId,
-                    filePageChangesEntry.getLongKey(),
-                    filePageChangesEntry.getValue(),
-                    nonDurable,
-                    fileStartLSN,
-                    txEndLsn);
-              } else {
-                filePageChangesIterator.remove();
-              }
+            for (var i = 0; i < pages.size(); i++) {
+              final var pageIndex = pages.getLong(i);
+              applyPageChangesToCache(fileId, pageIndex,
+                  fileChanges.pageChangesMap.get(pageIndex), nonDurable, fileStartLSN, txEndLsn);
             }
           } else {
-            applyPageChangesWithHook(hook, fileId, fileChanges, nonDurable, fileStartLSN,
+            applyPageChangesWithHook(hook, fileId, fileChanges, pages, nonDurable, fileStartLSN,
                 txEndLsn);
           }
         }
@@ -1208,6 +1286,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         }
       }
 
+      commitProtocolCounters.record(mutatesSharedCache ? outcome
+          : CommitProtocolCounters.Outcome.ZERO_CHANGE);
       return txEndLsn;
     } finally {
       active = false;
@@ -1215,10 +1295,128 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
-   * Applies one page's accumulated binary changes to the shared read cache. Extracted
-   * from the commitChanges apply loop so the production iterator path and the test-only
-   * hook-ordered path ({@link #applyPageChangesWithHook}) share the exact same per-page
-   * logic. Must only be called inside the apply-phase epoch bracket.
+   * Commit-local page identities grouped by file. The page-set path sorts each file's
+   * identities in place before pinning. The iterator path consumes the collected order.
+   * Only real changes enter this set. Allocation gaps are physical file extent, not
+   * changed pages. File deletion removes the file's changes before collection.
+   */
+  private static final class CommitPageSet {
+    private final Long2ObjectOpenHashMap<LongArrayList> pagesByFile;
+    private long pageCount;
+
+    CommitPageSet(int fileCount) {
+      pagesByFile = new Long2ObjectOpenHashMap<>(fileCount);
+    }
+
+    LongArrayList addFile(long fileId) {
+      final var pages = new LongArrayList();
+      pagesByFile.put(fileId, pages);
+      return pages;
+    }
+
+    LongList pages(long fileId) {
+      final var pages = pagesByFile.get(fileId);
+      return pages == null ? LongLists.EMPTY_LIST : pages;
+    }
+  }
+
+  /**
+   * Returns the selected outcome. Fallback is selected before loading any page. Once reserved,
+   * failures propagate through reservation cleanup and never select the epoch protocol.
+   */
+  private CommitProtocolCounters.Outcome tryApplyPageSet(CommitPageSet pages,
+      Long2BooleanOpenHashMap nonDurableFlags, @Nullable LogSequenceNumber txEndLsn) {
+    final var pauseHook = pageSetPauseHook;
+    final int budget = readCache.writePinBudget();
+    final int limit = Math.min(readCache.commitPageLimit(), budget);
+    if (pages.pageCount == 0) {
+      return CommitProtocolCounters.Outcome.PAGE_SET;
+    }
+    if (budget == 0) {
+      return CommitProtocolCounters.Outcome.NO_PIN_BUDGET;
+    }
+    if (pages.pageCount > limit) {
+      return CommitProtocolCounters.Outcome.OVER_LIMIT;
+    }
+    try (final var reservation = readCache.tryReserveWritePins((int) pages.pageCount)) {
+      if (reservation == null) {
+        return CommitProtocolCounters.Outcome.RESERVATION_DENIED;
+      }
+      // Sort primitive identities only. All loads and possible eviction finish before
+      // the first frame lock. The reservation reuses its loaded entries during apply.
+      final var files = pages.pagesByFile.keySet().toLongArray();
+      java.util.Arrays.sort(files);
+      final int pageCount = (int) pages.pageCount;
+      final var changesByPage = new CacheEntryChanges[pageCount];
+      final var nonDurableByPage = new boolean[pageCount];
+      int index = 0;
+      for (final long fileId : files) {
+        final var indexes = pages.pagesByFile.get(fileId);
+        java.util.Arrays.sort(indexes.elements(), 0, indexes.size());
+        final var filePageChanges = fileChanges.get(fileId).pageChangesMap;
+        final boolean nonDurable = nonDurableFlags.get(fileId);
+        for (int i = 0; i < indexes.size(); i++) {
+          final long pageIndex = indexes.getLong(i);
+          final var changes = filePageChanges.get(pageIndex);
+          changesByPage[index] = changes;
+          nonDurableByPage[index] = nonDurable;
+          reservation.pin(index, fileId, pageIndex, writeCache,
+              changes.verifyCheckSum);
+          index++;
+        }
+      }
+      for (int slot = 0; slot < pageCount; slot++) {
+        reservation.lock(slot);
+      }
+      // Only test callbacks need a snapshot. Normal commits use the reservation array directly.
+      final CacheEntry[] pausedPages;
+      if (pauseHook != null) {
+        pausedPages = new CacheEntry[pageCount];
+        for (int slot = 0; slot < pageCount; slot++) {
+          pausedPages[slot] = reservation.entry(slot);
+        }
+        // Callbacks stay inside cleanup, including failures before any change.
+        pauseHook.pause(pausedPages, false);
+      } else {
+        pausedPages = null;
+      }
+      // No page load, eviction or freezer admission is allowed in this lock window.
+      for (int i = 0; i < pageCount; i++) {
+        final var entry = reservation.entry(i);
+        final boolean nonDurable = nonDurableByPage[i];
+        // Operation-level durability can differ from the physical file after same-name
+        // recreation. Preserve the old WAL flush dependency in that case, as legacy does.
+        reservation.prepare(i, nonDurable ? null : startLSN,
+            nonDurable ? entry.getEndLSN() : txEndLsn);
+        restorePageContent(entry, changesByPage[i], nonDurable, txEndLsn, true);
+        reservation.publishAndUnlock(i);
+        if (i == 0 && pauseHook != null) {
+          pauseHook.pause(pausedPages, true);
+        }
+      }
+    }
+    return CommitProtocolCounters.Outcome.PAGE_SET;
+  }
+
+  private static void restorePageContent(CacheEntry entry, CacheEntryChanges changes,
+      boolean nonDurable, @Nullable LogSequenceNumber txEndLsn, boolean endLsnPrepared) {
+    final var page = new DurablePage(entry);
+    page.restoreChanges(changes.changes);
+    if (!nonDurable) {
+      assert changes.getChangeLSN() != null : "Durable page must have changeLSN";
+      // The iterator sets the dependency after restoration. Reservations prepare it
+      // under the same lock before any content mutation, including failed restoration.
+      if (!endLsnPrepared) {
+        entry.setEndLSN(txEndLsn);
+      }
+      page.setLsn(changes.getChangeLSN());
+    }
+  }
+
+  /**
+   * Applies one page through the iterator protocol, including the test-only hook order
+   * ({@link #applyPageChangesWithHook}). Content restoration is shared with the page-set
+   * protocol. Must only be called inside the apply-phase epoch bracket.
    */
   private void applyPageChangesToCache(
       final long fileId,
@@ -1254,59 +1452,18 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     }
 
     try {
-      final var durablePage = new DurablePage(cacheEntry);
-
-      durablePage.restoreChanges(filePageChanges.changes);
-
-      // Non-durable pages have no WAL records, so endLSN and changeLSN
-      // are not meaningful. The dirty-pages-table skip in
-      // updateDirtyPagesTable (Track 4) ensures these pages
-      // don't block WAL truncation.
-      if (!nonDurable) {
-        // flushPendingOperations sets changeLSN for all durable pages.
-        // The WAL phase above throws StorageException if changeLSN is
-        // null for a durable page with changes — this assert is a
-        // defense-in-depth double-check.
-        assert filePageChanges.getChangeLSN() != null
-            : "Durable page must have changeLSN set for page "
-                + cacheEntry.getPageIndex();
-        cacheEntry.setEndLSN(txEndLsn);
-        durablePage.setLsn(filePageChanges.getChangeLSN());
-      }
+      restorePageContent(cacheEntry, filePageChanges, nonDurable, txEndLsn, false);
     } finally {
       readCache.releaseFromWrite(cacheEntry, writeCache, true);
     }
   }
 
   /**
-   * Returns whether this commit will mutate shared read-cache state in the apply
-   * section: any file deletion, any new file, or any page with accumulated
-   * changes. Zero-change commits (read-only atomic operations) return {@code false}
-   * and skip the apply-phase epoch bracket entirely.
-   */
-  private boolean commitMutatesSharedCache() {
-    if (!deletedFiles.isEmpty()) {
-      return true;
-    }
-    for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
-      final var changes = fileChangesEntry.getValue();
-      if (changes.isNew) {
-        return true;
-      }
-      for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
-        if (pageEntry.getValue().changes.hasChanges()) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /**
    * TEST-ONLY variant of the per-file page-apply loop, active only when a
    * {@link PageApplyHook} is installed. Applies the file's changed pages in the order
-   * chosen by {@link PageApplyHook#orderPageApplications} (default: the map's native
-   * order) and invokes {@link PageApplyHook#beforePageApply} before each application.
+   * chosen by {@link PageApplyHook#orderPageApplications} (default: the commit-set
+   * order collected during the WAL phase) and invokes {@link PageApplyHook#beforePageApply}
+   * before each application.
    * Runs inside the apply-phase epoch bracket, so a hook that throws still triggers the
    * bracket's finally-exit (the epoch can never be left permanently "in apply").
    */
@@ -1314,10 +1471,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       final PageApplyHook hook,
       final long fileId,
       final FileChanges fileChanges,
+      final LongList pages,
       final boolean nonDurable,
       @Nullable final LogSequenceNumber fileStartLSN,
       @Nullable final LogSequenceNumber txEndLsn) throws IOException {
-    var pageIndexes = fileChanges.pageChangesMap.keySet().toLongArray();
+    var pageIndexes = pages.toLongArray();
     final var reordered = hook.orderPageApplications(fileId, pageIndexes.clone());
     if (reordered != null) {
       // Enforce the "complete permutation" contract: an unknown
@@ -1349,33 +1507,49 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     for (final var pageIndex : pageIndexes) {
       final var filePageChanges = fileChanges.pageChangesMap.get(pageIndex);
-      // The permutation validation above (and keySet origin on the default path)
+      // The permutation validation above (and commit-set origin on the default path)
       // guarantees every index resolves; this is a defensive invariant only.
       assert filePageChanges != null
           : "page changes vanished for page index " + pageIndex + " in file " + fileId;
 
-      if (filePageChanges.changes.hasChanges()) {
-        hook.beforePageApply(fileId, pageIndex);
-        applyPageChangesToCache(fileId, pageIndex, filePageChanges, nonDurable, fileStartLSN,
-            txEndLsn);
-      } else {
-        fileChanges.pageChangesMap.remove(pageIndex);
-      }
+      hook.beforePageApply(fileId, pageIndex);
+      applyPageChangesToCache(fileId, pageIndex, filePageChanges, nonDurable, fileStartLSN,
+          txEndLsn);
     }
+  }
+
+  /**
+   * Test-only observation of the sorted commit set after all locks, then after the first
+   * publish and unlock. Callbacks must not mutate the array, load pages or acquire locks.
+   * Exceptions propagate through reservation cleanup, as other page-set failures do.
+   */
+  interface PageSetPauseHook {
+    void pause(CacheEntry[] pages, boolean firstPagePublished);
+  }
+
+  /** Leaves protocol selection unchanged, including forced overrides and zero-change commits. */
+  void setPageSetPauseHook(@Nullable PageSetPauseHook hook) {
+    pageSetPauseHook = hook;
   }
 
   /**
    * Installs the TEST-ONLY page-apply hook (see {@link PageApplyHook}). Must never be
    * called from production code — the hook exists solely so tests can deterministically
    * order and pause the commit-time page-apply loop inside the apply-phase epoch bracket.
+   * A non-null hook forces epoch apply and counts FORCED for a commit that changes pages.
+   * Zero-change commits count ZERO_CHANGE. Clearing keeps the override. The override takes
+   * precedence over the page-set pause hook, which is not called on the forced path.
    */
   void setPageApplyHook(@Nullable final PageApplyHook hook) {
     this.pageApplyHook = hook;
+    if (hook != null) {
+      forceEpochApplyForTesting = true;
+    }
   }
 
   /**
    * TEST-ONLY seam into the commit-time page-apply loop of {@link #commitChanges}
-   * (YTDB-1178). The page-apply order is normally fastutil hash order, which makes
+   * (YTDB-1178). The fallback page-apply order follows the collected page set, which makes
    * mixed-state races (a reader overlapping a partially applied commit) practically
    * impossible to reproduce deterministically. This hook lets a test (a) dictate the
    * order in which a file's changed pages are applied and (b) block at a barrier between
@@ -1390,8 +1564,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
 
     /**
      * Returns the order in which the given changed pages of {@code fileId} should be
-     * applied, or {@code null} to keep the default (map iteration) order. The returned
-     * array must be a COMPLETE permutation of {@code pageIndexes}: unknown indexes,
+     * applied, or {@code null} to keep the commit-set order collected during the WAL
+     * phase. The returned array must be a COMPLETE permutation of {@code pageIndexes}:
+     * unknown indexes,
      * duplicates, and omissions all fail the commit with
      * {@link IllegalStateException} (an omission would otherwise silently drop a
      * WAL-committed page's changes from the cache).

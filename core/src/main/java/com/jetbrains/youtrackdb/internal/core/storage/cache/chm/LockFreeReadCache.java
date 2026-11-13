@@ -1,11 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
-import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
-import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
-import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio;
@@ -16,12 +14,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue.MPSCLinkedQueue;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -66,7 +66,13 @@ public final class LockFreeReadCache implements ReadCache {
   private final Buffer readBuffer = new BoundedBuffer();
   private final MPSCLinkedQueue<CacheEntry> writeBuffer = new MPSCLinkedQueue<>();
   private final AtomicInteger cacheSize = new AtomicInteger();
-  private final int maxCacheSize;
+  private static final double FORCED_DRAIN_MARGIN = 0.07;
+  private volatile int maxCacheSize;
+  private final int pinBudget;
+  private final int commitPageLimit;
+  private final AtomicInteger reservedPins = new AtomicInteger();
+  private final PageCacheCounters.Eviction counters =
+      new PageCacheCounters.Eviction();
 
   /**
    * Status which indicates whether flush of buffers should be performed or may be delayed.
@@ -83,18 +89,29 @@ public final class LockFreeReadCache implements ReadCache {
 
   private final int pageSize;
 
-  private final PageFramePool pageFramePool;
-
   private final Ratio cacheHitRatio;
 
   public LockFreeReadCache(
       final ByteBufferPool bufferPool,
       final long maxCacheSizeInBytes,
       final int pageSize) {
+    this(bufferPool, maxCacheSizeInBytes, pageSize,
+        defaultPinBudget((int) (maxCacheSizeInBytes / pageSize)));
+  }
+
+  public LockFreeReadCache(final ByteBufferPool bufferPool, final long maxCacheSizeInBytes,
+      final int pageSize, final int pinBudget) {
+    this(bufferPool, maxCacheSizeInBytes, pageSize, pinBudget,
+        (Integer) GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getDefValue());
+  }
+
+  public LockFreeReadCache(final ByteBufferPool bufferPool, final long maxCacheSizeInBytes,
+      final int pageSize, final int pinBudget, final int commitPageLimit) {
+    this.commitPageLimit = commitPageLimit;
+    this.pinBudget = pinBudget;
     evictionLock.lock();
     try {
       this.pageSize = pageSize;
-      this.pageFramePool = bufferPool.pageFramePool();
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
       // Section count rounded up to power of two from N_CPU << 1 (matching
@@ -102,7 +119,7 @@ public final class LockFreeReadCache implements ReadCache {
       // power-of-two section count for bit-mask section selection.
       this.data =
           new ConcurrentLongIntHashMap<>(this.maxCacheSize, ceilingPowerOfTwo(N_CPU << 1));
-      policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
+      policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize, counters);
       policy.setMaxSize(this.maxCacheSize);
     } finally {
       evictionLock.unlock();
@@ -189,6 +206,64 @@ public final class LockFreeReadCache implements ReadCache {
     return doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, /*forWrite=*/ false);
   }
 
+  @Override
+  public boolean supportsOptimisticReads() {
+    return true;
+  }
+
+  @Override
+  public CacheEntry loadForRead(
+      long fileId, long pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      OptimisticReadScope scope) {
+    if (scope.isFailed()) {
+      return null;
+    }
+    CacheEntry entry = null;
+    boolean handedOff = false;
+    try {
+      if (pageIndex < 0 || pageIndex > Integer.MAX_VALUE) {
+        scope.fail(
+            Cause.LOOKUP_MISS);
+        return null;
+      }
+      // A live cache entry is inside the file. Check EOF only on a miss, inside compute,
+      // so cache hits never acquire the storage-wide filesLock.
+      entry = doLoad(fileId, (int) pageIndex, writeCache, verifyChecksums, false, scope);
+      if (entry == null) {
+        scope.fail(
+            Cause.LOOKUP_MISS);
+        return null;
+      }
+      // doLoad returns only entries from data.get or data.compute, never silent loads.
+      // Its pin prevents eviction from freezing and removing that map entry. File lifecycle
+      // removal (including clearFile) cannot overlap an attempt on this file.
+      final var frame = entry.getCachePointer().getPageFrame();
+      final long stamp = frame.tryOptimisticRead();
+      if (stamp == 0) {
+        scope.fail(
+            Cause.STAMP);
+        return null;
+      }
+      scope.recordPinned(frame, stamp, entry);
+      handedOff = true;
+      return entry;
+    } catch (Exception | Error failure) {
+      // Errors must reach the outermost wrapper even before a pin is acquired. The locked
+      // load can take another path and succeed. doLoad preserves post-acquisition failures.
+      if (failure instanceof Error || entry != null) {
+        scope.preserveLoadFailure(failure);
+      }
+      scope.fail(
+          Cause.LOAD);
+      return null;
+    } finally {
+      // No failure escapes an attempted load, and unhanded pins remain ours to release.
+      if (entry != null && !handedOff) {
+        releaseFromRead(entry);
+      }
+    }
+  }
+
   @Nullable @Override
   public CacheEntry silentLoadForRead(
       final long extFileId,
@@ -266,6 +341,16 @@ public final class LockFreeReadCache implements ReadCache {
       final WriteCache writeCache,
       final boolean verifyChecksums,
       final boolean forWrite) {
+    return doLoad(extFileId, pageIndex, writeCache, verifyChecksums, forWrite, null);
+  }
+
+  private CacheEntry doLoad(
+      long extFileId, int pageIndex, WriteCache writeCache, boolean verifyChecksums,
+      boolean forWrite, OptimisticReadScope scope) {
+    final boolean nonGrowing = scope != null;
+    boolean postLoad = false;
+    CacheEntry returnedEntry = null;
+    Throwable failureInFlight = null;
     final var fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), extFileId);
 
     var success = false;
@@ -279,9 +364,11 @@ public final class LockFreeReadCache implements ReadCache {
 
         if (cacheEntry != null) {
           if (cacheEntry.acquireEntry()) {
-            afterRead(cacheEntry);
+            postLoad = true;
+            notifyAcquiredRead(cacheEntry);
             success = true;
 
+            returnedEntry = cacheEntry;
             return cacheEntry;
           }
         } else {
@@ -318,8 +405,17 @@ public final class LockFreeReadCache implements ReadCache {
                         // flush with no correctness impact (the page content came from
                         // disk and is unmodified).
                         final var preCallFilledUpTo = writeCache.getFilledUpTo(fileId);
-                        final var pointer =
-                            writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
+                        // The size check and non-growing load are inside the map update.
+                        // A missing file has size zero. Never install a speculative new page.
+                        if (nonGrowing && pageIndex >= preCallFilledUpTo) {
+                          return null;
+                        }
+                        final var pointer = nonGrowing
+                            ? writeCache.loadIfPresent(fileId, pageIndex, verifyChecksums)
+                            : writeCache.loadOrAdd(fileId, pageIndex, verifyChecksums);
+                        if (nonGrowing && pointer == null) {
+                          return null;
+                        }
                         if (pointer == null) {
                           // The disk engine's loadOrAdd is total. Fail-fast in production
                           // builds with the same diagnostic content the prior assert had so
@@ -356,86 +452,73 @@ public final class LockFreeReadCache implements ReadCache {
                     }
                   });
 
+          if (cacheEntry == null) {
+            return null;
+          }
           if (cacheEntry.acquireEntry()) {
+            postLoad = true;
             if (read[0]) {
               success = true;
-              afterRead(cacheEntry);
+              notifyAcquiredRead(cacheEntry);
             } else {
-              afterAdd(cacheEntry);
-
               try {
+                afterAdd(cacheEntry);
                 writeCache.checkCacheOverflow();
               } catch (final java.lang.InterruptedException e) {
+                Thread.currentThread().interrupt();
+                cacheEntry.releaseEntry();
                 throw BaseException.wrapException(
                     new ThreadInterruptedException("Check of write cache overflow was interrupted"),
                     e, writeCache.getStorageName());
+              } catch (RuntimeException | Error failure) {
+                cacheEntry.releaseEntry();
+                throw failure;
               }
             }
 
+            returnedEntry = cacheEntry;
             return cacheEntry;
           }
         }
       }
+    } catch (RuntimeException | Error failure) {
+      // Notification and overflow work happen after acquisition or installation. A fallback
+      // cache hit does not repeat these effects, so preserve the original failure instead.
+      failureInFlight = failure;
+      if (postLoad && scope != null) {
+        scope.preserveLoadFailure(failure);
+      }
+      throw failure;
     } finally {
-      cacheHitRatio.record(success);
-    }
-  }
-
-  private CacheEntry addNewPagePointerToTheCache(final long fileId, final int pageIndex) {
-
-    final var pageFrame = pageFramePool.acquire(true, Intention.ADD_NEW_PAGE_IN_DISK_CACHE);
-    final var cachePointer = new CachePointer(pageFrame, pageFramePool, fileId, pageIndex);
-    cachePointer.incrementReadersReferrer();
-    DurablePage.setLogSequenceNumberForPage(
-        pageFrame.getBuffer(), new LogSequenceNumber(-1, -1));
-
-    final CacheEntry cacheEntry = new CacheEntryImpl(fileId, pageIndex, cachePointer, true, this);
-    cacheEntry.acquireEntry();
-
-    final var oldCacheEntry =
-        data.putIfAbsent(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
-    if (oldCacheEntry != null) {
-      throw new IllegalStateException(
-          "Page  " + fileId + ":" + pageIndex + " was allocated in other thread");
-    }
-
-    cacheSize.incrementAndGet();
-    afterAdd(cacheEntry);
-
-    return cacheEntry;
-  }
-
-  @Override
-  public void changeMaximumAmountOfMemory(final long maxMemory) {
-    evictionLock.lock();
-    try {
-      policy.setMaxSize((int) (maxMemory / pageSize));
-    } finally {
-      evictionLock.unlock();
+      try {
+        cacheHitRatio.record(success);
+      } catch (RuntimeException | Error failure) {
+        // A pending load failure owns propagation. Metrics must not replace it.
+        if (failureInFlight == null) {
+          // The caller has not received the return value yet, so we still own its pin.
+          if (returnedEntry != null) {
+            returnedEntry.releaseEntry();
+          }
+          if (postLoad && scope != null) {
+            scope.preserveLoadFailure(failure);
+          }
+          throw failure;
+        }
+      }
     }
   }
 
   @Override
-  @Nullable public PageFrame getPageFrameOptimistic(final long fileId, final long pageIndex) {
-    final var cacheEntry = data.get(fileId, (int) pageIndex);
-
-    if (cacheEntry == null || !cacheEntry.isAlive()) {
-      return null;
-    }
-
-    final var cachePointer = cacheEntry.getCachePointer();
-    if (cachePointer == null) {
-      return null;
-    }
-
-    return cachePointer.getPageFrame();
+  @Nullable public CacheEntry getCacheEntryOptimistic(final long fileId, final long pageIndex) {
+    final var entry = data.get(fileId, (int) pageIndex);
+    return entry == null || !entry.isAlive() ? null : entry;
   }
 
   @Override
   public void recordOptimisticAccess(final long fileId, final long pageIndex) {
     final var cacheEntry = data.get(fileId, (int) pageIndex);
 
-    // Entry may have been evicted between stamp validation and this call.
+    // Entry may have been evicted between scope validation and this call.
     // One missed frequency bump is harmless — skip silently.
     if (cacheEntry != null) {
       afterRead(cacheEntry);
@@ -457,45 +540,273 @@ public final class LockFreeReadCache implements ReadCache {
     final var cachePointer = cacheEntry.getCachePointer();
     assert cachePointer != null;
 
-    if (cacheEntry.isNewlyAllocatedPage() || changed) {
-      if (cacheEntry.isNewlyAllocatedPage()) {
+    boolean published = false;
+    try {
+      if (cacheEntry.isNewlyAllocatedPage() || changed) {
+        publish(cacheEntry, writeCache);
         cacheEntry.clearAllocationFlag();
       }
+      published = true;
+    } finally {
+      // Publish under the frame lock so flush cannot remove the new dirty-page record.
+      // Keep the pin if store failed. Never drop a last reference under a frame lock.
+      cacheEntry.releaseExclusiveLock();
+      if (published) {
+        cacheEntry.releaseEntry();
+      }
+    }
+  }
 
-      // Virtual-lock pattern: compute() holds the segment write lock while the
-      // remapping function executes, even if the key is absent. This ensures
-      // writeCache.store() runs atomically w.r.t. concurrent map operations on
-      // the same key. If absent, remapping returns null → no-op (no insertion).
-      data.compute(
-          cacheEntry.getFileId(),
-          cacheEntry.getPageIndex(),
-          (fId, pIdx, entry) -> {
-            writeCache.store(
-                cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry.getCachePointer());
-            return entry;
-          });
+  private void publish(CacheEntry cacheEntry, WriteCache writeCache) {
+    data.compute(cacheEntry.getFileId(), cacheEntry.getPageIndex(), (fId, pIdx, entry) -> {
+      writeCache.store(fId, pIdx, cacheEntry.getCachePointer());
+      return entry;
+    });
+  }
+
+  public static int defaultPinBudget(int cachePages) {
+    return cachePages / 100;
+  }
+
+  @Override
+  public int commitPageLimit() {
+    return commitPageLimit;
+  }
+
+  @Override
+  public int writePinBudget() {
+    return pinBudget;
+  }
+
+  public int reservedWritePins() {
+    return reservedPins.get();
+  }
+
+  public PageCacheCounters.Eviction counters() {
+    return counters;
+  }
+
+  @Override
+  public WriteReservation tryReserveWritePins(int pages) {
+    if (pages <= 0) {
+      throw new IllegalArgumentException("Pin reservation must be positive");
+    }
+    int current = reservedPins.get();
+    while (pages <= pinBudget - current) {
+      if (reservedPins.compareAndSet(current, current + pages)) {
+        try {
+          return new Reservation(pages);
+        } catch (RuntimeException | Error failure) {
+          // Construction owns no pins yet. Return the budget if allocation fails.
+          reservedPins.addAndGet(-pages);
+          throw failure;
+        }
+      }
+      current = reservedPins.get();
+    }
+    return null;
+  }
+
+  private final class Reservation implements WriteReservation {
+    private final int pages;
+    private final CacheEntry[] entries;
+    private WriteCache writeCache;
+    private final boolean[] locked;
+    private final boolean[] prepared;
+    private final boolean[] retained;
+    private final boolean[] finished;
+    private int size;
+    private int completed;
+    private boolean locking;
+    private boolean closed;
+
+    Reservation(int pages) {
+      this.pages = pages;
+      entries = new CacheEntry[pages];
+      locked = new boolean[pages];
+      prepared = new boolean[pages];
+      retained = new boolean[pages];
+      finished = new boolean[pages];
     }
 
-    // We need to release exclusive lock from cache pointer after we put it into the write cache so
-    // both "dirty pages" of write
-    // cache and write cache itself will contain actual values simultaneously. But because cache
-    // entry can be cleared after we put it back to the
-    // read cache we make copy of cache pointer before head.
-    //
-    // Following situation can happen, if we release exclusive lock before we put entry to the write
-    // cache.
-    // 1. Page is loaded for write, locked and related LSN is written to the "dirty pages" table.
-    // 2. Page lock is released.
-    // 3. Page is chosen to be flushed on disk and its entry removed from "dirty pages" table
-    // 4. Page is added to write cache as dirty
-    //
-    // So we have situation when page is added as dirty into the write cache but its related entry
-    // in "dirty pages" table is removed
-    // it is treated as flushed during fuzzy checkpoint and portion of write ahead log which
-    // contains not flushed changes is removed.
-    // This can lead to the data loss after restore and corruption of data structures
-    cacheEntry.releaseExclusiveLock();
-    cacheEntry.releaseEntry();
+    private CacheEntry page(int slot) {
+      if (closed || slot < 0 || slot >= size) {
+        throw new IllegalStateException("Slot does not belong to an open reservation");
+      }
+      return entries[slot];
+    }
+
+    @Override
+    public CacheEntry pin(int slot, long fileId, long pageIndex, WriteCache writeCache,
+        boolean verifyChecksums) {
+      if (closed || locking || size == pages || slot != size) {
+        throw new IllegalStateException("Pin consecutive slots before locking");
+      }
+      if (size > 0 && this.writeCache != writeCache) {
+        throw new IllegalArgumentException("Use one write cache per reservation");
+      }
+      // Compare canonical cache coordinates, including the int page coordinate used by doLoad.
+      // Strict ordering rejects duplicates without an identity lookup or another acquisition.
+      fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+      int page = (int) pageIndex;
+      if (size > 0) {
+        var previous = entries[size - 1];
+        int order = Long.compare(previous.getFileId(), fileId);
+        if (order > 0 || (order == 0 && previous.getPageIndex() >= page)) {
+          throw new IllegalArgumentException("Pin pages in strictly increasing coordinate order");
+        }
+      }
+      var entry = doLoad(fileId, page, writeCache, verifyChecksums, true);
+      entries[size] = entry;
+      this.writeCache = writeCache;
+      size++;
+      return entry;
+    }
+
+    @Override
+    public CacheEntry entry(int slot) {
+      // The caller supplies an already pinned slot. Keep this as one array read.
+      return entries[slot];
+    }
+
+    @Override
+    public void lock(int slot) {
+      var entry = page(slot);
+      if (locked[slot] || finished[slot]) {
+        throw new IllegalStateException("Page is already locked or released");
+      }
+      locking = true;
+      entry.acquireExclusiveLock();
+      locked[slot] = true;
+    }
+
+    @Override
+    public void prepare(int slot, LogSequenceNumber startLSN, LogSequenceNumber endLSN) {
+      var entry = page(slot);
+      if (!locked[slot] || prepared[slot]) {
+        throw new IllegalStateException("Prepare once under the frame lock");
+      }
+      entry.setEndLSN(endLSN);
+      // Like loadOrAddForWrite, a failed notification must not publish unchanged content.
+      // The reservation owns all acquisitions and closes them together on the caller's exit.
+      writeCache.updateDirtyPagesTable(entry.getCachePointer(), startLSN);
+      prepared[slot] = true;
+    }
+
+    @Override
+    public void publishAndUnlock(int slot) {
+      page(slot);
+      if (!locked[slot]) {
+        throw new IllegalStateException("Publish under the frame lock");
+      }
+      finish(slot);
+      // Count only a successful publish and unlock. Failed cleanup uses the full close scan.
+      completed++;
+    }
+
+    private void finish(int slot) {
+      Throwable publishFailure = null;
+      try {
+        if (prepared[slot]) {
+          // Set retention first because store can fail after partially installing its reference.
+          retained[slot] = true;
+          publish(entries[slot], writeCache);
+          entries[slot].clearAllocationFlag();
+          retained[slot] = false;
+        }
+      } catch (RuntimeException | Error failure) {
+        publishFailure = failure;
+        throw failure;
+      } finally {
+        try {
+          entries[slot].releaseExclusiveLock();
+        } catch (RuntimeException | Error unlockFailure) {
+          // Publication owns propagation, including its Error route, across unlock cleanup.
+          if (publishFailure == null) {
+            throw unlockFailure;
+          }
+          if (unlockFailure != publishFailure) {
+            publishFailure.addSuppressed(unlockFailure);
+          }
+        } finally {
+          // Do not retry publication or unlock if release reports a cleanup failure.
+          locked[slot] = false;
+          finished[slot] = true;
+        }
+      }
+    }
+
+    @Override
+    public void close() {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      Throwable failure = null;
+      int kept = 0;
+      // Every reserved slot must finish successfully to skip the unlock scan.
+      // Unpinned, unfinished or failed slots keep the all-unlocks-before-any-release path.
+      if (completed != pages) {
+        // Unlock all frames before releasing any pin. Pool return takes the frame lock.
+        for (int slot = 0; slot < size; slot++) {
+          if (locked[slot]) {
+            try {
+              finish(slot);
+            } catch (RuntimeException | Error error) {
+              failure = collectCleanupFailure(failure, error);
+            }
+          }
+        }
+      }
+      for (int slot = 0; slot < size; slot++) {
+        if (retained[slot]) {
+          kept++;
+        } else {
+          try {
+            entries[slot].releaseEntry();
+          } catch (RuntimeException | Error error) {
+            kept++;
+            failure = collectCleanupFailure(failure, error);
+          }
+        }
+      }
+      reservedPins.addAndGet(-(pages - kept));
+      if (failure instanceof RuntimeException error) {
+        throw error;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+    }
+  }
+
+  // Only fresh objects escape close. A cleanup throwable can also be the body's exception,
+  // so rethrowing it would make try-with-resources attempt self-suppression.
+  private static Throwable collectCleanupFailure(Throwable aggregate, Throwable failure) {
+    if (aggregate == null) {
+      return failure instanceof Error
+          ? new Error("Write reservation cleanup failed", failure)
+          : new IllegalStateException("Write reservation cleanup failed", failure);
+    }
+    // Preserve the Error route through storage handling even when a runtime failure came first.
+    if (failure instanceof Error && !(aggregate instanceof Error)) {
+      var promoted = new Error("Write reservation cleanup failed", aggregate.getCause());
+      for (var suppressed : aggregate.getSuppressed()) {
+        promoted.addSuppressed(suppressed);
+      }
+      aggregate = promoted;
+    }
+    aggregate.addSuppressed(failure);
+    return aggregate;
+  }
+
+  private void notifyAcquiredRead(CacheEntry entry) {
+    try {
+      afterRead(entry);
+    } catch (RuntimeException | Error failure) {
+      entry.releaseEntry();
+      throw failure;
+    }
   }
 
   private void afterRead(final CacheEntry entry) {
@@ -542,7 +853,8 @@ public final class LockFreeReadCache implements ReadCache {
     writeBuffer.offer(command);
 
     drainStatus.lazySet(DrainStatus.REQUIRED);
-    if (cacheSize.get() > 1.07 * maxCacheSize) {
+    // Excess is legal. Forced drain processes each queued add once and never waits for pins.
+    if (cacheSize.get() > (1 + FORCED_DRAIN_MARGIN) * maxCacheSize) {
       forceDrainBuffers();
     } else {
       tryToDrainBuffers();

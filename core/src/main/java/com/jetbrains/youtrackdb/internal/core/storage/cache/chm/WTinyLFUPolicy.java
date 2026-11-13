@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
 import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -12,6 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class WTinyLFUPolicy {
 
   private static final int EDEN_PERCENT = 20;
+
+  /**
+   * Maximum commit pin budget as a percent of the cache. With {@link #EDEN_PERCENT} at 20,
+   * this leaves five percent of the cache (25 percent of eden) for non-commit pins.
+   * Revisit this bound if EDEN_PERCENT changes.
+   */
+  public static final int MAX_COMMIT_PIN_BUDGET_PERCENT = 15;
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;
@@ -19,6 +27,7 @@ public final class WTinyLFUPolicy {
   private final Admittor admittor;
 
   private final AtomicInteger cacheSize;
+  private final PageCacheCounters.Eviction counters;
 
   private final LRUList eden = new LRUList();
   private final LRUList probation = new LRUList();
@@ -32,23 +41,35 @@ public final class WTinyLFUPolicy {
       final ConcurrentLongIntHashMap<CacheEntry> data,
       final Admittor admittor,
       final AtomicInteger cacheSize) {
+    this(data, admittor, cacheSize,
+        new PageCacheCounters.Eviction());
+  }
+
+  WTinyLFUPolicy(final ConcurrentLongIntHashMap<CacheEntry> data, final Admittor admittor,
+      final AtomicInteger cacheSize,
+      final PageCacheCounters.Eviction counters) {
+    this.counters = counters;
     this.data = data;
     this.admittor = admittor;
     this.cacheSize = cacheSize;
   }
 
   public void setMaxSize(final int maxSize) {
-    if (eden.size() + protection.size() + probation.size() > maxSize) {
-      throw new IllegalStateException(
-          "Can set maximum cache size to "
-              + maxSize
-              + " because current cache size is bigger than requested");
+    if (maxSize <= 0) {
+      throw new IllegalArgumentException("Maximum cache size must be positive");
     }
 
     this.maxSize = maxSize;
     calculateMaxSizes();
 
     admittor.ensureCapacity(maxSize);
+    while (protection.size() > maxProtectedSize) {
+      probation.moveToTheTail(protection.poll());
+    }
+    while (probation.size() + protection.size() > maxSecondLevelSize) {
+      eden.moveToTheTail(probation.poll());
+    }
+    purgeEden();
   }
 
   public int getMaxSize() {
@@ -77,7 +98,6 @@ public final class WTinyLFUPolicy {
       }
     }
 
-    assert eden.size() <= maxEdenSize;
     assert protection.size() <= maxProtectedSize;
     assert probation.size() + protection.size() <= maxSecondLevelSize;
   }
@@ -97,13 +117,14 @@ public final class WTinyLFUPolicy {
       purgeEden();
     }
 
-    assert eden.size() <= maxEdenSize;
     assert protection.size() <= maxProtectedSize;
     assert probation.size() + protection.size() <= maxSecondLevelSize;
   }
 
   private void purgeEden() {
-    while (eden.size() > maxEdenSize) {
+    // A pin can defeat removal. Visit a bounded number of candidates, then leave excess cached.
+    int attempts = eden.size() + probation.size();
+    while (eden.size() > maxEdenSize && attempts-- > 0) {
       final var candidate = eden.poll();
       assert candidate != null;
 
@@ -135,7 +156,7 @@ public final class WTinyLFUPolicy {
               cacheSize.decrementAndGet();
             }
 
-            invalidateStampsAndRelease(victim);
+            releaseCacheReference(victim);
           } else {
             eden.moveToTheTail(victim);
           }
@@ -149,7 +170,7 @@ public final class WTinyLFUPolicy {
               cacheSize.decrementAndGet();
             }
 
-            invalidateStampsAndRelease(candidate);
+            releaseCacheReference(candidate);
           } else {
             eden.moveToTheTail(candidate);
           }
@@ -157,6 +178,11 @@ public final class WTinyLFUPolicy {
       }
     }
 
+    if (eden.size() > maxEdenSize) {
+      counters.recordEvictionStop();
+      // Measure the largest excess eviction leaves when it stops, not queued-add drain lag.
+      counters.recordExcess(eden.size() + probation.size() + protection.size() - (long) maxSize);
+    }
     assert protection.size() <= maxProtectedSize;
   }
 
@@ -172,23 +198,15 @@ public final class WTinyLFUPolicy {
     }
 
     cacheEntry.makeDead();
-    invalidateStampsAndRelease(cacheEntry);
+    releaseCacheReference(cacheEntry);
   }
 
   /**
-   * Invalidates outstanding optimistic stamps on the entry's PageFrame and releases the
-   * ReadCache's referrer. The exclusive lock cycle bumps the StampedLock state, causing any
-   * concurrent optimistic reader's {@code validate()} to fail. This is the first invalidation
-   * barrier. {@code PageFramePool.release()} provides a second barrier when the referrer count
-   * reaches 0.
-   *
-   * <p>Must be called after the entry is marked dead ({@code makeDead()}).
+   * Releases the cache reference without a frame lock. Pins prevent eviction of live users.
+   * The frame pool locks the frame on final return. Never hold that lock during reference drop.
    */
-  private static void invalidateStampsAndRelease(CacheEntry entry) {
-    final var pointer = entry.getCachePointer();
-    long stamp = pointer.acquireExclusiveLock();
-    pointer.releaseExclusiveLock(stamp);
-    pointer.decrementReadersReferrer();
+  private static void releaseCacheReference(CacheEntry entry) {
+    entry.getCachePointer().decrementReadersReferrer();
     entry.clearCachePointer();
   }
 
@@ -212,8 +230,7 @@ public final class WTinyLFUPolicy {
 
   void assertSize() {
     assert eden.size() + probation.size() + protection.size() == cacheSize.get()
-        && data.size() == cacheSize.get()
-        && cacheSize.get() <= maxSize;
+        && data.size() == cacheSize.get();
   }
 
   void assertConsistency() {
