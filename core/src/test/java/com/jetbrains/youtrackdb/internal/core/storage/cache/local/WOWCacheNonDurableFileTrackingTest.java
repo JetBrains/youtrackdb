@@ -600,6 +600,12 @@ public class WOWCacheNonDurableFileTrackingTest {
     realFile.close();
     final var file = mock(File.class);
     when(file.isOpen()).thenReturn(true);
+    when(file.exists()).thenAnswer(invocation -> realFile.exists());
+    when(file.getName()).thenReturn(realFile.getName());
+    doAnswer(invocation -> {
+      realFile.delete();
+      return null;
+    }).when(file).delete();
     files.add(fileId, file);
 
     invokeFsyncFilesOrMigration(wowCache, "fsyncFiles");
@@ -631,6 +637,18 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var second = mock(File.class);
     when(first.isOpen()).thenReturn(true);
     when(second.isOpen()).thenReturn(true);
+    when(first.exists()).thenAnswer(invocation -> firstReal.exists());
+    when(second.exists()).thenAnswer(invocation -> secondReal.exists());
+    when(first.getName()).thenReturn(firstReal.getName());
+    when(second.getName()).thenReturn(secondReal.getName());
+    doAnswer(invocation -> {
+      firstReal.delete();
+      return null;
+    }).when(first).delete();
+    doAnswer(invocation -> {
+      secondReal.delete();
+      return null;
+    }).when(second).delete();
     doAnswer(invocation -> {
       if (attempts.incrementAndGet() == 2) {
         throw new StorageException(storageName, "injected second force failure");
@@ -722,6 +740,12 @@ public class WOWCacheNonDurableFileTrackingTest {
     realFile.close();
     final var file = mock(File.class);
     when(file.isOpen()).thenReturn(true);
+    when(file.exists()).thenAnswer(invocation -> realFile.exists());
+    when(file.getName()).thenReturn(realFile.getName());
+    doAnswer(invocation -> {
+      realFile.delete();
+      return null;
+    }).when(file).delete();
     final var attempts = new AtomicInteger();
     doAnswer(invocation -> {
       if (attempts.incrementAndGet() <= 2) {
@@ -971,7 +995,15 @@ public class WOWCacheNonDurableFileTrackingTest {
         : WOWCache.class.getDeclaredMethod(methodName);
     method.setAccessible(true);
     if (sync) {
-      method.invoke(cache, 1L);
+      try {
+        com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager.instance()
+            .getWowCacheFlushExecutor().submit(() -> {
+              method.invoke(cache, 1L);
+              return null;
+            }).get(10, java.util.concurrent.TimeUnit.SECONDS);
+      } catch (java.util.concurrent.ExecutionException failure) {
+        throw (java.lang.reflect.InvocationTargetException) failure.getCause();
+      }
     } else {
       method.invoke(cache);
     }

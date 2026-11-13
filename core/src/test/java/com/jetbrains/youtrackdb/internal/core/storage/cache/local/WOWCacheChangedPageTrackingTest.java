@@ -684,7 +684,8 @@ public class WOWCacheChangedPageTrackingTest {
     handles.add(file, handle);
     var events = new ArrayList<String>();
     doAnswer(call -> {
-      assertTrue(retention().hasPendingSynchronization());
+      assertEquals(!(boolean) field(cache, "stopFlush"),
+          retention().hasPendingSynchronization());
       events.add((boolean) field(cache, "stopFlush") ? "sync" : "initial-sync");
       return call.callRealMethod();
     }).when(handle).synch();
@@ -856,7 +857,7 @@ public class WOWCacheChangedPageTrackingTest {
       org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).acknowledgeSync(anyLong());
       org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).truncate(
           org.mockito.ArgumentMatchers.anySet());
-      assertTrue(flushExecutor().submit(retention()::hasPendingSynchronization)
+      assertFalse(flushExecutor().submit(retention()::hasPendingSynchronization)
           .get(10, TimeUnit.SECONDS));
       return null;
     }).when(cache).flush();
@@ -996,6 +997,541 @@ public class WOWCacheChangedPageTrackingTest {
     }
     assertTrue(handle.isOpen());
     assertDwlBytes(before);
+  }
+
+  /** An uncertain existence result must not discard the only complete copy of a torn page. */
+  @Test
+  public void uncertainAbsenceKeepsRetentionAndPhysicalCopy() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("uncertain-absence.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 41);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    org.mockito.Mockito.doReturn(false).when(handle).exists();
+    try {
+      assertThrows(WriteCacheException.class, () -> cache.deleteFile(file));
+      assertTrue(Files.exists(cache.getRootDirectory().resolve(handle.getName())));
+      assertTrue(retention().hasRetainedContents(file));
+      rotationSync();
+      assertDwlBytes(before);
+    } finally {
+      // Deletion removes the container entry even when physical deletion fails.
+      var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+      if (handles.get(file) == null) {
+        handles.add(file, handle);
+      }
+      org.mockito.Mockito.doCallRealMethod().when(handle).exists();
+    }
+  }
+
+  /** Failed replacement append cannot publish a new identity or submit a data write. */
+  @Test
+  public void failedReplacementAppendKeepsOldCopyAndPublicationPrecedesSubmission()
+      throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("replacement-append.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 51);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    var segments = flushExecutor().submit(() -> retention().retainedSegments())
+        .get(10, TimeUnit.SECONDS);
+    org.mockito.Mockito.clearInvocations(handle);
+    org.mockito.Mockito.doThrow(new IOException("replacement append failed")).when(log).write(
+        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.any());
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).write(
+        org.mockito.ArgumentMatchers.<List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+    assertEquals(segments, flushExecutor().submit(() -> retention().retainedSegments())
+        .get(10, TimeUnit.SECONDS));
+    org.mockito.Mockito.doCallRealMethod().when(log).write(
+        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.any());
+    long healthy = cache.addFile("replacement-healthy.tst");
+    writePattern(healthy, 0, (byte) 9);
+    cache.flush(healthy);
+    rotationSync();
+    for (var entry : before.entrySet()) {
+      assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+    }
+    doAnswer(call -> {
+      var current = retention().retainedSegments();
+      assertEquals(1, current.size());
+      assertFalse("replacement must be published before submission", current.equals(segments));
+      return call.callRealMethod();
+    }).when(handle).write(
+        org.mockito.ArgumentMatchers.<List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+    cache.flush(file);
+  }
+
+  /** Checkpoint forces cannot acknowledge pending retention, even after real log rotation. */
+  @Test
+  public void checkpointForceDoesNotReleasePendingCopy() throws Exception {
+    var log = installLiveLog(1_000_000);
+    setField(cache, "callFsync", true);
+    long file = cache.addFile("checkpoint-pending.tst");
+    writePattern(file, 0, (byte) 61);
+    liveBatch();
+    var before = dwlBytes();
+    assertTrue(retention().hasRetainedContents(file));
+    cache.syncDataFiles();
+    // Rotate without another data flush, then run cleanup without a covering executor force.
+    log.startCheckpoint();
+    log.endCheckpoint();
+    flushExecutor().submit(() -> {
+      log.truncate(retention().retainedSegments());
+      return null;
+    }).get(10, TimeUnit.SECONDS);
+    assertTrue(retention().hasRetainedContents(file));
+    for (var entry : before.entrySet()) {
+      assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+    }
+    rotationSync();
+    assertFalse(retention().hasRetainedContents(file));
+    for (var path : before.keySet()) {
+      assertFalse(Files.exists(path));
+    }
+  }
+
+  /** Both distinguishable pages in an uncertain batch need protection after one is removed. */
+  @Test
+  public void uncertainBatchKeepsEveryPageAfterPartialRemovalAndCleanup() throws Exception {
+    var log = installLiveLog(512);
+    long file = cache.addFile("uncertain-batch.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 81);
+    writePattern(file, 1, (byte) 82);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    flushExecutor().submit(() -> {
+      var files =
+          (it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<?>) field(retention(), "files");
+      var pages = (it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<?>) files.get(file);
+      assertEquals(2, pages.size());
+      for (var attempt : pages.values()) {
+        assertEquals("UNRESOLVED", field(attempt, "state").toString());
+      }
+      return null;
+    }).get(10, TimeUnit.SECONDS);
+    var before = dwlBytes();
+    assertTrue(cache.shrinkFile(file, pageSize));
+    long healthy = cache.addFile("uncertain-batch-healthy.tst");
+    writePattern(healthy, 0, (byte) 8);
+    cache.flush(healthy);
+    rotationSync();
+    assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages)
+        .get(10, TimeUnit.SECONDS));
+    for (var entry : before.entrySet()) {
+      assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+    }
+    log.restoreModeOn();
+    var complete = log.loadPage(cache.internalFileId(file), 0, pool);
+    try {
+      assertEquals(81, complete.getNativeByteBuffer().get(pageSize - 1));
+    } finally {
+      pool.release(complete);
+      log.restoreModeOff();
+    }
+  }
+
+  /** An interrupt after physical shrink must still return success and finish retention discard. */
+  @Test
+  public void interruptedShrinkFinishesDiscardAndRestoresInterrupt() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("interrupted-shrink.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 91);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    doAnswer(call -> {
+      var result = call.callRealMethod();
+      Thread.currentThread().interrupt();
+      return result;
+    }).when(handle).shrink(0);
+    try {
+      assertTrue(cache.shrinkFile(file, 0));
+      assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+    assertFalse(retention().hasRetainedContents(file));
+  }
+
+  /** A new file id cannot have retention and must not wait for a busy flush executor. */
+  @Test
+  public void freshFileCreationDoesNotWaitForFlushExecutor() throws Exception {
+    installLiveLog(512);
+    var entered = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var blocker = flushExecutor().submit(() -> {
+      entered.countDown();
+      assertTrue(release.await(10, TimeUnit.SECONDS));
+      return null;
+    });
+    try {
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      io.submit(() -> cache.addFile("fresh-no-wait.tst")).get(5, TimeUnit.SECONDS);
+    } finally {
+      release.countDown();
+      blocker.get(10, TimeUnit.SECONDS);
+    }
+  }
+
+  /** Torn bytes must keep their actual DWL segment while unrelated segments can be reclaimed. */
+  @Test
+  public void tornWriteRetainsOnlyRequiredCopyAndRetryEventuallyReclaimsIt() throws Exception {
+    var log = installLiveLog(512);
+    long damaged = cache.addFile("torn.tst");
+    long healthy = cache.addFile("healthy.tst");
+    var handle = tearWrites(damaged);
+    writePattern(damaged, 0, (byte) 71);
+    assertThrows(WriteCacheException.class, () -> cache.flush(damaged));
+    var protectedFiles = dwlBytes();
+    assertEquals(1, protectedFiles.size());
+    var torn = java.nio.ByteBuffer.allocate(pageSize);
+    handle.read(0, torn, true);
+    assertEquals(71, torn.get(100));
+    assertEquals(0, torn.get(pageSize - 1));
+    log.restoreModeOn();
+    var complete = log.loadPage(cache.internalFileId(damaged), 0, pool);
+    try {
+      assertEquals(71, complete.getNativeByteBuffer().get(pageSize - 1));
+    } finally {
+      pool.release(complete);
+      log.restoreModeOff();
+    }
+    var state = retention();
+    assertTrue(flushExecutor().submit(state::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    for (int i = 0; i < 3; i++) {
+      writePattern(healthy, 0, (byte) (i + 1));
+      cache.flush(healthy);
+      for (var entry : protectedFiles.entrySet()) {
+        assertArrayEquals(entry.getValue(), Files.readAllBytes(entry.getKey()));
+      }
+      assertTrue("unrelated tails must not accumulate", dwlBytes().size() <= 2);
+    }
+    org.mockito.Mockito.doCallRealMethod().when(handle).write(
+        org.mockito.ArgumentMatchers.<
+            List<com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+    cache.flush(damaged);
+    assertFalse(flushExecutor().submit(state::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    writePattern(healthy, 0, (byte) 90);
+    cache.flush(healthy);
+    for (var path : protectedFiles.keySet()) {
+      assertFalse(Files.exists(path));
+    }
+    org.mockito.Mockito.verify(log, org.mockito.Mockito.atLeastOnce())
+        .truncate(org.mockito.ArgumentMatchers.anySet());
+  }
+
+  /** A failed force makes a successful real write unresolved until a new append and rewrite. */
+  @Test
+  public void failedForceCannotBeResolvedByLaterForceAlone() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("force.tst");
+    var handle = observeDataFile(file);
+    setField(cache, "callFsync", true);
+    writePattern(file, 0, (byte) 11);
+    // Drain asynchronous blank-page validation before stubbing the same file handle.
+    flushExecutor().submit(() -> {
+    }).get(10, TimeUnit.SECONDS);
+    var failure = new StorageException("marks", "injected force");
+    org.mockito.Mockito.doThrow(failure).when(handle).synch();
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    org.mockito.Mockito.doCallRealMethod().when(handle).synch();
+    cache.flush(file);
+    assertDwlBytes(before);
+    assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    writePattern(file, 0, (byte) 12);
+    cache.flush(file);
+    writePattern(file, 1, (byte) 13);
+    cache.flush(file);
+    assertFalse(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    for (var path : before.keySet()) {
+      assertFalse(path + " remains in " + dwlBytes().keySet(), Files.exists(path));
+    }
+  }
+
+  /** Fsync-off releases successful retries directly. Non-durable writes never enter the DWL. */
+  @Test
+  public void realLogExcludesNonDurableAndReleasesFsyncOffWrites() throws Exception {
+    var log = installLiveLog(512);
+    long durable = cache.addFile("durable.tst");
+    writePattern(durable, 0, (byte) 1);
+    cache.flush(durable);
+    assertTrue(flushExecutor().submit(() -> retention().retainedSegments().isEmpty()).get(10,
+        TimeUnit.SECONDS));
+    long temporary = cache.addFile("temporary.tst", cache.bookFileId("temporary.tst"), true);
+    var before = dwlBytes();
+    org.mockito.Mockito.clearInvocations(log);
+    writePattern(temporary, 0, (byte) 2);
+    cache.flush(temporary);
+    org.mockito.Mockito.verify(log, org.mockito.Mockito.never()).write(
+        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.any());
+    assertDwlBytes(before);
+  }
+
+  /** Delete and shrink release only physically superseded pages. Failures keep the original copy. */
+  @Test
+  public void lifecycleFailuresKeepCopiesAndSuccessfulSupersessionDiscardsOnlyRemovedPages()
+      throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("lifecycle.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 1);
+    writePattern(file, 1, (byte) 2);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    org.mockito.Mockito.doThrow(new IOException("injected shrink")).when(handle).shrink(pageSize);
+    assertThrows(IOException.class, () -> cache.shrinkFile(file, pageSize));
+    assertDwlBytes(before);
+    assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    org.mockito.Mockito.doCallRealMethod().when(handle).shrink(pageSize);
+    assertTrue(cache.shrinkFile(file, pageSize));
+    // The lower page still needs the old copy.
+    assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    org.mockito.Mockito.doThrow(new IOException("injected delete")).when(handle).delete();
+    assertThrows(WriteCacheException.class, () -> cache.deleteFile(file));
+    assertDwlBytes(before);
+    assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    // executeDeleteFile removes the handle before physical deletion. Restore it for the retry.
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    handles.add(file, handle);
+    org.mockito.Mockito.doCallRealMethod().when(handle).delete();
+    cache.deleteFile(file);
+    assertTrue(flushExecutor().submit(() -> retention().retainedSegments().isEmpty()).get(10,
+        TimeUnit.SECONDS));
+    long replacement = cache.addFile("lifecycle.tst");
+    assertEquals(file, replacement);
+    writePattern(replacement, 0, (byte) 3);
+    cache.flush(replacement);
+    assertFalse(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+  }
+
+  /** A torn foreground failure rejects close even if its locked page makes the final flush skip. */
+  @Test
+  public void liveTornFailureRejectsCloseAndKeepsDwlBytes() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("close-live.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 7);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    var entry = readCache.loadForRead(file, 0, cache, true);
+    var pointer = entry.getCachePointer();
+    long stamp = pointer.acquireExclusiveLock();
+    try {
+      assertThrows(WriteCacheException.class, cache::close);
+      assertDwlBytes(before);
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+      readCache.releaseFromRead(entry);
+    }
+  }
+
+  /** Stored background failures reject close and keep real copies of the torn page. */
+  @Test
+  public void liveBackgroundFailureRejectsCloseAndPreservesDwl() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("background-live.tst");
+    tearWrites(file);
+    writePattern(file, 0, (byte) 8);
+    flushExecutor().submit(() -> cache.executePeriodicFlush(new PeriodicFlushTask(cache))).get(10,
+        TimeUnit.SECONDS);
+    assertTrue(field(cache, "flushError") != null);
+    var before = dwlBytes();
+    assertFalse(before.isEmpty());
+    assertThrows(WriteCacheException.class, cache::close);
+    assertDwlBytes(before);
+  }
+
+  /** Keeping an old segment does not request another force when no new rotation occurs. */
+  @Test
+  public void retainedTailDoesNotForceEveryDurableBatch() throws Exception {
+    var log = installLiveLog(1_000_000);
+    long file = cache.addFile("rotation-live.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 1);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    log.startCheckpoint();
+    log.endCheckpoint();
+    // Keep the unresolved page locked so unrelated background batches cannot retry it.
+    var damagedEntry = readCache.loadForRead(file, 0, cache, true);
+    var damagedPointer = damagedEntry.getCachePointer();
+    long stamp = damagedPointer.acquireExclusiveLock();
+    long healthy = cache.addFile("rotation-healthy.tst");
+    try {
+      setField(cache, "callFsync", true);
+      writePattern(healthy, 0, (byte) 2);
+      liveBatch();
+      org.mockito.Mockito.clearInvocations(handle);
+      writePattern(healthy, 0, (byte) 3);
+      liveBatch();
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).synch();
+      assertTrue(flushExecutor().submit(retention()::hasUnresolvedPages).get(10, TimeUnit.SECONDS));
+    } finally {
+      damagedPointer.releaseExclusiveLock(stamp);
+      readCache.releaseFromRead(damagedEntry);
+    }
+  }
+
+  /** A removed container entry is not covered by a force and cannot release a pending record. */
+  @Test
+  public void missingFileIsNotAcknowledgedByRotationOrCloseForce() throws Exception {
+    installLiveLog(1_000_000);
+    long file = cache.addFile("missing-live.tst");
+    setField(cache, "callFsync", true);
+    writePattern(file, 0, (byte) 1);
+    liveBatch();
+    var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+    var handle = handles.remove(file);
+    var before = dwlBytes();
+    try {
+      rotationSync();
+      assertTrue(
+          flushExecutor().submit(retention()::hasPendingSynchronization).get(10, TimeUnit.SECONDS));
+      assertThrows(WriteCacheException.class, cache::close);
+      assertDwlBytes(before);
+      assertTrue(
+          flushExecutor().submit(retention()::hasPendingSynchronization).get(10, TimeUnit.SECONDS));
+    } finally {
+      handles.add(file, handle);
+    }
+  }
+
+  /** Shrink to zero supersedes a torn page and permits cleanup before a new page incarnation. */
+  @Test
+  public void successfulShrinkReleasesTornPageAndReplacementCanBeWritten() throws Exception {
+    installLiveLog(512);
+    long file = cache.addFile("shrink-live.tst");
+    var handle = tearWrites(file);
+    writePattern(file, 0, (byte) 1);
+    assertThrows(WriteCacheException.class, () -> cache.flush(file));
+    var before = dwlBytes();
+    assertTrue(cache.shrinkFile(file, 0));
+    assertTrue(flushExecutor().submit(() -> retention().retainedSegments().isEmpty()).get(10,
+        TimeUnit.SECONDS));
+    org.mockito.Mockito.doCallRealMethod().when(handle).write(
+        org.mockito.ArgumentMatchers.<
+            List<com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+    writePattern(file, 0, (byte) 2);
+    cache.flush(file);
+    for (var path : before.keySet()) {
+      assertFalse(Files.exists(path));
+    }
+  }
+
+  /** The fixed limit forces once, releases the covered set and leaves no pending accumulation. */
+  @Test
+  public void pendingLimitRunsOneForceAndReleasesCoveredRecords() throws Exception {
+    assertPendingLimit(false);
+  }
+
+  /** Restore mode suppresses cleanup but still allows the memory limit to release forced writes. */
+  @Test
+  public void restoreModeLimitReleasesCoveredRecordsWithoutCleanup() throws Exception {
+    assertPendingLimit(true);
+  }
+
+  private void assertPendingLimit(boolean restoreMode) throws Exception {
+    var log = installLiveLog(1_000_000_000);
+    if (restoreMode) {
+      log.restoreModeOn();
+    }
+    long file = cache.addFile("limit-live.tst");
+    setField(cache, "callFsync", true);
+    var handle = observeDataFile(file);
+    writePattern(file, 0, (byte) 1);
+    liveBatch();
+    var state = retention();
+    // Seed the boundary with identities of the real appended copy to avoid a 256 MiB fixture.
+    flushExecutor().submit(() -> {
+      long segment = state.retainedSegments().iterator().next();
+      for (int page = 2; page < PageRetentionState.SYNCHRONIZATION_LIMIT; page++) {
+        var pointer = new com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer(
+            (com.jetbrains.youtrackdb.internal.common.directmemory.Pointer) null, null, file, page);
+        state.writeSucceeded(state.appendSucceeded(pointer, segment, true), true);
+      }
+    }).get(10, TimeUnit.SECONDS);
+    org.mockito.Mockito.clearInvocations(handle);
+    writePattern(file, 1, (byte) 2);
+    liveBatch();
+    org.mockito.Mockito.verify(handle).synch();
+    assertFalse(flushExecutor().submit(state::hasPendingSynchronization).get(10, TimeUnit.SECONDS));
+    assertTrue(
+        flushExecutor().submit(() -> state.retainedSegments().isEmpty()).get(10, TimeUnit.SECONDS));
+    writePattern(file, 0, (byte) 4);
+    liveBatch();
+    org.mockito.Mockito.verify(handle).synch();
+    if (restoreMode) {
+      log.restoreModeOff();
+    }
+  }
+
+  private void liveBatch() throws Exception {
+    var future = flushExecutor().submit(
+        () -> cache.executePeriodicFlush(new PeriodicFlushTask(cache)));
+    try {
+      future.get(10, TimeUnit.SECONDS);
+    } finally {
+      // A timed-out flush must not leave uncancelled fixture work on the shared executor.
+      future.cancel(true);
+    }
+    if (field(cache, "flushError") != null) {
+      throw new AssertionError((Throwable) field(cache, "flushError"));
+    }
+  }
+
+  private DoubleWriteLogGL installLiveLog(long segmentSize) throws Exception {
+    cache.close();
+    var log = spy(new DoubleWriteLogGL(segmentSize, 512, false));
+    setField(cache, "doubleWriteLog", log);
+    cache.loadRegisteredFiles();
+    setField(cache, "deferDwlCleanup", false);
+    setField(cache, "stopFlush", false);
+    return log;
+  }
+
+  private void writePattern(long file, int page, byte value) throws Exception {
+    var pointer = cache.loadOrAdd(file, page, false);
+    long stamp = pointer.acquireExclusiveLock();
+    try {
+      var buffer = pointer.getBuffer();
+      for (int offset = 64; offset < pageSize; offset++) {
+        buffer.put(offset, value);
+      }
+      cache.updateDirtyPagesTable(pointer, new LogSequenceNumber(0, 0));
+    } finally {
+      pointer.releaseExclusiveLock(stamp);
+    }
+    cache.store(file, page, pointer);
+    pointer.decrementReadersReferrer();
+  }
+
+  private File tearWrites(long file) throws Exception {
+    var handle = observeDataFile(file);
+    doAnswer(call -> {
+      List<com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+          java.nio.ByteBuffer>> buffers = call.getArgument(0);
+      var first = buffers.getFirst();
+      var half = first.second.duplicate();
+      half.rewind();
+      half.limit(pageSize / 2);
+      handle.write(first.first, half);
+      throw new IOException("injected torn write");
+    }).when(handle).write(
+        org.mockito.ArgumentMatchers.<
+            List<com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<
+                java.nio.ByteBuffer>>>any());
+    return handle;
   }
 
   private File observeDataFile(long file) throws Exception {

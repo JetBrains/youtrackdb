@@ -236,7 +236,10 @@ public class WOWCacheChunkBoundaryProtectionTest {
 
     final var failingFile = replaceWithSecondPageFailingFile(fileId);
 
-    wowCache.executePeriodicFlush(new PeriodicFlushTask(wowCache));
+    onFlush(() -> {
+      wowCache.executePeriodicFlush(new PeriodicFlushTask(wowCache));
+      return null;
+    });
 
     assertThat(failingFile.successfulWrites.get())
         .as("the earlier chunk batch must have been written successfully")
@@ -278,15 +281,13 @@ public class WOWCacheChunkBoundaryProtectionTest {
 
     final var flushThread = new AtomicReference<Thread>();
     final var flushExecutor =
-        Executors.newSingleThreadExecutor(
-            task -> {
-              final var thread = new Thread(task, "WOWCacheChunkBoundaryProtectionTest-flush");
-              flushThread.set(thread);
-              return thread;
-            });
+        YouTrackDBEnginesManager.instance().getWowCacheFlushExecutor();
     Throwable bodyFailure = null;
     try {
-      final var flushFuture = flushExecutor.submit(() -> wowCache.executeFileFlush(fileIds));
+      final var flushFuture = flushExecutor.submit(() -> {
+        flushThread.set(Thread.currentThread());
+        return wowCache.executeFileFlush(fileIds);
+      });
 
       if (!coordinator.secondAwaitEntered.await(5, TimeUnit.SECONDS)) {
         // Put the full stack in the dump label before cleanup, since ThreadInfo truncates it.
@@ -330,8 +331,7 @@ public class WOWCacheChunkBoundaryProtectionTest {
     } finally {
       coordinator.allowSecondCompletion.countDown();
       try {
-        flushExecutor.shutdownNow();
-        if (!flushExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        if (flushThread.get() == null) {
           ConcurrencyDiagnostics.dumpThreads(
               "WOWCache flush executor did not terminate\n"
                   + describeFlushThread(flushThread.get()));
@@ -404,7 +404,7 @@ public class WOWCacheChunkBoundaryProtectionTest {
 
     final var ids = new IntOpenHashSet();
     ids.add(WOWCache.extractFileId(fileId));
-    assertThatThrownBy(() -> wowCache.executeFileFlush(ids))
+    assertThatThrownBy(() -> onFlush(() -> wowCache.executeFileFlush(ids)))
         .isInstanceOf(StorageException.class)
         .hasMessageContaining("injected batch force failure");
     assertThat(flushPointer.get()).isNotNull();
@@ -423,10 +423,11 @@ public class WOWCacheChunkBoundaryProtectionTest {
     final var fileIds = new IntOpenHashSet();
     fileIds.add(WOWCache.extractFileId(fileId));
 
-    assertThatThrownBy(() -> wowCache.executeFileFlush(fileIds)).isInstanceOf(IOException.class);
+    assertThatThrownBy(() -> onFlush(() -> wowCache.executeFileFlush(fileIds)))
+        .isInstanceOf(IOException.class);
     assertThat(wowCache.getMinimalNotFlushedSegment()).isEqualTo(FIRST_PAGE_LSN.getSegment());
 
-    wowCache.executeFileFlush(fileIds);
+    onFlush(() -> wowCache.executeFileFlush(fileIds));
 
     assertThat(failOnceFile.writeAttempts.get()).isEqualTo(2);
     assertThat(wowCache.getMinimalNotFlushedSegment()).isNull();
@@ -464,6 +465,18 @@ public class WOWCacheChunkBoundaryProtectionTest {
     }
     wowCache.store(fileId, pageIndex, cachePointer);
     cachePointer.decrementReadersReferrer();
+  }
+
+  private <T> T onFlush(java.util.concurrent.Callable<T> action) throws Exception {
+    try {
+      return YouTrackDBEnginesManager.instance().getWowCacheFlushExecutor()
+          .submit(action).get(10, TimeUnit.SECONDS);
+    } catch (ExecutionException failure) {
+      if (failure.getCause() instanceof Exception exception) {
+        throw exception;
+      }
+      throw (Error) failure.getCause();
+    }
   }
 
   /** Lowers the chunk page limit, which production derives from a fixed byte size. */

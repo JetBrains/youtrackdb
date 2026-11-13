@@ -481,7 +481,8 @@ public class PageRetentionStateTest {
         }),
         state::retainedSegments,
         state::hasUnresolvedPages,
-        state::hasPendingSynchronization);
+        state::hasPendingSynchronization,
+        state::synchronizationLimitReached);
     for (final var operation : operations) {
       runOnOtherThread(() -> assertThrows(IllegalStateException.class, operation));
       assertState(Set.of(10L), false, true);
@@ -516,6 +517,30 @@ public class PageRetentionStateTest {
       assertFalse(retention.hasUnresolvedPages());
     });
     assertThrows(IllegalStateException.class, retention::retainedSegments);
+  }
+
+  /** Only sync-pending attempts count toward the fixed limit. Replacement and discard update it. */
+  @Test
+  public void limitCountsOnlyCurrentSuccessfulAttempts() throws Exception {
+    assertFalse(state.synchronizationLimitReached());
+    final var page = new CachePointer((Pointer) null, null, 1, 0);
+    for (int index = 0; index < PageRetentionState.SYNCHRONIZATION_LIMIT; index++) {
+      var pointer = new CachePointer((Pointer) null, null, 1, index);
+      state.writeSucceeded(state.appendSucceeded(pointer, 10L, true), true);
+    }
+    assertTrue(state.synchronizationLimitReached());
+    var replacement = state.appendSucceeded(page, 20L, true);
+    assertFalse(state.synchronizationLimitReached());
+    state.writeSucceeded(replacement, true);
+    state.writeSucceeded(replacement, true);
+    assertTrue(state.synchronizationLimitReached());
+    state.writesFailed(List.of(replacement));
+    assertFalse(state.synchronizationLimitReached());
+    state.synchronizeOnFlushExecutor(() -> {
+    });
+    assertState(Set.of(20L), true, false);
+    state.discardAfterRemoval(1, 0);
+    assertFalse(state.synchronizationLimitReached());
   }
 
   private static void runOnOtherThread(ThrowingRunnable operation) throws Throwable {
