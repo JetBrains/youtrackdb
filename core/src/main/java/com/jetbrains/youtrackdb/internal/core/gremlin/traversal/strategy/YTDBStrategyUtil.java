@@ -178,7 +178,14 @@ public final class YTDBStrategyUtil {
     return explicit != null ? explicit : configured.get();
   }
 
-  /** Settings for one translator application only. Call after capturing the cache generation. */
+  /**
+   * Settings for one normal strategy application only. Publishing callers capture generation,
+   * cache eligibility and timeout before resolving settings. Roots and children without stored
+   * evidence validate settings before safety and early gates. Children with stored evidence check
+   * safety and early gates before capture and settings validation. Each normal application resolves
+   * settings once and reuses them through extraction and planning. Private preparation seams are
+   * outside this single-resolution contract.
+   */
   public record TranslationSettings(boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement nullPlacements, boolean polymorphic) {
   }
@@ -214,7 +221,7 @@ public final class YTDBStrategyUtil {
   /** Reads only the explicit Boolean option and its deliberate order-mode contradiction. */
   public static @Nullable Boolean explicitOrderIncludesMissingKey(
       @Nullable OptionsStrategy options, Admin<?, ?> traversal) {
-    // Keep the cast before the strategy lookup on explicit-validation-only paths.
+    // Cast the explicit value before looking up the standard-order strategy.
     Boolean value = (Boolean) explicitValue(options, YTDBQueryConfigParam.orderIncludesMissingKey);
     return validateExplicitOrder(value,
         Boolean.TRUE.equals(value) && hasStandardOrderSemanticsStrategy(traversal));

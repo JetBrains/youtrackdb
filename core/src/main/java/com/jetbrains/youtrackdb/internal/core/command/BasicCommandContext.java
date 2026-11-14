@@ -49,6 +49,22 @@ public class BasicCommandContext implements CommandContext {
   protected Object[] args;
 
   protected boolean recordMetrics = false;
+  private Long gremlinCommandTimeout;
+
+  /** Internal plan-time default. SQL variables cannot read or replace this value. */
+  public void setGremlinCommandTimeout(Long timeout) {
+    gremlinCommandTimeout = timeout;
+  }
+
+  /** Nested planning inherits the captured default without consulting SQL variables. */
+  public Long getGremlinCommandTimeout() {
+    if (gremlinCommandTimeout != null) {
+      return gremlinCommandTimeout;
+    }
+    return parent instanceof BasicCommandContext context ? context.getGremlinCommandTimeout()
+        : null;
+  }
+
   protected CommandContext parent;
   protected CommandContext child;
   private Map<String, Object> variables;

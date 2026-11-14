@@ -52,6 +52,7 @@ public final class TreeStep<S> extends ReducingBarrierStep<S, Tree> implements T
         super(traversal);
         this.setSeedSupplier((Supplier) TreeSupplier.instance());
         this.setReducingBiOperator(TreeBiOperator.instance());
+        this.rememberBuiltInFunctions();
     }
 
     @Override

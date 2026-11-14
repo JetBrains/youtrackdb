@@ -520,6 +520,71 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting, @Nullable TranslationEnvironment environment) {
+    return walkObserved(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphicSetting, null, null, environment);
+  }
+
+  /** Observes only this invocation's root dispatch, after all unit admission and latch updates. */
+  @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, NO_CHILD_SCOPE, null, null, null, completion);
+  }
+
+  /** Inputs captured once for a private full attempt and its fresh prefix walks. */
+  record WalkInputs(Boolean polymorphic, boolean edgeVerification, Schema schema,
+      Set<String> productiveKeys, Boolean includesMissing,
+      ResolvedOrderByNullsPlacement nulls, boolean permitsGrouping, long commandTimeout) {
+    WalkInputs {
+      productiveKeys = productiveKeys == null ? null : Set.copyOf(productiveKeys);
+    }
+
+    static WalkInputs resolved(
+        com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil.TranslationSettings settings,
+        TranslationEnvironment environment, Schema schema, boolean permitsGrouping, long timeout) {
+      return new WalkInputs(settings.polymorphic(), environment.edgeLabelVerification(), schema,
+          environment.productiveKeys(), settings.orderIncludesMissingKey(),
+          settings.nullPlacements(), permitsGrouping, timeout);
+    }
+
+    static WalkInputs capture(Traversal.Admin<?, ?> traversal) {
+      var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+      return new WalkInputs(YTDBStrategyUtil.isPolymorphic(traversal),
+          traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent(),
+          session == null ? null : session.getMetadata().getImmutableSchemaSnapshot(),
+          traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
+              .map(ProductiveByStrategy::getProductiveKeys).orElse(null),
+          YTDBStrategyUtil.orderIncludesMissingKey(traversal),
+          YTDBStrategyUtil.orderByNullsPlacements(traversal),
+          PropertyMapBulkingAdmission.permitsGrouping(traversal),
+          session == null ? 0 : session.getConfiguration().getValueAsLong(
+              com.jetbrains.youtrackdb.api.config.GlobalConfiguration.COMMAND_TIMEOUT));
+    }
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, WalkInputs inputs,
+      @Nullable java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, NO_CHILD_SCOPE, inputs.includesMissing(), inputs.nulls(),
+        inputs.polymorphic(), completion, inputs, null);
+  }
+
+  private @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting,
+      @Nullable java.util.function.IntConsumer completion) {
+    return walkObserved(traversal, childScopeBoundary, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphicSetting, completion, null, null);
+  }
+
+  private @Nullable GremlinToMatchTranslator.TranslationResult walkObserved(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting,
+      @Nullable java.util.function.IntConsumer completion,
+      @Nullable WalkInputs inputs, @Nullable TranslationEnvironment environment) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -561,24 +626,24 @@ final class GremlinStepWalker {
 
     // Resolve the EdgeLabelVerificationStrategy presence once too, so resolveEdgeLabel reads a
     // boolean instead of scanning the strategy list per hop.
-    boolean edgeLabelVerification =
-        environment != null ? environment.edgeLabelVerification()
+    boolean edgeLabelVerification = inputs != null ? inputs.edgeVerification()
+        : environment != null ? environment.edgeLabelVerification()
             : traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class)
                 .isPresent();
 
     // Reuse the translator's borrowed session. Direct callers resolve their own session here.
     // A null schema disables the has(...) recogniser's declared-String type gate.
-    var session = environment != null ? environment.session()
+    var session = inputs != null ? null : environment != null ? environment.session()
         : YTDBStrategyUtil.resolveYtdbSession(traversal);
-    Schema schema = session != null ? session.getSchema() : null;
+    Schema schema = inputs != null ? inputs.schema() : session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     ctx.setWalkedTraversal(traversal);
     ctx.environment = environment;
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
-    ctx.setProductiveByKeys(
-        environment != null ? environment.productiveKeys()
+    ctx.setProductiveByKeys(inputs != null ? inputs.productiveKeys()
+        : environment != null ? environment.productiveKeys()
             : traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
                 .map(ProductiveByStrategy::getProductiveKeys).orElse(null));
     // Resolve order behavior through the same entry points used by native execution.
@@ -605,7 +670,7 @@ final class GremlinStepWalker {
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
-    if (!dispatchAll(cursor, ctx, recognisers, childScopeBoundary)) {
+    if (!dispatchAll(cursor, ctx, recognisers, childScopeBoundary, completion)) {
       return null;
     }
 
@@ -631,7 +696,8 @@ final class GremlinStepWalker {
     }
     if (childScopeBoundary == NO_CHILD_SCOPE) {
       ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
-          PropertyMapBulkingAdmission.capacity(traversal));
+          inputs == null ? PropertyMapBulkingAdmission.capacity(traversal)
+              : PropertyMapBulkingAdmission.capacity(traversal, inputs.permitsGrouping()));
     }
     return buildResult(ctx);
   }
@@ -675,7 +741,8 @@ final class GremlinStepWalker {
       StepStreamCursor cursor,
       RecognitionContext ctx,
       Map<Class<?>, StepRecogniser> recognisers,
-      int childScopeBoundary) {
+      int childScopeBoundary,
+      @Nullable java.util.function.IntConsumer completion) {
     Step<?, ?> head;
     // The drain half of the list-shaping rule (see mayFollowListShaping): set once a recogniser that
     // is not a per-payload shaper has claimed a step while a stage was captured, after which nothing
@@ -699,7 +766,12 @@ final class GremlinStepWalker {
       }
       if (head == null) {
         // order().hop() with no following slice: materialise the deferred hop into MATCH.
-        return ctx.flushPendingOrderedHop();
+        boolean pendingCompletion = completion != null && ctx.pendingOrderedHop() != null;
+        boolean accepted = ctx.flushPendingOrderedHop();
+        if (accepted && pendingCompletion) {
+          completion.accept(positionBeforePeek);
+        }
+        return accepted;
       }
       var recogniser = recognisers.get(head.getClass());
       if (recogniser == null) {
@@ -713,6 +785,10 @@ final class GremlinStepWalker {
           && recogniser != HasStepRecogniser.INSTANCE) {
         if (!ctx.flushPendingOrderedHop()) {
           return false;
+        }
+        // The deferred unit is now settled, independently of the next recogniser's outcome.
+        if (completion != null) {
+          completion.accept(positionBeforePeek);
         }
       }
       // Post-union suffix gate (see POST_UNION_RECOGNISERS). Only the post-concat-aware recognisers
@@ -844,6 +920,11 @@ final class GremlinStepWalker {
           (head instanceof GraphStep<?, ?>
               || (head instanceof HasStep<?> && ctx.atTraversalStart()))
               && cursor.position() < childScopeBoundary);
+      // Do not peek here. A peek could absorb barriers belonging to the next unit.
+      // A deferred ordered hop and its filters form one unit until folded or flushed.
+      if (completion != null && ctx.pendingOrderedHop() == null) {
+        completion.accept(cursor.position());
+      }
     }
   }
 
@@ -1297,7 +1378,7 @@ final class GremlinStepWalker {
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
     // NO_CHILD_SCOPE, not 0: the sub-walk's adapter answers atTraversalStart() with a hard false
     // and swallows every write, so the boundary term has nothing to add here.
-    var accepted = dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE);
+    var accepted = dispatchAll(cursor, adapter, recognisers, NO_CHILD_SCOPE, null);
     // Slices select child rows, but their captured clauses never reach the detached expression.
     // Reducers emit a value even for empty input, so any captured hop, predicate, or nested check
     // before one cannot be committed as a filter. An unconstrained pure-filter child such as

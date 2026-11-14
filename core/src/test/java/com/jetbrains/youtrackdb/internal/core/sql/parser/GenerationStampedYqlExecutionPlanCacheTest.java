@@ -57,6 +57,48 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
     cache().invalidate();
   }
 
+  /** Identical nested SELECT text has separate cold entries and real hits for each captured default. */
+  @Test
+  public void nestedSelectCacheSeparatesCapturedTimeoutsWithConstantLiveConfiguration() {
+    var configuration = session.getConfiguration();
+    long previous = configuration.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 41001L);
+    try {
+      // Synchronise the cache stamp before either measured publication.
+      cache().getInternal("timeout-stamp-miss", context(session), session);
+      cache().invalidate();
+      var sql = "SELECT FROM CacheVertex WHERE id = 1";
+      long[] timeouts = {17001L, 29001L, 17001L, 29001L};
+      for (int invocation = 0; invocation < timeouts.length; invocation++) {
+        long timeout = timeouts[invocation];
+        var parent = context(session);
+        parent.setGremlinCommandTimeout(timeout);
+        var child = context(session);
+        child.setParent(parent);
+        // User variables at either level must not override the typed internal default.
+        parent.setVariable("$g2m_commandTimeout", 0L);
+        child.setVariable("$g2m_commandTimeout", 0L);
+        long hits = cache().getHits();
+        boolean expectedHit = invocation >= 2;
+        Assert.assertEquals(expectedHit, cache().contains(sql + "\0gremlinTimeout" + timeout));
+        var plan = parse(sql).createExecutionPlan(child, false);
+        try {
+          Assert.assertTrue(plan.prettyPrint(0, 2).toString().contains(timeout + "ms"));
+          Assert.assertEquals(hits + (expectedHit ? 1 : 0), cache().getHits());
+          Assert.assertTrue(cache().contains(sql + "\0gremlinTimeout" + timeout));
+          Assert.assertEquals(41001L,
+              configuration.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT));
+        } finally {
+          plan.close();
+        }
+      }
+      Assert.assertTrue(cache().contains(sql + "\0gremlinTimeout17001"));
+      Assert.assertTrue(cache().contains(sql + "\0gremlinTimeout29001"));
+    } finally {
+      configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
+    }
+  }
+
   /** All four families publish eligible cold builds and return distinct private copies on hits. */
   @Test
   public void eligiblePublishersReturnPrivateWarmCopies() {

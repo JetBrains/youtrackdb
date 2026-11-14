@@ -75,8 +75,8 @@ public final class GremlinTranslationMetrics {
 
   /**
    * Records a decline (walker returned null, or a cached decline template was reused). {@code
-   * shape} is the step-class list (no literal values); null/blank shapes are counted but not
-   * tracked in the frequency map.
+   * shape} is a step-class list or a structural safety reason, without literal values. Null or
+   * blank shapes are counted but not tracked in the frequency map.
    */
   public void recordDecline(@Nullable String shape) {
     recordDeclineSignature(shape == null || shape.isBlank() ? null : DeclineSignature.text(shape));
@@ -88,7 +88,7 @@ public final class GremlinTranslationMetrics {
     recordDeclineSignature(DeclineSignature.traversal(traversal));
   }
 
-  private void recordDeclineSignature(@Nullable DeclineSignature shape) {
+  void recordDeclineSignature(@Nullable DeclineSignature shape) {
     declines.increment();
     successRatio.record(0, 1);
     declineRatio.record(1, 1);

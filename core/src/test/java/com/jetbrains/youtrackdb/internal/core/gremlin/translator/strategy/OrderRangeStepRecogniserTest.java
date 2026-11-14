@@ -1702,16 +1702,16 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
     }
   }
 
-  /** Unsupported MATCH predicates still use native ordered-expand filtering at either cut. */
+  /** User predicates keep both deferred-hop routes native without changing their results. */
   @Test
-  public void deferredCustomPredicate_keepsBothOrderedExpandRoutes() {
+  public void deferredCustomPredicate_keepsBothRoutesNative() {
     seedNativeNeighbourFilters();
     PBiPredicate<Object, Object> same = Object::equals;
-    assertNeighbourFilterResult("custom hop cut", List.of("Child"),
+    assertNeighbourFilterDeclines("custom hop cut", List.of("Child"),
         () -> graph.traversal().V().has("name", "Source").order().by("name")
             .out("knows").has("name", new P<>(same, "Child"))
             .limit(1).values("name"));
-    assertNeighbourFilterResult("custom source cut", List.of("Child"),
+    assertNeighbourFilterDeclines("custom source cut", List.of("Child"),
         () -> graph.traversal().V().has("name", "Source").order().by("name")
             .limit(1).out("knows").has("name", new P<>(same, "Child"))
             .values("name"));
@@ -1916,7 +1916,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .asAdmin();
         traversal.applyStrategies();
         assertThat(countBoundarySteps(traversal.getSteps()))
-            .as("translated=" + translated).isEqualTo(translated ? 1 : 0);
+            .as("translated=" + translated).isZero();
+        if (translated) {
+          assertThat(QuerySafetyAdmission.stored(traversal).reason())
+              .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+        }
         assertThatThrownBy(traversal::toList).isInstanceOf(IllegalStateException.class)
             .hasMessage("second neighbour pulled");
         assertThat(calls.get()).isEqualTo(2);
@@ -1986,7 +1990,11 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
             .out("knows").has("name", predicate).asAdmin();
         traversal.applyStrategies();
         assertThat(countBoundarySteps(traversal))
-            .as("translator on=" + translated).isEqualTo(translated ? 1 : 0);
+            .as("translator on=" + translated).isZero();
+        if (translated) {
+          assertThat(QuerySafetyAdmission.stored(traversal).reason())
+              .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+        }
         assertThat(traversal.toList()).isEmpty();
       });
       assertThat(calls.get()).as("post-hop predicate calls, translator on=" + translated)

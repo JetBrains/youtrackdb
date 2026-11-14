@@ -1,5 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import java.util.List;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
@@ -24,12 +27,25 @@ final class PropertyMapBulkingAdmission {
 
   /** Zero preserves the ungrouped boundary. A final vertex map needs an empty labelled path. */
   static int capacity(Traversal.Admin<?, ?> traversal) {
+    return capacity(traversal, permitsGrouping(traversal));
+  }
+
+  static boolean permitsGrouping(Traversal.Admin<?, ?> traversal) {
+    return traversal.getStrategies().getStrategy(RequirementsStrategy.class).isEmpty()
+        && traversal.getStrategies().getStrategy(SackStrategy.class).isEmpty()
+        && traversal.getSideEffects().getSackInitialValue() == null;
+  }
+
+  static int capacity(Traversal.Admin<?, ?> traversal, boolean permitsGrouping) {
+    return capacity(traversal.getSteps(), traversal.isRoot(), permitsGrouping);
+  }
+
+  static int capacity(List<Step> steps, boolean root, boolean permitsGrouping) {
     // Child traversals inherit the root's traverser generator and requirements. Local steps
     // cannot prove that inherited path, sack or ONE_BULK state permits grouping.
-    if (!traversal.isRoot()) {
+    if (!root) {
       return 0;
     }
-    var steps = traversal.getSteps();
     if (steps.size() < 3
         || !(steps.getFirst() instanceof GraphStep<?, ?> start) || !start.returnsVertex()) {
       return 0;
@@ -50,9 +66,7 @@ final class PropertyMapBulkingAdmission {
     }
     // Direct callers may precede decoration. Refuse explicit requirements and sack strategies
     // without applying them, invoking suppliers or changing the original traversal.
-    if (traversal.getStrategies().getStrategy(RequirementsStrategy.class).isPresent()
-        || traversal.getStrategies().getStrategy(SackStrategy.class).isPresent()
-        || traversal.getSideEffects().getSackInitialValue() != null) {
+    if (!permitsGrouping) {
       return 0;
     }
     boolean returnsVertex = true;

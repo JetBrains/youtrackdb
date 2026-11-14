@@ -1,0 +1,1079 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.T;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.MockedStatic;
+
+/** Preparation-only cache tests never install a partial execution boundary. */
+public class PrivateCandidatePreparationTest extends GraphBaseTest {
+
+  private final AtomicInteger walks = new AtomicInteger();
+  private final AtomicInteger builds = new AtomicInteger();
+  private final PrivateCandidatePreparation.Policy policy =
+      new PrivateCandidatePreparation.Policy(Set.of(1, 2, 3, 4, 5, 6));
+
+  @Before
+  public void setUpCandidateSchema() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    session.getConfiguration().setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+    var clazz = session.createVertexClass("CandidatePerson");
+    clazz.createProperty("age", PropertyType.INTEGER);
+    clazz.createProperty("name", PropertyType.STRING);
+    session.createEdgeClass("candidateKnows");
+    var first = graph.addVertex(T.label, "CandidatePerson", "age", 30, "name", "first");
+    first.addEdge("candidateKnows",
+        graph.addVertex(T.label, "CandidatePerson", "age", 40, "name", "second"));
+    graph.tx().commit();
+    GremlinPlanCache.instance(
+        YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin())).invalidate();
+  }
+
+  private PrivateCandidatePreparation preparation(boolean failBuild) {
+    return new PrivateCandidatePreparation(
+        new PrivatePrefixDiscovery((traversal, inputs, observer) -> {
+          walks.incrementAndGet();
+          return GremlinStepWalker.production().walkObserved(traversal, inputs, observer);
+        }, (session, translation, scope) -> {
+          builds.incrementAndGet();
+          if (failBuild) {
+            throw new IllegalStateException("test plan failure");
+          }
+          return GremlinToMatchStrategy.buildPlan(session, translation, scope);
+        }));
+  }
+
+  private Traversal.Admin<?, ?> query(int prefix, int suffix) {
+    return graph.traversal().V().hasLabel("CandidatePerson").has("age", prefix)
+        .out("candidateKnows").optional(__.has("age", suffix)).asAdmin();
+  }
+
+  /** A real retained hit binds the prefix only and skips both recognition and planning. */
+  @Test
+  public void warmCandidateUsesFreshPrefixValuesAndLiteralExtent() {
+    var prepare = preparation(false);
+    var session = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    var cache = GremlinPlanCache.instance(session);
+    long hits = cache.getTranslationHits();
+    long misses = cache.getTranslationMisses();
+    for (int invocation = 0; invocation < 3; invocation++) {
+      int value = invocation == 1 ? 40 : 30;
+      try (var candidate = prepare.prepare(query(value, 100 + invocation), policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(candidate.extent()).isEqualTo(3);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation > 0);
+        assertThat(candidate.bindings()).containsEntry(0, value).hasSize(1);
+        assertThat(candidate.plan().getContext().getInputParameters())
+            .containsEntry(0, value).hasSize(1);
+      }
+    }
+    assertThat(walks.get()).isEqualTo(2);
+    assertThat(builds.get()).isEqualTo(1);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 2);
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);
+  }
+
+  /** The admission contract is part of every identity, including completed native decisions. */
+  @Test
+  public void deterministicRefusalIsRetainedButDoesNotPoisonAnotherPolicy() {
+    var prepare = preparation(false);
+    var none = new PrivateCandidatePreparation.Policy(Set.of());
+    for (int invocation = 0; invocation < 2; invocation++) {
+      try (var candidate = prepare.prepare(query(30, 40), none)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FOLD_CUT);
+        assertThat(candidate.extent()).isEqualTo(-1);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+      }
+    }
+    assertThat(walks.get()).isEqualTo(1);
+    assertThat(builds.get()).isZero();
+    try (var candidate = prepare.prepare(query(40, 30), policy)) {
+      assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      assertThat(candidate.cacheHit()).isFalse();
+    }
+    assertThat(walks.get()).isEqualTo(3);
+  }
+
+  /** A transient planner exception has an observable reason and is never a cached refusal. */
+  @Test
+  public void failedPlanIsRetried() {
+    var prepare = preparation(true);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      try (var candidate = prepare.prepare(query(30, 40), policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+        assertThat(candidate.cacheHit()).isFalse();
+        assertThat(candidate.plan()).isNull();
+      }
+    }
+    assertThat(walks.get()).isEqualTo(4);
+    assertThat(builds.get()).isEqualTo(2);
+  }
+
+  /** Suffix ordered operands must not invalidate an independent prefix binding agreement. */
+  @Test
+  public void suffixOnlyOrderedOperandsDoNotEnterThePrefix() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().hasLabel("CandidatePerson").has("age", 30)
+          .out("candidateKnows").optional(__.identity()).order().by("age")
+          .out("candidateKnows").has("age", 40 + invocation).limit(2).asAdmin();
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(candidate.extent()).isEqualTo(3);
+        assertThat(candidate.bindings()).containsEntry(0, 30).hasSize(1);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+      }
+    }
+    assertThat(walks.get()).isEqualTo(2);
+    assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Inputs on safe but unclassified steps bypass the shared cache rather than class-collide. */
+  @Test
+  public void unclassifiedSafeSuffixIsIncomplete() {
+    var first = graph.traversal().V().out("candidateKnows").path().from("first").asAdmin();
+    var second = graph.traversal().V().out("candidateKnows").path().from("second").asAdmin();
+    var session = YTDBStrategyUtil.resolveYtdbSession(first);
+    for (var traversal : List.of(first, second)) {
+      assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+      assertThat(GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs).complete()).isFalse();
+      assertThat(GremlinStepWalker.extractShape(traversal, session).complete()).isTrue();
+      try (var candidate = preparation(false).prepare(traversal, policy)) {
+        assertThat(candidate.cacheHit()).isFalse();
+      }
+    }
+    // Every stateless native encoder is explicitly tied to the closed safety list.
+    for (var step : graph.traversal().V().optional(__.identity()).asAdmin().getSteps()) {
+      if (QuerySafetyAdmission.STRUCTURAL_NATIVE.contains(step.getClass())) {
+        assertThat(QuerySafetyAdmission.nativeShapeComplete(step, new GremlinShapeEncoder(null)))
+            .isTrue();
+      }
+    }
+  }
+
+  /** Two timeout flips around planning must not retain the intermediate default in MATCH. */
+  @Test
+  public void timeoutFlipUsesCapturedValueOnColdAndWarmPlans() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    var configuration = session.getConfiguration();
+    var previous = configuration.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+    var prepare = new PrivateCandidatePreparation(new PrivatePrefixDiscovery(
+        GremlinStepWalker.production()::walkObserved, (db, translation, scope) -> {
+          assertThat(scope.commandTimeout).isEqualTo(17001L);
+          configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
+          try {
+            return GremlinToMatchStrategy.buildPlan(db, translation, scope);
+          } finally {
+            configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+          }
+        }));
+    try {
+      // Synchronise the cache's timeout stamp before capturing the tested preparation.
+      GremlinPlanCache.instance(session).getTranslationEntry("timeout-test-miss", session);
+      for (int invocation = 0; invocation < 2; invocation++) {
+        try (var candidate = prepare.prepare(query(30, 40), policy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+          assertThat(candidate.plan().prettyPrint(0, 2).toString())
+              .contains("17001ms").doesNotContain("29001ms");
+        }
+      }
+    } finally {
+      configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
+    }
+  }
+
+  /** Full supported outcomes retain the whole root extent, including ordered expansion steps. */
+  @Test
+  public void fullOrderedCandidateRetainsWholeRootExtent() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+          .has("age", 30 + invocation).order().by("age").out("candidateKnows").limit(2)
+          .asAdmin();
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        assertThat(candidate.extent()).isEqualTo(5);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+        assertThat(candidate.bindings()).containsEntry(0, 30 + invocation).hasSize(1);
+        assertThat(candidate.plan()).isNotNull();
+      }
+    }
+    assertThat(walks.get()).isEqualTo(1);
+    assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Source slicing before expansion retains a full candidate and actually reuses its template. */
+  @Test
+  public void sourceSliceBeforeHopHasWarmCandidate() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+          .order().by("age").limit(2).out("candidateKnows").asAdmin();
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        assertThat(candidate.extent()).isEqualTo(5);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+        assertThat(candidate.plan()).isNotNull();
+      }
+    }
+    assertThat(walks.get()).isEqualTo(1);
+    assertThat(builds.get()).isEqualTo(1);
+  }
+
+  /** Full-path apply captures its timeout before the real builder sees a changed live setting. */
+  @Test
+  public void fullStrategyUsesCapturedTimeoutWhenConfigurationFlipsBeforePlanning() {
+    var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+        .out("candidateKnows").asAdmin();
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    var configuration = session.getConfiguration();
+    long previous = configuration.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+    var planned = new AtomicInteger();
+    var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
+        (db, translation, scope) -> {
+          planned.incrementAndGet();
+          configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
+          return GremlinToMatchStrategy.buildPlan(db, translation, scope);
+        });
+    GremlinToMatchStrategy.FORCE_MATCH_FOR_TESTS.set(true);
+    try {
+      strategy.apply(traversal);
+      assertThat(planned.get()).isEqualTo(1);
+      assertThat(traversal.getStartStep())
+          .isInstanceOf(
+              com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep.class);
+      var boundary =
+          (com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep<?,
+              ?>) traversal.getStartStep();
+      assertThat(boundary.getPlan().prettyPrint(0, 2).toString())
+          .contains("17001ms").doesNotContain("29001ms");
+      boundary.getPlan().close();
+    } finally {
+      GremlinToMatchStrategy.FORCE_MATCH_FOR_TESTS.remove();
+      configuration.setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
+    }
+  }
+
+  /** Full-only extraction does not allocate private root checkpoints. */
+  @Test
+  public void checkpointsBelongOnlyToPartialExtraction() throws Exception {
+    var traversal = query(30, 40);
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    var production = GremlinStepWalker.extractShape(traversal, session);
+    assertThat(production.encoder().harvested()).isFalse();
+    var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+    var partial = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
+    var harvest = GremlinShapeEncoder.class.getDeclaredField("harvest");
+    harvest.setAccessible(true);
+    int productionActions = ((List<?>) harvest.get(production.encoder())).size();
+    int privateActions = ((List<?>) harvest.get(partial.encoder())).size();
+    assertThat(privateActions - productionActions).isEqualTo(traversal.getSteps().size());
+    production.bindings();
+    assertThat(production.rootEnds()).isEmpty();
+    assertThat(partial.rootEnds()).hasSize(4);
+    assertThat(partial.encoder().harvested()).isTrue();
+    assertThatThrownBy(() -> partial.rootEnds().clear())
+        .isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  /** Every root boundary freezes the completed slots, independently of prefix access order. */
+  @Test
+  public void deferredPrefixesKeepIndependentSnapshotsAcrossScopesAndHops() {
+    for (boolean reverse : List.of(false, true)) {
+      var traversal = graph.traversal().V().has("age", 11)
+          .and(__.has("age", 22), __.filter(__.has("age", 33)))
+          .out("candidateKnows").has("age", 44).asAdmin();
+      var extraction = partialExtraction(traversal);
+      assertThat(extraction.encoder().harvested()).isFalse();
+      // Removing the traversal after extraction makes a second structural visit observable.
+      while (!traversal.getSteps().isEmpty()) {
+        traversal.removeStep(0);
+      }
+      assertThat(extraction.rootEnds()).hasSize(5);
+      assertThat(extraction.encoder().harvested()).isTrue();
+      var extents = reverse ? List.of(5, 4, 3, 2, 1) : List.of(1, 2, 3, 4, 5);
+      int[] counts = {0, 1, 3, 3, 4};
+      for (int extent : extents) {
+        var prefix = extraction.prefix(extent, true, 0);
+        int count = counts[extent - 1];
+        assertThat(prefix.bindings()).hasSize(count);
+        for (int slot = 0; slot < count; slot++) {
+          assertThat(prefix.bindings()).containsEntry(slot, 11 * (slot + 1));
+        }
+        assertThat(prefix.hasContributions())
+            .containsExactlyElementsOf(extraction.hasContributions().subList(0, count));
+        assertThat(prefix.bindings()).isSameAs(prefix.bindings());
+        assertThat(prefix.hasContributions()).isSameAs(prefix.hasContributions());
+        assertThatThrownBy(() -> prefix.bindings().put(99, 99))
+            .isInstanceOf(UnsupportedOperationException.class);
+      }
+      assertThat(extraction.bindings()).hasSize(4);
+      assertThat(extraction.rootEnds()).extracting(GremlinShapeExtractor.BindingEnd::bindings)
+          .containsExactly(0, 1, 3, 3, 4);
+    }
+    for (boolean reverse : List.of(false, true)) {
+      var traversal = graph.traversal().V().order().by("age").limit(2)
+          .out("candidateKnows").has("age", 30).out("candidateKnows")
+          .has("age", 40).asAdmin();
+      var extraction = partialExtraction(traversal);
+      var first = extraction.prefix(reverse ? 7 : 5, false, 0);
+      var second = extraction.prefix(reverse ? 5 : 7, false, 0);
+      var shortPrefix = reverse ? second : first;
+      var longPrefix = reverse ? first : second;
+      // Ordered-filter operands are native values, not SQL parameter slots.
+      assertThat(shortPrefix.bindings()).isEmpty();
+      assertThat(longPrefix.bindings()).isEmpty();
+      var firstOperand = NativeHasOperands.capture(List.of(
+          new org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer("age",
+              org.apache.tinkerpop.gremlin.process.traversal.P.eq(30))));
+      var secondOperand = NativeHasOperands.capture(List.of(
+          new org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer("age",
+              org.apache.tinkerpop.gremlin.process.traversal.P.eq(40))));
+      assertThat(shortPrefix.nativeOperands()).containsExactly(firstOperand);
+      assertThat(longPrefix.nativeOperands()).containsExactly(firstOperand, secondOperand);
+      assertThat(longPrefix.nativeOperands()).hasSize(2)
+          .containsExactlyElementsOf(extraction.nativeOperands());
+      assertThat(shortPrefix.nativeOperands()).isSameAs(shortPrefix.nativeOperands());
+      assertThatThrownBy(() -> shortPrefix.nativeOperands().clear())
+          .isInstanceOf(UnsupportedOperationException.class);
+    }
+  }
+
+  private DatabaseSessionEmbedded graphSession() {
+    return YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+  }
+
+  private GremlinShapeExtractor.Extraction partialExtraction(Traversal.Admin<?, ?> traversal) {
+    var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+    return GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), inputs);
+  }
+
+  /** Composite equality compares every field, including colliding shapes and unordered cuts. */
+  @Test
+  public void candidateKeysCompareEveryFieldWithoutRendering() {
+    var shape = new GremlinShapeKey(new Object[] {"Aa"});
+    var collision = new GremlinShapeKey(new Object[] {"BB"});
+    var base = new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 7,
+        shape);
+    var equalPolicy = new PrivateCandidatePreparation.Policy(
+        new java.util.LinkedHashSet<>(List.of(6, 5, 4, 3, 2, 1)));
+    var equal = new PrivateCandidatePreparation.CandidateKey("private", equalPolicy, false, false,
+        7, new GremlinShapeKey(new Object[] {"Aa"}));
+    assertThat(base).isEqualTo(equal);
+    var changed = List.of(
+        new PrivateCandidatePreparation.CandidateKey("other", policy, false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private",
+            new PrivateCandidatePreparation.Policy(Set.of(1)), false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, true, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, true, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 8, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", policy, false, false, 7,
+            collision));
+    var entries = new java.util.HashMap<PrivateCandidatePreparation.CandidateKey, Integer>();
+    entries.put(base, -1);
+    for (int index = 0; index < changed.size(); index++) {
+      assertThat(changed.get(index)).isNotEqualTo(base);
+      entries.put(changed.get(index), index);
+    }
+    assertThat(changed.getLast().hashCode()).isEqualTo(base.hashCode());
+    assertThat(entries.get(equal)).isEqualTo(-1);
+    assertThat(entries).hasSize(changed.size() + 1);
+    for (int index = 0; index < changed.size(); index++) {
+      assertThat(entries.get(changed.get(index))).isEqualTo(index);
+    }
+  }
+
+  /** Cold publication and warm lookup must never render shape, policy or composite key text. */
+  @Test
+  public void warmCandidateLookupNeverRendersShapeOrPolicy() {
+    var prepare = preparation(false);
+    var unrenderablePolicy = spy(policy);
+    org.mockito.Mockito.doThrow(new AssertionError("candidate lookup rendered the policy"))
+        .when(unrenderablePolicy).toString();
+    var token = new Object() {
+      @Override
+      public String toString() {
+        throw new AssertionError("candidate lookup rendered the structural key");
+      }
+    };
+    var key = new GremlinShapeKey(new Object[] {token});
+    try (var extractor = mockStatic(GremlinShapeExtractor.class, invocation -> {
+      var result = CALLS_REAL_METHODS.answer(invocation);
+      if (invocation.getMethod().getName().equals("extractPartial")) {
+        var shape = (GremlinShapeExtractor.Extraction) result;
+        return new GremlinShapeExtractor.Extraction(key, shape.bindings(), shape.complete(),
+            shape.hasContributions(), shape.nativeOperands(), shape.orderedExpandAbsent(),
+            shape.propertyMapBulkingCapacity(), shape.encoder(), shape.rootEnds());
+      }
+      return result;
+    })) {
+      for (int call = 0; call < 2; call++) {
+        try (var candidate = prepare.prepare(query(30 + call, 40), unrenderablePolicy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.cacheHit()).isEqualTo(call == 1);
+          assertThat(candidate.bindings()).containsEntry(0, 30 + call);
+        }
+      }
+    }
+  }
+
+  /** Captured flags govern both identity and walking even when every live resolver disagrees. */
+  @Test
+  public void capturedSettingsRemainAuthoritativeForExtractionAndWalking() {
+    var traversal = graph.traversal().V().hasLabel("CandidatePerson")
+        .order().by("age").by("age", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+        .asAdmin();
+    var session = graphSession();
+    var nulls = com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.REVERSED;
+    var settings = new YTDBStrategyUtil.TranslationSettings(true, nulls, false);
+    var environment = new TranslationEnvironment(session, true, Set.of("age"));
+    var inputs = GremlinStepWalker.WalkInputs.resolved(settings, environment,
+        session.getMetadata().getImmutableSchemaSnapshot(), false, 17001);
+    assertThat(inputs.polymorphic()).isFalse();
+    assertThat(inputs.includesMissing()).isTrue();
+    assertThat(inputs.nulls()).isEqualTo(nulls);
+    assertThat(inputs.edgeVerification()).isTrue();
+    assertThat(inputs.productiveKeys()).containsExactly("age");
+    assertThat(inputs.permitsGrouping()).isFalse();
+    assertThat(inputs.commandTimeout()).isEqualTo(17001);
+    var expected = GremlinShapeExtractor.extract(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, true, nulls, false, environment);
+    try (var util = mockStatic(YTDBStrategyUtil.class, CALLS_REAL_METHODS)) {
+      util.when(() -> YTDBStrategyUtil.isPolymorphic(traversal)).thenReturn(true);
+      util.when(() -> YTDBStrategyUtil.orderIncludesMissingKey(traversal)).thenReturn(false);
+      util.when(() -> YTDBStrategyUtil.orderByNullsPlacements(traversal)).thenReturn(
+          com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED);
+      util.clearInvocations();
+      var actual = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
+      assertThat(actual.key()).isEqualTo(expected.key());
+      var result = GremlinStepWalker.production().walkObserved(traversal, inputs, null);
+      assertThat(result).isNotNull();
+      var orderItems = result.inputs().orderBy().getItems();
+      assertThat(orderItems).hasSize(2);
+      for (int index = 0; index < orderItems.size(); index++) {
+        var placement = inputs.nulls().forDirection(index == 0);
+        assertThat(orderItems.get(index).getNullOrdering())
+            .as("walked null placement for comparator %s comes from captured inputs", index)
+            .isEqualTo(placement == com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement.FIRST
+                ? com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem.NULLS_FIRST
+                : com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem.NULLS_LAST);
+      }
+      var filter = result.inputs().aliasFilters().get(result.boundaryAlias()).toString();
+      assertThat(filter).as("captured non-polymorphic mode requires the exact class")
+          .containsIgnoringCase("@class").contains("CandidatePerson");
+      assertThat(filter).as("captured includesMissing mode adds no order-key presence filter")
+          .doesNotContainIgnoringCase("DEFINED");
+      util.verify(() -> YTDBStrategyUtil.isPolymorphic(traversal), never());
+      util.verify(() -> YTDBStrategyUtil.orderIncludesMissingKey(traversal), never());
+      util.verify(() -> YTDBStrategyUtil.orderByNullsPlacements(traversal), never());
+    }
+  }
+
+  /** Incomplete private native identity must not disable a reusable production native decline. */
+  @Test
+  public void strictPrivateIdentityDoesNotRestrictProductionNativeDeclines() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var metrics = GremlinTranslationMetrics.of(graphSession());
+    long hits = cache.getTranslationHits();
+    long declines = metrics.getDeclines();
+    for (int call = 0; call < 2; call++) {
+      var traversal = graph.traversal().V().filter(__.path().from("unbound")).asAdmin();
+      assertThat(partialExtraction(traversal).complete()).isFalse();
+      assertThat(GremlinStepWalker.extractShape(traversal, graphSession()).complete()).isTrue();
+      try (var candidate = preparation(false).prepare(traversal.clone(), policy)) {
+        assertThat(candidate.cacheHit()).isFalse();
+      }
+      var steps = List.copyOf(traversal.getSteps());
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + call);
+      assertThat(metrics.getDeclines()).isEqualTo(declines + call + 1);
+    }
+  }
+
+  /** Unsafe queries and disabled translation refuse before any recognition or planning. */
+  @Test
+  public void admissionAndEnablementRefuseBeforeWalking() {
+    var prepare = preparation(false);
+    try (var candidate = prepare.prepare(graph.traversal().V().drop().asAdmin(), policy)) {
+      assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SAFETY_VETO);
+      assertThat(candidate.plan()).isNull();
+    }
+    var session = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    session.getConfiguration().setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+    try {
+      try (var candidate = prepare.prepare(query(30, 40), policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DISABLED);
+        assertThat(candidate.plan()).isNull();
+      }
+    } finally {
+      session.getConfiguration().setValue(
+          GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+    }
+    assertThat(walks.get()).isZero();
+    assertThat(builds.get()).isZero();
+  }
+
+  /** Native predicate inputs use the encoder, while steps outside the safe list stay incomplete. */
+  @Test
+  public void nativePredicateClassificationEncodesOperatorInputs() {
+    var keys = new java.util.ArrayList<String>();
+    for (var predicate : List.of(org.apache.tinkerpop.gremlin.process.traversal.P.eq(30),
+        org.apache.tinkerpop.gremlin.process.traversal.P.gt(30))) {
+      var traversal = graph.traversal().V().is(predicate).asAdmin();
+      var encoder = new GremlinShapeEncoder(null);
+      assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      assertThat(QuerySafetyAdmission.nativeShapeComplete(traversal.getEndStep(), encoder))
+          .isTrue();
+      keys.add(encoder.key());
+      assertThat(QuerySafetyAdmission.nativeShapeComplete(traversal.getStartStep(), encoder))
+          .isFalse();
+    }
+    assertThat(keys.get(0)).isNotEqualTo(keys.get(1));
+  }
+
+  /** Capture the actual lookup key, so interleavings cannot accidentally exercise a cold key. */
+  private final class PublicationProbe implements AutoCloseable {
+    final DatabaseSessionEmbedded session = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    final GremlinPlanCache cache = spy(new GremlinPlanCache(32));
+    final MockedStatic<GremlinPlanCache> statics =
+        mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS);
+    final List<InternalExecutionPlan> originals = new ArrayList<>();
+    final List<InternalExecutionPlan> copies = new ArrayList<>();
+    Object key;
+    Runnable beforeLookup = () -> {
+    };
+    java.util.function.Consumer<InternalExecutionPlan> onOriginal = plan -> {
+    };
+    java.util.function.Consumer<InternalExecutionPlan> onCopy = plan -> {
+    };
+    boolean translationCacheable = true;
+    Runnable duringWalk = () -> {
+    };
+    Runnable duringBuild = () -> {
+    };
+    boolean cacheable = true;
+
+    PublicationProbe() {
+      statics.when(() -> GremlinPlanCache.instance(session)).thenReturn(cache);
+      doAnswer(call -> {
+        key = call.getArgument(0);
+        var callback = beforeLookup;
+        beforeLookup = () -> {
+        };
+        callback.run();
+        return call.callRealMethod();
+      }).when(cache).getTranslationEntry(any(Object.class), any());
+      cache.getTranslationEntry("synchronise-timeout", session);
+    }
+
+    PrivateCandidatePreparation prepare() {
+      return new PrivateCandidatePreparation(
+          new PrivatePrefixDiscovery((traversal, inputs, obs) -> {
+            var callback = duringWalk;
+            duringWalk = () -> {
+            };
+            callback.run();
+            var translation = GremlinStepWalker.production().walkObserved(traversal, inputs, obs);
+            if (translation != null && !translationCacheable) {
+              translation = spy(translation);
+              doReturn(false).when(translation).cacheEligible();
+            }
+            return translation;
+          }, (db, translation, scope) -> {
+            duringBuild.run();
+            var original = spy(GremlinToMatchStrategy.buildPlan(db, translation, scope));
+            originals.add(original);
+            doReturn(cacheable).when(original).canBeCached();
+            doAnswer(call -> {
+              var copy = spy((InternalExecutionPlan) call.callRealMethod());
+              copies.add(copy);
+              onCopy.accept(copy);
+              return copy;
+            }).when(original).copy(any(CommandContext.class));
+            onOriginal.accept(original);
+            return original;
+          }));
+    }
+
+    GremlinPlanCache.StampedTranslation resident() {
+      return cache.getTranslationEntry(key, session);
+    }
+
+    @Override
+    public void close() {
+      statics.close();
+    }
+  }
+
+  /** A clear between lookup and publication forbids retaining a stale partial candidate. */
+  @Test
+  public void invalidationDuringPartialBuildRejectsPublicationButKeepsPrivateCopy() {
+    try (var probe = new PublicationProbe()) {
+      long generation = probe.cache.getGeneration();
+      probe.duringBuild = probe.cache::invalidate;
+      try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(own.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(own.cacheHit()).isFalse();
+        assertThat(own.plan().getContext().getInputParameters()).containsEntry(0, 30);
+        assertThat(probe.cache.getGeneration()).isGreaterThan(generation);
+        assertThat(probe.resident()).isNull();
+        assertThat(probe.cache.getTranslationHits()).isZero();
+        verify(probe.originals.getFirst()).close();
+        verify(probe.copies.getFirst()).close();
+        verify(own.plan(), never()).close();
+      }
+      verify(probe.copies.getLast()).close();
+    }
+  }
+
+  /** Timeout flips preserve the captured plan setting and separate cache identities. */
+  @Test
+  public void timeoutSnapshotKeysSurviveAnUnobservedRoundTrip() {
+    try (var probe = new PublicationProbe()) {
+      var config = probe.session.getConfiguration();
+      long old = config.getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+      try {
+        config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+        probe.cache.getTranslationEntry("synchronise", probe.session);
+        probe.duringBuild = () -> config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 29001L);
+        try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+          assertThat(((PrivateCandidatePreparation.CandidateKey) probe.key).timeout())
+              .isEqualTo(17001L);
+          assertThat(probe.cache.containsTranslation(probe.key)).isTrue();
+          assertThat(own.plan().prettyPrint(0, 2).toString()).contains("17001ms");
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.getFirst()).close();
+          verify(own.plan(), never()).close();
+        }
+        verify(probe.copies.getLast()).close();
+        // Capture T2, then restore T1 before lookup. The lazy timeout stamp stays at T1.
+        probe.beforeLookup = () -> config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, 17001L);
+        probe.duringBuild = () -> {
+        };
+        try (var fresh = probe.prepare().prepare(query(40, 30), policy)) {
+          assertThat(((PrivateCandidatePreparation.CandidateKey) probe.key).timeout())
+              .isEqualTo(29001L);
+          assertThat(fresh.cacheHit()).isFalse();
+          assertThat(fresh.plan().prettyPrint(0, 2).toString()).contains("29001ms");
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.get(probe.copies.size() - 2)).close();
+        }
+        verify(probe.copies.getLast()).close();
+      } finally {
+        config.setValue(GlobalConfiguration.COMMAND_TIMEOUT, old);
+      }
+    }
+  }
+
+  /** A newer translated resident must not even be copied under the older snapshot. */
+  @Test
+  public void invalidationBeforeLookupRejectsNewerResident() {
+    try (var probe = new PublicationProbe()) {
+      try (var seed = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(seed.cacheHit()).isFalse();
+      }
+      var candidate = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+      var template = candidate.translation().planTemplate();
+      probe.beforeLookup = () -> {
+        probe.cache.invalidate();
+        probe.cache.putTranslationInternal(probe.key, candidate,
+            probe.session, probe.cache.getGeneration());
+      };
+      try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(own.cacheHit()).isFalse();
+        assertThat(own.extent()).isEqualTo(3);
+        assertThat(own.bindings()).containsEntry(0, 30);
+        verify(template, never()).copy(any(CommandContext.class));
+      }
+    }
+  }
+
+  /** Translation eligibility and copied-template eligibility independently forbid publication. */
+  @Test
+  public void partialTranslationAndTemplateCacheabilityGates() {
+    for (boolean translationGate : List.of(true, false)) {
+      try (var probe = new PublicationProbe()) {
+        probe.translationCacheable = !translationGate;
+        if (!translationGate) {
+          probe.onCopy = copy -> doReturn(false).when(copy).canBeCached();
+        }
+        try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+          assertThat(own.extent()).isEqualTo(3);
+          assertThat(probe.resident()).isNull();
+          verify(probe.originals.getLast()).close();
+        }
+        verify(probe.copies.getLast()).close();
+        verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+      }
+    }
+  }
+
+  /** Partial, private-full and complete-refusal losers keep their own outcome without retry. */
+  @Test
+  public void coldLosersKeepOwnCompleteOutcomeAndNeverRepairWinner() {
+    for (int kind = 0; kind < 3; kind++) {
+      try (var probe = new PublicationProbe()) {
+        var winnerPlan = org.mockito.Mockito.mock(InternalExecutionPlan.class);
+        var winnerTranslation =
+            org.mockito.Mockito.mock(GremlinTranslationTemplate.Translate.class);
+        doReturn(winnerPlan).when(winnerTranslation).planTemplate();
+        doReturn(2).when(winnerTranslation).bindingCount();
+        var winner = new GremlinTranslationTemplate.Candidate(1,
+            PrivatePrefixDiscovery.Reason.SELECTED, winnerTranslation);
+        var envelope = new java.util.concurrent.atomic.AtomicReference<
+            GremlinPlanCache.StampedTranslation>();
+        probe.duringWalk = () -> {
+          probe.cache.putTranslationInternal(probe.key, winner, probe.session,
+              probe.cache.getGeneration());
+          envelope.set(probe.resident());
+        };
+        var traversal = kind == 1
+            ? graph.traversal().V().hasLabel("CandidatePerson").out("candidateKnows").asAdmin()
+            : query(30, 40);
+        var admission = kind == 2 ? new PrivateCandidatePreparation.Policy(Set.of()) : policy;
+        try (var own = probe.prepare().prepare(traversal, admission)) {
+          assertThat(own.reason()).isEqualTo(kind == 0 ? PrivatePrefixDiscovery.Reason.SELECTED
+              : kind == 1 ? PrivatePrefixDiscovery.Reason.FULL_SUPPORTED
+                  : PrivatePrefixDiscovery.Reason.FOLD_CUT);
+          assertThat(own.cacheHit()).isFalse();
+          assertThat(probe.resident()).isSameAs(envelope.get());
+          assertThat(probe.resident().template()).isSameAs(winner);
+          assertThat(winner.translation().bindingCount()).isEqualTo(2);
+          verify(winnerPlan, never()).close();
+          if (kind != 2) {
+            assertThat(own.extent()).isEqualTo(3);
+            assertThat(own.bindings()).isEqualTo(kind == 0 ? java.util.Map.of(0, 30)
+                : java.util.Map.of());
+            assertThat(own.shaping()).isEqualTo(
+                com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping.NONE);
+            assertThat(own.plan()).isNotSameAs(probe.originals.getFirst())
+                .isNotSameAs(probe.copies.getFirst());
+            verify(probe.originals.getFirst()).close();
+            verify(probe.copies.getFirst()).close();
+            verify(own.plan(), never()).close();
+            assertPlanNames(own.plan(), "second");
+          } else {
+            assertThat(own.extent()).isEqualTo(-1);
+            assertThat(own.bindings()).isEmpty();
+            assertThat(own.shaping()).isNull();
+            assertThat(own.plan()).isNull();
+          }
+        }
+        // One competitor publication and exactly one own publication, with no second repair.
+        verify(probe.cache, times(2)).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(3);
+      }
+    }
+  }
+
+  /** A competing valid repair or equal-content newer envelope survives a delayed prepare repair. */
+  @Test
+  public void rejectedResidentCannotReplaceEqualNewerCandidateEnvelope() {
+    for (boolean equalWinner : List.of(false, true)) {
+      try (var probe = new PublicationProbe()) {
+        var prepare = probe.prepare();
+        try (var seed = prepare.prepare(query(30, 40), policy)) {
+          assertThat(seed.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        }
+        var valid = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+        var malformed = new GremlinTranslationTemplate.Candidate(99, valid.reason(),
+            valid.translation());
+        probe.cache.putTranslationInternal(probe.key, malformed, probe.session,
+            probe.cache.getGeneration(), probe.resident());
+        var rejected = probe.resident();
+        var winner = new java.util.concurrent.atomic.AtomicReference<
+            GremlinPlanCache.StampedTranslation>();
+        probe.duringWalk = () -> {
+          probe.cache.putTranslationInternal(probe.key,
+              new GremlinTranslationTemplate.Candidate(equalWinner ? 99 : valid.extent(),
+                  valid.reason(), valid.translation()),
+              probe.session, probe.cache.getGeneration(), rejected);
+          winner.set(probe.resident());
+          assertThat(winner.get()).isNotSameAs(rejected);
+          if (equalWinner) {
+            assertThat(winner.get()).isEqualTo(rejected);
+          }
+        };
+        long hits = probe.cache.getTranslationHits();
+        int closes = org.mockito.Mockito.mockingDetails(valid.translation().planTemplate())
+            .getInvocations().stream().filter(i -> i.getMethod().getName().equals("close"))
+            .toList().size();
+        try (var own = prepare.prepare(query(40, 30), policy)) {
+          assertThat(own.cacheHit()).isFalse();
+          assertThat(own.bindings()).containsEntry(0, 40);
+          assertThat(own.extent()).isEqualTo(3);
+          assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 2);
+          assertThat(probe.resident()).isSameAs(winner.get());
+          verify(valid.translation().planTemplate(), times(closes)).close();
+          verify(probe.originals.getLast()).close();
+          verify(probe.copies.get(probe.copies.size() - 2)).close();
+          verify(own.plan(), never()).close();
+        }
+        verify(probe.copies.getLast()).close();
+        // Seed, explicit rejection, competing repair and the losing repair. No second repair.
+        verify(probe.cache, times(4)).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+      }
+    }
+  }
+
+  /** A warm copy invalidated while copying is closed before cold preparation takes over. */
+  @Test
+  public void invalidatedWarmCopyClosesWithoutClosingSharedTemplateAgain() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      try (var seed = prepare.prepare(query(30, 40), policy)) {
+        assertThat(seed.cacheHit()).isFalse();
+      }
+      var candidate = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+      var template = candidate.translation().planTemplate();
+      var rejectedCopy = new java.util.concurrent.atomic.AtomicReference<InternalExecutionPlan>();
+      doAnswer(call -> {
+        var copy = spy((InternalExecutionPlan) call.callRealMethod());
+        rejectedCopy.set(copy);
+        probe.cache.invalidate();
+        return copy;
+      }).when(template).copy(any(CommandContext.class));
+      long hits = probe.cache.getTranslationHits();
+      try (var own = prepare.prepare(query(40, 30), policy)) {
+        assertThat(own.cacheHit()).isFalse();
+        assertThat(own.bindings()).containsEntry(0, 40);
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 1);
+        verify(rejectedCopy.get()).close();
+        verify(template).close();
+        assertThat(probe.resident()).isNull();
+      }
+    }
+  }
+
+  /** Schema-local preparations neither look up nor publish, even with an existing valid entry. */
+  @Test
+  public void schemaTransactionBypassesReuseAndPublication() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      try (var seed = prepare.prepare(query(30, 40), policy)) {
+        assertThat(seed.cacheHit()).isFalse();
+      }
+      var resident = probe.resident();
+      long hits = probe.cache.getTranslationHits();
+      long misses = probe.cache.getTranslationMisses();
+      assertThat(graph.tx().isOpen()).isTrue();
+      probe.session.ensureTxSchemaState();
+      try {
+        try (var own = prepare.prepare(query(40, 30), policy)) {
+          assertThat(own.cacheHit()).isFalse();
+          assertThat(own.plan()).isNotNull();
+          verify(probe.originals.getLast()).close();
+          verify(own.plan(), never()).close();
+        }
+        verify(probe.copies.getLast()).close();
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(hits);
+        assertThat(probe.cache.getTranslationMisses()).isEqualTo(misses);
+        verify(probe.cache, times(1)).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+      } finally {
+        graph.tx().rollback();
+      }
+      var freshSession = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+      assertThat(probe.cache.getTranslationEntry(probe.key, freshSession)).isSameAs(resident);
+    }
+  }
+
+  /** A non-cacheable partial plan stays private, closes its original and returns a usable copy. */
+  @Test
+  public void nonCacheablePartialPlanNeverPublishes() {
+    try (var probe = new PublicationProbe()) {
+      probe.cacheable = false;
+      for (int invocation = 0; invocation < 2; invocation++) {
+        try (var own = probe.prepare().prepare(query(30, 40), policy)) {
+          assertThat(own.cacheHit()).isFalse();
+          assertThat(own.plan().getContext().getInputParameters()).containsEntry(0, 30);
+          assertThat(probe.resident()).isNull();
+          verify(probe.originals.getLast()).close();
+          verify(own.plan(), never()).close();
+        }
+        verify(probe.copies.getLast()).close();
+      }
+      verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+          org.mockito.ArgumentMatchers.anyLong(), any());
+    }
+  }
+
+  /** Closed, unbound templates survive replacement without affecting independently usable copies. */
+  @Test
+  public void publishedTemplateAndReturnedCopiesHaveIndependentOwnership() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      try (var cold = prepare.prepare(query(30, 40), policy)) {
+        var resident = probe.resident();
+        var candidate = (GremlinTranslationTemplate.Candidate) resident.template();
+        var template = candidate.translation().planTemplate();
+        assertThat(template).isNotSameAs(cold.plan()).isNotSameAs(probe.originals.getFirst());
+        assertThat(template.getContext().getInputParameters()).isNullOrEmpty();
+        verify(template).close();
+        verify(probe.originals.getFirst()).close();
+        var warmCopies = new ArrayList<InternalExecutionPlan>();
+        doAnswer(call -> {
+          var copy = spy((InternalExecutionPlan) call.callRealMethod());
+          warmCopies.add(copy);
+          return copy;
+        }).when(template).copy(any(CommandContext.class));
+        long hits = probe.cache.getTranslationHits();
+        try (var warm = prepare.prepare(query(30, 30), policy)) {
+          assertThat(warm.cacheHit()).isTrue();
+          assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 1);
+          assertThat(warm.plan()).isNotSameAs(template).isNotSameAs(cold.plan());
+          probe.cache.putTranslationInternal(probe.key,
+              new GremlinTranslationTemplate.Candidate(-1,
+                  PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, null),
+              probe.session, probe.cache.getGeneration(), resident);
+          probe.cache.invalidate();
+          // Shared templates are closed before publication, not by eviction or replacement.
+          verify(template).close();
+          assertThat(cold.plan().getContext().getInputParameters()).containsEntry(0, 30);
+          assertThat(warm.plan().getContext().getInputParameters()).containsEntry(0, 30);
+          verify(cold.plan(), never()).close();
+          verify(warmCopies.getFirst(), never()).close();
+          assertPlanNames(warm.plan(), "second");
+        }
+        verify(warmCopies.getFirst()).close();
+        assertPlanNames(cold.plan(), "second");
+        verify(cold.plan(), never()).close();
+      }
+      verify(probe.copies.getLast()).close();
+    }
+  }
+
+  /** Copy failures propagate, while the original private plan is still closed by its owner. */
+  @Test
+  public void returnedCopyFailureStillClosesOriginal() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = new PrivateCandidatePreparation(new PrivatePrefixDiscovery(
+          GremlinStepWalker.production()::walkObserved, (db, translation, scope) -> {
+            var original = spy(GremlinToMatchStrategy.buildPlan(db, translation, scope));
+            probe.originals.add(original);
+            doReturn(false).when(original).canBeCached();
+            doAnswer(call -> {
+              throw new IllegalStateException("copy failure");
+            })
+                .when(original).copy(any(CommandContext.class));
+            return original;
+          }));
+      assertThatThrownBy(() -> prepare.prepare(query(30, 40), policy))
+          .isInstanceOf(IllegalStateException.class).hasMessage("copy failure");
+      verify(probe.originals.getFirst()).close();
+      assertThat(probe.resident()).isNull();
+    }
+  }
+
+  /** Fully consume and close execution streams, checking literal element properties. */
+  private void assertPlanNames(InternalExecutionPlan plan, String... expected) {
+    var context = plan.getContext();
+    var names = new ArrayList<String>();
+    var stream = plan.start();
+    try {
+      while (stream.hasNext(context)) {
+        var row = stream.next(context);
+        var element = row.getProperty("$g2m_anon_0");
+        var id = ((com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable) element)
+            .getIdentity();
+        names.add(context.getDatabaseSession().loadEntity(id).getProperty("name"));
+      }
+    } finally {
+      stream.close(context);
+    }
+    assertThat(names).containsExactlyInAnyOrder(expected);
+  }
+
+  /** Each cacheable-path failure propagates and closes the original without corrupting residency. */
+  @Test
+  public void cacheablePreparationFailuresPreserveOwnership() {
+    for (String stage : List.of("template copy", "template close", "publication",
+        "returned copy")) {
+      try (var probe = new PublicationProbe()) {
+        var failure = new IllegalStateException(stage);
+        probe.onOriginal = original -> {
+          if (stage.equals("template copy")) {
+            org.mockito.Mockito.doThrow(failure).when(original).copy(any(CommandContext.class));
+          } else if (stage.equals("returned copy")) {
+            doAnswer(call -> {
+              var template = spy((InternalExecutionPlan) call.callRealMethod());
+              probe.copies.add(template);
+              org.mockito.Mockito.doThrow(failure).when(original).copy(any(CommandContext.class));
+              return template;
+            }).when(original).copy(any(CommandContext.class));
+          }
+        };
+        probe.onCopy = copy -> {
+          if (stage.equals("template close")) {
+            org.mockito.Mockito.doThrow(failure).when(copy).close();
+          }
+        };
+        if (stage.equals("publication")) {
+          org.mockito.Mockito.doThrow(failure).when(probe.cache).putTranslationInternal(
+              any(Object.class), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        }
+        assertThatThrownBy(() -> probe.prepare().prepare(query(30, 40), policy))
+            .isSameAs(failure);
+        verify(probe.originals.getFirst()).close();
+        assertThat(probe.resident() != null).isEqualTo(stage.equals("returned copy"));
+        if (!probe.copies.isEmpty()) {
+          verify(probe.copies.getFirst()).close();
+          if (stage.equals("returned copy")) {
+            var resident = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+            assertThat(resident.translation().planTemplate()).isSameAs(probe.copies.getFirst());
+          }
+        }
+      }
+    }
+  }
+
+  /** Captured productive keys cannot change when their source collection changes later. */
+  @Test
+  public void walkInputsCopyMutableSettings() {
+    var keys = new java.util.HashSet<>(Set.of("name"));
+    var inputs = new GremlinStepWalker.WalkInputs(true, false, null, keys, true, null, true, 0);
+    keys.add("age");
+    assertThat(inputs.productiveKeys()).containsExactly("name");
+  }
+}

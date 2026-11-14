@@ -143,9 +143,8 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var reads = new AtomicInteger();
     doAnswer(call -> {
       var containers = call.callRealMethod();
-      // The first intercepted read is contributeShape inside shape extraction. Invalidate
-      // after the extractor obtains schema but before the walker reads the same containers.
-      if (reads.incrementAndGet() == 1) {
+      // Admission reads first. The second read is in shape extraction, after schema capture.
+      if (reads.incrementAndGet() == 2) {
         cache.invalidate();
       }
       return containers;

@@ -49,6 +49,7 @@ public class GroupCountStep<S, E> extends ReducingBarrierStep<S, Map<E, Long>> i
         super(traversal);
         this.setSeedSupplier(HashMapSupplier.instance());
         this.setReducingBiOperator(GroupCountBiOperator.instance());
+        this.rememberBuiltInFunctions();
     }
 
     @Override
