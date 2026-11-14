@@ -179,10 +179,12 @@ public final class YTDBStrategyUtil {
   }
 
   /**
-   * Settings for one translator application only. Publishing callers capture generation and cache
-   * eligibility and timeout before resolving settings. Roots validate before safety and early
-   * gates. Prepared children validate after safety and early gates. Each application reuses its
-   * settings through extraction and planning.
+   * Settings for one normal strategy application only. Publishing callers capture generation,
+   * cache eligibility and timeout before resolving settings. Roots and children without stored
+   * evidence validate settings before safety and early gates. Children with stored evidence check
+   * safety and early gates before capture and settings validation. Each normal application resolves
+   * settings once and reuses them through extraction and planning. Private preparation seams are
+   * outside this single-resolution contract.
    */
   public record TranslationSettings(boolean orderIncludesMissingKey,
       ResolvedOrderByNullsPlacement nullPlacements, boolean polymorphic) {

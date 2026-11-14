@@ -70,7 +70,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
 
   /** Invalid options win before early gates, while valid options preserve safety diagnostics. */
   @Test
-  public void earlyDeclinesDoNotIntroduceValidationOrChangeSignatures() {
+  public void settingsValidationPrecedesEarlyDeclinesAndPreservesSafeSignatures() {
     for (int mode = 0; mode < 3; mode++) {
       var source = graph.traversal();
       if (mode == 0) {

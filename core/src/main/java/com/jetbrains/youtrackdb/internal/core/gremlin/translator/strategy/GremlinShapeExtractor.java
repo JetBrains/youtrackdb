@@ -62,6 +62,7 @@ final class GremlinShapeExtractor {
     this.transparentSteps = transparentSteps;
     this.encoder = encoder;
     this.strictNativeInputs = strictNativeInputs;
+    this.rootEnds = strictNativeInputs ? new java.util.ArrayList<>() : List.of();
   }
 
   /**
@@ -95,11 +96,14 @@ final class GremlinShapeExtractor {
         orderByNullsPlacements, polymorphic, environment, encoder, null);
   }
 
+  /**
+   * Extracts private partial identity using the captured inputs for every execution setting.
+   * The inputs must be non-null and shared with the corresponding full and prefix walks.
+   */
   static Extraction extractPartial(Map<Class<?>, StepRecogniser> recognisers,
       Set<Class<?>> transparentSteps, Traversal.Admin<?, ?> traversal,
-      DatabaseSessionEmbedded session, Boolean includesMissing,
-      ResolvedOrderByNullsPlacement nulls, Boolean polymorphic,
-      GremlinStepWalker.WalkInputs inputs) {
+      DatabaseSessionEmbedded session, @Nonnull GremlinStepWalker.WalkInputs inputs) {
+    java.util.Objects.requireNonNull(inputs, "inputs");
     return extractInternal(recognisers, transparentSteps, traversal, inputs.includesMissing(),
         inputs.nulls(), inputs.polymorphic(),
         new TranslationEnvironment(session, inputs.edgeVerification(), inputs.productiveKeys()),
@@ -166,6 +170,15 @@ final class GremlinShapeExtractor {
           bulkingCapacity, null, List.copyOf(rootEnds.subList(0, extent)));
     }
 
+    /** Collect all deferred checkpoints before exposing an immutable snapshot. */
+    @Override
+    public List<BindingEnd> rootEnds() {
+      if (encoder != null) {
+        encoder.harvest();
+      }
+      return List.copyOf(rootEnds);
+    }
+
     @Override
     public Map<Object, Object> bindings() {
       if (encoder == null) {
@@ -190,7 +203,7 @@ final class GremlinShapeExtractor {
     }
   }
 
-  private final List<BindingEnd> rootEnds = new java.util.ArrayList<>();
+  private final List<BindingEnd> rootEnds;
 
   record BindingEnd(int bindings, int contributions, int nativeOperands) {
   }

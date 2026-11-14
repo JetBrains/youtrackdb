@@ -57,8 +57,7 @@ final class PrivateCandidatePreparation {
       return refusal(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, false);
     }
     var extraction = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
-        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
-        inputs.nulls(), inputs.polymorphic(), inputs);
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
     var key = new CandidateKey("private-candidate-v1", policy, safety.oneBulk(),
         PartialSourceState.configured(traversal), inputs.commandTimeout(), extraction.key());
     boolean eligible = session.getTxSchemaState() == null && cache.isEnabled()

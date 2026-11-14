@@ -165,8 +165,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
       var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
       assertThat(GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
-          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
-          inputs.nulls(), inputs.polymorphic(), inputs).complete()).isFalse();
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs).complete()).isFalse();
       assertThat(GremlinStepWalker.extractShape(traversal, session).complete()).isTrue();
       try (var candidate = preparation(false).prepare(traversal, policy)) {
         assertThat(candidate.cacheHit()).isFalse();
@@ -293,12 +292,10 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     var traversal = query(30, 40);
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
     var production = GremlinStepWalker.extractShape(traversal, session);
-    assertThat(production.rootEnds()).isEmpty();
     assertThat(production.encoder().harvested()).isFalse();
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     var partial = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
-        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs.includesMissing(),
-        inputs.nulls(), inputs.polymorphic(), inputs);
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
     var harvest = GremlinShapeEncoder.class.getDeclaredField("harvest");
     harvest.setAccessible(true);
     int productionActions = ((List<?>) harvest.get(production.encoder())).size();
@@ -306,8 +303,10 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     assertThat(privateActions - productionActions).isEqualTo(traversal.getSteps().size());
     production.bindings();
     assertThat(production.rootEnds()).isEmpty();
-    partial.bindings();
     assertThat(partial.rootEnds()).hasSize(4);
+    assertThat(partial.encoder().harvested()).isTrue();
+    assertThatThrownBy(() -> partial.rootEnds().clear())
+        .isInstanceOf(UnsupportedOperationException.class);
   }
 
   /** Every root boundary freezes the completed slots, independently of prefix access order. */
@@ -319,11 +318,12 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           .out("candidateKnows").has("age", 44).asAdmin();
       var extraction = partialExtraction(traversal);
       assertThat(extraction.encoder().harvested()).isFalse();
-      assertThat(extraction.rootEnds()).isEmpty();
       // Removing the traversal after extraction makes a second structural visit observable.
       while (!traversal.getSteps().isEmpty()) {
         traversal.removeStep(0);
       }
+      assertThat(extraction.rootEnds()).hasSize(5);
+      assertThat(extraction.encoder().harvested()).isTrue();
       var extents = reverse ? List.of(5, 4, 3, 2, 1) : List.of(1, 2, 3, 4, 5);
       int[] counts = {0, 1, 3, 3, 4};
       for (int extent : extents) {
@@ -379,8 +379,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
   private GremlinShapeExtractor.Extraction partialExtraction(Traversal.Admin<?, ?> traversal) {
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     return GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
-        GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), inputs.includesMissing(),
-        inputs.nulls(), inputs.polymorphic(), inputs);
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), inputs);
   }
 
   /** Composite equality compares every field, including colliding shapes and unordered cuts. */
@@ -456,7 +455,8 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
   @Test
   public void capturedSettingsRemainAuthoritativeForExtractionAndWalking() {
     var traversal = graph.traversal().V().hasLabel("CandidatePerson")
-        .order().by("age").asAdmin();
+        .order().by("age").by("age", org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+        .asAdmin();
     var session = graphSession();
     var nulls = com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.REVERSED;
     var settings = new YTDBStrategyUtil.TranslationSettings(true, nulls, false);
@@ -479,12 +479,25 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED);
       util.clearInvocations();
       var actual = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
-          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, false,
-          com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED,
-          true, inputs);
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
       assertThat(actual.key()).isEqualTo(expected.key());
       var result = GremlinStepWalker.production().walkObserved(traversal, inputs, null);
       assertThat(result).isNotNull();
+      var orderItems = result.inputs().orderBy().getItems();
+      assertThat(orderItems).hasSize(2);
+      for (int index = 0; index < orderItems.size(); index++) {
+        var placement = inputs.nulls().forDirection(index == 0);
+        assertThat(orderItems.get(index).getNullOrdering())
+            .as("walked null placement for comparator %s comes from captured inputs", index)
+            .isEqualTo(placement == com.jetbrains.youtrackdb.api.config.OrderByNullsPlacement.FIRST
+                ? com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem.NULLS_FIRST
+                : com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem.NULLS_LAST);
+      }
+      var filter = result.inputs().aliasFilters().get(result.boundaryAlias()).toString();
+      assertThat(filter).as("captured non-polymorphic mode requires the exact class")
+          .containsIgnoringCase("@class").contains("CandidatePerson");
+      assertThat(filter).as("captured includesMissing mode adds no order-key presence filter")
+          .doesNotContainIgnoringCase("DEFINED");
       util.verify(() -> YTDBStrategyUtil.isPolymorphic(traversal), never());
       util.verify(() -> YTDBStrategyUtil.orderIncludesMissingKey(traversal), never());
       util.verify(() -> YTDBStrategyUtil.orderByNullsPlacements(traversal), never());
