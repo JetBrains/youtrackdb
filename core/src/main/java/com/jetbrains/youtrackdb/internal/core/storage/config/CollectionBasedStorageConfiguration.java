@@ -53,6 +53,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -183,6 +184,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private volatile TimeZone cachedTimeZone;
 
   private StorageConfigurationUpdateListener updateListener;
+
+  // Instance-local hook keeps forced hash collisions isolated from other databases.
+  UnaryOperator<String> nameHashForTest;
 
   private final ThreadLocal<PausedNotificationsState> pauseNotifications =
       ThreadLocal.withInitial(PausedNotificationsState::new);
@@ -1690,9 +1694,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   + storedEntryVersion + " to " + entryVersion);
         }
       }
-      final var previous = !indexed || identity == null ? null
-          : checked.previous != null ? checked.previous
-              : readCurrentCollection(config.id(), identity, atomicOperation);
+      final StoragePaginatedCollectionConfiguration previous;
+      if (!indexed || identity == null) {
+        previous = null;
+      } else if (checked.previous != null) {
+        previous = checked.previous;
+      } else {
+        previous = readCurrentCollection(config.id(), identity, atomicOperation);
+      }
       @SuppressWarnings("unchecked")
       final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
@@ -1799,9 +1808,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       lock.readLock().unlock();
     }
   }
-
-  // Instance-local hook keeps forced hash collisions isolated from other databases.
-  java.util.function.UnaryOperator<String> nameHashForTest;
 
   private String nameHash(String normalized) {
     return nameHashForTest == null ? CollectionNameKey.hash(normalized)
