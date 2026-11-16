@@ -55,6 +55,212 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin())).invalidate();
   }
 
+  @org.junit.After
+  public void privatePreparationLeavesNoPinOrMarker() {
+    var db = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    assertThat(db.getMetadata().getThreadLocalSchemaSnapshotPinCount()).isZero();
+    assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+        .isActive(db)).isFalse();
+  }
+
+  /** Recognition, planning, classification and every owned copy share the entry snapshot. */
+  @Test
+  public void privateScopeCoversColdWarmRefusalAndExceptionalExitsWithOuterPin() {
+    var db = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    var metadata = db.getMetadata();
+    for (int initialDepth = 0; initialDepth <= 1; initialDepth++) {
+      if (initialDepth == 1) {
+        metadata.makeThreadLocalSchemaSnapshot();
+      }
+      var expected = metadata.getImmutableSchemaSnapshot();
+      try {
+        try (var probe = new PublicationProbe()) {
+          Runnable check = () -> {
+            assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(initialPinDepth);
+            assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(expected);
+            assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .schemaFor(db)).isSameAs(expected);
+          };
+          initialPinDepth = initialDepth + 1;
+          probe.duringWalk = check;
+          probe.duringBuild = check;
+          probe.onCopy = copy -> check.run();
+          var preparation = probe.prepare();
+          try (var cold = preparation.prepare(query(30, 40), policy)) {
+            assertThat(cold.plan()).isNotNull();
+          }
+          try (var warm = preparation.prepare(query(40, 30), policy)) {
+            assertThat(warm.cacheHit()).isTrue();
+          }
+          try (var refused = preparation.prepare(query(30, 40),
+              new PrivateCandidatePreparation.Policy(Set.of()))) {
+            assertThat(refused.plan()).isNull();
+          }
+          probe.cache.invalidate();
+          var failure = new IllegalStateException("recognition failure");
+          probe.duringWalk = () -> {
+            check.run();
+            throw failure;
+          };
+          assertThatThrownBy(() -> preparation.prepare(query(30, 40), policy))
+              .isSameAs(failure);
+        }
+        assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(initialDepth);
+        if (initialDepth == 1) {
+          assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(expected);
+        }
+      } finally {
+        if (initialDepth == 1) {
+          metadata.clearThreadLocalSchemaSnapshot();
+        }
+      }
+    }
+  }
+
+  /**
+   * Both order paths and nested union forks keep the captured LINK hierarchy after another session
+   * changes its target. Fresh recognition resolves the new case-insensitive target.
+   */
+  @Test
+  public void unionForksAndBothOrderPathsKeepCapturedLinkAndCollation() throws Exception {
+    var db = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    var source = db.createVertexClass("SnapshotSource");
+    var plain = db.createVertexClass("SnapshotPlain");
+    plain.createProperty("name", PropertyType.STRING);
+    var collated = db.createVertexClass("SnapshotCollated");
+    collated.createProperty("name", PropertyType.STRING).setCollate("ci");
+    var edge = db.createEdgeClass("snapshotEdge");
+    edge.getProperty("out").setLinkedClass(source);
+    edge.getProperty("in").setLinkedClass(plain);
+    graph.tx().commit();
+    var ordinary = graph.traversal().V().hasLabel("SnapshotSource")
+        .out("snapshotEdge").order().by("name").asAdmin();
+    var union = graph.traversal().V().hasLabel("SnapshotSource")
+        .union(__.out("snapshotEdge").order().by("name"),
+            __.out("snapshotEdge").order().by("name"))
+        .order().by("name").asAdmin();
+    var planningDb = YTDBStrategyUtil.resolveYtdbSession(ordinary);
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(planningDb)) {
+      var ordinaryInputs = GremlinStepWalker.WalkInputs.capture(ordinary);
+      var unionInputs = GremlinStepWalker.WalkInputs.capture(union);
+      assertThat(GremlinStepWalker.production().walkObserved(ordinary, ordinaryInputs, null))
+          .isNotNull();
+      assertThat(GremlinStepWalker.production().walkObserved(union, unionInputs, null)).isNotNull();
+      var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+      var writer = new Thread(() -> {
+        try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+          var schema = other.getMetadata().getSchema();
+          schema.getClass("snapshotEdge").getProperty("in")
+              .setLinkedClass(schema.getClass("SnapshotCollated"));
+        } catch (Throwable thrown) {
+          failure.set(thrown);
+        }
+      }, "private-link-writer");
+      writer.start();
+      writer.join(30000);
+      assertThat(writer.isAlive()).isFalse();
+      assertThat(failure.get()).isNull();
+      var captured = GremlinStepWalker.production().walkObserved(ordinary, ordinaryInputs, null);
+      assertThat(captured.inputs().orderCollationClasses().values())
+          .contains(List.of("SnapshotPlain")).doesNotContain(List.of("SnapshotCollated"));
+      var forked = GremlinStepWalker.production().walkObserved(union, unionInputs, null);
+      assertThat(forked).isNotNull();
+      assertThat(forked.childPlans()).hasSize(2);
+      for (var child : forked.childPlans()) {
+        assertThat(child.inputs().orderCollationClasses().values())
+            .contains(List.of("SnapshotPlain")).doesNotContain(List.of("SnapshotCollated"));
+      }
+    }
+    assertThat(GremlinStepWalker.production().walk(ordinary).inputs()
+        .orderCollationClasses().values()).contains(List.of("SnapshotCollated"));
+    var freshUnion = GremlinStepWalker.production().walk(union);
+    if (freshUnion != null) {
+      for (var child : freshUnion.childPlans()) {
+        assertThat(child.inputs().orderCollationClasses().values())
+            .contains(List.of("SnapshotCollated"));
+      }
+    }
+  }
+
+  private int initialPinDepth;
+
+  /**
+   * A real second session adds a non-indexed subclass after key extraction. Recognition, nested
+   * SELECT scans and both copies retain the old collection scope. The next preparation sees it.
+   */
+  @Test
+  public void schemaChangeBetweenCaptureAndLookupKeepsKeyAndPlansOnOneView() throws Exception {
+    try (var probe = new PublicationProbe()) {
+      var metadata = probe.session.getMetadata();
+      var old = metadata.getImmutableSchemaSnapshot();
+      var oldIds = old.getClass("CandidatePerson").getPolymorphicCollectionIds().clone();
+      try (var baseline = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(baseline.plan()).isNotNull();
+      }
+      var oldKey = probe.key;
+      probe.cache.invalidate();
+      probe.beforeLookup = () -> {
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var writer = new Thread(() -> {
+          try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+            other.getMetadata().getSchema().createClass("CandidateChild",
+                other.getMetadata().getSchema().getClass("CandidatePerson"));
+          } catch (Throwable thrown) {
+            failure.set(thrown);
+          }
+        }, "private-schema-writer");
+        writer.start();
+        try {
+          writer.join(30000);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new AssertionError(interrupted);
+        }
+        assertThat(writer.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(old);
+      };
+      probe.duringWalk = () -> {
+        assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(old);
+        assertThat(metadata.getImmutableSchemaSnapshot().getClass("CandidateChild")).isNull();
+      };
+      probe.duringBuild = () -> assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(old);
+      probe.onCopy = copy -> {
+        assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(old);
+        var nested = com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+            .parse("SELECT FROM CandidatePerson", probe.session)
+            .createExecutionPlanNoCache(copy.getContext(), false);
+        try {
+          assertScanIds(nested, oldIds);
+        } finally {
+          nested.close();
+        }
+      };
+      try (var prepared = probe.prepare().prepare(query(30, 40), policy)) {
+        assertThat(prepared.plan()).isNotNull();
+        assertThat(probe.key).isEqualTo(oldKey);
+      }
+      assertThat(metadata.getImmutableSchemaSnapshot()).isNotSameAs(old);
+      assertThat(metadata.getImmutableSchemaSnapshot().getClass("CandidateChild")).isNotNull();
+    }
+  }
+
+  private void assertScanIds(InternalExecutionPlan plan, int[] expected) {
+    var scan = plan.getSteps().stream()
+        .filter(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep.class::isInstance)
+        .findFirst().orElseThrow();
+    try {
+      var ids = scan.getClass().getDeclaredField("collectionIds");
+      ids.setAccessible(true);
+      assertThat((int[]) ids.get(scan)).containsExactlyInAnyOrder(expected);
+    } catch (ReflectiveOperationException failure) {
+      throw new AssertionError(failure);
+    }
+  }
+
   private PrivateCandidatePreparation preparation(boolean failBuild) {
     return new PrivateCandidatePreparation(
         new PrivatePrefixDiscovery((traversal, inputs, observer) -> {

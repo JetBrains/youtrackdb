@@ -7350,7 +7350,11 @@ public class MatchExecutionPlanner {
    */
   @Nullable private static String getLowerSubclass(
       DatabaseSessionEmbedded db, String className1, String className2) {
-    Schema schema = db.getMetadata().getSchema();
+    Schema schema =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.schemaFor(db);
+    if (schema == null) {
+      schema = db.getMetadata().getSchema();
+    }
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1.isSubClassOf(class2)) {

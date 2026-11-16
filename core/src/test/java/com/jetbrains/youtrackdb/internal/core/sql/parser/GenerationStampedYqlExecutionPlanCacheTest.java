@@ -598,6 +598,223 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
     }
   }
 
+  /**
+   * Direct non-null keys detect both private cache bypasses. Neither bypass copies or evicts the
+   * resident. Ordinary outer pins and unrelated sessions retain normal shared-cache behavior.
+   */
+  @Test
+  public void privateMarkerBypassesSqlCacheWithoutInspectingOrPublishingPlans() {
+    String key = "SELECT FROM CacheVertex";
+    parse(key).createExecutionPlan(context(session), false).close();
+    Assert.assertTrue(cache().contains(key));
+    var supplied = org.mockito.Mockito.mock(InternalExecutionPlan.class);
+    try (var other = youTrackDB.open(databaseName, "admin", "adminpwd")) {
+      session.getMetadata().makeThreadLocalSchemaSnapshot();
+      try {
+        assertHit(key);
+        try (var scope =
+            com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .open(session)) {
+          Assert.assertNull(cache().getInternal(key, context(session), session));
+          cache().putInternal(key, supplied, session, cache().getGeneration(), null);
+          cache().putInternal("private-absent", supplied, session, cache().getGeneration(), null);
+          Assert.assertFalse(cache().contains("private-absent"));
+          Assert.assertTrue(cache().contains(key));
+          var unrelated = (InternalExecutionPlan) cache().getInternal(key, context(other), other);
+          Assert.assertNotNull(unrelated);
+          unrelated.close();
+        }
+        assertHit(key);
+        org.mockito.Mockito.verifyNoInteractions(supplied);
+      } finally {
+        session.getMetadata().clearThreadLocalSchemaSnapshot();
+      }
+    }
+  }
+
+  /**
+   * Both SELECT shortcut shapes must decline before reading planning info, targets or policies.
+   * MATCH uses ordinary aggregation privately but keeps its hardwired production count.
+   */
+  @Test
+  public void privateCountsDeferPolicyDecisionsAndKeepOrdinaryResults() {
+    session.begin();
+    var ctx = context(session);
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(session)) {
+      // Null planning info makes any attempted shortcut inspection fail the test.
+      Assert.assertFalse(com.jetbrains.youtrackdb.internal.core.sql.executor
+          .HardwiredCountOptimizations.tryApply(null, null, ctx, false));
+      Assert.assertFalse(com.jetbrains.youtrackdb.internal.core.sql.executor
+          .HardwiredCountOptimizations.tryMatchCountFromClass(null, "Missing", "n", true, ctx, false));
+    }
+    try {
+      for (var sql : List.of("MATCH {class:CacheVertex,as:v} RETURN count(*) AS n",
+          "MATCH {class:CacheVertex,as:v,where: (@class = 'CacheVertex')} RETURN count(*) AS n",
+          "MATCH {class:CacheVertex,as:v,where: (id = 999)} RETURN count(*) AS n")) {
+        InternalExecutionPlan plan;
+        try (var scope =
+            com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .open(session)) {
+          plan = parse(sql).createExecutionPlanNoCache(ctx, false);
+        }
+        try {
+          Assert.assertFalse(plan.getSteps().stream().anyMatch(CountFromClassStep.class::isInstance));
+          var stream = plan.start();
+          try {
+            var row = stream.next(ctx);
+            Assert.assertEquals(sql.contains("999") ? 0L : 2L,
+                ((Number) row.getProperty("n")).longValue());
+            Assert.assertFalse(stream.hasNext(ctx));
+          } finally {
+            stream.close(ctx);
+          }
+        } finally {
+          plan.close();
+        }
+      }
+    } finally {
+      session.rollback();
+    }
+    var production = parse("MATCH {class:CacheVertex,as:v} RETURN count(*)")
+        .createExecutionPlanNoCache(ctx, false);
+    try {
+      Assert.assertTrue(production.getSteps().stream().anyMatch(CountFromClassStep.class::isInstance));
+    } finally {
+      production.close();
+    }
+  }
+
+  /**
+   * Private counts fail closed on a denied nonempty collection. Production retains its readable
+   * metadata count. Plans are started only after the private scope ends.
+   */
+  @Test
+  public void privateCountFailsClosedWhereProductionCountsReadableCollections() {
+    session.begin();
+    var role = session.getMetadata().getSecurity().getRole("reader");
+    var clazz = session.getMetadata().getSchema().getClass("CacheVertex");
+    for (int id : clazz.getCollectionIds()) {
+      role.revoke(session,
+          com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric.COLLECTION,
+          session.getCollectionNameById(id),
+          com.jetbrains.youtrackdb.internal.core.metadata.security.Role.PERMISSION_READ);
+    }
+    role.save(session);
+    session.commit();
+    try (var reader = youTrackDB.open(databaseName, "reader", "readerpwd")) {
+      reader.begin();
+      var ctx = context(reader);
+      var statement = SQLEngine.parse("MATCH {class:CacheVertex,as:v} RETURN count(*) AS n", reader);
+      var production = statement.createExecutionPlanNoCache(ctx, false);
+      try {
+        Assert.assertTrue(production.getSteps().stream()
+            .anyMatch(CountFromClassStep.class::isInstance));
+        var stream = production.start();
+        try {
+          Assert.assertEquals(0L, ((Number) stream.next(ctx).getProperty("n")).longValue());
+        } finally {
+          stream.close(ctx);
+        }
+      } finally {
+        production.close();
+      }
+      InternalExecutionPlan privatePlan;
+      try (var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(reader)) {
+        privatePlan = statement.createExecutionPlanNoCache(ctx, false);
+        Assert.assertFalse(privatePlan.getSteps().stream()
+            .anyMatch(CountFromClassStep.class::isInstance));
+      }
+      try {
+        Assert.assertThrows(
+            com.jetbrains.youtrackdb.internal.core.exception.SecurityAccessException.class, () -> {
+              var stream = privatePlan.start();
+              try {
+                while (stream.hasNext(ctx)) {
+                  stream.next(ctx);
+                }
+              } finally {
+                stream.close(ctx);
+              }
+            });
+      } finally {
+        privatePlan.close();
+      }
+    }
+  }
+
+  /**
+   * Planning under an old non-indexed hierarchy must not publish permissive policy evidence.
+   * A real security-record change refreshes ordinary caches after the inheritance change (SE-3).
+   */
+  @Test
+  public void capturedHierarchyCannotPoisonInheritedPolicyForAnotherReader() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("PolicyParent");
+    session.begin();
+    var security = session.getSharedContext().getSecurity();
+    var deny = security.createSecurityPolicy(session, "snapshotDeny");
+    deny.setActive(true);
+    deny.setReadRule("false");
+    security.saveSecurityPolicy(session, deny);
+    security.setSecurityPolicy(session, session.getMetadata().getSecurity().getRole("reader"),
+        "database.class.PolicyParent", deny);
+    session.commit();
+    InternalExecutionPlan plan;
+    try (var reader = youTrackDB.open(databaseName, "reader", "readerpwd")) {
+      var ctx = context(reader);
+      try (var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(reader)) {
+        Assert.assertTrue(reader.getMetadata().getImmutableSchemaSnapshot()
+            .getClass("CacheVertex").getSuperClasses().stream()
+            .noneMatch(c -> c.getName().equals("PolicyParent")));
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var writer = new Thread(() -> {
+          try (var other = youTrackDB.open(databaseName, "admin", "adminpwd")) {
+            var live = other.getMetadata().getSchema();
+            live.getClass("CacheVertex").addSuperClass(live.getClass("PolicyParent"));
+            other.begin();
+            var policies = other.getSharedContext().getSecurity();
+            var policy = policies.getSecurityPolicy(other, "snapshotDeny");
+            policy.setReadRule("1 = 0");
+            policies.saveSecurityPolicy(other, policy);
+            other.commit();
+          } catch (Throwable thrown) {
+            failure.set(thrown);
+          }
+        }, "private-policy-writer");
+        writer.start();
+        writer.join(30000);
+        Assert.assertFalse(writer.isAlive());
+        Assert.assertNull(failure.get());
+        plan = SQLEngine.parse("MATCH {class:CacheVertex,as:v} RETURN count(*) AS n", reader)
+            .createExecutionPlanNoCache(ctx, false);
+        Assert.assertFalse(plan.getSteps().stream().anyMatch(CountFromClassStep.class::isInstance));
+      }
+      reader.begin();
+      try {
+        var stream = plan.start();
+        try {
+          Assert.assertEquals(0L, ((Number) stream.next(ctx).getProperty("n")).longValue());
+        } finally {
+          stream.close(ctx);
+        }
+      } finally {
+        plan.close();
+        reader.rollback();
+      }
+    }
+    try (var independent = youTrackDB.open(databaseName, "reader", "readerpwd")) {
+      independent.begin();
+      try (var result = independent.query("SELECT FROM CacheVertex")) {
+        Assert.assertFalse("another reader must retain the inherited restriction", result.hasNext());
+      } finally {
+        independent.rollback();
+      }
+    }
+  }
+
   private List<String> publisherStatements() {
     return List.of("SELECT FROM CacheVertex", "MATCH {class:CacheVertex,as:v} RETURN $patterns",
         "CREATE EDGE CacheEdge FROM :from TO :to", "DELETE EDGE CacheEdge");

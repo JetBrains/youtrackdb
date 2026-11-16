@@ -530,6 +530,12 @@ final class GremlinStepWalker {
     return walkObserved(traversal, NO_CHILD_SCOPE, null, null, null, completion);
   }
 
+  @Nullable GremlinToMatchTranslator.TranslationResult walkFork(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary, WalkInputs inputs) {
+    return walkObserved(traversal, childScopeBoundary, inputs.includesMissing(), inputs.nulls(),
+        inputs.polymorphic(), null, inputs, null);
+  }
+
   /** Inputs captured once for a private full attempt and its fresh prefix walks. */
   record WalkInputs(Boolean polymorphic, boolean edgeVerification, Schema schema,
       Set<String> productiveKeys, Boolean includesMissing,
@@ -666,7 +672,7 @@ final class GremlinStepWalker {
     // cursor position after UnionStepRecogniser.take(), and keeps the parent Admin private.
     ctx.setUnionForkHost(
         new UnionForkHostImpl(
-            traversal, cursor, ctx, recognisers, resolvedNullsPlacements));
+            traversal, cursor, ctx, recognisers, resolvedNullsPlacements, inputs));
 
     // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
     // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
