@@ -34,7 +34,7 @@
     <kerby.version>2.0.1</kerby.version>
     <logback.version>1.2.13</logback.version>
     <metrics.version>5.0.5</metrics.version>
-    <mockito.version>5.19.0</mockito.version>
+    <mockito.version>5.24.0</mockito.version>
     <netty.version>4.1.125.Final</netty.version>
     <slf4j.version>1.7.36</slf4j.version>
     <snakeyaml.version>2.7</snakeyaml.version>
