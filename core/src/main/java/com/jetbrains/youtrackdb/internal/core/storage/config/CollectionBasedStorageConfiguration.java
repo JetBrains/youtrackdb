@@ -350,7 +350,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       preloadStringProperties(atomicOperation);
       preloadConfigurationProperties(atomicOperation);
-      preloadCollections(atomicOperation);
+      preloadCollections(atomicOperation, true);
 
       readMinimumCollections(atomicOperation);
       recalculateLocale();
@@ -1780,9 +1780,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         }
         final var id = Integer.parseInt(
             entry.first().substring(COLLECTIONS_PREFIX_PROPERTY.length()));
-        final var property = readProperty(entry.first(), atomicOperation);
+        final var property = readCollectionRecord(entry.second(), atomicOperation);
         result.add((StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
-            id, property.first, property.second));
+            id, property, entry.second().getCollectionId()));
       }
       return result;
     } finally {
@@ -1882,8 +1882,23 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
+  private byte[] readCollectionRecord(RID reference, AtomicOperation operation) {
+    try {
+      return collection.readRecord(reference.getCollectionPosition(), operation)
+          .toRawBuffer().buffer();
+    } catch (IOException e) {
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Cannot read collection configuration " + reference), e, storage.getName());
+    }
+  }
+
   private void preloadCollections(AtomicOperation atomicOperation) {
+    preloadCollections(atomicOperation, false);
+  }
+
+  private void preloadCollections(AtomicOperation atomicOperation, boolean validateNames) {
     final List<StorageCollectionConfiguration> collections = new ArrayList<>(1024);
+    final Map<Integer, RID> references = new HashMap<>();
     try (var stream =
         btree.iterateEntriesMajor(COLLECTIONS_PREFIX_PROPERTY, false, true, atomicOperation)) {
 
@@ -1902,6 +1917,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   // A configuration B-tree value's RecordId collection-id field holds the entry
                   // version tag. It is not a collection id.
                   final var storedEntryVersion = entry.second().getCollectionId();
+                  references.put(id, entry.second());
                   if (collections.size() <= id) {
                     final var diff = id - collections.size();
 
@@ -1928,7 +1944,61 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
               });
     }
 
+    if (validateNames && storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
+      validateCollectionNames(collections, references, atomicOperation);
+    }
     cache.put(COLLECTIONS, collections);
+  }
+
+  /** Uses only iterator values while the configuration write lock is already held. */
+  private void validateCollectionNames(List<StorageCollectionConfiguration> collections,
+      Map<Integer, RID> references, AtomicOperation operation) {
+    Map<String, Integer> names = new HashMap<>();
+    Map<String, RID> expected = new HashMap<>();
+    Map<RID, String> identities = new HashMap<>();
+    for (var owner : collections) {
+      if (owner == null) {
+        continue;
+      }
+      var normalized = CollectionNameKey.normalize(owner.name());
+      var previous = names.putIfAbsent(normalized, owner.id());
+      if (previous != null && previous != owner.id()) {
+        throw invalidCollectionNameIndex(owner.name() + " (ids " + previous + ", "
+            + owner.id() + ")", "duplicate normalized name");
+      }
+      expected.put(nameKey(owner.name(), owner.id()), references.get(owner.id()));
+      identities.put(references.get(owner.id()), owner.name() + " (id " + owner.id() + ")");
+    }
+    try (var entries = btree.iterateEntriesBetween(
+        "cnh_", true, "cnh`", false, true, operation)) {
+      var iterator = entries.iterator();
+      while (iterator.hasNext()) {
+        var entry = iterator.next();
+        if (!CollectionNameKey.isWellFormed(entry.first())) {
+          var identity = identities.getOrDefault(entry.second(), entry.first());
+          throw invalidCollectionNameIndex(identity, "malformed name key " + entry.first());
+        }
+        var id = CollectionNameKey.owner(entry.first());
+        var owner = id < collections.size() ? collections.get(id) : null;
+        var identity = owner == null ? "id " + id : owner.name() + " (id " + id + ")";
+        var reference = expected.remove(entry.first());
+        if (reference == null || !reference.equals(entry.second())) {
+          throw invalidCollectionNameIndex(identity,
+              "unexpected key or record reference for "
+                  + identities.getOrDefault(entry.second(), entry.second().toString()));
+        }
+      }
+    }
+    if (!expected.isEmpty()) {
+      var id = CollectionNameKey.owner(expected.keySet().iterator().next());
+      throw invalidCollectionNameIndex(collections.get(id).name() + " (id " + id + ")",
+          "missing name key");
+    }
+  }
+
+  private ConfigurationException invalidCollectionNameIndex(String identity, String reason) {
+    return new ConfigurationException(storage.getName(),
+        "Inconsistent collection name index for " + identity + ": " + reason);
   }
 
   public void dropCollection(final AtomicOperation atomicOperation, final int collectionId) {

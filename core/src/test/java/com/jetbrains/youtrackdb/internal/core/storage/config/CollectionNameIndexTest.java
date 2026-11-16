@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.config;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -32,9 +33,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Stora
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.lang.reflect.Field;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -613,6 +616,553 @@ public class CollectionNameIndexTest {
     } finally {
       setting.setValue(previous);
     }
+  }
+
+  /** Load validates one bounded name range without ownership rereads or collection point gets. */
+  @Test(timeout = 60000)
+  public void loadAndEnumerationUseIteratorReferences() throws Exception {
+    for (var type : DatabaseType.values()) {
+      try (var db = database(type, StorageFormat.LAYOUT_28)) {
+        collisions(db);
+        var id = db.session.addCollection("collisiona");
+        db.session.addCollection("collisionb");
+        assertInterrupted(() -> db.operation(op -> {
+          db.config().dropCollection(op, id);
+          throw new CommandInterruptedException("names", "rollback before validation");
+        }));
+        var tree = spy(db.tree());
+        var records = spy((PaginatedCollectionV2) field(db.config(), "collection"));
+        setField(db.config(), "btree", tree);
+        setField(db.config(), "collection", records);
+        db.operation(op -> {
+          var context = db.config().getContextConfiguration();
+          var positions = new java.util.HashSet<Long>();
+          try (var entries = tree.iterateEntriesBetween(
+              "collection_", true, "collection`", false, true, op)) {
+            entries.forEach(e -> positions.add(e.second().getCollectionPosition()));
+          }
+          clearInvocations(tree, records);
+          db.config().load(context, op);
+          assertEquals(positions.size(), mockingDetails(records).getInvocations().stream()
+              .filter(i -> i.getMethod().getName().equals("readRecord"))
+              .filter(i -> positions.contains(i.<Long>getArgument(0))).count());
+          assertEquals(1, calls(tree, "iterateEntriesBetween"));
+          assertEquals(0, calls(records, "readCurrentRecord"));
+          assertTrue(mockingDetails(tree).getInvocations().stream()
+              .filter(i -> i.getMethod().getName().equals("get"))
+              .noneMatch(i -> i.getArgument(0).toString().startsWith("collection_")
+                  || i.getArgument(0).toString().startsWith("cnh_")));
+          clearInvocations(tree, records);
+          var owners = db.config().readCollections(op);
+          assertEquals(0, calls(tree, "get"));
+          assertEquals(owners.size(), calls(records, "readRecord"));
+        });
+        db.agreement();
+      }
+    }
+  }
+
+  /** Missing, wrong-hash and wrong-id keys reject without changing references or payloads. */
+  @Test(timeout = 60000)
+  public void loadRejectsMissingAndMismatchedKeysWithoutWrites() throws Exception {
+    assertRejectedNameKeys((key, id) -> List.of(key,
+        CollectionNameKey.key(CollectionNameKey.hash("wrong"), id),
+        CollectionNameKey.key(CollectionNameKey.hash("victim"), Integer.MAX_VALUE)));
+  }
+
+  /** Truncated, overlong and invalidly encoded keys reject without repairing stored data. */
+  @Test(timeout = 60000)
+  public void loadRejectsMalformedKeysWithoutWrites() throws Exception {
+    assertRejectedNameKeys((key, id) -> List.of(
+        "cnh_", key + "A", key.substring(0, 29) + "!", key.substring(0, 24) + "C_____"));
+  }
+
+  private void assertRejectedNameKeys(
+      java.util.function.BiFunction<String, Integer, List<String>> badKeys) throws Exception {
+    assertRejectedNameIndex((db, op, id, key, reference) -> {
+      var config = db.config();
+      var context = config.getContextConfiguration();
+      var tree = db.tree();
+      for (var bad : badKeys.apply(key, id)) {
+        tree.remove(op, key);
+        if (!bad.equals(key)) {
+          tree.put(op, bad, reference);
+        }
+        assertRejectedLoadUnchanged(db, op, "victim", id);
+        tree.remove(op, bad);
+        tree.put(op, key, reference);
+        config.load(context, op);
+      }
+    });
+  }
+
+  /** Wrong positions, wrong version tags and extra owner keys reject without stored writes. */
+  @Test(timeout = 60000)
+  public void loadRejectsWrongReferencesAndExtraKeysWithoutWrites() throws Exception {
+    assertRejectedNameIndex((db, op, id, key, reference) -> {
+      var config = db.config();
+      var context = config.getContextConfiguration();
+      var tree = db.tree();
+      var wrongReference = tree.get("collection_0", op);
+      // A valid key must also retain both fields of the record reference, including its tag.
+      for (var wrong : List.of(wrongReference,
+          new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+              reference.getCollectionId() + 1, reference.getCollectionPosition()))) {
+        tree.put(op, key, wrong);
+        assertRejectedLoadUnchanged(db, op, "victim", id);
+        tree.put(op, key, reference);
+        config.load(context, op);
+      }
+      // A second key for the same owner is not a second collection.
+      var extra = CollectionNameKey.key(CollectionNameKey.hash("extra"), id);
+      tree.put(op, extra, reference);
+      assertRejectedLoadUnchanged(db, op, "victim", id);
+      tree.remove(op, extra);
+      config.load(context, op);
+    });
+  }
+
+  private void assertRejectedNameIndex(NameIndexRejection scenario) throws Exception {
+    for (var type : DatabaseType.values()) {
+      try (var db = database(type, StorageFormat.LAYOUT_28)) {
+        var id = db.session.addCollection("victim");
+        db.operation(op -> {
+          var key = CollectionNameKey.key(CollectionNameKey.hash("victim"), id);
+          var reference = db.tree().get(key, op);
+          setField(db.config(), "btree", spy(db.tree()));
+          scenario.run(db, op, id, key, reference);
+        });
+        db.agreement();
+      }
+    }
+  }
+
+  @FunctionalInterface
+  private interface NameIndexRejection {
+    void run(Fixture db, AtomicOperation op, int id, String key, RID reference) throws Exception;
+  }
+
+  /** Stored-only owners reject generated candidates after runtime-owned candidates are skipped. */
+  @Test(timeout = 60000)
+  public void generatorSkipsRuntimeBeforeStoredOwnersAndKeepsLegacyBehavior() throws Exception {
+    for (var type : DatabaseType.values()) {
+      for (var format : StorageFormat.values()) {
+        if (format != StorageFormat.LAYOUT_27 && format != StorageFormat.LAYOUT_28) {
+          continue;
+        }
+        try (var db = database(type, format)) {
+          for (var i = 0; i < 4; i++) {
+            db.session.addCollection("c_" + (10000 + i));
+          }
+          @SuppressWarnings("unchecked")
+          var runtime = (Map<String, StorageCollection>) field(db.storage(), "collectionMap");
+          var storedOnly = runtime.remove("c_10003");
+          try {
+            var schema = db.session.getSharedContext().getSchema();
+            var counter = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared.class
+                .getDeclaredField("collectionCounter");
+            counter.setAccessible(true);
+            var lockField =
+                com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared.class
+                    .getDeclaredField("lock");
+            lockField.setAccessible(true);
+            var lock = (java.util.concurrent.locks.ReentrantReadWriteLock) lockField.get(schema);
+            var generate = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared.class
+                .getDeclaredMethod("nextCollectionName", DatabaseSessionEmbedded.class);
+            generate.setAccessible(true);
+            var config = spy(db.config());
+            setField(db.storage(), "configuration", config);
+            lock.writeLock().lock();
+            try {
+              counter.setInt(schema, 10000);
+              assertEquals(format == StorageFormat.LAYOUT_28 ? "c_10004" : "c_10003",
+                  generate.invoke(schema, db.session));
+              assertEquals(format == StorageFormat.LAYOUT_28 ? 2 : 0,
+                  calls(config, "readCollectionByName"));
+            } finally {
+              lock.writeLock().unlock();
+            }
+            if (format == StorageFormat.LAYOUT_28) {
+              db.operation(op -> {
+                config.updateCollection(op, entry(30000, "ownpending"));
+                assertTrue(db.storage().isCollectionNameStored("ownpending", op));
+                config.dropCollection(op, 30000);
+              });
+              var manager = db.storage().getAtomicOperationsManager();
+              var freeze = manager.freezeWriteOperations(
+                  com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind.OPERATOR,
+                  null);
+              try {
+                assertTrue(db.storage().isCollectionNameStored("c_10003", null));
+              } finally {
+                manager.unfreezeWriteOperations(freeze);
+              }
+              var state =
+                  (com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock) field(
+                      db.storage(), "stateLock");
+              state.writeLock().lock();
+              try {
+                assertTrue(db.storage().isCollectionNameStored("c_10003", null));
+              } finally {
+                state.writeLock().unlock();
+              }
+            }
+          } finally {
+            runtime.put("c_10003", storedOnly);
+          }
+        }
+      }
+    }
+  }
+
+  /** State protection and read snapshots are borrowed, or released on success and failure. */
+  @Test(timeout = 60000)
+  public void storedLookupPreservesCallerProtectionAndCleansStandaloneReads() throws Exception {
+    for (var type : DatabaseType.values()) {
+      try (var db = database(type, StorageFormat.LAYOUT_28)) {
+        db.session.addCollection("lookupowner");
+        // Delegate instead of copying this lock. Its inner locks must share owner fields.
+        var originalState = field(db.storage(), "stateLock");
+        var state = org.mockito.Mockito.mock(
+            com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock.class,
+            org.mockito.AdditionalAnswers.delegatesTo(originalState));
+        setField(db.storage(), "stateLock", state);
+        var config = spy(db.config());
+        setField(db.storage(), "configuration", config);
+        var observed = new AtomicReference<AtomicOperation>();
+        var fail = new java.util.concurrent.atomic.AtomicBoolean();
+        doAnswer(call -> {
+          AtomicOperation op = call.getArgument(1);
+          observed.set(op);
+          assertTrue(operationActive(op));
+          assertTrue(state.isReadLockedByCurrentThread() || state.isWriteLockedByCurrentThread());
+          if (fail.get()) {
+            throw new IllegalStateException("injected lookup failure");
+          }
+          return call.callRealMethod();
+        }).when(config).readCollectionByName(any(), any());
+        var manager = db.storage().getAtomicOperationsManager();
+        var freeze = manager.freezeWriteOperations(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.operationsfreezer.FreezeKind.OPERATOR,
+            null);
+        try {
+          for (var mode : List.of("unprotected", "read", "write")) {
+            for (var failure : new boolean[] {false, true}) {
+              var held = mode.equals("read") ? state.readLock()
+                  : mode.equals("write") ? state.writeLock() : null;
+              if (held != null) {
+                held.lock();
+              }
+              try {
+                clearInvocations(state);
+                fail.set(failure);
+                if (failure) {
+                  assertThrows(IllegalStateException.class,
+                      () -> db.storage().isCollectionNameStored("lookupowner", null));
+                } else {
+                  assertTrue(db.storage().isCollectionNameStored("lookupowner", null));
+                }
+                assertFalse(operationActive(observed.get()));
+                assertEquals(mode.equals("unprotected") ? 2 : 0, calls(state, "readLock"));
+                assertEquals(mode.equals("read"), state.isReadLockedByCurrentThread());
+                assertEquals(mode.equals("write"), state.isWriteLockedByCurrentThread());
+              } finally {
+                if (held != null) {
+                  held.unlock();
+                }
+              }
+            }
+          }
+        } finally {
+          fail.set(false);
+          manager.unfreezeWriteOperations(freeze);
+        }
+        db.operation(op -> {
+          config.updateCollection(op, entry(30000, "pendinglookup"));
+          assertTrue(db.storage().isCollectionNameStored("pendinglookup", op));
+          assertSame(op, observed.get());
+          assertTrue(operationActive(op));
+          fail.set(true);
+          try {
+            assertThrows(IllegalStateException.class,
+                () -> db.storage().isCollectionNameStored("pendinglookup", op));
+            assertTrue(operationActive(op));
+          } finally {
+            fail.set(false);
+          }
+          config.dropCollection(op, 30000);
+        });
+      }
+    }
+  }
+
+  /** An active transaction passes its own snapshot to schema-generated stored-name checks. */
+  @Test(timeout = 60000)
+  public void generatorForwardsActiveTransactionOperation() throws Exception {
+    for (var type : DatabaseType.values()) {
+      try (var db = database(type, StorageFormat.LAYOUT_28)) {
+        var config = spy(db.config());
+        setField(db.storage(), "configuration", config);
+        var schema = db.session.getSharedContext().getSchema();
+        var schemaType = com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared.class;
+        var lockField = schemaType.getDeclaredField("lock");
+        lockField.setAccessible(true);
+        var lock = (java.util.concurrent.locks.ReentrantReadWriteLock) lockField.get(schema);
+        var counter = schemaType.getDeclaredField("collectionCounter");
+        counter.setAccessible(true);
+        var generate = schemaType.getDeclaredMethod("nextCollectionName",
+            DatabaseSessionEmbedded.class);
+        generate.setAccessible(true);
+        db.session.begin();
+        try {
+          var op = db.session.getActiveTransaction().getAtomicOperation();
+          lock.writeLock().lock();
+          try {
+            counter.setInt(schema, 20000);
+            clearInvocations(config);
+            assertEquals("c_20000", generate.invoke(schema, db.session));
+            var reads = mockingDetails(config).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals("readCollectionByName")).toList();
+            assertEquals(1, reads.size());
+            assertSame(op, reads.getFirst().getArgument(1));
+          } finally {
+            lock.writeLock().unlock();
+          }
+        } finally {
+          db.session.rollback();
+        }
+      }
+    }
+  }
+
+  /** Layout 27 retains colliding names through disk reopen and both backup restore passes. */
+  @Test(timeout = 60000)
+  public void legacyReopenAndBackupRestoreKeepCollidingHashGroups() throws Exception {
+    assertReopenAndBackupRestoreKeepCollidingHashGroups(StorageFormat.LAYOUT_27);
+  }
+
+  /** Layout 28 validates the collision group after disk reopen and both backup restore passes. */
+  @Test(timeout = 60000)
+  public void reopenAndBackupRestoreKeepCollidingHashGroups() throws Exception {
+    assertReopenAndBackupRestoreKeepCollidingHashGroups(StorageFormat.LAYOUT_28);
+  }
+
+  private void assertReopenAndBackupRestoreKeepCollidingHashGroups(StorageFormat format)
+      throws Exception {
+    var root = folder.newFolder().toPath();
+    try (var hashes = org.mockito.Mockito.mockStatic(
+        CollectionNameKey.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      var collision = CollectionNameKey.hash("collision");
+      hashes.when(() -> CollectionNameKey.hash("persisteda")).thenReturn(collision);
+      hashes.when(() -> CollectionNameKey.hash("persistedb")).thenReturn(collision);
+      var location = root.resolve(format.name());
+      try (var db = new Fixture(location, DatabaseType.DISK, format, true)) {
+        db.session.addCollection("persisteda");
+        db.session.addCollection("persistedb");
+      }
+      try (var db = new Fixture(location, DatabaseType.DISK, format, false)) {
+        if (format == StorageFormat.LAYOUT_28) {
+          db.agreement();
+        }
+        var backup = folder.newFolder().toPath();
+        db.storage().backup(backup);
+        db.storage().restoreFromBackup(backup, null);
+        if (format == StorageFormat.LAYOUT_28) {
+          db.agreement();
+        }
+        db.storage().backup(backup);
+        db.storage().restoreFromBackup(backup, null);
+        if (format == StorageFormat.LAYOUT_28) {
+          db.agreement();
+        }
+      }
+    }
+  }
+
+  /** Real open rejects missing and malformed keys without changing database content files. */
+  @Test(timeout = 60000)
+  public void diskOpenRejectsMissingAndMalformedKeysWithoutChangingImage() throws Exception {
+    for (var malformed : new boolean[] {false, true}) {
+      var root = folder.newFolder().toPath();
+      int id;
+      try (var db = new Fixture(root, DatabaseType.DISK, StorageFormat.LAYOUT_28, true)) {
+        id = db.session.addCollection("diskvictim");
+        corruptNameKey(db, id, malformed);
+      }
+      var before = contentImageBytes(root);
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+        var failure = assertThrows(RuntimeException.class,
+            () -> manager.open("names", "admin", DbTestBase.ADMIN_PASSWORD));
+        assertIdentity(failure, "diskvictim", id);
+      }
+      assertEquals("malformed=" + malformed, before, contentImageBytes(root));
+    }
+  }
+
+  /** Full and incremental backup chains reject during reload and keep the target interrupted. */
+  @Test(timeout = 60000)
+  public void backupRestoreRejectsCorruptFullAndIncrementalImages() throws Exception {
+    for (var incremental : new boolean[] {false, true}) {
+      var source = folder.newFolder().toPath();
+      var backup = folder.newFolder().toPath();
+      int id;
+      try (var db = new Fixture(source, DatabaseType.DISK, StorageFormat.LAYOUT_28, true)) {
+        id = db.session.addCollection("restorevictim");
+        if (incremental) {
+          db.storage().backup(backup);
+        }
+        corruptNameKey(db, id, incremental);
+        db.storage().backup(backup);
+      }
+      var before = imageBytes(backup);
+      var target = folder.newFolder().toPath();
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(target)) {
+        var failure = assertThrows(RuntimeException.class,
+            () -> manager.restore("names", backup.toString()));
+        assertIdentity(failure, "restorevictim", id);
+      }
+      assertEquals(before, imageBytes(backup));
+      var interrupted = imageBytes(target);
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(target)) {
+        var failure = assertThrows(RuntimeException.class,
+            () -> manager.open("names", "admin", DbTestBase.ADMIN_PASSWORD));
+        assertTrue(failure.toString(), causeMessages(failure).contains("INTERRUPTED_RESTORE"));
+      }
+      assertEquals(interrupted, imageBytes(target));
+    }
+  }
+
+  private static boolean operationActive(AtomicOperation operation) throws Exception {
+    var active = operation.getClass().getDeclaredMethod("isActive");
+    active.setAccessible(true);
+    return (boolean) active.invoke(operation);
+  }
+
+  private static String causeMessages(Throwable failure) {
+    var result = new StringBuilder();
+    for (var cause = failure; cause != null; cause = cause.getCause()) {
+      result.append(cause.getMessage()).append('\n');
+    }
+    return result.toString();
+  }
+
+  private static void corruptNameKey(Fixture db, int id, boolean malformed) throws Exception {
+    db.operation(op -> {
+      var key = CollectionNameKey.key(CollectionNameKey.hash(
+          db.config().readCollection(id, op).name()), id);
+      var reference = db.tree().get(key, op);
+      db.tree().remove(op, key);
+      if (malformed) {
+        db.tree().put(op, "cnh_!", reference);
+      }
+    });
+  }
+
+  private static Map<String, String> contentImageBytes(Path root) throws Exception {
+    var result = imageBytes(root);
+    // Failed open may update lifecycle bookkeeping, but must preserve every content file.
+    var bookkeeping = List.of(
+        "transaction_log\\..*\\.wal",
+        "storage-bootstrap-.*\\.bsm",
+        "name_id_map.*\\.cm",
+        "dirty\\.fl",
+        "changed-pages\\.cpt");
+    result.keySet().removeIf(path -> bookkeeping.stream()
+        .anyMatch(pattern -> Path.of(path).getFileName().toString().matches(pattern)));
+    return result;
+  }
+
+  private static Map<String, String> imageBytes(Path root) throws Exception {
+    Map<String, String> result = new HashMap<>();
+    try (var files = Files.walk(root)) {
+      for (var file : files.filter(Files::isRegularFile).toList()) {
+        result.put(root.relativize(file).toString(),
+            HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(Files.readAllBytes(file))));
+      }
+    }
+    return result;
+  }
+
+  /** Distinct ids cannot own the same normalized full name even with otherwise valid keys. */
+  @Test(timeout = 60000)
+  public void loadRejectsDuplicateNormalizedNames() throws Exception {
+    for (var type : DatabaseType.values()) {
+      try (var db = database(type, StorageFormat.LAYOUT_28)) {
+        var a = db.session.addCollection("duplicatea");
+        var b = db.session.addCollection("duplicateb");
+        db.operation(op -> {
+          var context = db.config().getContextConfiguration();
+          var reference = db.tree().get("collection_" + b, op);
+          var original = db.storedBytes(b, op);
+          var changed = original.clone();
+          // These equal-width ASCII names have the same encoded length.
+          var oldName = "duplicateb".getBytes(java.nio.charset.StandardCharsets.UTF_16);
+          var newName = "DUPLICATEA".getBytes(java.nio.charset.StandardCharsets.UTF_16);
+          var offset = -1;
+          for (var i = 0; i <= changed.length - oldName.length; i++) {
+            if (java.util.Arrays.equals(changed, i, i + oldName.length,
+                oldName, 0, oldName.length)) {
+              offset = i;
+              break;
+            }
+          }
+          assertTrue(offset >= 0);
+          System.arraycopy(newName, 0, changed, offset, newName.length);
+          var records = (PaginatedCollectionV2) field(db.config(), "collection");
+          records.updateRecord(reference.getCollectionPosition(), changed, (byte) 0, op);
+          var tree = spy(db.tree());
+          setField(db.config(), "btree", tree);
+          var failure = assertRejectedLoadUnchanged(db, op, "DUPLICATEA", b);
+          assertTrue(failure.getMessage().contains("duplicate normalized name"));
+          assertTrue(failure.getMessage().contains(Integer.toString(a)));
+          assertTrue(failure.getMessage().contains(Integer.toString(b)));
+          assertArrayEquals(changed, db.storedBytes(b, op));
+          records.updateRecord(reference.getCollectionPosition(), original, (byte) 0, op);
+          db.config().load(context, op);
+        });
+      }
+    }
+  }
+
+  /** Snapshot all stored references and payloads, not the cache cleared by a rejected load. */
+  private static Map<String, String> storedRelation(Fixture db, AtomicOperation op)
+      throws Exception {
+    Map<String, String> result = new HashMap<>();
+    try (var entries = db.tree().iterateEntriesMajor("", true, true, op)) {
+      for (var entry : entries.toList()) {
+        result.put(entry.first(), entry.second().toString());
+        if (entry.first().startsWith("collection_")) {
+          int id = Integer.parseInt(entry.first().substring("collection_".length()));
+          result.put("payload:" + id, HexFormat.of().formatHex(db.storedBytes(id, op)));
+        }
+      }
+    }
+    return result;
+  }
+
+  private static ConfigurationException assertRejectedLoadUnchanged(
+      Fixture db, AtomicOperation op, String name, int id) throws Exception {
+    var before = storedRelation(db, op);
+    var tree = db.tree();
+    var context = db.config().getContextConfiguration();
+    clearInvocations(tree);
+    var failure = assertThrows(ConfigurationException.class,
+        () -> db.config().load(context, op));
+    assertIdentity(failure, name, id);
+    assertEquals(0, calls(tree, "put"));
+    assertEquals(0, calls(tree, "remove"));
+    assertEquals(before, storedRelation(db, op));
+    return failure;
+  }
+
+  private static void assertIdentity(Throwable failure, String name, int id) {
+    var messages = new StringBuilder();
+    for (var cause = failure; cause != null; cause = cause.getCause()) {
+      messages.append(cause.getMessage()).append('\n');
+    }
+    assertTrue(messages.toString(), messages.toString().contains(name));
+    assertTrue(messages.toString(), messages.toString().contains(Integer.toString(id)));
   }
 
   private static StoragePaginatedCollectionConfiguration entry(int id, String name) {

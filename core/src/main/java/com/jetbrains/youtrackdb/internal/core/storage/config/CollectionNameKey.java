@@ -46,6 +46,19 @@ final class CollectionNameKey {
     return prefix(hash) + new String(suffix);
   }
 
+  static boolean isWellFormed(String key) {
+    if (key.length() != 30 || !key.startsWith("cnh_")) {
+      return false;
+    }
+    for (var i = 4; i < 30; i++) {
+      if (DIGITS.indexOf(key.charAt(i)) < 0) {
+        return false;
+      }
+    }
+    // Six base64 digits encode 36 bits. Collection ids use only 31.
+    return DIGITS.indexOf(key.charAt(24)) <= 1;
+  }
+
   static int owner(String key) {
     long id = 0;
     for (var i = 24; i < 30; i++) {

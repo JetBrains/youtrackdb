@@ -9090,6 +9090,35 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Checks stored ownership under state protection without entering the write freezer.
+   * Structural callers retain their operation so uncommitted ownership remains visible.
+   */
+  public boolean isCollectionNameStored(String name, @Nullable AtomicOperation operation) {
+    final var acquire = !stateLock.isReadLockedByCurrentThread()
+        && !stateLock.isWriteLockedByCurrentThread();
+    if (acquire) {
+      stateLock.readLock().lock();
+    }
+    try {
+      checkOpennessAndMigration();
+      final var read =
+          operation == null ? atomicOperationsManager.startAtomicOperation() : operation;
+      try {
+        return ((CollectionBasedStorageConfiguration) configuration)
+            .readCollectionByName(name, read) != null;
+      } finally {
+        if (operation == null) {
+          read.deactivate();
+        }
+      }
+    } finally {
+      if (acquire) {
+        stateLock.readLock().unlock();
+      }
+    }
+  }
+
   private void doSetCollectionAttributed(
       final AtomicOperation atomicOperation,
       final ATTRIBUTES attribute,
