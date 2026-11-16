@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.TreeSet;
 import java.util.function.IntPredicate;
@@ -58,13 +59,19 @@ final class PrivatePrefixDiscovery {
     if (session == null) {
       return refused(Reason.DISABLED);
     }
-    // Resolve deliberate option errors and all strategy-derived walk inputs once, on the root.
-    return discover(traversal, admittedCut, session,
-        GremlinStepWalker.WalkInputs.capture(traversal), false);
+    // Pin before capture and keep the view through recognition, planning and classification.
+    try (var scope = PrivatePreparationSchemaScope.open(session)) {
+      return discover(traversal, admittedCut, session,
+          GremlinStepWalker.WalkInputs.capture(traversal), false);
+    }
   }
 
   Outcome discover(Traversal.Admin<?, ?> traversal, @Nullable IntPredicate admittedCut,
       DatabaseSessionEmbedded session, GremlinStepWalker.WalkInputs inputs, boolean prepareFull) {
+    if (PrivatePreparationSchemaScope.schemaFor(session) != inputs.schema()
+        || !PrivatePreparationSchemaScope.isActive(session)) {
+      throw new IllegalStateException("Captured inputs require their private schema scope");
+    }
     GremlinStepWalker.rejectReservedPrefixLabels(traversal.getSteps());
     if (inputs.polymorphic() == null || inputs.nulls() == null || !traversal.isRoot()) {
       return refused(Reason.COMPLETE_NATIVE);

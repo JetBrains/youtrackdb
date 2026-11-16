@@ -42,6 +42,143 @@ import org.junit.rules.Timeout;
  */
 public class TxAwareSchemaSnapshotTest extends DbTestBase {
 
+  /** Failed acquisition owns no clear. Failed capture clears once and preserves its primary error. */
+  @Test
+  public void privateScopeAcquisitionAndCaptureFailuresPreserveOwnership() {
+    var db = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class);
+    var metadata = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
+    org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    var acquisition = new IllegalStateException("pin acquisition");
+    org.mockito.Mockito.doThrow(acquisition).when(metadata).makeThreadLocalSchemaSnapshot();
+    assertSame(acquisition,
+        assertThrows(IllegalStateException.class,
+            () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .open(db)));
+    org.mockito.Mockito.verify(metadata, org.mockito.Mockito.never())
+        .clearThreadLocalSchemaSnapshot();
+    org.mockito.Mockito.reset(metadata);
+    var capture = new IllegalStateException("schema capture");
+    var cleanup = new IllegalStateException("pin cleanup");
+    org.mockito.Mockito.when(metadata.getImmutableSchemaSnapshot()).thenThrow(capture);
+    org.mockito.Mockito.doThrow(cleanup).when(metadata).clearThreadLocalSchemaSnapshot();
+    assertSame(capture,
+        assertThrows(IllegalStateException.class,
+            () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .open(db)));
+    assertSame(cleanup, capture.getSuppressed()[0]);
+    org.mockito.Mockito.verify(metadata).clearThreadLocalSchemaSnapshot();
+    assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+        .isActive(db));
+  }
+
+  /** Even a failing pin release restores the enclosing exact-session marker. */
+  @Test
+  public void throwingScopeCloseRestoresOuterMarker() {
+    var db = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class);
+    var metadata = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
+    org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    org.mockito.Mockito.when(metadata.getImmutableSchemaSnapshot())
+        .thenReturn(session.getMetadata().getImmutableSchemaSnapshot());
+    var failure = new IllegalStateException("clear failed");
+    org.mockito.Mockito.doThrow(failure).when(metadata).clearThreadLocalSchemaSnapshot();
+    try (var outer =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(db);
+      assertSame(failure, assertThrows(IllegalStateException.class, scope::close));
+      assertTrue(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(session));
+      assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(db));
+    }
+  }
+
+  /** Nested scopes restore the exact session marker and preserve an unrelated outer pin. */
+  @Test
+  public void privateScopesRestoreSessionIdentityAndOuterSnapshotOnFailure() {
+    var metadata = session.getMetadata();
+    metadata.makeThreadLocalSchemaSnapshot();
+    var outer = metadata.getImmutableSchemaSnapshot();
+    try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+      try (var first =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+              .open(session)) {
+        assertSame(outer,
+            com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .schemaFor(session));
+        assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .isActive(other));
+        assertThrows(IllegalStateException.class, () -> {
+          try (var second =
+              com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                  .open(other)) {
+            assertFalse(
+                com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                    .isActive(session));
+            assertTrue(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .isActive(other));
+            throw new IllegalStateException("nested exit");
+          }
+        });
+        assertTrue(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .isActive(session));
+        assertEquals(0, other.getMetadata().getThreadLocalSchemaSnapshotPinCount());
+      }
+      assertEquals(1, metadata.getThreadLocalSchemaSnapshotPinCount());
+      assertSame(outer, metadata.getImmutableSchemaSnapshot());
+      assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(session));
+    } finally {
+      metadata.clearThreadLocalSchemaSnapshot();
+    }
+  }
+
+  /** MATCH hierarchy merging uses the captured relation only for the marked exact session. */
+  @Test
+  public void privateMatchHierarchyMergeKeepsCapturedNonIndexedInheritance() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("SnapshotParent");
+    schema.createClass("SnapshotChild", parent);
+    var merge =
+        com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner.class
+            .getDeclaredMethod("getLowerSubclass",
+                com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class,
+                String.class, String.class);
+    merge.setAccessible(true);
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      var failure = new AtomicReference<Throwable>();
+      var writer = new Thread(() -> {
+        try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+          var live = other.getMetadata().getSchema();
+          live.getClass("SnapshotChild").removeSuperClass(live.getClass("SnapshotParent"));
+          assertNull(merge.invoke(null, other, "SnapshotParent", "SnapshotChild"));
+        } catch (Throwable thrown) {
+          failure.set(thrown);
+        }
+      }, "private-hierarchy-writer");
+      writer.start();
+      writer.join(30000);
+      assertFalse(writer.isAlive());
+      assertNull(failure.get());
+      assertEquals("SnapshotChild",
+          merge.invoke(null, session, "SnapshotParent", "SnapshotChild"));
+    }
+    assertNull(merge.invoke(null, session, "SnapshotParent", "SnapshotChild"));
+    session.getMetadata().makeThreadLocalSchemaSnapshot();
+    try {
+      assertNull(merge.invoke(null, session, "SnapshotParent", "SnapshotChild"));
+    } finally {
+      session.getMetadata().clearThreadLocalSchemaSnapshot();
+    }
+  }
+
   /**
    * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
    * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.

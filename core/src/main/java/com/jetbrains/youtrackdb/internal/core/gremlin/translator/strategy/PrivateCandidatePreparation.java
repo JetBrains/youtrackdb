@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.Map;
 import java.util.Set;
@@ -52,6 +53,14 @@ final class PrivateCandidatePreparation {
     }
     var cache = GremlinPlanCache.instance(session);
     long generation = cache.getGeneration();
+    try (var scope = PrivatePreparationSchemaScope.open(session)) {
+      return prepareCaptured(traversal, policy, safety, session, cache, generation);
+    }
+  }
+
+  private Prepared prepareCaptured(Traversal.Admin<?, ?> traversal, Policy policy,
+      QuerySafetyAdmission.Result safety, DatabaseSessionEmbedded session,
+      GremlinPlanCache cache, long generation) {
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     if (inputs.polymorphic() == null || inputs.nulls() == null) {
       return refusal(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, false);
