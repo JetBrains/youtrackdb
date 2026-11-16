@@ -243,7 +243,7 @@ public enum GlobalConfiguration {
           + " At the default, heap use per storage is about 64 to 80 MiB with compressed"
           + " object references and about 80 to 100 MiB without them."
           + " The limit applies to each storage separately."
-          + " A value below 1 makes disk storage open fail.",
+          + " A value below 1 makes disk storage open and create fail.",
       Integer.class,
       1_048_576),
 
