@@ -258,8 +258,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
 
   /**
    * Re-registers the id-named link-bag component of {@code collectionId} into the in-memory
-   * {@code fileIdBTreeMap} after layout 27 tree deletion for the
-   * failed-schema-commit undo. The delete removes the map entry eagerly (the map is not
+   * {@code fileIdBTreeMap} after layout 27 tree deletion for failed-schema-commit undo or
+   * confirmed public-drop rollback. The delete removes the map entry eagerly (the map is not
    * rollback-aware) while merely buffering the file delete on the atomic operation, so when that
    * operation rolls back the durable {@code .grb} file survives but the map entry is gone — and
    * every link-bag access resolves through the map with no reload branch, so the restored
@@ -270,7 +270,7 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
    */
   public void restoreComponentByCollectionId(
       final AtomicOperation atomicOperation, final int collectionId) {
-    // lock is already acquired on storage level, during the failed-commit undo
+    // The caller holds the storage state write lock during schema undo or public-drop restore.
     final var fileId = atomicOperation.fileIdByName(generateLockName(collectionId));
     if (fileId < 0) {
       return;

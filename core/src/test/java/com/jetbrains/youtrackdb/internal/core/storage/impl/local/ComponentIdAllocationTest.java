@@ -1630,8 +1630,7 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // A failed public drop leaves an empty runtime slot but restores the stored owner. Both
-  // allocation routes must respect it, including the display name, before any creation effects.
+  // A confirmed public-drop rollback restores normal runtime access and preserves ownership.
   @Test
   public void failedPublicDropProtectsSlotNameAndRecordsOnDiskAndMemory() throws Exception {
     for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
@@ -1675,20 +1674,16 @@ public class ComponentIdAllocationTest {
         assertEquals(liveBefore, hwm(storage, PageFileKind.COLLECTION));
         assertEquals(before, counter(storage, PageFileKind.COLLECTION));
         assertEquals(files, storage.getWriteCache().files());
-        assertTrue(storage.getCollectionInstances().stream().noneMatch(c -> c.getId() == id));
+        assertSame(capturedCollection, runtimeSlot(storage, id));
         assertTrue(session.addCollection("automaticreplacement") != id);
         session.executeInTx(tx -> session.getMetadata().getSchema().createClass("SchemaSkip", 1));
         assertTrue(session.getMetadata().getSchema().getClass("SchemaSkip")
             .getCollectionIds()[0] != id);
-        // Runtime rollback of public drop is outside this track. Read the captured collection
-        // directly in memory. A cold disk reopen below also proves normal record access.
-        var op = storage.getAtomicOperationsManager().startAtomicOperation();
-        try {
-          assertTrue(capturedCollection.readRecord(rid.getCollectionPosition(), op)
-              .toRawBuffer().buffer().length > 0);
-        } finally {
-          op.deactivate();
-        }
+        session.executeInTx(tx -> {
+          var row =
+              (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session.load(rid);
+          assertEquals("survives", row.getProperty("value"));
+        });
       }
       if (type == DatabaseType.DISK) {
         ytdb.close();
@@ -1703,6 +1698,336 @@ public class ComponentIdAllocationTest {
         }
       }
       ytdb.drop("counters");
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static java.util.List<StorageCollection> runtimeSlots(AbstractStorage storage)
+      throws Exception {
+    var field = AbstractStorage.class.getDeclaredField("collections");
+    field.setAccessible(true);
+    return (java.util.List<StorageCollection>) field.get(storage);
+  }
+
+  private static StorageCollection runtimeSlot(AbstractStorage storage, int id) throws Exception {
+    return runtimeSlots(storage).get(id);
+  }
+
+  // Every phase uses the real public body and real atomic finalization. A body rollback must
+  // skip commitChanges entirely. A commitChanges exception must keep the rollback flag clear.
+  @Test
+  public void publicDropRollbackBoundariesOnBothLayoutsAndEngines() throws Exception {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28}) {
+      for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+        for (var phase : new String[] {"capture", "delete", "registry", "tree", "restore", "error",
+            "occupied", "commit", "errorRestore"}) {
+          if ((phase.equals("capture") || phase.equals("errorRestore"))
+              && format == StorageFormat.LAYOUT_27) {
+            continue;
+          }
+          create(format, type);
+          try (var session = open()) {
+            int id = session.getMetadata().getSchema().createClass("RollbackBoundary", 1)
+                .getCollectionIds()[0];
+            var rid = session.computeInTx(tx -> {
+              var row = tx.newEntity("RollbackBoundary");
+              row.setProperty("value", "kept");
+              return row.getIdentity();
+            });
+            var storage = session.getStorage();
+            var original = runtimeSlot(storage, id);
+            var unexpectedOccupant = phase.equals("occupied")
+                ? runtimeSlot(storage, session.addCollection("unexpectedoccupant")) : null;
+            var expected = new ConfigurationException("injected " + phase);
+            var priorError = new StorageException("counters", "recorded error");
+            var secondary = new ConfigurationException("injected restore");
+            var managerField =
+                AbstractStorage.class.getDeclaredField("linkCollectionsBTreeManager");
+            managerField.setAccessible(true);
+            var realTrees = storage.getLinkCollectionsBtreeCollectionManager();
+            var trees = org.mockito.Mockito.spy((LinkCollectionsBTreeManagerShared) realTrees);
+            managerField.set(storage, trees);
+            var realOperations = storage.atomicOperationsManager;
+            var operations = org.mockito.Mockito.spy(realOperations);
+            storage.atomicOperationsManager = operations;
+            var captured = new java.util.concurrent.atomic.AtomicReference<AtomicOperation>();
+            org.mockito.Mockito.doAnswer(call -> {
+              var operation = org.mockito.Mockito.spy((AtomicOperation) call.callRealMethod());
+              if (captured.compareAndSet(null, operation) && phase.equals("commit")) {
+                org.mockito.Mockito.doThrow(expected).when(operation).commitChanges(
+                    org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any());
+              }
+              return operation;
+            }).when(operations).startAtomicOperation();
+            final var initialCollection = original;
+            var owner = realOperations.calculateInsideAtomicOperation(
+                op -> ((LinkCollectionsBTreeManagerShared) realTrees)
+                    .captureOwner(id, format == StorageFormat.LAYOUT_28
+                        ? ((PaginatedCollection) initialCollection).generateCollectionConfig()
+                            .getComponentId()
+                        : null, op));
+            // The setup read is not the public drop operation.
+            captured.set(null);
+            if (phase.equals("capture")) {
+              org.mockito.Mockito.doThrow(expected).when(trees).captureOwner(
+                  org.mockito.ArgumentMatchers.same(initialCollection),
+                  org.mockito.ArgumentMatchers.any());
+            } else if (phase.equals("delete")) {
+              var collectionSpy = org.mockito.Mockito.spy(original);
+              runtimeSlots(storage).set(id, collectionSpy);
+              // Keep both runtime registrations consistent for this injected collection object.
+              var mapField = AbstractStorage.class.getDeclaredField("collectionMap");
+              mapField.setAccessible(true);
+              @SuppressWarnings("unchecked")
+              var map = (java.util.Map<String, StorageCollection>) mapField.get(storage);
+              map.put(original.getName(), collectionSpy);
+              original = collectionSpy;
+              org.mockito.Mockito.doThrow(expected).when(collectionSpy)
+                  .delete(org.mockito.ArgumentMatchers.any());
+            } else if (phase.equals("registry")) {
+              config(storage).setConfigurationUpdateListener(update -> {
+                assertNull(runtimeSlotUnchecked(storage, id));
+                throw expected;
+              });
+            } else if (!phase.equals("commit")) {
+              org.mockito.stubbing.Answer<Object> failAfterTree = call -> {
+                call.callRealMethod();
+                assertNull(runtimeSlot(storage, id));
+                // Combine a prior error with failed restoration to pin error-object identity.
+                if (phase.equals("error") || phase.equals("errorRestore")) {
+                  storage.moveToErrorStateIfNeeded(priorError);
+                } else if (phase.equals("occupied")) {
+                  runtimeSlots(storage).set(id, unexpectedOccupant);
+                }
+                throw expected;
+              };
+              if (format == StorageFormat.LAYOUT_28) {
+                org.mockito.Mockito.doAnswer(failAfterTree).when(trees).deleteComponent(
+                    org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+              } else {
+                org.mockito.Mockito.doAnswer(failAfterTree).when(trees)
+                    .deleteComponentByCollectionId(
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(id));
+              }
+            }
+            org.mockito.stubbing.Answer<Object> restore = call -> {
+              if (format == StorageFormat.LAYOUT_28) {
+                assertNull(runtimeSlot(storage, id));
+              } else {
+                assertNotNull(runtimeSlot(storage, id));
+              }
+              if (phase.equals("restore") || phase.equals("errorRestore")) {
+                throw secondary;
+              }
+              return call.callRealMethod();
+            };
+            if (format == StorageFormat.LAYOUT_28) {
+              org.mockito.Mockito.doAnswer(restore).when(trees).restoreComponent(
+                  org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+            } else {
+              org.mockito.Mockito.doAnswer(restore).when(trees).restoreComponentByCollectionId(
+                  org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(id));
+            }
+            try {
+              assertSame(expected, assertThrows(ConfigurationException.class,
+                  () -> storage.dropCollection(session, id)));
+              assertEquals(!phase.equals("commit"), captured.get().isRollbackInProgress());
+              if (!phase.equals("commit")) {
+                // No WAL record or page change can be applied without commitChanges.
+                org.mockito.Mockito.verify(captured.get(), org.mockito.Mockito.never())
+                    .commitChanges(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any());
+              }
+              if (phase.equals("occupied")) {
+                assertSame(unexpectedOccupant, runtimeSlot(storage, id));
+                assertEquals(1, expected.getSuppressed().length);
+              } else if (phase.equals("commit") || phase.equals("errorRestore")
+                  || (phase.equals("restore") && format == StorageFormat.LAYOUT_28)) {
+                assertNull(runtimeSlot(storage, id));
+              } else {
+                assertSame(original, runtimeSlot(storage, id));
+                assertEquals(id, storage.getCollectionIdByName(original.getName()));
+                if (!phase.equals("error")) {
+                  session.executeInTx(tx -> {
+                    var row =
+                        (com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl) session
+                            .load(rid);
+                    assertEquals("kept", row.getProperty("value"));
+                  });
+                }
+              }
+              assertEquals(phase.equals("error") || phase.equals("errorRestore")
+                  || ((phase.equals("restore") || phase.equals("occupied"))
+                      && format == StorageFormat.LAYOUT_28),
+                  storage.isInError());
+              if (phase.equals("error") || phase.equals("errorRestore")) {
+                var errorField = AbstractStorage.class.getDeclaredField("error");
+                errorField.setAccessible(true);
+                assertSame(priorError,
+                    ((java.util.concurrent.atomic.AtomicReference<?>) errorField.get(storage))
+                        .get());
+              }
+              if (phase.equals("commit")) {
+                assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.OPEN,
+                    storage.getStatus());
+              }
+              if (phase.equals("restore") || phase.equals("errorRestore")) {
+                assertTrue(java.util.Arrays.asList(expected.getSuppressed()).contains(secondary));
+              } else if (phase.equals("tree") && format == StorageFormat.LAYOUT_28) {
+                var restored = realOperations.calculateInsideAtomicOperation(
+                    op -> ((LinkCollectionsBTreeManagerShared) realTrees)
+                        .captureOwner(id, owner.componentId(), op));
+                assertSame(owner.tree(), restored.tree());
+              }
+            } finally {
+              config(storage).setConfigurationUpdateListener(null);
+              managerField.set(storage, realTrees);
+              storage.atomicOperationsManager = realOperations;
+            }
+          }
+          ytdb.drop("counters");
+        }
+      }
+    }
+  }
+
+  // Pause drop at the empty slot and park preallocation on the state read lock. Its first
+  // collection resolution must happen only after rollback has republished the original object.
+  @Test
+  public void preallocationWaitsForDropRollbackBeforeResolvingCollection() throws Exception {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28}) {
+      for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+        create(format, type);
+        try (var session = open()) {
+          int id = session.getMetadata().getSchema().createClass("PreallocationOwner", 1)
+              .getCollectionIds()[0];
+          var storage = session.getStorage();
+          var original = runtimeSlot(storage, id);
+          var removed = new java.util.concurrent.CountDownLatch(1);
+          var release = new java.util.concurrent.CountDownLatch(1);
+          var entering = new java.util.concurrent.CountDownLatch(1);
+          var prepared = new java.util.concurrent.CountDownLatch(1);
+          var preallocationThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+          var pool = Executors.newFixedThreadPool(2);
+          config(storage).setConfigurationUpdateListener(update -> {
+            assertNull(runtimeSlotUnchecked(storage, id));
+            removed.countDown();
+            try {
+              assertTrue(release.await(30, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+              throw new AssertionError(e);
+            }
+            throw new ConfigurationException("coordinated rollback");
+          });
+          try {
+            var allocation = pool.submit(() -> {
+              try (var allocationSession = open()) {
+                allocationSession.begin();
+                allocationSession.newEntity("PreallocationOwner");
+                var transaction = org.mockito.Mockito.spy(
+                    allocationSession.getTransactionInternal());
+                org.mockito.Mockito.doAnswer(call -> {
+                  entering.countDown();
+                  return call.callRealMethod();
+                }).when(transaction).getRecordOperationsInternal();
+                assertTrue(allocationSession.getTransactionInternal()
+                    .getRecordOperationsInternal().iterator().hasNext());
+                prepared.countDown();
+                assertTrue(removed.await(30, TimeUnit.SECONDS));
+                preallocationThread.set(Thread.currentThread());
+                storage.preallocateRids(transaction);
+                allocationSession.rollback();
+              }
+              return null;
+            });
+            assertTrue(prepared.await(30, TimeUnit.SECONDS));
+            var drop = pool.submit(() -> {
+              try (var dropSession = open()) {
+                assertThrows(ConfigurationException.class,
+                    () -> storage.dropCollection(dropSession, id));
+              }
+            });
+            assertTrue(removed.await(30, TimeUnit.SECONDS));
+            assertTrue(entering.await(30, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+            boolean waitingForStateLock = false;
+            while (System.nanoTime() < deadline && !allocation.isDone()) {
+              var thread = preallocationThread.get();
+              var stack = java.util.Arrays.asList(thread.getStackTrace());
+              waitingForStateLock = stack.stream()
+                  .anyMatch(frame -> frame.getMethodName().equals("preallocateRids"))
+                  && stack.stream().anyMatch(frame -> frame.getClassName()
+                      .contains("ScalableRWLock"));
+              if (waitingForStateLock) {
+                break;
+              }
+              Thread.onSpinWait();
+            }
+            if (allocation.isDone()) {
+              allocation.get(30, TimeUnit.SECONDS);
+            }
+            assertTrue("Preallocation must wait, not resolve the empty slot", waitingForStateLock);
+            release.countDown();
+            drop.get(30, TimeUnit.SECONDS);
+            allocation.get(30, TimeUnit.SECONDS);
+            assertSame(original, runtimeSlot(storage, id));
+          } finally {
+            release.countDown();
+            config(storage).setConfigurationUpdateListener(null);
+            pool.shutdownNow();
+            assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS));
+          }
+        }
+        ytdb.drop("counters");
+      }
+    }
+  }
+
+  private static StorageCollection runtimeSlotUnchecked(AbstractStorage storage, int id) {
+    try {
+      return runtimeSlot(storage, id);
+    } catch (Exception e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  // Construct owners independently of public-drop repair, with and without a cached owner.
+  // Stored ownership alone must reject slot reuse and duplicate names on both engines.
+  @Test
+  public void storedOnlyOwnerStillProtectsSlotAndName() throws Exception {
+    for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
+      for (boolean cachedOwner : new boolean[] {true, false}) {
+        create(StorageFormat.LAYOUT_28, type);
+        try (var session = open()) {
+          var storage = session.getStorage();
+          int id = session.addCollection("storedonly");
+          var componentId = operationEntry(storage, id).getComponentId();
+          runtimeSlots(storage).set(id, null);
+          var field = AbstractStorage.class.getDeclaredField("collectionMap");
+          field.setAccessible(true);
+          var names = (java.util.Map<?, ?>) field.get(storage);
+          names.remove("storedonly");
+          if (!cachedOwner) {
+            // Remove only the notification cache entry. Keep the stored B-tree entry intact.
+            var cacheField = CollectionBasedStorageConfiguration.class.getDeclaredField("cache");
+            cacheField.setAccessible(true);
+            var cache = (java.util.Map<?, ?>) cacheField.get(config(storage));
+            ((java.util.List<?>) cache.get("collections")).set(id, null);
+          }
+          assertNull(runtimeSlot(storage, id));
+          assertFalse(names.containsKey("storedonly"));
+          assertEquals(cachedOwner, config(storage).getCollections().get(id) != null);
+          var stored = operationEntry(storage, id);
+          assertNotNull(stored);
+          assertEquals("storedonly", stored.name);
+          assertEquals(componentId, stored.getComponentId());
+          assertThrows(ConfigurationException.class,
+              () -> storage.addCollection(session, "other", id));
+          assertTrue(session.addCollection("nextowner") != id);
+          assertThrows(ConfigurationException.class, () -> session.addCollection("STOREDONLY"));
+        }
+        ytdb.drop("counters");
+      }
     }
   }
 

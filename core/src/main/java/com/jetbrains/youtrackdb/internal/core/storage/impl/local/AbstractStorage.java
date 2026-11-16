@@ -2298,28 +2298,41 @@ public abstract class AbstractStorage
 
         makeStorageDirty();
 
-        return atomicOperationsManager.calculateInsideAtomicOperation(
-            atomicOperation -> {
-              final var owner = getStorageFormat() == StorageFormat.LAYOUT_28
-                  && collections.get(collectionId) != null
-                      ? linkCollectionsBTreeManager.captureOwner(collections.get(collectionId),
-                          atomicOperation)
-                      : null;
-              if (dropCollectionInternal(atomicOperation, collectionId)) {
-                return false;
-              }
+        final var collection = collections.get(collectionId);
+        final AtomicOperation[] dropOperation = new AtomicOperation[1];
+        final LinkCollectionsBTreeManagerShared.CollectionOwner[] capturedOwner =
+            new LinkCollectionsBTreeManagerShared.CollectionOwner[1];
+        try {
+          return atomicOperationsManager.calculateInsideAtomicOperation(
+              atomicOperation -> {
+                dropOperation[0] = atomicOperation;
+                if (getStorageFormat() == StorageFormat.LAYOUT_28 && collection != null) {
+                  capturedOwner[0] =
+                      linkCollectionsBTreeManager.captureOwner(collection, atomicOperation);
+                }
+                if (dropCollectionInternal(atomicOperation, collectionId)) {
+                  return false;
+                }
 
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .dropCollection(atomicOperation, collectionId);
-              if (getStorageFormat() == StorageFormat.LAYOUT_28) {
-                linkCollectionsBTreeManager.deleteComponent(atomicOperation, owner);
-              } else {
-                linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
-                    collectionId);
-              }
-
-              return true;
-            });
+                ((CollectionBasedStorageConfiguration) configuration)
+                    .dropCollection(atomicOperation, collectionId);
+                if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+                  linkCollectionsBTreeManager.deleteComponent(atomicOperation, capturedOwner[0]);
+                } else {
+                  linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation,
+                      collectionId);
+                }
+                return true;
+              });
+        } catch (final Exception | AssertionError dropFailure) {
+          // Inspect the operation only after finalization. A commitChanges failure is in doubt
+          // and leaves this flag clear, so it must not trigger speculative runtime restoration.
+          if (dropOperation[0] != null && dropOperation[0].isRollbackInProgress()
+              && collection != null) {
+            restoreFailedPublicDrop(collection, capturedOwner[0], dropFailure);
+          }
+          throw dropFailure;
+        }
       } catch (final Exception e) {
         throw BaseException.wrapException(
             new StorageException(name, "Error while removing collection '" + collectionId + "'"), e,
@@ -2952,18 +2965,16 @@ public abstract class AbstractStorage
 
       final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
 
-      for (final var txEntry : entries) {
-
-        if (txEntry.type == RecordOperation.CREATED) {
-          newRecords.add(txEntry);
-          final var collectionId = txEntry.getRecordId().getCollectionId();
-          collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
-        }
-      }
       stateLock.readLock().lock();
       try {
-
         checkOpennessAndMigration();
+        for (final var txEntry : entries) {
+          if (txEntry.type == RecordOperation.CREATED) {
+            newRecords.add(txEntry);
+            final var collectionId = txEntry.getRecordId().getCollectionId();
+            collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
+          }
+        }
 
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
@@ -4172,6 +4183,11 @@ public abstract class AbstractStorage
     // commit that dropped a collection would leave the registry reporting it absent while it is
     // fully present on disk and in the storage configuration. The slot guard keeps the restore
     // idempotent if a later create somehow reused the freed slot.
+    // Keep restore order aligned with restoreFailedPublicDrop: layout 28 restores the tree
+    // before registration. Layout 27 registers first. Public drop also checks for a null owner,
+    // contains an occupied layout 28 slot in error state, and suppresses restore errors.
+    // Schema undo expects captured owners. It only logs occupied slots and does not suppress
+    // restore errors on the commit failure.
     for (final var entry : dropped) {
       final var collection = entry.collection();
       if (collection == null) {
@@ -9116,6 +9132,64 @@ public abstract class AbstractStorage
     return false;
   }
 
+  /**
+   * Repairs publication after confirmed public-drop rollback while the state write lock is held.
+   * The original failure stays primary even if required runtime state cannot be restored.
+   */
+  private void restoreFailedPublicDrop(StorageCollection collection,
+      LinkCollectionsBTreeManagerShared.CollectionOwner owner, Throwable dropFailure) {
+    // Keep restore order aligned with undoReconciledCollections: layout 28 restores the tree
+    // before registration. Layout 27 registers first. Unlike schema undo, this path checks for
+    // a null owner, contains an occupied layout 28 slot in error state, and suppresses restore
+    // errors on the drop failure. Schema undo expects owners. It only logs occupied slots
+    // and does not suppress restore errors on the commit failure.
+    final var id = collection.getId();
+    try {
+      final var occupant = collections.get(id);
+      if (occupant == collection) {
+        // Capture or deletion failed before removal. Do not register the same object twice.
+        return;
+      }
+      if (occupant != null) {
+        throw new StorageException(name, "Unexpected occupant of restored collection slot " + id);
+      }
+      if (getStorageFormat() != StorageFormat.LAYOUT_28) {
+        registerCollection(collection);
+      }
+      final var readOperation = atomicOperationsManager.startAtomicOperation();
+      try {
+        if (getStorageFormat() == StorageFormat.LAYOUT_28) {
+          final var configured = ((CollectionBasedStorageConfiguration) configuration)
+              .readCollection(id, readOperation);
+          if (configured == null || owner == null
+              || !Objects.equals(configured.getComponentId(), owner.componentId())) {
+            throw new StorageException(name, "Restored collection ownership mismatch: " + id);
+          }
+          linkCollectionsBTreeManager.restoreComponent(readOperation, owner);
+          // Validate the captured tree before publishing runtime access.
+          registerCollection(collection);
+        } else {
+          linkCollectionsBTreeManager.restoreComponentByCollectionId(readOperation, id);
+        }
+      } finally {
+        readOperation.deactivate();
+      }
+    } catch (final RuntimeException | AssertionError restoreFailure) {
+      if (getStorageFormat() == StorageFormat.LAYOUT_28 && !isInError()) {
+        setInError(restoreFailure instanceof AssertionError
+            ? BaseException.wrapException(
+                new StorageException(name, "Required collection restoration failed"),
+                restoreFailure, name)
+            : restoreFailure);
+      }
+      dropFailure.addSuppressed(restoreFailure);
+      LogManager.instance().error(this,
+          "Failed to restore collection '%s' (slot %d) after public drop rollback;"
+              + " reopen the storage",
+          restoreFailure, collection.getName(), id);
+    }
+  }
+
   protected void doShutdown() throws IOException {
     shutdownDuration.timed(() -> {
       if (status == STATUS.CLOSED) {
@@ -11052,6 +11126,8 @@ public abstract class AbstractStorage
         sizeCounter.decrementAndGet();
         // Increment the per-collection dead record counter so the records GC
         // trigger condition can detect when enough dead records have accumulated.
+        // D2 accepts at most one lost dead-record count increase per removed snapshot entry
+        // throughout the public drop, rollback and memory restoration window.
         if (collections != null) {
           int id = snapshotKey.collectionId();
           if (id >= 0 && id < collections.size()) {
