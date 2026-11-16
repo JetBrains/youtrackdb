@@ -1660,8 +1660,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   public void updateCollection(
       AtomicOperation atomicOperation, final StorageCollectionConfiguration config) {
+    updateCollection(atomicOperation, config, null);
+  }
+
+  public void updateCollection(AtomicOperation atomicOperation,
+      StorageCollectionConfiguration config, CollectionNameCheck checked) {
     lock.writeLock().lock();
     try {
+      final var indexed = storage.getStorageFormat() == StorageFormat.LAYOUT_28;
+      if (indexed && (checked == null || checked.operation != atomicOperation
+          || checked.owner != config.id()
+          || !checked.destination.equals(CollectionNameKey.normalize(config.name())))) {
+        checked = checkCollectionName(atomicOperation, config.id(), config.name());
+      }
       final var paginated = (StoragePaginatedCollectionConfiguration) config;
       final var entryVersion = paginated.getComponentId() == null
           ? COLLECTIONS_PROPERTY_VERSION : COLLECTIONS_COMPONENT_ID_PROPERTY_VERSION;
@@ -1679,6 +1690,9 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                   + storedEntryVersion + " to " + entryVersion);
         }
       }
+      final var previous = !indexed || identity == null ? null
+          : checked.previous != null ? checked.previous
+              : readCurrentCollection(config.id(), identity, atomicOperation);
       @SuppressWarnings("unchecked")
       final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);
@@ -1699,6 +1713,18 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           COLLECTIONS_PREFIX_PROPERTY + config.id(),
           storedCollectionConfig,
           entryVersion);
+      if (indexed) {
+        final var destinationKey = nameKey(config.name(), config.id());
+        final var previousKey = previous == null ? null : nameKey(previous.name(), config.id());
+        // In-place payload updates retain their reference, including case-only name changes.
+        if (!destinationKey.equals(previousKey)) {
+          if (previousKey != null) {
+            btree.remove(atomicOperation, previousKey);
+          }
+          btree.put(atomicOperation, destinationKey,
+              btree.get(COLLECTIONS_PREFIX_PROPERTY + config.id(), atomicOperation));
+        }
+      }
     } finally {
       lock.writeLock().unlock();
     }
@@ -1755,12 +1781,99 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  /** Finds an operation-visible owner of a normalized display name, without using the cache. */
+  /**
+   * Finds a stored owner without the cache. Layout 28 requires storage state protection and reads
+   * current metadata plus this operation's changes. Layout 27 retains snapshot visibility.
+   */
   @Nullable public StoragePaginatedCollectionConfiguration readCollectionByName(
       String normalizedName, AtomicOperation atomicOperation) {
-    return readCollections(atomicOperation).stream()
-        .filter(owner -> owner.name().toLowerCase(java.util.Locale.ROOT).equals(normalizedName))
-        .findFirst().orElse(null);
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      return readCollections(atomicOperation).stream()
+          .filter(owner -> owner.name().toLowerCase(Locale.ROOT).equals(normalizedName))
+          .findFirst().orElse(null);
+    }
+    lock.readLock().lock();
+    try {
+      return findNameOwner(CollectionNameKey.normalize(normalizedName), atomicOperation);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  // Instance-local hook keeps forced hash collisions isolated from other databases.
+  java.util.function.UnaryOperator<String> nameHashForTest;
+
+  private String nameHash(String normalized) {
+    return nameHashForTest == null ? CollectionNameKey.hash(normalized)
+        : nameHashForTest.apply(normalized);
+  }
+
+  private String nameKey(String name, int owner) {
+    return CollectionNameKey.key(nameHash(CollectionNameKey.normalize(name)), owner);
+  }
+
+  /** A check result travels as an argument, never as shared mutable authorization state. */
+  public static final class CollectionNameCheck {
+    private final AtomicOperation operation;
+    private final int owner;
+    private final String destination;
+    private final StoragePaginatedCollectionConfiguration previous;
+
+    private CollectionNameCheck(AtomicOperation operation, int owner, String destination,
+        StoragePaginatedCollectionConfiguration previous) {
+      this.operation = operation;
+      this.owner = owner;
+      this.destination = destination;
+      this.previous = previous;
+    }
+  }
+
+  /**
+   * Requires the storage state write lock through the ensuing configuration write.
+   * Takes no configuration lock. The storage boundary calls it before runtime mutation.
+   * Direct configuration writers call it under the non-reentrant configuration write lock.
+   * No collection entry or name key may change before consuming the returned result.
+   */
+  public CollectionNameCheck checkCollectionName(AtomicOperation operation, int owner,
+      String destination) {
+    var normalized = CollectionNameKey.normalize(destination);
+    var existing = findNameOwner(normalized, operation);
+    if (existing != null && existing.id != owner) {
+      throw new ConfigurationException(storage.getName(),
+          "Collection display name is still configured: " + destination);
+    }
+    return new CollectionNameCheck(operation, owner, normalized, existing);
+  }
+
+  private StoragePaginatedCollectionConfiguration findNameOwner(String normalized,
+      AtomicOperation operation) {
+    var prefix = CollectionNameKey.prefix(nameHash(normalized));
+    try (var entries = btree.iterateEntriesBetween(
+        prefix, true, prefix + "{", false, true, operation)) {
+      var iterator = entries.iterator();
+      while (iterator.hasNext()) {
+        var candidate = iterator.next();
+        var owner = readCurrentCollection(
+            CollectionNameKey.owner(candidate.first()), candidate.second(), operation);
+        if (CollectionNameKey.normalize(owner.name()).equals(normalized)) {
+          return owner;
+        }
+      }
+      return null;
+    }
+  }
+
+  private StoragePaginatedCollectionConfiguration readCurrentCollection(int id, RID reference,
+      AtomicOperation operation) {
+    try {
+      var bytes = ((PaginatedCollectionV2) collection)
+          .readCurrentRecord(reference.getCollectionPosition(), operation).buffer();
+      return (StoragePaginatedCollectionConfiguration) deserializeStorageCollectionConfig(
+          id, bytes, reference.getCollectionId());
+    } catch (IOException e) {
+      throw BaseException.wrapException(new StorageException(storage.getName(),
+          "Cannot read current collection owner " + id), e, storage.getName());
+    }
   }
 
   private void preloadCollections(AtomicOperation atomicOperation) {
@@ -1815,6 +1928,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   public void dropCollection(final AtomicOperation atomicOperation, final int collectionId) {
     lock.writeLock().lock();
     try {
+      if (storage.getStorageFormat() == StorageFormat.LAYOUT_28) {
+        var reference = btree.get(COLLECTIONS_PREFIX_PROPERTY + collectionId, atomicOperation);
+        if (reference != null) {
+          var previous = readCurrentCollection(collectionId, reference, atomicOperation);
+          btree.remove(atomicOperation, nameKey(previous.name(), collectionId));
+        }
+      }
       @SuppressWarnings("unchecked")
       final var collections =
           (List<StorageCollectionConfiguration>) cache.get(COLLECTIONS);

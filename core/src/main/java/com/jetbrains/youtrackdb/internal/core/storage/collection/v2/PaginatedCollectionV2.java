@@ -999,6 +999,27 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         () -> doReadRecord(collectionPosition, atomicOperation));
   }
 
+  /**
+   * Reads current structural metadata through this operation's page changes, without history.
+   * The caller must hold storage state protection that excludes structural writers.
+   * Ordinary record reads retain their transaction snapshot visibility.
+   */
+  public RawBuffer readCurrentRecord(long collectionPosition, AtomicOperation atomicOperation)
+      throws IOException {
+    acquireSharedLock();
+    try {
+      var current = collectionPositionMap.getWithStatus(collectionPosition, atomicOperation);
+      if (current.status() != CollectionPositionMapBucket.FILLED) {
+        throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+      }
+      var entry = current.entry();
+      return readRecordFromHistoricalEntry(collectionPosition, entry.getPageIndex(),
+          entry.getRecordPosition(), entry.getRecordVersion(), atomicOperation);
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
   /// Reads a record from the collection at the specified position, with tombstone awareness
   /// for snapshot isolation.
   ///

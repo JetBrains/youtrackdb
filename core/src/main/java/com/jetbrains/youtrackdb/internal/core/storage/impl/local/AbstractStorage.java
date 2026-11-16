@@ -9001,14 +9001,15 @@ public abstract class AbstractStorage
     }
 
     collectionName = collectionName.toLowerCase(Locale.ROOT);
+    CollectionBasedStorageConfiguration.CollectionNameCheck nameCheck = null;
     if (getStorageFormat() == StorageFormat.LAYOUT_28) {
       final var config = (CollectionBasedStorageConfiguration) configuration;
-      if (isCollectionSlotOwned(collectionPos, atomicOperation)
-          || config.readCollectionByName(collectionName, atomicOperation) != null) {
+      if (isCollectionSlotOwned(collectionPos, atomicOperation)) {
         throw new ConfigurationException(name,
             "Collection slot or display name is still configured: " + collectionPos
                 + " / " + collectionName);
       }
+      nameCheck = config.checkCollectionName(atomicOperation, collectionPos, collectionName);
     }
 
     // All creation paths hold the state write lock and carry the creation atomic operation.
@@ -9038,7 +9039,7 @@ public abstract class AbstractStorage
     final var collectionConfig = collection.generateCollectionConfig();
     checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, collectionConfig);
+        .updateCollection(atomicOperation, collectionConfig, nameCheck);
 
     if (getStorageFormat() == StorageFormat.LAYOUT_28) {
       linkCollectionsBTreeManager.createComponent(atomicOperation, collection);
@@ -9095,6 +9096,12 @@ public abstract class AbstractStorage
       final Object value,
       final StorageCollection collection) {
     final var stringValue = Optional.ofNullable(value).map(Object::toString).orElse(null);
+    final var nameCheck = getStorageFormat() == StorageFormat.LAYOUT_28
+        ? ((CollectionBasedStorageConfiguration) configuration).checkCollectionName(
+            atomicOperation, collection.getId(),
+            attribute == ATTRIBUTES.NAME ? Objects.requireNonNull(stringValue)
+                : collection.getName())
+        : null;
     switch (attribute) {
       case NAME -> {
         Objects.requireNonNull(stringValue);
@@ -9112,7 +9119,7 @@ public abstract class AbstractStorage
     final var collectionConfig = ((PaginatedCollection) collection).generateCollectionConfig();
     checkCollectionIdentity(collectionConfig);
     ((CollectionBasedStorageConfiguration) configuration)
-        .updateCollection(atomicOperation, collectionConfig);
+        .updateCollection(atomicOperation, collectionConfig, nameCheck);
   }
 
   private boolean dropCollectionInternal(final AtomicOperation atomicOperation,
