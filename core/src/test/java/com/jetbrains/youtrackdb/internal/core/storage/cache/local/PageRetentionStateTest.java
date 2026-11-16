@@ -25,7 +25,7 @@ public class PageRetentionStateTest {
 
   private final Thread owner = Thread.currentThread();
   private final PageRetentionState state =
-      new PageRetentionState(() -> Thread.currentThread() == owner);
+      new PageRetentionState(() -> Thread.currentThread() == owner, 3);
 
   /** Pending publication retains every page before submission, without inventing failures. */
   @Test
@@ -505,7 +505,7 @@ public class PageRetentionStateTest {
   public void ownerCheckCanRecognizeReplacementWorker() throws Throwable {
     final var executorWorker = new AtomicReference<>(Thread.currentThread());
     final var retention = new PageRetentionState(
-        () -> Thread.currentThread() == executorWorker.get());
+        () -> Thread.currentThread() == executorWorker.get(), 3);
     final var attempt = retention.appendSucceeded(pointer(1, 0), 10L, true);
     runOnOtherThread(() -> {
       executorWorker.set(Thread.currentThread());
@@ -519,12 +519,12 @@ public class PageRetentionStateTest {
     assertThrows(IllegalStateException.class, retention::retainedSegments);
   }
 
-  /** Only sync-pending attempts count toward the fixed limit. Replacement and discard update it. */
+  /** Only sync-pending attempts count toward the configured limit. Replacement and discard update it. */
   @Test
   public void limitCountsOnlyCurrentSuccessfulAttempts() throws Exception {
     assertFalse(state.synchronizationLimitReached());
     final var page = new CachePointer((Pointer) null, null, 1, 0);
-    for (int index = 0; index < PageRetentionState.SYNCHRONIZATION_LIMIT; index++) {
+    for (int index = 0; index < 3; index++) {
       var pointer = new CachePointer((Pointer) null, null, 1, index);
       state.writeSucceeded(state.appendSucceeded(pointer, 10L, true), true);
     }
@@ -541,6 +541,35 @@ public class PageRetentionStateTest {
     assertState(Set.of(20L), true, false);
     state.discardAfterRemoval(1, 0);
     assertFalse(state.synchronizationLimitReached());
+  }
+
+  /** A maximum configured limit permits 65,537 pending records without synchronization. */
+  @Test
+  public void maximumLimitAllows65537PendingRecords() {
+    var retention = new PageRetentionState(() -> true, Integer.MAX_VALUE);
+    for (int page = 0; page < 65_537; page++) {
+      var pointer = new CachePointer((Pointer) null, null, 1, page);
+      retention.writeSucceeded(retention.appendSucceeded(pointer, 10L, true), true);
+    }
+    assertTrue(retention.hasPendingSynchronization());
+    assertFalse(retention.synchronizationLimitReached());
+  }
+
+  /** A batch can cross MAX_VALUE before the limit check without wrapping the pending count. */
+  @Test
+  public void pendingCountDoesNotWrapWhenBatchCrossesMaximumLimit() throws Exception {
+    var retention = new PageRetentionState(() -> true, Integer.MAX_VALUE);
+    // Seed only the count to exercise the boundary without allocating billions of page records.
+    var pending = PageRetentionState.class.getDeclaredField("pendingSynchronization");
+    pending.setAccessible(true);
+    pending.set(retention, Integer.MAX_VALUE - 1);
+    for (int page = 0; page < 2; page++) {
+      var pointer = new CachePointer((Pointer) null, null, 1, page);
+      retention.writeSucceeded(retention.appendSucceeded(pointer, 10L, true), true);
+    }
+    assertEquals((long) Integer.MAX_VALUE + 1, pending.getLong(retention));
+    assertTrue(retention.hasPendingSynchronization());
+    assertTrue(retention.synchronizationLimitReached());
   }
 
   private static void runOnOtherThread(ThrowingRunnable operation) throws Throwable {

@@ -1425,7 +1425,35 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
-  /** The fixed limit forces once, releases the covered set and leaves no pending accumulation. */
+  /** The convenience constructor uses the setting default, not a separate cache default. */
+  @Test
+  public void convenienceConstructorUsesSettingDefault() throws Exception {
+    assertEquals(1_048_576,
+        GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT.getDefValue());
+    assertEquals(GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT.getDefValue(),
+        field(retention(), "synchronizationLimit"));
+  }
+
+  /** The largest integer limit accepts several real writes without overflow or an early force. */
+  @Test
+  public void maximumLimitDoesNotSynchronizeSmallCounts() throws Exception {
+    reopenWithLimit(Integer.MAX_VALUE);
+    installLiveLog(1_000_000_000, true);
+    long file = cache.addFile("maximum-limit.tst");
+    var handle = observeDataFile(file);
+    for (int page = 0; page < 3; page++) {
+      writePattern(file, page, (byte) 1);
+      liveBatch();
+    }
+    assertEquals(Integer.MAX_VALUE, field(retention(), "synchronizationLimit"));
+    org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).synch();
+    assertTrue(flushExecutor().submit(() -> retention().hasPendingSynchronization())
+        .get(10, TimeUnit.SECONDS));
+    assertFalse(flushExecutor().submit(() -> retention().synchronizationLimitReached())
+        .get(10, TimeUnit.SECONDS));
+  }
+
+  /** The configured limit forces once, releases the covered set and leaves no pending accumulation. */
   @Test
   public void pendingLimitRunsOneForceAndReleasesCoveredRecords() throws Exception {
     assertPendingLimit(false);
@@ -1438,6 +1466,7 @@ public class WOWCacheChangedPageTrackingTest {
   }
 
   private void assertPendingLimit(boolean restoreMode) throws Exception {
+    reopenWithLimit(2);
     var log = installLiveLog(1_000_000_000, true);
     if (restoreMode) {
       log.restoreModeOn();
@@ -1447,16 +1476,7 @@ public class WOWCacheChangedPageTrackingTest {
     writePattern(file, 0, (byte) 1);
     liveBatch();
     var state = retention();
-    // Seed the boundary with identities of the real appended copy to avoid a 256 MiB fixture.
-    flushExecutor().submit(() -> {
-      long segment = state.retainedSegments().iterator().next();
-      for (int page = 2; page < PageRetentionState.SYNCHRONIZATION_LIMIT; page++) {
-        var pointer = new com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer(
-            (com.jetbrains.youtrackdb.internal.common.directmemory.Pointer) null, null, file, page);
-        state.writeSucceeded(state.appendSucceeded(pointer, segment, true), true);
-      }
-    }).get(10, TimeUnit.SECONDS);
-    org.mockito.Mockito.clearInvocations(handle);
+    org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).synch();
     writePattern(file, 1, (byte) 2);
     liveBatch();
     org.mockito.Mockito.verify(handle).synch();
@@ -1740,6 +1760,16 @@ public class WOWCacheChangedPageTrackingTest {
     cache.loadRegisteredFiles();
     cache.restoreModeOn();
     return log;
+  }
+
+  private void reopenWithLimit(int limit) throws Exception {
+    var path = cache.getRootDirectory();
+    cache.close();
+    cache = new WOWCache(pageSize, false, pool, wal, new DoubleWriteLogNoOP(), 0, 10000,
+        128L * pageSize, path, "marks", new ClosableLinkedContainer<Long, File>(128), 1,
+        ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, ChecksumMode.StoreAndVerify,
+        null, null, false, io, tracker, limit);
+    cache.loadRegisteredFiles();
   }
 
   private void liveBatch() throws Exception {

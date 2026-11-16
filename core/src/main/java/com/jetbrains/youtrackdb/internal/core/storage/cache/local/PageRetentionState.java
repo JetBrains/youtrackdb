@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.io.IOException;
@@ -17,20 +18,30 @@ import javax.annotation.Nullable;
  * Checkpoint forces cannot acknowledge this state.
  * This state is independent of WAL and backup tracking.
  */
-final class PageRetentionState {
+public final class PageRetentionState {
 
-  // About 5 MiB at 80 bytes per record, excluding unresolved pages.
-  static final int SYNCHRONIZATION_LIMIT = 65_536;
+  private final int synchronizationLimit;
   private final Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<WriteAttempt>> files =
       new Long2ObjectOpenHashMap<>();
   // Lifecycle callers need only a conservative file-level hint, not access to owner-only maps.
   private final Set<Long> retainedFiles = java.util.concurrent.ConcurrentHashMap.newKeySet();
   private final BooleanSupplier ownerCheck;
   private long generation;
-  private int pendingSynchronization;
+  private long pendingSynchronization;
 
-  PageRetentionState(final BooleanSupplier ownerCheck) {
+  PageRetentionState(final BooleanSupplier ownerCheck, final int synchronizationLimit) {
+    validateSynchronizationLimit(synchronizationLimit);
+    this.synchronizationLimit = synchronizationLimit;
     this.ownerCheck = Objects.requireNonNull(ownerCheck);
+  }
+
+  /** Reject invalid disk settings before startup acquires resources or changes persisted state. */
+  public static void validateSynchronizationLimit(final int synchronizationLimit) {
+    if (synchronizationLimit < 1) {
+      throw new IllegalArgumentException(
+          GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT.getKey()
+              + " must be at least 1");
+    }
   }
 
   /** Publish after append and before data submission. Null segments and non-durable pages skip it. */
@@ -178,7 +189,7 @@ final class PageRetentionState {
 
   boolean synchronizationLimitReached() {
     checkOwner();
-    return pendingSynchronization >= SYNCHRONIZATION_LIMIT;
+    return pendingSynchronization >= synchronizationLimit;
   }
 
   private boolean matching(@Nullable WriteAttempt attempt) {

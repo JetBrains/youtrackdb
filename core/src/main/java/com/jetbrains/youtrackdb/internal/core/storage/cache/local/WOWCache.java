@@ -537,9 +537,7 @@ public final class WOWCache extends AbstractWriteCache
    */
   private Throwable flushError;
 
-  private final PageRetentionState pageRetentionState = new PageRetentionState(
-      () -> ((ScheduledThreadPoolExecutorWithLogging) commitExecutor())
-          .isExecutingOnCurrentThread());
+  private final PageRetentionState pageRetentionState;
 
   // Close writes this flag once, and flush work reads it. Only a truncate that passed its final
   // check before close set the flag can complete. No truncate starts after that check sees it set.
@@ -658,7 +656,38 @@ public final class WOWCache extends AbstractWriteCache
       final boolean callFsync,
       ExecutorService executor,
       ChangedPageTracker changedPageTracker) {
+    this(pageSize, logFileDeletion, bufferPool, writeAheadLog, doubleWriteLog, pagesFlushInterval,
+        shutdownTimeout, exclusiveWriteCacheMaxSize, storagePath, storageName, files, id,
+        doubleWriteLogFileName, checksumMode, iv, aesKey, callFsync, executor, changedPageTracker,
+        (Integer) GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT.getDefValue());
+  }
 
+  /** The retention limit belongs to this storage, independently of other caches. */
+  public WOWCache(
+      final int pageSize,
+      final boolean logFileDeletion,
+      final ByteBufferPool bufferPool,
+      final WriteAheadLog writeAheadLog,
+      final DoubleWriteLog doubleWriteLog,
+      final long pagesFlushInterval,
+      final int shutdownTimeout,
+      final long exclusiveWriteCacheMaxSize,
+      final Path storagePath,
+      final String storageName,
+      final ClosableLinkedContainer<Long, File> files,
+      final int id, String doubleWriteLogFileName,
+      final ChecksumMode checksumMode,
+      final byte[] iv,
+      final byte[] aesKey,
+      final boolean callFsync,
+      ExecutorService executor,
+      ChangedPageTracker changedPageTracker,
+      final int synchronizationLimit) {
+    // Reject invalid settings before this cache can schedule any periodic work.
+    this.pageRetentionState = new PageRetentionState(
+        () -> ((ScheduledThreadPoolExecutorWithLogging) commitExecutor())
+            .isExecutingOnCurrentThread(),
+        synchronizationLimit);
     this.changedPageTracker = java.util.Objects.requireNonNull(changedPageTracker);
     this.logFileDeletion = logFileDeletion;
     this.doubleWriteLogFileName = doubleWriteLogFileName;
