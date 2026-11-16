@@ -73,6 +73,31 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
         .isActive(db));
   }
 
+  /** Even a failing pin release restores the enclosing exact-session marker. */
+  @Test
+  public void throwingScopeCloseRestoresOuterMarker() {
+    var db = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class);
+    var metadata = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
+    org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    org.mockito.Mockito.when(metadata.getImmutableSchemaSnapshot())
+        .thenReturn(session.getMetadata().getImmutableSchemaSnapshot());
+    var failure = new IllegalStateException("clear failed");
+    org.mockito.Mockito.doThrow(failure).when(metadata).clearThreadLocalSchemaSnapshot();
+    try (var outer =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(db);
+      assertSame(failure, assertThrows(IllegalStateException.class, scope::close));
+      assertTrue(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(session));
+      assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(db));
+    }
+  }
+
   /** Nested scopes restore the exact session marker and preserve an unrelated outer pin. */
   @Test
   public void privateScopesRestoreSessionIdentityAndOuterSnapshotOnFailure() {

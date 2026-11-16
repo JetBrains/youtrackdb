@@ -676,12 +676,26 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
     } finally {
       session.rollback();
     }
-    var production = parse("MATCH {class:CacheVertex,as:v} RETURN count(*)")
-        .createExecutionPlanNoCache(ctx, false);
-    try {
-      Assert.assertTrue(production.getSteps().stream().anyMatch(CountFromClassStep.class::isInstance));
+    session.getMetadata().makeThreadLocalSchemaSnapshot();
+    try (var other = youTrackDB.open(databaseName, "admin", "adminpwd")) {
+      for (boolean unrelatedMarker : List.of(false, true)) {
+        try (var scope = unrelatedMarker
+            ? com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(other)
+            : null) {
+          var production = parse("MATCH {class:CacheVertex,as:v} RETURN count(*)")
+              .createExecutionPlanNoCache(ctx, false);
+          try {
+            Assert.assertTrue(production.getSteps().stream()
+                .anyMatch(CountFromClassStep.class::isInstance));
+            Assert.assertFalse(com.jetbrains.youtrackdb.internal.core.metadata
+                .PrivatePreparationSchemaScope.isActive(session));
+          } finally {
+            production.close();
+          }
+        }
+      }
     } finally {
-      production.close();
+      session.getMetadata().clearThreadLocalSchemaSnapshot();
     }
   }
 
@@ -691,10 +705,15 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
    */
   @Test
   public void privateCountFailsClosedWhereProductionCountsReadableCollections() {
+    var schema = session.getMetadata().getSchema();
+    var denied = schema.createClass("DeniedChild", schema.getClass("CacheVertex"));
+    session.begin();
+    session.newVertex("DeniedChild").setProperty("id", 3);
+    session.commit();
     session.begin();
     var role = session.getMetadata().getSecurity().getRole("reader");
-    var clazz = session.getMetadata().getSchema().getClass("CacheVertex");
-    for (int id : clazz.getCollectionIds()) {
+    // Only the child's nonempty collection is denied. Both parent records remain readable.
+    for (int id : denied.getCollectionIds()) {
       role.revoke(session,
           com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric.COLLECTION,
           session.getCollectionNameById(id),
@@ -712,7 +731,7 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
             .anyMatch(CountFromClassStep.class::isInstance));
         var stream = production.start();
         try {
-          Assert.assertEquals(0L, ((Number) stream.next(ctx).getProperty("n")).longValue());
+          Assert.assertEquals(2L, ((Number) stream.next(ctx).getProperty("n")).longValue());
         } finally {
           stream.close(ctx);
         }
@@ -811,6 +830,146 @@ public class GenerationStampedYqlExecutionPlanCacheTest extends BaseMemoryIntern
         Assert.assertFalse("another reader must retain the inherited restriction", result.hasNext());
       } finally {
         independent.rollback();
+      }
+    }
+  }
+
+  /** CLASS READ denial remains effective when the plan is prepared under the private marker. */
+  @Test
+  public void privatePlanCannotBypassClassReadDenial() {
+    session.begin();
+    var role = session.getMetadata().getSecurity().getRole("reader");
+    role.revoke(session,
+        com.jetbrains.youtrackdb.internal.core.metadata.security.Rule.ResourceGeneric.CLASS,
+        "CacheVertex",
+        com.jetbrains.youtrackdb.internal.core.metadata.security.Role.PERMISSION_READ);
+    role.save(session);
+    session.commit();
+    try (var reader = youTrackDB.open(databaseName, "reader", "readerpwd")) {
+      reader.begin();
+      var ctx = context(reader);
+      InternalExecutionPlan plan;
+      try (var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(reader)) {
+        plan = SQLEngine.parse("MATCH {class:CacheVertex,as:v} RETURN v", reader)
+            .createExecutionPlanNoCache(ctx, false);
+      }
+      try {
+        var stream = plan.start();
+        try {
+          Assert.assertFalse(stream.hasNext(ctx));
+        } finally {
+          stream.close(ctx);
+        }
+      } finally {
+        plan.close();
+      }
+      Assert.assertFalse(com.jetbrains.youtrackdb.internal.core.metadata
+          .PrivatePreparationSchemaScope.isActive(reader));
+    }
+  }
+
+  /** Property policies still hide projected values when execution starts after private planning. */
+  @Test
+  public void privatePlanKeepsPropertyPolicyAtExecution() {
+    session.begin();
+    var security = session.getSharedContext().getSecurity();
+    var policy = security.createSecurityPolicy(session, "hideCacheId");
+    policy.setActive(true);
+    policy.setReadRule("false");
+    security.saveSecurityPolicy(session, policy);
+    security.setSecurityPolicy(session, session.getMetadata().getSecurity().getRole("reader"),
+        "database.class.CacheVertex.id", policy);
+    session.commit();
+    try (var reader = youTrackDB.open(databaseName, "reader", "readerpwd")) {
+      reader.begin();
+      var ctx = context(reader);
+      InternalExecutionPlan plan;
+      try (var scope =
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(reader)) {
+        plan = SQLEngine.parse("SELECT id AS hidden FROM CacheVertex", reader)
+            .createExecutionPlanNoCache(ctx, false);
+      }
+      try {
+        var stream = plan.start();
+        int rows = 0;
+        try {
+          while (stream.hasNext(ctx)) {
+            Assert.assertNull(stream.next(ctx).getProperty("hidden"));
+            rows++;
+          }
+          Assert.assertEquals(2, rows);
+        } finally {
+          stream.close(ctx);
+        }
+      } finally {
+        plan.close();
+      }
+    }
+  }
+
+  /** An old private SELECT ignores a newer resident and cannot hide the new subclass from C. */
+  @Test
+  public void oldPrivateSelectLeavesNewerResidentAndIndependentReaderUntouched() throws Exception {
+    var key = "SELECT FROM CacheVertex";
+    var peek = com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache.class
+        .getDeclaredMethod("getCached", Object.class);
+    peek.setAccessible(true);
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(session)) {
+      var oldIds = session.getMetadata().getImmutableSchemaSnapshot().getClass("CacheVertex")
+          .getPolymorphicCollectionIds().clone();
+      var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+      var writer = new Thread(() -> {
+        try (var other = youTrackDB.open(databaseName, "admin", "adminpwd")) {
+          var schema = other.getMetadata().getSchema();
+          schema.createClass("NewCacheChild", schema.getClass("CacheVertex"));
+          other.begin();
+          other.newVertex("NewCacheChild").setProperty("id", 99);
+          other.commit();
+          other.begin();
+          try (var rows = other.query(key)) {
+            Assert.assertEquals(3L, rows.stream().count());
+          }
+        } catch (Throwable thrown) {
+          failure.set(thrown);
+        }
+      }, "newer-sql-resident-writer");
+      writer.start();
+      writer.join(30000);
+      if (writer.isAlive()) {
+        writer.interrupt();
+        writer.join(30000);
+        throw new AssertionError("SQL writer timed out");
+      }
+      Assert.assertNull(failure.get());
+      var resident = peek.invoke(cache(), key);
+      Assert.assertNotNull(resident);
+      long hits = cache().getHits();
+      long misses = cache().getMisses();
+      var plan = parse(key).createExecutionPlan(context(session), false);
+      try {
+        var scan = plan.getSteps().stream()
+            .filter(com.jetbrains.youtrackdb.internal.core.sql.executor
+                .FetchFromClassExecutionStep.class::isInstance).findFirst().orElseThrow();
+        var ids = scan.getClass().getDeclaredField("collectionIds");
+        ids.setAccessible(true);
+        var actual = ((int[]) ids.get(scan)).clone();
+        java.util.Arrays.sort(actual);
+        java.util.Arrays.sort(oldIds);
+        Assert.assertArrayEquals(oldIds, actual);
+      } finally {
+        plan.close();
+      }
+      Assert.assertEquals(hits, cache().getHits());
+      Assert.assertEquals(misses, cache().getMisses());
+      Assert.assertSame(resident, peek.invoke(cache(), key));
+    }
+    try (var independent = youTrackDB.open(databaseName, "admin", "adminpwd")) {
+      independent.begin();
+      try (var rows = independent.query(key)) {
+        Assert.assertTrue(rows.stream().anyMatch(row -> Integer.valueOf(99).equals(
+            row.getProperty("id"))));
       }
     }
   }
