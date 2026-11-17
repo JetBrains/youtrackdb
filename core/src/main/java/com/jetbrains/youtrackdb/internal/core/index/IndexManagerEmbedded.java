@@ -249,6 +249,28 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     reconciledIndexPublicationTestHook = hook;
   }
 
+  /** Test-only observation after registration and before the fill opens its own interval. */
+  volatile Runnable creationFillHandoffTestHook;
+
+  /** Called with the commit manager lock held. Rename bookkeeping need not affect any index. */
+  public boolean hasSharedIndexChanges(DatabaseSessionEmbedded session, IndexOverlay overlay) {
+    if (overlay == null || overlay.isEmpty()) {
+      return false;
+    }
+    if (!overlay.getTxCreatedNames().isEmpty() || !overlay.getTxDroppedNames().isEmpty()
+        || !overlay.getMembershipAdded().isEmpty() || !overlay.getMembershipRemoved().isEmpty()) {
+      return true;
+    }
+    for (var source : overlay.getClassRenames().keySet()) {
+      var affected = new LinkedHashSet<Index>();
+      super.getClassIndexes(session, source, affected);
+      if (!affected.isEmpty()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -1211,8 +1233,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
                   -1,
                   metadata);
 
+          index = Indexes.createIndexInstance(im.getType(), im.getAlgorithm(), storage);
+          // Factory validation has no shared side effects. Track only the mutating create.
           operation.raise();
-          index = createIndexFromMetadata(transaction, storage, im);
+          index.create(transaction, im);
+          indexes.put(im.getName(), index);
           ((AbstractStorage) storage)
               .registerTopLevelIndexLifecycle(transaction, index.getIdentity());
           addIndexInternalNoLock(index, transaction, true);
@@ -1233,6 +1258,10 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         progressListener = new IndexRebuildOutputListener(idx);
       }
 
+      final var handoffHook = creationFillHandoffTestHook;
+      if (handoffHook != null) {
+        handoffHook.run();
+      }
       idx.fillIndex(session, progressListener);
 
       return idx;
@@ -1262,18 +1291,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               .getContextConfiguration()
               .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
     }
-  }
-
-  private Index createIndexFromMetadata(
-      FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata) {
-
-    var index = Indexes.createIndexInstance(indexMetadata.getType(), indexMetadata.getAlgorithm(),
-        storage);
-
-    index.create(transaction, indexMetadata);
-    indexes.put(indexMetadata.getName(), index);
-
-    return index;
   }
 
   private static void checkSecurityConstraintsForIndexCreate(
@@ -1806,14 +1823,21 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         if (snapshot.engineIdentifier() >= 0) {
           AbstractStorage.DroppedIndexEngine droppedEngine;
           try {
-            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
-                snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
-          } catch (InvalidIndexEngineIdException exception) {
-            // A failed earlier commit can restore the same owner with a fresh engine generation.
-            // Refresh under the commit-window state lock, then retry the validated deletion once.
-            final var resolved = handle.resolveOwnedEngineWithStateLock();
-            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
-                resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+            try {
+              droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                  snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
+            } catch (InvalidIndexEngineIdException exception) {
+              // A failed earlier commit can restore the same owner with a fresh engine generation.
+              // Refresh under the commit-window state lock, then retry the validated deletion once.
+              final var resolved = handle.resolveOwnedEngineWithStateLock();
+              droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                  resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+            }
+          } catch (IOException | RuntimeException | Error failure) {
+            // A destructive delete can fail before returning its reconstruction capture.
+            // Empty undo lists cannot certify that this live engine remains coherent.
+            poisonIndexChangeCounter();
+            throw failure;
           }
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.

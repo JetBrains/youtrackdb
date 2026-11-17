@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
@@ -263,6 +264,23 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
       assertTrue("successful writer must not poison", manager.readIndexChangeWord() >= 0);
       assertNull("owning thread must release its operation", manager.currentIndexWrite());
     }
+  }
+
+  /** Unsupported algorithms preserve the factory exception and leave no unresolved writer. */
+  @Test
+  public void unsupportedFactoryDoesNotPoisonCounter() {
+    var manager = session.getSharedContext().getIndexManager();
+    var definition = new PropertyIndexDefinition(CLS, "name", PropertyTypeInternal.STRING);
+    var expected = assertThrows(IndexException.class,
+        () -> Indexes.createIndexInstance("NOTUNIQUE", "NOPE", session.getStorage()));
+    var failure = assertThrows(IndexException.class,
+        () -> manager.createIndex(session, "Unsupported", "NOTUNIQUE", definition,
+            session.getMetadata().getSchema().getClass(CLS).getCollectionIds(),
+            null, Map.of(), "NOPE"));
+    assertEquals(expected.getMessage(), failure.getMessage());
+    assertNull(manager.getIndex("Unsupported"));
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.currentIndexWrite());
   }
 
   /** Eager rejected add keeps its membership, while rejected remove leaves it unchanged. */

@@ -24,6 +24,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -290,16 +291,63 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     verifyCounterUndoFailure(4);
   }
 
+  /** A destructive drop that fails before capture keeps permanent uncertainty after rollback. */
+  @Test
+  public void partialEngineDropBeforeCapturePoisonsCounter() throws Exception {
+    var cls = session.createClass("PartialCounterDrop");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("PartialCounterDrop.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    var manager = session.getSharedContext().getIndexManager();
+    var engine = (BTreeIndexEngine) storage().getIndexEngine(
+        ((IndexAbstract) manager.getIndex("PartialCounterDrop.value")).getIndexId());
+    assertNotNull(engine.getHistogramManager());
+    var seen = new AtomicBoolean();
+    var injected =
+        new CommandInterruptedException(session.getDatabaseName(), "after engine delete");
+    storage().setIndexEngineDeletedTestHook(() -> {
+      seen.set(true);
+      throw injected;
+    });
+    try {
+      session.begin();
+      manager.dropIndex(session, "PartialCounterDrop.value");
+      assertSame(injected, assertThrows(CommandInterruptedException.class, session::commit));
+    } finally {
+      storage().setIndexEngineDeletedTestHook(null);
+      // Test disposal only: the torn manager permanently blocks rebalance on delete. Do not
+      // close it a second time during database teardown. No production recovery is performed.
+      engine.setHistogramManager(null);
+    }
+    assertTrue(seen.get());
+    long after = manager.readIndexChangeWord();
+    assertTrue("uncaptured teardown must poison permanently", after < 0);
+    assertEquals(0, after & IndexManagerEmbedded.ACTIVE_MASK);
+    assertNull(manager.currentIndexWrite());
+    var pair = manager.beginIndexWrite();
+    manager.endIndexWrite(pair);
+    assertEquals(after, manager.readIndexChangeWord());
+  }
+
   private void verifyCounterUndoFailure(int failure) {
     var cls = session.createClass("CounterUndo");
     cls.createProperty("value", PropertyType.STRING);
     cls.createIndex("CounterUndo.old", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    cls.createIndex("CounterUndo.second", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    var parent = session.createClass("CounterUndoParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("CounterUndoParent.key", SchemaClass.INDEX_TYPE.NOTUNIQUE, "key");
+    var child = session.createClass("CounterUndoChild");
     var manager = session.getSharedContext().getIndexManager();
+    var membership = manager.getIndex("CounterUndoParent.key");
+    var originalMembership = java.util.Set.copyOf(membership.getCollections());
+    var restoreAttempts = new java.util.concurrent.atomic.AtomicInteger();
     long before = manager.readIndexChangeWord();
     assertTrue(IndexManagerEmbedded.isIdleIndexStamp(before));
     var faultSeen = new AtomicBoolean();
     Runnable fault = () -> {
       faultSeen.set(true);
+      assertTrue("fixture must apply a real membership delta before undo",
+          membership.getCollections().size() > originalMembership.size());
       throw new CommandInterruptedException(session.getDatabaseName(), "counter undo primary");
     };
     if (failure == 4) {
@@ -315,7 +363,11 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     if (failure == 1) {
       storage().setCreatedIndexRevertTestHook(cleanupFault);
     } else if (failure == 2) {
-      storage().setDroppedIndexRestoreTestHook(cleanupFault);
+      storage().setDroppedIndexRestoreTestHook(() -> {
+        if (restoreAttempts.incrementAndGet() == 1) {
+          cleanupFault.run();
+        }
+      });
     } else if (failure == 3) {
       storage().setRollbackCompletionTestHook(() -> {
         cleanupSeen.set(true);
@@ -325,6 +377,9 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     try {
       session.begin();
       manager.dropIndex(session, "CounterUndo.old");
+      manager.dropIndex(session, "CounterUndo.second");
+      var txSchema = session.getMetadata().getSchema();
+      txSchema.getClass("CounterUndoChild").addSuperClass(txSchema.getClass("CounterUndoParent"));
       session.getMetadata().getSchema().getClass("CounterUndo")
           .createIndex("CounterUndo.new", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
       assertEquals("private deltas must not enter", before, manager.readIndexChangeWord());
@@ -343,6 +398,19 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertEquals("active zero is distinct from poison", 0, after & 0xffffL);
     assertEquals("only incomplete undo poisons", failure >= 1 && failure <= 3, after < 0);
     assertNull("owning-thread state must be retired", manager.currentIndexWrite());
+    if (failure != 3) {
+      assertEquals("membership undo must run after any contained engine failure",
+          originalMembership, java.util.Set.copyOf(membership.getCollections()));
+      assertFalse("created-engine unpublication must precede its cleanup fault",
+          engineIsRegistered("CounterUndo.new"));
+      int restored = (engineIsRegistered("CounterUndo.old") ? 1 : 0)
+          + (engineIsRegistered("CounterUndo.second") ? 1 : 0);
+      assertEquals("remaining dropped engines must be restored after contained failures",
+          failure == 2 ? 1 : 2, restored);
+      if (failure == 2) {
+        assertEquals("a failed restore must not skip the next engine", 2, restoreAttempts.get());
+      }
+    }
     if (failure == 0 || failure == 4) {
       assertNotNull(manager.getIndex("CounterUndo.old"));
       assertNull(manager.getIndex("CounterUndo.new"));

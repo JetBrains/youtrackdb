@@ -116,6 +116,20 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
     var oldBatch = GlobalConfiguration.TX_BATCH_SIZE.getValue();
     GlobalConfiguration.TX_BATCH_SIZE.setValue(10);
     var reader = Executors.newSingleThreadExecutor();
+    var handoffs = new AtomicInteger();
+    if (!rebuild) {
+      manager.creationFillHandoffTestHook = () -> {
+        try {
+          // This executes before fillIndex can open its child interval.
+          var word = reader.submit(manager::readIndexChangeWord).get(30, TimeUnit.SECONDS);
+          assertThat(word & IndexManagerEmbedded.ACTIVE_MASK).isEqualTo(1);
+          assertThat(IndexManagerEmbedded.isIdleIndexStamp(word)).isFalse();
+          handoffs.incrementAndGet();
+        } catch (Exception failure) {
+          throw new AssertionError("creation-to-fill handoff reader failed", failure);
+        }
+      };
+    }
     var observed = new AtomicInteger();
     var progress = new AtomicInteger();
     var intervalTemplate = new AtomicReference<InternalExecutionPlan>();
@@ -224,6 +238,7 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
       assertThat(manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK).isZero();
       assertThat(manager.currentIndexWrite()).isNull();
       assertThat(manager.readIndexChangeWord() < 0).isEqualTo(entryPoint == 3);
+      assertThat(handoffs.get()).isEqualTo(rebuild ? 0 : 1);
       assertThat(observed.get()).isEqualTo(1);
       assertThat(atCompletion.get()).isNotNegative();
       // Any earlier manager events are irrelevant. Exactly one new event follows fill completion.
@@ -252,6 +267,7 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
     } catch (Exception failure) {
       throw new AssertionError("final-statistics reader failed", failure);
     } finally {
+      manager.creationFillHandoffTestHook = null;
       GlobalConfiguration.TX_BATCH_SIZE.setValue(oldBatch);
       shared.unregisterListener(observer);
       reader.shutdownNow();

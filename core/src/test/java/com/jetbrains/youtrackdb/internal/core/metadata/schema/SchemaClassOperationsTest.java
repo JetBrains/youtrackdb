@@ -31,6 +31,7 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -229,6 +230,43 @@ public class SchemaClassOperationsTest extends DbTestBase {
     assertThrows(RuntimeException.class, () -> parent.addSuperClass(child));
     assertThrows(RuntimeException.class, () -> parent.setName("ValidationChild"));
     assertEquals(before, manager.readIndexChangeWord());
+  }
+
+  /** Committed index-free renames are inert, while later index work keeps its event-time owner. */
+  @Test
+  public void committedRenameCounterUsesEffectiveIndexChanges() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("RenameCounter");
+    cls.createProperty("key", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    session.begin();
+    session.getMetadata().getSchema().getClass("RenameCounter").setName("RenameCounterMiddle");
+    session.commit();
+    assertEquals(before, manager.readIndexChangeWord());
+
+    session.begin();
+    var renamed = session.getMetadata().getSchema().getClass("RenameCounterMiddle");
+    renamed.setName("RenameCounterWithIndex");
+    renamed = session.getMetadata().getSchema().getClass("RenameCounterWithIndex");
+    renamed.createIndex("RenameCounter.key", INDEX_TYPE.NOTUNIQUE, "key");
+    renamed.setName("RenameCounterFinal");
+    session.commit();
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertEquals("RenameCounterFinal",
+        manager.getIndex("RenameCounter.key").getDefinition().getClassName());
+
+    before = manager.readIndexChangeWord();
+    session.begin();
+    session.getMetadata().getSchema().getClass("RenameCounterFinal")
+        .setName("RenameCounterDropped");
+    manager.dropIndex(session, "RenameCounter.key");
+    session.commit();
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.getIndex("RenameCounter.key"));
+    assertNotNull(session.getMetadata().getSchema().getClass("RenameCounterDropped"));
   }
 
   @Test

@@ -3845,7 +3845,7 @@ public abstract class AbstractStorage
             new SchemaCommitContext(committedSchema, txSchemaState.getTxLocalSchema(),
                 txSchemaState,
                 indexManager, indexOverlay, outcome);
-        if (indexOverlay != null && !indexOverlay.isEmpty()) {
+        if (indexManager.hasSharedIndexChanges(session, indexOverlay)) {
           outcome.indexWrite = indexManager.beginIndexWrite();
         }
         // Freezer-gate checkpoint (2): acquire the storage write lock through the
@@ -4772,6 +4772,14 @@ public abstract class AbstractStorage
    * installing and committing threads may differ in a concurrent test.
    */
   private volatile Runnable postEngineBuildTestHook;
+
+  /** Test-only fault boundary after engine teardown and before configuration deletion. */
+  private volatile Runnable indexEngineDeletedTestHook;
+
+  /** Installs or clears the engine teardown fault seam. */
+  public void setIndexEngineDeletedTestHook(Runnable hook) {
+    indexEngineDeletedTestHook = hook;
+  }
 
   /**
    * Installs (or clears, with {@code null}) the test-only post-engine-build commit hook. Test-only
@@ -5910,6 +5918,10 @@ public abstract class AbstractStorage
   private void doDeleteIndexEngine(
       final AtomicOperation atomicOperation, final BaseIndexEngine engine) throws IOException {
     engine.delete(atomicOperation);
+    final var deleteHook = indexEngineDeletedTestHook;
+    if (deleteHook != null) {
+      deleteHook.run();
+    }
     ((CollectionBasedStorageConfiguration) configuration)
         .deleteIndexEngine(atomicOperation, engine.getName());
   }
