@@ -41,6 +41,9 @@ import org.openjdk.jmh.infra.Blackhole;
 @Fork(3)
 public class OffBenchmark {
 
+  static final String SQL = "select from Fixture";
+  static final String LABEL = "Fixture";
+
   @Benchmark
   public long sql(Blackhole blackhole, Fixture fixture) throws Exception {
     return fixture.sql(blackhole);
@@ -115,7 +118,7 @@ public class OffBenchmark {
         g = db.openTraversal("fixture", "admin", "admin");
         tx = (YTDBTransaction) g.tx();
         for (int i = 0; i < rows; i++) {
-          g.addV("Fixture").property("ordinal", i).iterate();
+          g.addV(LABEL).property("ordinal", i).iterate();
         }
         tx.commit();
         tx.open();
@@ -143,7 +146,7 @@ public class OffBenchmark {
 
     GraphTraversal<?, ?> traversal(boolean translated) {
       var source = translated ? g : g.withoutStrategies(GremlinToMatchStrategy.class);
-      return source.V().hasLabel("Fixture");
+      return source.V().hasLabel(LABEL);
     }
 
     // Inspect the exact consumed traversal after timing, not a separately compiled sample.
@@ -164,7 +167,7 @@ public class OffBenchmark {
     }
 
     Cursor sqlResult() {
-      var result = tx.getDatabaseSession().query("select from Fixture");
+      var result = tx.getDatabaseSession().query(SQL);
       return new Cursor(result, result);
     }
 

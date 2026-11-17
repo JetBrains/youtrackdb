@@ -19,6 +19,34 @@ public class OffBenchmarkTest {
 
   private final OffBenchmark benchmark = new OffBenchmark();
 
+  /// The independent metadata launch preserves all paths, counts and exact query constants.
+  @Test
+  public void setupMetadataEntryPointWritesJarFixtureProperties() throws Exception {
+    var output = java.nio.file.Files.createTempFile("telemetry-metadata-", ".xml");
+    try {
+      SetupMetadata.main(new String[] {output.toString()});
+      var values = new java.util.Properties();
+      try (var input = java.nio.file.Files.newInputStream(output)) {
+        values.loadFromXML(input);
+      }
+      assertEquals("1", values.getProperty("count.1"));
+      assertEquals("10000", values.getProperty("count.10000"));
+      for (var path : List.of("sql", "translated", "fallback")) {
+        assertEquals(path, values.getProperty(path + ".path"));
+        assertEquals("off", values.getProperty(path + ".scenario"));
+        assertEquals("open, consume and close, rollback",
+            values.getProperty(path + ".transaction"));
+        assertEquals("query-result cache disabled", values.getProperty(path + ".cache"));
+        assertEquals("unindexed Fixture vertices, ordinal=0..rows-1, memory database",
+            values.getProperty(path + ".data"));
+        assertEquals(path.equals("sql") ? OffBenchmark.SQL : "g.V().hasLabel(\"Fixture\")",
+            values.getProperty(path + ".query"));
+      }
+    } finally {
+      java.nio.file.Files.delete(output);
+    }
+  }
+
   private static Blackhole blackhole() {
     return new Blackhole(
         "Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.");
