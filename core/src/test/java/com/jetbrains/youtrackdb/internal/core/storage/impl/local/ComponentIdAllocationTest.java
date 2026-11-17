@@ -361,6 +361,80 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // Fixed legacy bytes and names pin the on-disk contract independently of identity helpers.
+  @Test(timeout = 60000)
+  public void layout27KeepsLiteralFilesIdsBytesRenameAndAllocationCeiling() throws Exception {
+    create(StorageFormat.LAYOUT_27, DatabaseType.DISK);
+    long position;
+    try (var session = open()) {
+      var storage = session.getStorage();
+      // Legacy page ids are random. Reserve a fixed registry fixture, then let normal creation
+      // consume it. The oracle below is literal and does not call any naming or encoding helper.
+      storage.getWriteCache().bookFileId("legacybytes.pcl", 101001, false);
+      storage.getWriteCache().bookFileId("legacybytes.cpm", 101002, false);
+      storage.getWriteCache().bookFileId("legacybytes.fsm", 101003, false);
+      storage.getWriteCache().bookFileId("legacybytes.dpb", 101004, false);
+      int id = session.addCollection("legacybytes");
+      var collection = ordinary(storage, id);
+      position = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[] {0, 1, 2, 127, -128, -1}, (byte) 'b',
+              null, op).collectionPosition);
+      var files = new java.util.TreeMap<String, Integer>();
+      storage.getWriteCache().files().forEach((name, fileId) -> {
+        if (name.startsWith("legacybytes.")) {
+          files.put(name, AbstractWriteCache.extractFileId(fileId));
+        }
+      });
+      assertEquals(java.util.Map.of(
+          "legacybytes.pcl", 101001,
+          "legacybytes.cpm", 101002,
+          "legacybytes.fsm", 101003,
+          "legacybytes.dpb", 101004), files);
+      storage.setCollectionAttribute(id, StorageCollection.ATTRIBUTES.NAME, "renamedlegacybytes");
+      assertEquals(-1, storage.getCollectionIdByName("legacybytes"));
+      assertEquals(id, storage.getCollectionIdByName("renamedlegacybytes"));
+      assertNull(collection.generateCollectionConfig().getComponentId());
+      assertEquals(java.util.Map.of(
+          "renamedlegacybytes.pcl", 101001,
+          "renamedlegacybytes.cpm", 101002,
+          "renamedlegacybytes.fsm", 101003,
+          "renamedlegacybytes.dpb", 101004), legacyRecordFiles(storage));
+      for (var name : files.keySet()) {
+        assertFalse(storage.getWriteCache().files().containsKey(name));
+      }
+      storage.getAtomicOperationsManager()
+          .executeInsideAtomicOperation(op -> assertArrayEquals(new byte[] {0, 1, 2, 127, -128, -1},
+              collection.readRecord(position, op).toRawBuffer().buffer()));
+      setHwm(storage, "indexEngineFileBaseIdHwm", 2147483646L);
+      assertEquals(2147483647, allocate(storage, PageFileKind.INDEX_ENGINE));
+      assertThrows(StorageException.class, () -> allocate(storage, PageFileKind.INDEX_ENGINE));
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var collection = ordinary(storage, storage.getCollectionIdByName("renamedlegacybytes"));
+      assertEquals(java.util.Map.of(
+          "renamedlegacybytes.pcl", 101001,
+          "renamedlegacybytes.cpm", 101002,
+          "renamedlegacybytes.fsm", 101003,
+          "renamedlegacybytes.dpb", 101004), legacyRecordFiles(storage));
+      storage.getAtomicOperationsManager()
+          .executeInsideAtomicOperation(op -> assertArrayEquals(new byte[] {0, 1, 2, 127, -128, -1},
+              collection.readRecord(position, op).toRawBuffer().buffer()));
+    }
+  }
+
+  private static java.util.Map<String, Integer> legacyRecordFiles(AbstractStorage storage) {
+    var files = new java.util.TreeMap<String, Integer>();
+    storage.getWriteCache().files().forEach((name, fileId) -> {
+      if (name.startsWith("renamedlegacybytes.")) {
+        files.put(name, AbstractWriteCache.extractFileId(fileId));
+      }
+    });
+    return files;
+  }
+
   // Raw property reads distinguish an absent layout 27 counter from a default or cache value.
   @Test
   public void layout27HasNoNewPropertiesAndKeepsIntegerIndexCeiling() throws Exception {
@@ -732,6 +806,41 @@ public class ComponentIdAllocationTest {
       for (var kind : PageFileKind.values()) {
         assertEquals(40000, hwm(storage, kind));
         assertEquals(40001, allocate(storage, kind));
+      }
+    }
+  }
+
+  // Restore into the SAME open object must reseed real creation, not only direct allocator calls.
+  // Orphan registrations deliberately carry ids above the persisted counters of every kind.
+  @Test(timeout = 120000)
+  public void fullAndIncrementalLiveRestoreCreateRealComponentsAboveRestoredEvidence()
+      throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    var backup = Files.createDirectory(Path.of(directory, "creation-backup"));
+    try (var session = open()) {
+      var storage = session.getStorage();
+      session.getMetadata().getSchema().createClass("AfterRestore", 1)
+          .createProperty("value", PropertyType.STRING);
+      for (int evidence : new int[] {9000, 30000}) {
+        registerEvidence(storage, evidence);
+        storage.backup(backup);
+        var maxima = new java.util.EnumMap<PageFileKind, Integer>(PageFileKind.class);
+        storage.getWriteCache().files().keySet()
+            .forEach(name -> PageFileNames.parseLayout28(name).ifPresent(
+                identity -> maxima.merge(identity.kind(), identity.componentId(), Math::max)));
+        storage.restoreFromBackup(backup, null);
+        assertSame(storage, session.getStorage());
+        int collectionId = session.addCollection("createdafter" + evidence);
+        assertTrue(operationEntry(storage, collectionId).getComponentId()
+            > maxima.get(PageFileKind.COLLECTION));
+        var indexName = "AfterRestore.value" + evidence;
+        session.getMetadata().getSchema().getClass("AfterRestore")
+            .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+        var entry = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+            op -> config(storage).getIndexEngine(indexName, -1, op));
+        assertTrue(entry.getFileBaseId() > maxima.get(PageFileKind.INDEX_ENGINE));
+        assertOrdinaryFamily(storage, collectionId);
+        assertTrue(storage.engineFilesPresent(entry.getFileBaseId()));
       }
     }
   }

@@ -86,6 +86,49 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
     void accept(DatabaseSessionEmbedded session) throws Exception;
   }
 
+  // A real cold open must identify the configured owner of a missing tree, without repairing it.
+  @Test(timeout = 60000)
+  public void coldOpenRejectsMissingConfiguredTreeWithoutReplacement() throws Exception {
+    var directory = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-missing-tree";
+    FileUtils.deleteRecursively(new File(directory));
+    java.nio.file.Path missing;
+    try {
+      try (var tracks = (YouTrackDBImpl) YourTracks.instance(directory)) {
+        try (var ignored =
+            StorageBirthTestSupport.selectBirthFormat(tracks, DB, StorageFormat.LAYOUT_28)) {
+          tracks.create(DB, DatabaseType.DISK, "admin", "admin", "admin");
+        }
+        try (var session = (DatabaseSessionEmbedded) tracks.open(DB, "admin", "admin")) {
+          int id = session.addCollection("missingconfiguredtree");
+          var storage = session.getStorage();
+          int component = ((PaginatedCollection) storage.getCollectionInstances().stream()
+              .filter(c -> c.getId() == id).findFirst().orElseThrow())
+              .generateCollectionConfig().getComponentId();
+          missing = java.nio.file.Path.of(directory, DB,
+              PageFileNames.layout28DiskName(identity(component)));
+        }
+      }
+      java.nio.file.Files.delete(missing);
+      try (var tracks = (YouTrackDBImpl) YourTracks.instance(directory)) {
+        var failure = assertThrows(RuntimeException.class, () -> {
+          try (var unexpected = tracks.open(DB, "admin", "admin")) {
+            throw new AssertionError("Missing tree must prevent open");
+          }
+        });
+        boolean named = false;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+          named |= cause instanceof StorageException && cause.getMessage()
+              .contains("Cannot load configured link-bag tree for 'missingconfiguredtree'");
+        }
+        assertTrue("Open must fail for the missing configured tree: " + failure, named);
+        assertFalse(java.nio.file.Files.exists(missing));
+      }
+      assertFalse(java.nio.file.Files.exists(missing));
+    } finally {
+      FileUtils.deleteRecursively(new File(directory));
+    }
+  }
+
   // Every birth-created collection already has a computed registration and a separate tree lock.
   @Test
   public void birthAndCreationUseComputedTreeIdentityAndDistinctLock() throws Exception {

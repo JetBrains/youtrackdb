@@ -105,6 +105,35 @@ public class IndexHistogramIdentityTest {
         op -> assertTrue(manager.statsFileExists(op)));
   }
 
+  // Both disk layouts must load persisted histogram counts and retain the same registered file.
+  @Test(timeout = 120000)
+  public void bothLayoutsRetainHistogramAcrossColdReopen() throws Exception {
+    for (var format : new StorageFormat[] {StorageFormat.LAYOUT_27, StorageFormat.LAYOUT_28}) {
+      create(DatabaseType.DISK, format);
+      String name;
+      int fileId;
+      try (var session = open()) {
+        createIndex(session);
+        var storage = session.getStorage();
+        int id = data(storage).getFileBaseId();
+        name = format == StorageFormat.LAYOUT_28
+            ? "ytdb-p28-index-" + id + "-histogram.ixs" : "ie_" + id + ".ixs";
+        fileId = AbstractWriteCache.extractFileId(storage.getWriteCache().files().get(name));
+      }
+      ytdb.close();
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+      try (var session = open()) {
+        var storage = session.getStorage();
+        assertEquals(fileId,
+            AbstractWriteCache.extractFileId(storage.getWriteCache().files().get(name)));
+        assertEquals(1, engine(storage).getHistogramManager().getStatistics().totalCount());
+        session.executeInTx(tx -> tx.newEntity("Hist").setProperty("value", "second"));
+        assertEquals(2, engine(storage).getHistogramManager().getStatistics().totalCount());
+      }
+      ytdb.drop("hist");
+    }
+  }
+
   // A real missing disk file becomes a deletion entry on cold open. Reconstruction must
   // preserve the encoded name/id, restore counters from the tree, and remain droppable.
   @Test
