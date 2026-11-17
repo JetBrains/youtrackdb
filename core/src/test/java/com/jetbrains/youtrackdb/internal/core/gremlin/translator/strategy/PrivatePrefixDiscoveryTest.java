@@ -21,6 +21,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.RequirementsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.RepeatUnrollStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -30,6 +31,15 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
   private final List<Integer> recognitions = new ArrayList<>();
   private final AtomicInteger builds = new AtomicInteger();
   private InternalExecutionPlan plan;
+
+  /** Every candidate/cache path balances writers and leaves this non-fault fixture healthy. */
+  @After
+  public void assertIndexWritersFinished() {
+    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var word = session.getSharedContext().getIndexManager().readIndexChangeWord();
+    assertThat(word & 0xffffL).as("active index writers before graph close").isZero();
+    assertThat(word).as("unexpected poison, checked separately from active count").isNotNegative();
+  }
 
   @Before
   public void enableTranslator() {

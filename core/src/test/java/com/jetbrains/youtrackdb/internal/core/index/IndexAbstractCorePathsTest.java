@@ -40,6 +40,40 @@ import org.junit.Test;
  */
 public class IndexAbstractCorePathsTest extends DbTestBase {
 
+  /** Check leaked active pairs separately from poison, which intentionally clears active bits. */
+  @org.junit.After
+  public void indexWritersLeaveNoActivePairs() {
+    var manager = session.getSharedContext().getIndexManager();
+    assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** Lock rejection precedes entry for direct handle writers, so no pair or poison can leak. */
+  @Test
+  public void rejectedHandleLocksLeaveCounterUnchanged() {
+    var cls = session.createClass("RejectedHandleLocks");
+    cls.createProperty("value", PropertyType.INTEGER);
+    cls.createIndex("RejectedHandleLocks.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    var manager = session.getSharedContext().getIndexManager();
+    var index = org.mockito.Mockito.spy(
+        (IndexAbstract) manager.getIndex("RejectedHandleLocks.value"));
+    org.mockito.Mockito.doThrow(new IllegalStateException("lock fixture"))
+        .when(index).acquireExclusiveLock();
+    org.mockito.Mockito.doThrow(new IllegalStateException("lock fixture"))
+        .when(index).acquireSharedLock();
+    session.executeInTxInternal(tx -> {
+      var before = manager.readIndexChangeWord();
+      assertThrows(IllegalStateException.class, () -> index.create(tx, null));
+      assertThrows(IllegalStateException.class, () -> index.delete(tx));
+      assertThrows(IllegalStateException.class, () -> index.addCollection(tx, "unused", false));
+      assertThrows(IllegalStateException.class, () -> index.removeCollection(tx, "unused"));
+      assertThrows(IllegalStateException.class, () -> index.fillIndex(session, null));
+      assertEquals(before, manager.readIndexChangeWord());
+      assertTrue("lock rejection must not poison", manager.readIndexChangeWord() >= 0);
+      assertNull(manager.currentIndexWrite());
+    });
+  }
+
   // Inline class names per test keep each fixture independent. Constants would only be useful
   // if multiple tests shared the same class — which they don't here.
   private static final String CLASS_NAME = "AbsCorePathsTest";

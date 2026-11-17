@@ -41,6 +41,7 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
+import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -51,6 +52,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
@@ -80,12 +82,193 @@ import javax.annotation.Nullable;
  */
 public class IndexManagerEmbedded extends IndexManagerAbstract {
 
+  // One atomic word prevents overlapping writers from looking idle through parity alone.
+  static final long POISON_BIT = Long.MIN_VALUE;
+  static final long ACTIVE_MASK = 0xFFFFL;
+  static final long SEQ_UNIT = 1L << 16;
+  static final long SEQ_MASK = ~(POISON_BIT | ACTIVE_MASK);
+  public static final long INVALID_INDEX_STAMP = -1L;
+
+  private final AtomicLong indexChangeWord = new AtomicLong();
+  private final ThreadLocal<IndexWriteOperation> indexWriteOperation = new ThreadLocal<>();
+
+  public static boolean isIdleIndexStamp(long word) {
+    return word >= 0 && (word & ACTIVE_MASK) == 0;
+  }
+
+  public long readIndexChangeWord() {
+    return indexChangeWord.get();
+  }
+
+  /** Validates the whole preceding capture, not just its last structural read. */
+  public long finishIndexStampCapture(long before) {
+    VarHandle.fullFence();
+    long after = indexChangeWord.get();
+    return before == after && isIdleIndexStamp(before) ? before : INVALID_INDEX_STAMP;
+  }
+
+  private void counterEnter() {
+    while (true) {
+      long word = indexChangeWord.get();
+      if (word < 0) {
+        return;
+      }
+      if ((word & ACTIVE_MASK) == ACTIVE_MASK || (word & SEQ_MASK) == SEQ_MASK) {
+        poisonIndexChangeCounter();
+        return;
+      }
+      if (indexChangeWord.compareAndSet(word, word + SEQ_UNIT + 1)) {
+        VarHandle.fullFence();
+        return;
+      }
+    }
+  }
+
+  private void counterExit() {
+    while (true) {
+      long word = indexChangeWord.get();
+      if (word < 0) {
+        return;
+      }
+      if ((word & ACTIVE_MASK) == 0 || (word & SEQ_MASK) == SEQ_MASK) {
+        poisonIndexChangeCounter();
+        return;
+      }
+      if (indexChangeWord.compareAndSet(word, word + SEQ_UNIT - 1)) {
+        return;
+      }
+    }
+  }
+
+  /** Permanent, nonthrowing refusal. Existing counter brackets can still unwind. */
+  public void poisonIndexChangeCounter() {
+    while (true) {
+      long word = indexChangeWord.get();
+      if (word < 0 || indexChangeWord.compareAndSet(word, POISON_BIT | (word & SEQ_MASK))) {
+        return;
+      }
+    }
+  }
+
+  /** Owning-thread state. Each frame resolves only an obligation it raised itself. */
+  public static final class IndexWriteOperation {
+    private int pairs;
+    private int obligations;
+    private boolean unresolved;
+    private boolean schemaHeld;
+
+    public void raise() {
+      if (obligations == Integer.MAX_VALUE) {
+        unresolved = true;
+      } else {
+        obligations++;
+      }
+    }
+
+    public void resolve() {
+      if (obligations > 0) {
+        obligations--;
+      } else {
+        unresolved = true;
+      }
+    }
+
+    public void markUnresolved() {
+      unresolved = true;
+    }
+  }
+
+  public IndexWriteOperation beginIndexWrite() {
+    var operation = indexWriteOperation.get();
+    if (operation == null) {
+      operation = new IndexWriteOperation();
+      indexWriteOperation.set(operation);
+    }
+    if (operation.pairs == Integer.MAX_VALUE) {
+      operation.markUnresolved();
+      poisonIndexChangeCounter();
+    } else {
+      operation.pairs++;
+    }
+    counterEnter();
+    return operation;
+  }
+
+  /** Retains child outcomes until the owning thread leaves its outermost interval. */
+  public void endIndexWrite(@Nullable IndexWriteOperation operation) {
+    if (operation == null || operation != indexWriteOperation.get() || operation.pairs <= 0) {
+      poisonIndexChangeCounter();
+      return;
+    }
+    operation.pairs--;
+    if (operation.pairs == 0 && !operation.schemaHeld) {
+      if (operation.obligations != 0 || operation.unresolved) {
+        poisonIndexChangeCounter();
+      }
+      indexWriteOperation.remove();
+    }
+    counterExit();
+  }
+
+  @Nullable public IndexWriteOperation currentIndexWrite() {
+    return indexWriteOperation.get();
+  }
+
+  /** One retained pair for all compound schema work under an outer schema write hold. */
+  public IndexWriteOperation beginSchemaOwnedWrite() {
+    var operation = indexWriteOperation.get();
+    if (operation == null || !operation.schemaHeld) {
+      operation = beginIndexWrite();
+      operation.schemaHeld = true;
+    }
+    return operation;
+  }
+
+  public void finishSchemaOwnedWrite(boolean saved) {
+    var operation = indexWriteOperation.get();
+    if (operation == null || !operation.schemaHeld) {
+      return;
+    }
+    if (!saved) {
+      operation.markUnresolved();
+    }
+    operation.schemaHeld = false;
+    endIndexWrite(operation);
+  }
+
+  /** Test-only seed for exhaustion and integrity boundaries, without billions of updates. */
+  void seedIndexChangeWordForTest(long word) {
+    indexChangeWord.set(word);
+  }
+
   /** Test-only fault seam fired after each reconciled lookup-map publication step. */
   private volatile Runnable reconciledIndexPublicationTestHook;
 
   /** Installs or clears the test-only reconciled index publication fault seam. */
   public void setReconciledIndexPublicationTestHook(Runnable hook) {
     reconciledIndexPublicationTestHook = hook;
+  }
+
+  /** Test-only observation after registration and before the fill opens its own interval. */
+  volatile Runnable creationFillHandoffTestHook;
+
+  /** Called with the commit manager lock held. Rename bookkeeping need not affect any index. */
+  public boolean hasSharedIndexChanges(DatabaseSessionEmbedded session, IndexOverlay overlay) {
+    if (overlay == null || overlay.isEmpty()) {
+      return false;
+    }
+    if (!overlay.getTxCreatedNames().isEmpty() || !overlay.getTxDroppedNames().isEmpty()
+        || !overlay.getMembershipAdded().isEmpty() || !overlay.getMembershipRemoved().isEmpty()) {
+      return true;
+    }
+    for (var source : overlay.getClassRenames().keySet()) {
+      var affected = new LinkedHashSet<Index>();
+      super.getClassIndexes(session, source, affected);
+      if (!affected.isEmpty()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
@@ -157,33 +340,55 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   @Override
   public void load(DatabaseSessionEmbedded session) {
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        indexManagerIdentity =
-            RecordIdInternal.fromString(
-                session.getStorage().getIndexMgrRecordId(),
-                false);
-        var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
-        load(transaction, entity);
-      } finally {
-        releaseExclusiveLock(session, false);
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          indexManagerIdentity =
+              RecordIdInternal.fromString(
+                  session.getStorage().getIndexMgrRecordId(),
+                  false);
+          var entity = (EntityImpl) session.loadEntity(indexManagerIdentity);
+          operation.raise();
+          raised[0] = true;
+          load(transaction, entity);
+        } finally {
+          releaseExclusiveLock(session, false);
+        }
+      });
+      if (raised[0]) {
+        operation.resolve();
       }
-    });
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   @Override
   public void reload(DatabaseSessionEmbedded session) {
-    session.executeInTxInternal(
-        transaction -> {
-          acquireExclusiveLock(transaction);
-          try {
-            var entity = (EntityImpl) transaction.loadEntity(indexManagerIdentity);
-            load(transaction, entity);
-          } finally {
-            releaseExclusiveLock(session, true);
-          }
-        });
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(
+          transaction -> {
+            acquireExclusiveLock(transaction);
+            try {
+              var entity = (EntityImpl) transaction.loadEntity(indexManagerIdentity);
+              operation.raise();
+              raised[0] = true;
+              load(transaction, entity);
+            } finally {
+              releaseExclusiveLock(session, true);
+            }
+          });
+      if (raised[0]) {
+        operation.resolve();
+      }
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   public void addCollectionToIndex(
@@ -211,21 +416,32 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       releaseSharedLock();
     }
 
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        final var index = indexes.get(indexName);
-        if (index == null) {
-          throw new IndexException(session,
-              "Index with name " + indexName + " does not exist.");
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var index = indexes.get(indexName);
+          if (index == null) {
+            throw new IndexException(session,
+                "Index with name " + indexName + " does not exist.");
+          }
+          if (!index.getCollections().contains(collectionName)) {
+            index.addCollection(transaction, collectionName, requireEmpty);
+            operation.raise();
+            raised[0] = true;
+          }
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-        if (!index.getCollections().contains(collectionName)) {
-          index.addCollection(transaction, collectionName, requireEmpty);
-        }
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+      if (raised[0]) {
+        operation.resolve();
       }
-    });
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   public void removeCollectionFromIndex(DatabaseSessionEmbedded session,
@@ -248,19 +464,30 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       releaseSharedLock();
     }
 
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        final var index = indexes.get(indexName);
-        if (index == null) {
-          throw new IndexException(session.getDatabaseName(),
-              "Index with name " + indexName + " does not exist.");
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var index = indexes.get(indexName);
+          if (index == null) {
+            throw new IndexException(session.getDatabaseName(),
+                "Index with name " + indexName + " does not exist.");
+          }
+          index.removeCollection(transaction, collectionName);
+          operation.raise();
+          raised[0] = true;
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-        index.removeCollection(transaction, collectionName);
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+      if (raised[0]) {
+        operation.resolve();
       }
-    });
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   /**
@@ -653,22 +880,34 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   public void create(DatabaseSessionEmbedded session) {
-    var rid = session.computeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        var entity = session.newInternalInstance();
-        indexManagerIdentity = entity.getIdentity();
-        return indexManagerIdentity;
-      } finally {
-        releaseExclusiveLock(session, false);
-      }
-    });
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      var rid = session.computeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          var entity = session.newInternalInstance();
+          operation.raise();
+          raised[0] = true;
+          indexManagerIdentity = entity.getIdentity();
+          return indexManagerIdentity;
+        } finally {
+          releaseExclusiveLock(session, false);
+        }
+      });
 
-    session.getStorage().setIndexMgrRecordId(rid.toString());
+      session.getStorage().setIndexMgrRecordId(rid.toString());
+      if (raised[0]) {
+        operation.resolve();
+      }
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   @Override
   public void close() {
+    poisonIndexChangeCounter();
     indexes.clear();
     classPropertyIndex.clear();
   }
@@ -731,6 +970,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       schema.releaseSchemaReadLock();
       throw e;
     }
+    beginIndexWrite();
   }
 
   @Override
@@ -748,6 +988,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // field is safe: this thread still holds the write lock that guards it.
     final var schema = lockedSchema;
     var val = writeLockNesting.decrementAndGet();
+    var completed = false;
     try {
       if (val == 0) {
         schema.forceSnapshot();
@@ -765,7 +1006,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
           }
         }
       }
+      completed = true;
     } finally {
+      if (!completed) {
+        currentIndexWrite().markUnresolved();
+      }
       if (val == 0) {
         // Outermost release: clear the capture while the write lock is still held (the field is
         // guarded by it); the read hold itself is dropped after the write lock below.
@@ -776,7 +1021,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       } finally {
         // Release the schema read hold acquireExclusiveLock took, in reverse acquisition order
         // (write lock first). In its own finally so a failed unlock cannot leak the read hold.
-        schema.releaseSchemaReadLock();
+        try {
+          schema.releaseSchemaReadLock();
+        } finally {
+          endIndexWrite(currentIndexWrite());
+        }
       }
     }
   }
@@ -784,8 +1033,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   void addIndexInternal(DatabaseSessionEmbedded session, FrontendTransaction transaction,
       final Index index, boolean updateEntity) {
     acquireExclusiveLock(transaction);
+    var operation = currentIndexWrite();
     try {
+      operation.raise();
       addIndexInternalNoLock(index, transaction, updateEntity);
+      operation.resolve();
     } finally {
       releaseExclusiveLock(session, true);
     }
@@ -953,53 +1205,69 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return deferredHandle;
     }
 
-    var indexType = type;
-    var indexAlgorithm = algorithm;
-    var idx = session.computeInTxInternal(transaction -> {
-      final Index index;
-      acquireExclusiveLock(transaction);
-      try {
+    // Keep creation active across the descriptor commit, unlocked fill and invalidation.
+    var operation = beginIndexWrite();
+    try {
+      var indexType = type;
+      var indexAlgorithm = algorithm;
+      var idx = session.computeInTxInternal(transaction -> {
+        final Index index;
+        acquireExclusiveLock(transaction);
+        try {
 
-        if (indexes.containsKey(iName)) {
-          throw new IndexException(session.getDatabaseName(),
-              "Index with name " + iName + " already exists.");
+          if (indexes.containsKey(iName)) {
+            throw new IndexException(session.getDatabaseName(),
+                "Index with name " + iName + " already exists.");
+          }
+
+          final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
+          applyNullValuesIgnoredSetting(indexDefinition, metadata);
+
+          var im =
+              new IndexMetadata(
+                  iName,
+                  indexDefinition,
+                  collectionsToIndex,
+                  indexType,
+                  indexAlgorithm,
+                  -1,
+                  metadata);
+
+          index = Indexes.createIndexInstance(im.getType(), im.getAlgorithm(), storage);
+          // Factory validation has no shared side effects. Track only the mutating create.
+          operation.raise();
+          index.create(transaction, im);
+          indexes.put(im.getName(), index);
+          ((AbstractStorage) storage)
+              .registerTopLevelIndexLifecycle(transaction, index.getIdentity());
+          addIndexInternalNoLock(index, transaction, true);
+        } finally {
+          releaseExclusiveLock(session, true);
         }
+        return (IndexAbstract) index;
+      });
+      // The descriptor and lifecycle record are durable now. The commit publishes the lifecycle
+      // snapshot before this attachment exposes the stable lifecycle cell on the index handle.
+      idx.attachDescriptorIdentity();
+      // Registration is complete. Fill owns a separate obligation and its own clear outcome.
+      operation.resolve();
 
-        final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
-        applyNullValuesIgnoredSetting(indexDefinition, metadata);
-
-        var im =
-            new IndexMetadata(
-                iName,
-                indexDefinition,
-                collectionsToIndex,
-                indexType,
-                indexAlgorithm,
-                -1,
-                metadata);
-
-        index = createIndexFromMetadata(transaction, storage, im);
-        ((AbstractStorage) storage)
-            .registerTopLevelIndexLifecycle(transaction, index.getIdentity());
-        addIndexInternalNoLock(index, transaction, true);
-      } finally {
-        releaseExclusiveLock(session, true);
+      if (progressListener == null)
+      // ASSIGN DEFAULT PROGRESS LISTENER
+      {
+        progressListener = new IndexRebuildOutputListener(idx);
       }
-      return (IndexAbstract) index;
-    });
-    // The descriptor and lifecycle record are durable now. The commit publishes the lifecycle
-    // snapshot before this attachment exposes the stable lifecycle cell on the index handle.
-    idx.attachDescriptorIdentity();
 
-    if (progressListener == null)
-    // ASSIGN DEFAULT PROGRESS LISTENER
-    {
-      progressListener = new IndexRebuildOutputListener(idx);
+      final var handoffHook = creationFillHandoffTestHook;
+      if (handoffHook != null) {
+        handoffHook.run();
+      }
+      idx.fillIndex(session, progressListener);
+
+      return idx;
+    } finally {
+      endIndexWrite(operation);
     }
-
-    idx.fillIndex(session, progressListener);
-
-    return idx;
   }
 
   /**
@@ -1023,18 +1291,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               .getContextConfiguration()
               .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
     }
-  }
-
-  private Index createIndexFromMetadata(
-      FrontendTransaction transaction, Storage storage, IndexMetadata indexMetadata) {
-
-    var index = Indexes.createIndexInstance(indexMetadata.getType(), indexMetadata.getAlgorithm(),
-        storage);
-
-    index.create(transaction, indexMetadata);
-    indexes.put(indexMetadata.getName(), index);
-
-    return index;
   }
 
   private static void checkSecurityConstraintsForIndexCreate(
@@ -1196,13 +1452,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return;
     }
 
+    var operation = beginIndexWrite();
     final IndexAbstract[] droppedIndex = new IndexAbstract[1];
+    var completed = false;
     try {
       session.executeInTxInternal(transaction -> {
         acquireExclusiveLock(transaction);
         try {
           final var idx = indexes.get(iIndexName);
           if (idx != null) {
+            operation.raise();
             droppedIndex[0] = (IndexAbstract) idx;
             removeClassPropertyIndexInternal(idx);
             idx.delete(transaction);
@@ -1212,9 +1471,17 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
           releaseExclusiveLock(session, true);
         }
       });
+      completed = true;
     } finally {
-      if (droppedIndex[0] != null) {
-        droppedIndex[0].removeLifecycleRegistrationIfDetached();
+      try {
+        if (droppedIndex[0] != null) {
+          droppedIndex[0].removeLifecycleRegistrationIfDetached();
+          if (completed) {
+            operation.resolve();
+          }
+        }
+      } finally {
+        endIndexWrite(operation);
       }
     }
   }
@@ -1556,14 +1823,21 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         if (snapshot.engineIdentifier() >= 0) {
           AbstractStorage.DroppedIndexEngine droppedEngine;
           try {
-            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
-                snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
-          } catch (InvalidIndexEngineIdException exception) {
-            // A failed earlier commit can restore the same owner with a fresh engine generation.
-            // Refresh under the commit-window state lock, then retry the validated deletion once.
-            final var resolved = handle.resolveOwnedEngineWithStateLock();
-            droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
-                resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+            try {
+              droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                  snapshot.engineIdentifier(), snapshot.engineReference(), atomicOperation);
+            } catch (InvalidIndexEngineIdException exception) {
+              // A failed earlier commit can restore the same owner with a fresh engine generation.
+              // Refresh under the commit-window state lock, then retry the validated deletion once.
+              final var resolved = handle.resolveOwnedEngineWithStateLock();
+              droppedEngine = ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(
+                  resolved.engineIdentifier(), resolved.engineReference(), atomicOperation);
+            }
+          } catch (IOException | RuntimeException | Error failure) {
+            // A destructive delete can fail before returning its reconstruction capture.
+            // Empty undo lists cannot certify that this live engine remains coherent.
+            poisonIndexChangeCounter();
+            throw failure;
           }
           // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
           // engine out of the in-memory registry synchronously, and a failed commit must put it back.
@@ -1778,37 +2052,61 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    */
   public void reassociateClassIndexesOnRename(
       DatabaseSessionEmbedded session, final String oldClassName, final String newClassName) {
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        final var affected = new LinkedHashSet<Index>();
-        super.getClassIndexes(session, oldClassName, affected);
-        for (final var index : affected) {
-          final var abstractIndex = (IndexAbstract) index;
-          final var replacement =
-              abstractIndex.buildClassReassociatedMetadata(session, newClassName);
-          abstractIndex.reassociateClassRecordAtCommit(transaction, replacement);
-          // Install the replacement wholesale (readers see old-or-new, never torn), key under
-          // the NEW name first, then un-key from the old (see the javadoc's mutex-gap note).
-          abstractIndex.installReassociatedMetadataAtCommit(replacement);
-          addIndexInternalNoLock(index, transaction, false);
-          removeClassPropertyIndexInternal(index, oldClassName);
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          final var affected = new LinkedHashSet<Index>();
+          super.getClassIndexes(session, oldClassName, affected);
+          for (final var index : affected) {
+            final var abstractIndex = (IndexAbstract) index;
+            final var replacement =
+                abstractIndex.buildClassReassociatedMetadata(session, newClassName);
+            if (!raised[0]) {
+              operation.raise();
+              raised[0] = true;
+            }
+            abstractIndex.reassociateClassRecordAtCommit(transaction, replacement);
+            // Install the replacement wholesale (readers see old-or-new, never torn), key under
+            // the NEW name first, then un-key from the old (see the javadoc's mutex-gap note).
+            abstractIndex.installReassociatedMetadataAtCommit(replacement);
+            addIndexInternalNoLock(index, transaction, false);
+            removeClassPropertyIndexInternal(index, oldClassName);
+          }
+        } finally {
+          releaseExclusiveLock(session, true);
         }
-      } finally {
-        releaseExclusiveLock(session, true);
+      });
+      if (raised[0]) {
+        operation.resolve();
       }
-    });
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   public void removeClassPropertyIndex(DatabaseSessionEmbedded session, final Index idx) {
-    session.executeInTxInternal(transaction -> {
-      acquireExclusiveLock(transaction);
-      try {
-        removeClassPropertyIndexInternal(idx);
-      } finally {
-        releaseExclusiveLock(session, true);
+    var operation = beginIndexWrite();
+    final var raised = new boolean[1];
+    try {
+      session.executeInTxInternal(transaction -> {
+        acquireExclusiveLock(transaction);
+        try {
+          operation.raise();
+          raised[0] = true;
+          removeClassPropertyIndexInternal(idx);
+        } finally {
+          releaseExclusiveLock(session, true);
+        }
+      });
+      if (raised[0]) {
+        operation.resolve();
       }
-    });
+    } finally {
+      endIndexWrite(operation);
+    }
   }
 
   private void removeClassPropertyIndexInternal(Index idx) {

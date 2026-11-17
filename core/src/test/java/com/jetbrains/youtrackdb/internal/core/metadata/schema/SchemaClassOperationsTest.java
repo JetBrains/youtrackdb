@@ -31,10 +31,12 @@ import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.ATTRIBUTES;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -87,6 +89,218 @@ import org.junit.Test;
  * portable across the disk / memory storage modes.
  */
 public class SchemaClassOperationsTest extends DbTestBase {
+
+  @org.junit.After
+  public void compoundCounterHasNoActiveWriterAfterEveryTest() {
+    var manager = session.getSharedContext().getIndexManager();
+    assertEquals(0L, manager.readIndexChangeWord() & 0xffffL);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  @Test
+  public void indexedCompoundWritersStayActiveThroughTheirSavingRelease() {
+    // Exercise committed inheritance add/remove/replace, class creation, rename, abstract
+    // transitions, standalone collection attachment and drop. Every operation must retain its
+    // owner after nested manager work returns and until the one outer saving release.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("CounterParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("CounterParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    var other = schema.createClass("CounterOther");
+    other.createProperty("key", PropertyType.STRING);
+    other.createIndex("CounterOther.key", INDEX_TYPE.NOTUNIQUE, "key");
+    var child = schema.createClass("CounterChild");
+    var shared = session.getSharedContext().getSchema();
+    var manager = session.getSharedContext().getIndexManager();
+    var saves = new java.util.concurrent.atomic.AtomicInteger();
+    shared.setSchemaSaveTestHook(() -> {
+      assertFalse(com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded
+          .isIdleIndexStamp(manager.readIndexChangeWord()));
+      saves.incrementAndGet();
+    });
+    try {
+      assertCompoundMovement(() -> child.addSuperClass(parent));
+      assertCompoundMovement(() -> child.removeSuperClass(parent));
+      assertCompoundMovement(() -> child.setSuperClasses(java.util.List.of(parent)));
+      assertCompoundMovement(() -> child.setSuperClasses(java.util.List.of(other)));
+      assertCompoundMovement(() -> schema.createClass("CounterCreated", parent));
+      assertCompoundMovement(() -> parent.setName("CounterRenamed"));
+      var raw = (SchemaClassEmbedded) shared.getClass("CounterChild");
+      int extra = session.addCollection("counter_extra");
+      assertCompoundMovement(() -> raw.addCollectionIdInternal(session, extra));
+      assertCompoundMovement(() -> child.setAbstract(true));
+      assertCompoundMovement(() -> child.setAbstract(false));
+      assertCompoundMovement(() -> schema.dropClass("CounterCreated"));
+    } finally {
+      shared.setSchemaSaveTestHook(null);
+    }
+    assertEquals(10, saves.get());
+  }
+
+  private void assertCompoundMovement(Runnable mutation) {
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    mutation.run();
+    long after = manager.readIndexChangeWord();
+    assertTrue("the committed interval must move the counter", before != after);
+    assertTrue("complete publication must leave an idle unpoisoned counter",
+        com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded.isIdleIndexStamp(after));
+    assertNull(manager.currentIndexWrite());
+  }
+
+  @Test
+  public void savingReleaseFailurePoisonsAndRetiresTheSchemaOwner() {
+    // The compound body succeeds, but a failed saving release cannot certify publication.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("SaveFailureParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("SaveFailureParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    var child = schema.createClass("SaveFailureChild");
+    var shared = session.getSharedContext().getSchema();
+    var failure = new RuntimeException("schema save failure");
+    shared.setSchemaSaveTestHook(() -> {
+      throw failure;
+    });
+    try {
+      assertTrue(
+          failure == assertThrows(RuntimeException.class, () -> child.addSuperClass(parent)));
+    } finally {
+      shared.setSchemaSaveTestHook(null);
+    }
+    assertTrue(session.getSharedContext().getIndexManager().readIndexChangeWord() < 0);
+    assertFalse(shared.isWriteLockHeldByCurrentThread());
+  }
+
+  @Test
+  public void loggedMembershipFailureSurvivesNormalCompoundReturn() {
+    // Inject an unresolved child writer at the protected membership boundary. The existing
+    // addPolymorphicCollectionIds catch logs RuntimeException and continues. Resolving the
+    // enclosing relationship obligation must not discharge the failed child's obligation.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("LoggedParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("LoggedParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    schema.createClass("LoggedChild");
+    var shared = session.getSharedContext().getSchema();
+    var parentSpy = org.mockito.Mockito.spy((SchemaClassEmbedded) shared.getClass("LoggedParent"));
+    var child = (SchemaClassEmbedded) shared.getClass("LoggedChild");
+    var manager = session.getSharedContext().getIndexManager();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      var nested = manager.beginIndexWrite();
+      try {
+        nested.raise();
+        throw new RuntimeException("unresolved membership writer");
+      } finally {
+        manager.endIndexWrite(nested);
+      }
+    }).when(parentSpy).addCollectionIdToIndexes(org.mockito.ArgumentMatchers.same(session),
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyBoolean());
+    child.addSuperClassInternal(session, parentSpy);
+    assertTrue(manager.readIndexChangeWord() < 0);
+    assertTrue(child.getSuperClasses().contains(parentSpy));
+  }
+
+  @Test
+  public void knownEagerMembershipRejectionDoesNotPoisonCompoundOwner() {
+    // The legacy eager-add rejection is logged and skipped by the polymorphic ripple. D5
+    // classifies that known result as complete, not as an unresolved membership publication.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("EagerParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("EagerParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    var child = schema.createClass("EagerChild");
+    session.executeInTx(tx -> session.newEntity("EagerChild").setProperty("key", "value"));
+    assertCompoundMovement(() -> child.addSuperClass(parent));
+  }
+
+  @Test
+  public void validationOnlyIndexedRelationshipRejectionsDoNotMoveCounter() {
+    // Duplicate parents, duplicate replacement lists and a recursive first attachment fail
+    // before any relationship or index mutation. They must not open a compound interval.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ValidationParent");
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("ValidationParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    var child = schema.createClass("ValidationChild", parent);
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    assertThrows(RuntimeException.class, () -> child.addSuperClass(parent));
+    assertThrows(RuntimeException.class,
+        () -> child.setSuperClasses(java.util.List.of(parent, parent)));
+    assertThrows(RuntimeException.class, () -> parent.addSuperClass(child));
+    assertThrows(RuntimeException.class, () -> parent.setName("ValidationChild"));
+    assertEquals(before, manager.readIndexChangeWord());
+  }
+
+  /** Committed index-free renames are inert, while later index work keeps its event-time owner. */
+  @Test
+  public void committedRenameCounterUsesEffectiveIndexChanges() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("RenameCounter");
+    cls.createProperty("key", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    session.begin();
+    session.getMetadata().getSchema().getClass("RenameCounter").setName("RenameCounterMiddle");
+    session.commit();
+    assertEquals(before, manager.readIndexChangeWord());
+
+    session.begin();
+    var renamed = session.getMetadata().getSchema().getClass("RenameCounterMiddle");
+    renamed.setName("RenameCounterWithIndex");
+    renamed = session.getMetadata().getSchema().getClass("RenameCounterWithIndex");
+    renamed.createIndex("RenameCounter.key", INDEX_TYPE.NOTUNIQUE, "key");
+    renamed.setName("RenameCounterFinal");
+    session.commit();
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertEquals("RenameCounterFinal",
+        manager.getIndex("RenameCounter.key").getDefinition().getClassName());
+
+    before = manager.readIndexChangeWord();
+    session.begin();
+    session.getMetadata().getSchema().getClass("RenameCounterFinal")
+        .setName("RenameCounterDropped");
+    manager.dropIndex(session, "RenameCounter.key");
+    session.commit();
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.getIndex("RenameCounter.key"));
+    assertNotNull(session.getMetadata().getSchema().getClass("RenameCounterDropped"));
+  }
+
+  @Test
+  public void noIndexAndPrivateCompoundChangesDoNotMoveSharedCounter() {
+    // No-index committed operations and tx-local inheritance/rename/creation alter only schema
+    // metadata or the private overlay. Rollback must leave the shared word exactly unchanged.
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("NoIndexParent");
+    var child = schema.createClass("NoIndexChild");
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    child.addSuperClass(parent);
+    child.removeSuperClass(parent);
+    child.setSuperClasses(java.util.List.of(parent));
+    child.setAbstract(true);
+    child.setAbstract(false);
+    child.setName("NoIndexRenamed");
+    schema.createClass("NoIndexCreated", parent);
+    schema.dropClass("NoIndexCreated");
+    assertEquals(before, manager.readIndexChangeWord());
+    parent.createProperty("key", PropertyType.STRING);
+    parent.createIndex("NoIndexParent.key", INDEX_TYPE.NOTUNIQUE, "key");
+    before = manager.readIndexChangeWord();
+    session.begin();
+    try {
+      var txSchema = session.getMetadata().getSchema();
+      txSchema.createClass("PrivateCounterChild", txSchema.getClass("NoIndexParent"));
+      txSchema.getClass("NoIndexRenamed").setName("PrivateCounterRenamed");
+      assertEquals(before, manager.readIndexChangeWord());
+    } finally {
+      session.rollback();
+    }
+    assertEquals(before, manager.readIndexChangeWord());
+  }
 
   @Test
   public void strictModeRoundTripsAcrossSchemaRefetch() {

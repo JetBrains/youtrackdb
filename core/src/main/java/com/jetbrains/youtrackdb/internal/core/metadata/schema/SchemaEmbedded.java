@@ -181,6 +181,8 @@ public class SchemaEmbedded extends SchemaShared {
 
       var cls = createClassInstance(className, collectionIds);
 
+      final var operation = beginCommittedIndexWrite(session, superClasses != null
+          && superClasses.stream().anyMatch(c -> !c.getIndexesInternal(session).isEmpty()));
       classes.put(className, cls);
 
       if (superClasses != null && !superClasses.isEmpty()) {
@@ -223,6 +225,7 @@ public class SchemaEmbedded extends SchemaShared {
         }
         txState.markClassChanged(className);
       }
+      resolveCommittedIndexWrite(operation);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -498,6 +501,8 @@ public class SchemaEmbedded extends SchemaShared {
 
       checkEmbedded(session);
 
+      final var operation = beginCommittedIndexWrite(session,
+          !cls.getIndexesInternal(session).isEmpty());
       for (var superClass : cls.getSuperClasses()) {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
@@ -570,6 +575,7 @@ public class SchemaEmbedded extends SchemaShared {
       for (var oSessionListener : session.getListeners()) {
         oSessionListener.onDropClass(session, new SchemaClassProxy(cls, session));
       }
+      resolveCommittedIndexWrite(operation);
     } finally {
       releaseSchemaWriteLock(session);
     }

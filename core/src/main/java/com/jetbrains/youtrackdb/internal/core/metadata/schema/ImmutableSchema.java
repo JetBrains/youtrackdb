@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.IndexDefinition;
@@ -58,9 +59,13 @@ public class ImmutableSchema implements SchemaInternal {
   private final List<GlobalProperty> properties;
   private final CollectionSelectionFactory collectionSelectionFactory;
   private final Map<String, IndexDefinition> indexes;
+  private final IndexManagerEmbedded indexStampManager;
+  private final long indexStamp;
 
   public ImmutableSchema(@Nonnull SchemaShared schemaShared,
       @Nonnull DatabaseSessionEmbedded session) {
+    indexStampManager = session.getSharedContext().getIndexManager();
+    long before = indexStampManager.readIndexChangeWord();
     version = schemaShared.getVersion();
     identity = schemaShared.getIdentity();
     collectionSelectionFactory = schemaShared.getCollectionSelectionFactory();
@@ -115,6 +120,15 @@ public class ImmutableSchema implements SchemaInternal {
     }
 
     this.indexes = Collections.unmodifiableMap(indexes);
+    indexStamp = indexStampManager.finishIndexStampCapture(before);
+  }
+
+  public IndexManagerEmbedded getIndexStampManager() {
+    return indexStampManager;
+  }
+
+  public long getIndexStamp() {
+    return indexStamp;
   }
 
   @Override

@@ -58,6 +58,9 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
   @org.junit.After
   public void privatePreparationLeavesNoPinOrMarker() {
     var db = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
+    var word = db.getSharedContext().getIndexManager().readIndexChangeWord();
+    assertThat(word & 0xffffL).as("active index writers before graph close").isZero();
+    assertThat(word).as("unexpected poison, checked separately from active count").isNotNegative();
     assertThat(db.getMetadata().getThreadLocalSchemaSnapshotPinCount()).isZero();
     assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
         .isActive(db)).isFalse();

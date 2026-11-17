@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
@@ -41,6 +42,57 @@ import org.junit.rules.Timeout;
  * to the reconciled real id before the working set is gathered.
  */
 public class TxAwareSchemaSnapshotTest extends DbTestBase {
+
+  /** Whole-construction stamps accept idle metadata and refuse active or poisoned intervals. */
+  @Test
+  public void immutableSchemaCarriesManagerQualifiedConstructionStamp() {
+    var schema = session.getSharedContext().getSchema();
+    var manager = session.getSharedContext().getIndexManager();
+    var idle = schema.makeUncachedSnapshot(session);
+    assertSame(manager, idle.getIndexStampManager());
+    assertEquals(manager.readIndexChangeWord(), idle.getIndexStamp());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(idle.getIndexStamp()));
+    var operation = manager.beginIndexWrite();
+    try {
+      var active = schema.makeUncachedSnapshot(session);
+      assertSame(manager, active.getIndexStampManager());
+      assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, active.getIndexStamp());
+    } finally {
+      manager.endIndexWrite(operation);
+    }
+    manager.poisonIndexChangeCounter();
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP,
+        schema.makeUncachedSnapshot(session).getIndexStamp());
+  }
+
+  /** A completed change during class construction invalidates the whole immutable snapshot. */
+  @Test
+  public void immutableStampCoversClassConstructionNotOnlyFinalIndexCopy() {
+    var schema = org.mockito.Mockito.spy(session.getSharedContext().getSchema());
+    var manager = session.getSharedContext().getIndexManager();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      var operation = manager.beginIndexWrite();
+      manager.endIndexWrite(operation);
+      return invocation.callRealMethod();
+    }).when(schema).getClasses(session);
+    var snapshot = new ImmutableSchema(schema, session);
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, snapshot.getIndexStamp());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+  }
+
+  /** Retirement removes exactly the observed object and preserves a concurrently replaced cache. */
+  @Test
+  public void exactObjectRetirementPreservesReplacementSnapshot() {
+    var schema = session.getSharedContext().getSchema();
+    var first = schema.makeSnapshot(session);
+    schema.forceSnapshot();
+    var replacement = schema.makeSnapshot(session);
+    assertTrue(first != replacement);
+    schema.retireSnapshotIfSame(first);
+    assertSame(replacement, schema.makeSnapshot(session));
+    schema.retireSnapshotIfSame(replacement);
+    assertTrue(replacement != schema.makeSnapshot(session));
+  }
 
   /** Failed acquisition owns no clear. Failed capture clears once and preserves its primary error. */
   @Test

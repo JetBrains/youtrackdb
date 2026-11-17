@@ -963,6 +963,11 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
           indexManager.setReconciledIndexPublicationTestHook(null);
         }
 
+        long counter = indexManager.readIndexChangeWord();
+        assertTrue("contained durable publication failure must poison private index stamps",
+            counter < 0);
+        assertEquals("every commit pair must exit despite containment", 0, counter & 0xffffL);
+        assertNull("the owning-thread operation must be retired", indexManager.currentIndexWrite());
         assertEquals("publication faults must occur after exactly one index becomes visible",
             failAtPromotion ? 2 : 1, publishedAtFault.get());
         assertEquals("partial publication must leave exactly the completed index visible",

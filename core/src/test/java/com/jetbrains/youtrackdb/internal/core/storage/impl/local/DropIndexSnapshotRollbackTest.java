@@ -135,6 +135,11 @@ public class DropIndexSnapshotRollbackTest extends DbTestBase {
         storage.setPostEngineBuildTestHook(null);
       }
       assertThat(hookRan.get()).isTrue();
+      var manager = session.getSharedContext().getIndexManager();
+      assertThat(manager.readIndexChangeWord() & 0xffffL).isZero();
+      assertThat(com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded
+          .isIdleIndexStamp(manager.readIndexChangeWord())).isTrue();
+      assertThat(manager.currentIndexWrite()).isNull();
       // Re-resolve the restored handle. Never query the engine object torn down by DROP.
       var restored = session.getIndex("dropped");
       var restoredEngine = engine("dropped");

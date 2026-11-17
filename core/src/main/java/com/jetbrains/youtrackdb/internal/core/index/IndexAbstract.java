@@ -198,7 +198,10 @@ public abstract class IndexAbstract implements Index {
   @Override
   public Index create(
       FrontendTransaction transaction, final IndexMetadata indexMetadata) {
+    var manager = transaction.getDatabaseSession().getSharedContext().getIndexManager();
+    var raised = false;
     acquireExclusiveLock();
+    var operation = manager.beginIndexWrite();
     try {
       this.im = indexMetadata;
 
@@ -211,6 +214,8 @@ public abstract class IndexAbstract implements Index {
 
       Map<String, String> engineProperties = new HashMap<>();
       indexMetadata.setVersion(im.getVersion());
+      operation.raise();
+      raised = true;
       final var engineIdentifier = storage.addIndexEngine(indexMetadata, engineProperties);
       assert engineIdentifier >= 0;
       publishEngine(engineIdentifier);
@@ -219,11 +224,16 @@ public abstract class IndexAbstract implements Index {
 
       save(transaction);
       attachDescriptorIdentityLocked();
+      operation.resolve();
+      raised = false;
     } catch (Exception e) {
       LogManager.instance().error(this, "Exception during index '%s' creation", e, im.getName());
       // index is created inside of storage
       if (state().hasEngine()) {
         doDelete(transaction);
+        if (raised) {
+          operation.resolve();
+        }
       }
       throw BaseException.wrapException(
           new IndexException(transaction.getDatabaseSession(),
@@ -231,7 +241,11 @@ public abstract class IndexAbstract implements Index {
           e,
           transaction.getDatabaseSession());
     } finally {
-      releaseExclusiveLock();
+      try {
+        releaseExclusiveLock();
+      } finally {
+        manager.endIndexWrite(operation);
+      }
     }
 
     return this;
@@ -954,18 +968,26 @@ public abstract class IndexAbstract implements Index {
   @Override
   public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
+    var manager = session.getSharedContext().getIndexManager();
+    var operation = manager.beginIndexWrite();
     try {
       return rebuildAndFill(session, progressListener);
     } finally {
-      invalidatePlansAfterFill(session);
+      try {
+        invalidatePlansAfterFill(session);
+      } finally {
+        manager.endIndexWrite(operation);
+      }
     }
   }
 
   private long rebuildAndFill(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
     long entitiesIndexed;
+    var operation = session.getSharedContext().getIndexManager().currentIndexWrite();
 
     acquireExclusiveLock();
+    operation.raise();
     try {
       try {
         if (state().hasEngine()) {
@@ -993,6 +1015,7 @@ public abstract class IndexAbstract implements Index {
           });
         }
       } catch (Exception e) {
+        operation.markUnresolved();
         LogManager.instance().error(this, "Error during index '%s' delete", e, im.getName());
       }
 
@@ -1020,6 +1043,7 @@ public abstract class IndexAbstract implements Index {
             .addIndexInternal(session, tx, this, true);
       });
       attachDescriptorIdentityLocked();
+      operation.resolve();
     } catch (Exception e) {
       try {
         final var current = state();
@@ -1140,6 +1164,9 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  // Package-visible failure seam for the cleanup outcome. It runs only on failed fills.
+  @Nullable Runnable failedFillClearTestHook;
+
   public long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener) {
     return fillIndex(session, progressListener, true);
@@ -1148,17 +1175,27 @@ public abstract class IndexAbstract implements Index {
   private long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener, boolean invalidate) {
     long entitiesIndexed;
+    var manager = session.getSharedContext().getIndexManager();
     acquireSharedLock();
+    var operation = manager.beginIndexWrite();
     try {
+      operation.raise();
       entitiesIndexed = doFillIndex(session, progressListener);
+      operation.resolve();
     } catch (final Exception e) {
       LogManager.instance().error(this, "Error during index rebuild", e);
       var clearSucceeded = false;
       try {
+        var hook = failedFillClearTestHook;
+        if (hook != null) {
+          hook.run();
+        }
         final var current = state();
         if (current.hasEngine()) {
           storage.clearIndex(current.engineIdentifier(), current.engineReference());
           clearSucceeded = true;
+          // Clear discharges only this fill, never an enclosing registration or replacement.
+          operation.resolve();
         }
       } catch (Exception e2) {
         LogManager.instance().error(this,
@@ -1178,9 +1215,13 @@ public abstract class IndexAbstract implements Index {
               "Error on rebuilding the index for collections: " + collectionsToIndex),
           e, session);
     } finally {
-      releaseSharedLock();
-      if (invalidate) {
-        invalidatePlansAfterFill(session);
+      try {
+        releaseSharedLock();
+        if (invalidate) {
+          invalidatePlansAfterFill(session);
+        }
+      } finally {
+        manager.endIndexWrite(operation);
       }
     }
     return entitiesIndexed;
@@ -1270,7 +1311,9 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public Index delete(FrontendTransaction transaction) {
+    var manager = transaction.getDatabaseSession().getSharedContext().getIndexManager();
     acquireExclusiveLock();
+    var operation = manager.beginIndexWrite();
 
     try {
       var session = transaction.getDatabaseSession();
@@ -1287,6 +1330,7 @@ public abstract class IndexAbstract implements Index {
       // must move the suppression with them. Capture-and-restore preserves an outer disabled
       // window (e.g. an import).
       final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+      operation.raise();
       session.disableLinkConsistencyCheck();
       try {
         final var descriptorIdentity = state().descriptorIdentity();
@@ -1304,9 +1348,14 @@ public abstract class IndexAbstract implements Index {
       session.getSharedContext().getIndexManager()
           .removeClassPropertyIndex(session, this);
 
+      operation.resolve();
       return this;
     } finally {
-      releaseExclusiveLock();
+      try {
+        releaseExclusiveLock();
+      } finally {
+        manager.endIndexWrite(operation);
+      }
     }
   }
 
@@ -1469,15 +1518,21 @@ public abstract class IndexAbstract implements Index {
   @Override
   public IndexAbstract addCollection(FrontendTransaction transaction, final String collectionName,
       boolean requireEmpty) {
+    var manager = transaction.getDatabaseSession().getSharedContext().getIndexManager();
     acquireExclusiveLock();
+    var operation = manager.beginIndexWrite();
     try {
       var session = transaction.getDatabaseSession();
-      if (collectionsToIndex.add(collectionName)) {
+      if (!collectionsToIndex.contains(collectionName)) {
+        operation.raise();
+        collectionsToIndex.add(collectionName);
 
         if (requireEmpty) {
           // INDEX SINGLE COLLECTION — O(1) emptiness check via iterator
           try (var iter = session.browseCollection(collectionName)) {
             if (iter.hasNext()) {
+              // Emptiness rejection leaves a known eager membership, not uncertain work.
+              operation.resolve();
               throw new IndexException("Collection " + collectionName
                   + " is not empty. Please remove all records from it before adding to index");
             }
@@ -1485,16 +1540,23 @@ public abstract class IndexAbstract implements Index {
         }
 
         save(transaction);
+        operation.resolve();
       }
       return this;
     } finally {
-      releaseExclusiveLock();
+      try {
+        releaseExclusiveLock();
+      } finally {
+        manager.endIndexWrite(operation);
+      }
     }
   }
 
   @Override
   public void removeCollection(FrontendTransaction transaction, String collectionName) {
+    var manager = transaction.getDatabaseSession().getSharedContext().getIndexManager();
     acquireExclusiveLock();
+    var operation = manager.beginIndexWrite();
     try {
       var session = transaction.getDatabaseSession();
       // O(1) emptiness check via iterator
@@ -1505,11 +1567,18 @@ public abstract class IndexAbstract implements Index {
         }
       }
 
-      if (collectionsToIndex.remove(collectionName)) {
+      if (collectionsToIndex.contains(collectionName)) {
+        operation.raise();
+        collectionsToIndex.remove(collectionName);
         save(transaction);
+        operation.resolve();
       }
     } finally {
-      releaseExclusiveLock();
+      try {
+        releaseExclusiveLock();
+      } finally {
+        manager.endIndexWrite(operation);
+      }
     }
   }
 

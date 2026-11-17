@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycle;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.ImmutableSchema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityInternal;
@@ -32,6 +33,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -40,6 +44,182 @@ import org.junit.Test;
  * metadata loading and property-index lookup methods.
  */
 public class IndexManagerEmbeddedTest extends DbTestBase {
+
+  /** Nested pairs advance sequence and remain active until the last pair exits. */
+  @Test
+  public void indexCounterCountsPairsAndRejectsChangedCaptures() {
+    var manager = new IndexManagerEmbedded(null);
+    long before = manager.readIndexChangeWord();
+    assertEquals(0, before);
+    var outer = manager.beginIndexWrite();
+    assertEquals(IndexManagerEmbedded.SEQ_UNIT + 1, manager.readIndexChangeWord());
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP,
+        manager.finishIndexStampCapture(manager.readIndexChangeWord()));
+    var child = manager.beginIndexWrite();
+    assertSame(outer, child);
+    assertEquals(2 * IndexManagerEmbedded.SEQ_UNIT + 2, manager.readIndexChangeWord());
+    manager.endIndexWrite(child);
+    assertFalse(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    manager.endIndexWrite(outer);
+    assertEquals(4 * IndexManagerEmbedded.SEQ_UNIT, manager.readIndexChangeWord());
+    assertNull(manager.currentIndexWrite());
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, manager.finishIndexStampCapture(before));
+    assertEquals(manager.readIndexChangeWord(),
+        manager.finishIndexStampCapture(manager.readIndexChangeWord()));
+  }
+
+  /** A successful nested fill cleanup discharges its own work, not an outer registry obligation. */
+  @Test
+  public void nestedCleanupCannotDischargeUnrelatedObligations() {
+    var manager = new IndexManagerEmbedded(null);
+    var outer = manager.beginIndexWrite();
+    outer.raise();
+    var fill = manager.beginIndexWrite();
+    fill.raise();
+    fill.resolve();
+    manager.endIndexWrite(fill);
+    assertTrue(manager.readIndexChangeWord() >= 0);
+    manager.endIndexWrite(outer);
+    assertTrue(manager.readIndexChangeWord() < 0);
+    assertNull(manager.currentIndexWrite());
+
+    var coherent = new IndexManagerEmbedded(null);
+    var create = coherent.beginIndexWrite();
+    create.raise();
+    var clearedFill = coherent.beginIndexWrite();
+    clearedFill.raise();
+    clearedFill.resolve();
+    coherent.endIndexWrite(clearedFill);
+    create.resolve();
+    coherent.endIndexWrite(create);
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(coherent.readIndexChangeWord()));
+  }
+
+  /** Swallowed child failures and invalid resolution survive otherwise successful outer work. */
+  @Test
+  public void unresolvedChildAndInvalidResolutionPoisonOutermostExit() {
+    for (boolean invalidResolution : new boolean[] {false, true}) {
+      var manager = new IndexManagerEmbedded(null);
+      var outer = manager.beginIndexWrite();
+      outer.raise();
+      var child = manager.beginIndexWrite();
+      if (invalidResolution) {
+        outer.resolve();
+        child.resolve();
+      } else {
+        child.markUnresolved();
+        outer.resolve();
+      }
+      manager.endIndexWrite(child);
+      assertTrue(manager.readIndexChangeWord() >= 0);
+      manager.endIndexWrite(outer);
+      assertTrue(manager.readIndexChangeWord() < 0);
+      assertNull(manager.currentIndexWrite());
+    }
+  }
+
+  /** Concurrent owners have independent obligations, and one exit cannot make the other idle. */
+  @Test
+  public void concurrentOwnerCannotClearAnotherOwnersObligation() throws Exception {
+    var manager = new IndexManagerEmbedded(null);
+    var entered = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var failure = new AtomicReference<Throwable>();
+    var thread = new Thread(() -> {
+      var operation = manager.beginIndexWrite();
+      try {
+        operation.raise();
+        entered.countDown();
+        assertTrue(release.await(10, TimeUnit.SECONDS));
+        // Deliberately unresolved, as if a child failure were caught by its caller.
+      } catch (Throwable t) {
+        failure.set(t);
+      } finally {
+        manager.endIndexWrite(operation);
+      }
+    });
+    thread.start();
+    try {
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      var operation = manager.beginIndexWrite();
+      assertEquals(2, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+      operation.raise();
+      operation.resolve();
+      manager.endIndexWrite(operation);
+      assertEquals(1, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+      assertFalse(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+      assertNull(manager.currentIndexWrite());
+    } finally {
+      release.countDown();
+      thread.join(10000);
+    }
+    assertFalse(thread.isAlive());
+    assertNull(failure.get());
+    assertTrue(manager.readIndexChangeWord() < 0);
+  }
+
+  /** Every packed field exhaustion and an unmatched exit fail closed without throwing or wrapping. */
+  @Test
+  public void counterExhaustionAndUnderflowPermanentlyPoison() {
+    for (long seed : new long[] {IndexManagerEmbedded.ACTIVE_MASK,
+        IndexManagerEmbedded.SEQ_MASK, IndexManagerEmbedded.SEQ_MASK | 1}) {
+      var manager = new IndexManagerEmbedded(null);
+      manager.seedIndexChangeWordForTest(seed);
+      var operation = manager.beginIndexWrite();
+      assertTrue(manager.readIndexChangeWord() < 0);
+      assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+      manager.endIndexWrite(operation);
+      long poisoned = manager.readIndexChangeWord();
+      var again = manager.beginIndexWrite();
+      manager.endIndexWrite(again);
+      manager.poisonIndexChangeCounter();
+      assertEquals(poisoned, manager.readIndexChangeWord());
+      assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP,
+          manager.finishIndexStampCapture(poisoned));
+    }
+    for (long seed : new long[] {0, IndexManagerEmbedded.SEQ_MASK | 1}) {
+      var manager = new IndexManagerEmbedded(null);
+      var operation = manager.beginIndexWrite();
+      manager.seedIndexChangeWordForTest(seed);
+      manager.endIndexWrite(operation);
+      assertTrue(manager.readIndexChangeWord() < 0);
+      assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+    }
+    var manager = new IndexManagerEmbedded(null);
+    manager.endIndexWrite(null);
+    assertTrue(manager.readIndexChangeWord() < 0);
+  }
+
+  /** Schema-owned nesting retains one pair and consumes the final saving-release outcome. */
+  @Test
+  public void schemaOwnedPairIsUniqueAndFailedSavePoisons() {
+    for (boolean saved : new boolean[] {true, false}) {
+      var manager = new IndexManagerEmbedded(null);
+      var operation = manager.beginSchemaOwnedWrite();
+      assertSame(operation, manager.beginSchemaOwnedWrite());
+      operation.raise();
+      operation.resolve();
+      assertEquals(IndexManagerEmbedded.SEQ_UNIT + 1, manager.readIndexChangeWord());
+      manager.finishSchemaOwnedWrite(saved);
+      assertNull(manager.currentIndexWrite());
+      assertEquals(saved, IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+      long after = manager.readIndexChangeWord();
+      manager.finishSchemaOwnedWrite(true);
+      assertEquals(after, manager.readIndexChangeWord());
+    }
+  }
+
+  /** Manager close invalidates provenance even without a writer and remains permanently poisoned. */
+  @Test
+  public void closePermanentlyPoisonsCounter() {
+    var manager = new IndexManagerEmbedded(null);
+    manager.close();
+    long after = manager.readIndexChangeWord();
+    assertTrue(after < 0);
+    var operation = manager.beginIndexWrite();
+    manager.endIndexWrite(operation);
+    assertEquals(after, manager.readIndexChangeWord());
+  }
 
   private static final String CLS = "ImeTestCls";
   private static final String IDX = CLS + ".val";
@@ -53,6 +233,124 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     cls.createProperty("val", PropertyType.INTEGER);
     cls.createProperty("name", PropertyType.STRING);
     cls.createIndex(IDX, SchemaClass.INDEX_TYPE.UNIQUE, "val");
+  }
+
+  /** Shared fixture writers must balance even when a test separately expects deliberate poison. */
+  @org.junit.After
+  public void sharedIndexWritersLeaveNoActivePairs() {
+    var manager = session.getSharedContext().getIndexManager();
+    assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** Each shared writer advances the word and returns idle with no unresolved operation. */
+  @Test
+  public void sharedWriterMovementTableReturnsIdle() {
+    var manager = session.getSharedContext().getIndexManager();
+    session.addCollection("counterMembership");
+    var actions = List.<Runnable>of(
+        () -> manager.addCollectionToIndex(session, "counterMembership", IDX, false),
+        () -> manager.removeCollectionFromIndex(session, "counterMembership", IDX),
+        () -> manager.reload(session),
+        () -> manager.getIndex(IDX).rebuild(session),
+        () -> ((IndexAbstract) manager.getIndex(IDX)).fillIndex(session, null),
+        () -> manager.dropIndex(session, IDX));
+    for (var action : actions) {
+      var before = manager.readIndexChangeWord();
+      action.run();
+      assertTrue("writer must advance the sequence", before != manager.readIndexChangeWord());
+      assertEquals("writer must balance all active pairs", 0,
+          manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+      assertTrue("successful writer must not poison", manager.readIndexChangeWord() >= 0);
+      assertNull("owning thread must release its operation", manager.currentIndexWrite());
+    }
+  }
+
+  /** Unsupported algorithms preserve the factory exception and leave no unresolved writer. */
+  @Test
+  public void unsupportedFactoryDoesNotPoisonCounter() {
+    var manager = session.getSharedContext().getIndexManager();
+    var definition = new PropertyIndexDefinition(CLS, "name", PropertyTypeInternal.STRING);
+    var expected = assertThrows(IndexException.class,
+        () -> Indexes.createIndexInstance("NOTUNIQUE", "NOPE", session.getStorage()));
+    var failure = assertThrows(IndexException.class,
+        () -> manager.createIndex(session, "Unsupported", "NOTUNIQUE", definition,
+            session.getMetadata().getSchema().getClass(CLS).getCollectionIds(),
+            null, Map.of(), "NOPE"));
+    assertEquals(expected.getMessage(), failure.getMessage());
+    assertNull(manager.getIndex("Unsupported"));
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** Eager rejected add keeps its membership, while rejected remove leaves it unchanged. */
+  @Test
+  public void nonemptyMembershipRejectionsDoNotPoison() {
+    var manager = session.getSharedContext().getIndexManager();
+    var extra = session.createClass("NonemptyMembership");
+    session.executeInTx(tx -> tx.newEntity("NonemptyMembership").setProperty("n", 1));
+    // Class inserts can choose any backing collection. Select the one that holds the row.
+    var populatedId = java.util.Arrays.stream(extra.getCollectionIds())
+        .filter(id -> session.getStorage().getApproximateRecordsCount(id) > 0)
+        .findFirst().orElseThrow();
+    var collection = session.getCollectionNameById(populatedId);
+    var before = manager.readIndexChangeWord();
+    assertThrows(RuntimeException.class,
+        () -> manager.addCollectionToIndex(session, collection, IDX, true));
+    assertTrue(manager.getIndex(IDX).getCollections().contains(collection));
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    before = manager.readIndexChangeWord();
+    assertThrows(RuntimeException.class,
+        () -> manager.removeCollectionFromIndex(session, collection, IDX));
+    assertTrue(manager.getIndex(IDX).getCollections().contains(collection));
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** Duplicate rejection and record-only commits cannot leave index uncertainty. */
+  @Test
+  public void duplicateCreateAndRecordOnlyCommitKeepCoherentCounter() {
+    var manager = session.getSharedContext().getIndexManager();
+    var index = manager.getIndex(IDX);
+    var cls = session.getMetadata().getSchema().getClass(CLS);
+    var before = manager.readIndexChangeWord();
+    assertThrows(RuntimeException.class, () -> manager.createIndex(session, IDX, "UNIQUE",
+        index.getDefinition(), cls.getCollectionIds(), null, Map.of()));
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.currentIndexWrite());
+    var after = manager.readIndexChangeWord();
+    session.executeInTx(tx -> tx.newEntity(CLS).setProperty("val", 42));
+    assertEquals("record changes must not enter the index counter", after,
+        manager.readIndexChangeWord());
+  }
+
+  /** UNIQUE fill over duplicate rows fails, but a successful clear leaves a coherent empty index. */
+  @Test
+  public void uniqueFillFailureWithSuccessfulClearDoesNotPoison() {
+    var manager = session.getSharedContext().getIndexManager();
+    session.executeInTx(tx -> {
+      var first = tx.newEntity(CLS);
+      first.setProperty("name", "duplicate");
+      first.setProperty("val", 1);
+      var second = tx.newEntity(CLS);
+      second.setProperty("name", "duplicate");
+      second.setProperty("val", 2);
+    });
+    var before = manager.readIndexChangeWord();
+    var cls = session.getMetadata().getSchema().getClass(CLS);
+    assertThrows(RuntimeException.class, () -> manager.createIndex(session, CLS + ".duplicate",
+        "UNIQUE", new PropertyIndexDefinition(CLS, "name",
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.STRING),
+        cls.getCollectionIds(), null, Map.of()));
+    assertTrue(before != manager.readIndexChangeWord());
+    assertTrue("successful fill clear must not poison",
+        IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.currentIndexWrite());
+    assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
   }
 
   /** Reserved metadata is rejected before index creation mutates durable or in-memory state. */
