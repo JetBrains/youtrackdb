@@ -61,6 +61,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -500,6 +502,47 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentMap<String, Integer> nameIdMap = new ConcurrentHashMap<>();
 
+  // Shadow state only. Production readers continue to use the retained registration maps.
+  private LogicalPageFileTable logicalFiles;
+
+  /** Select the disk layout under storage lifecycle exclusion, before loading registrations. */
+  public void setStorageFormat(StorageFormat format) {
+    logicalFiles = format == StorageFormat.LAYOUT_28 ? new LogicalPageFileTable() : null;
+  }
+
+  LogicalPageFileTable logicalFiles() {
+    return logicalFiles;
+  }
+
+  private void mirrorRegistration(String name, int internalId, boolean nonDurable) {
+    if (isLogicalIdentity(name, internalId)) {
+      logicalFiles.register(name, internalId, nonDurable);
+    }
+  }
+
+  private void mirrorReservation(String name, int internalId) {
+    if (isLogicalIdentity(name, internalId)) {
+      logicalFiles.reserve(name, internalId);
+    }
+  }
+
+  private void validateLogicalRegistration(String name, int internalId) {
+    if (logicalFiles != null && PageFileNames.parseLayout28(name).isPresent()) {
+      try {
+        LogicalPageFileTable.resolve(name, internalId);
+      } catch (IllegalArgumentException e) {
+        throw BaseException.wrapException(new StorageException(storageName,
+            "Invalid layout 28 registration: " + name + " and id " + internalId), e, storageName);
+      }
+    }
+  }
+
+  private boolean isLogicalIdentity(String name, int internalId) {
+    // Legacy aliases and non-computed tombstones remain map evidence, not logical identities.
+    return logicalFiles != null && PageFileNames.parseLayout28(name)
+        .filter(identity -> identity.internalId() == internalId).isPresent();
+  }
+
   /**
    * Mapping between file's internal ids and case sensitive file names are used in write cache. Name
    * of file in write cache is case sensitive and can be different from file name which is used to
@@ -715,6 +758,15 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireWriteLock();
     try {
       initNameIdMapping();
+      if (logicalFiles != null) {
+        logicalFiles.clear();
+        for (var entry : nameIdMap.entrySet()) {
+          if (entry.getValue() > 0) {
+            mirrorRegistration(entry.getKey(), entry.getValue(),
+                nonDurableFileIds.contains(entry.getValue()));
+          }
+        }
+      }
 
       doubleWriteLogOpenAttempted = true;
       doubleWriteLog.open(storageName, doubleWriteLogFileName, storagePath, pageSize);
@@ -838,6 +890,8 @@ public final class WOWCache extends AbstractWriteCache
       final var fileId = nameIdMap.get(fileName);
       if (fileId != null) {
         if (fileId < 0) {
+          validateLogicalRegistration(fileName, -fileId);
+          mirrorReservation(fileName, -fileId);
           return composeFileId(id, -fileId);
         } else {
           throw new StorageException(storageName,
@@ -847,8 +901,10 @@ public final class WOWCache extends AbstractWriteCache
       while (true) {
         final var nextId = fileIdGen.nextInt(Integer.MAX_VALUE - 1) + 1;
         if (!idNameMap.containsKey(nextId) && !idNameMap.containsKey(-nextId)) {
+          validateLogicalRegistration(fileName, nextId);
           nameIdMap.put(fileName, -nextId);
           idNameMap.put(-nextId, fileName);
+          mirrorReservation(fileName, nextId);
           return composeFileId(id, nextId);
         }
       }
@@ -863,6 +919,7 @@ public final class WOWCache extends AbstractWriteCache
     if (intId <= 0) {
       throw new IllegalArgumentException("Internal file identifier must be positive");
     }
+    validateLogicalRegistration(fileName, intId);
     if (reconstructAuxiliary) {
       validateAuxiliaryReconstruction(fileName, storageName);
     }
@@ -886,6 +943,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       nameIdMap.put(fileName, -intId);
       idNameMap.put(-intId, fileName);
+      mirrorReservation(fileName, intId);
       return composeFileId(id, intId);
     } finally {
       filesLock.releaseWriteLock();
@@ -994,6 +1052,7 @@ public final class WOWCache extends AbstractWriteCache
 
         nameIdMap.put(fileName, fileId);
         idNameMap.put(fileId, fileName);
+        mirrorRegistration(fileName, fileId, nonDurableFileIds.contains(fileId));
 
         writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
@@ -1039,9 +1098,11 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
       } else {
+        validateLogicalRegistration(fileName, -fileId);
         idNameMap.remove(fileId);
         fileId = -fileId;
       }
+      validateLogicalRegistration(fileName, fileId);
 
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
@@ -1054,6 +1115,7 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.put(fileName, fileId);
       idNameMap.put(fileId, fileName);
+      mirrorRegistration(fileName, fileId, nonDurableFileIds.contains(fileId));
 
       writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
@@ -1164,6 +1226,7 @@ public final class WOWCache extends AbstractWriteCache
         throw new IllegalArgumentException("Internal file identifier must be positive");
       }
 
+      validateLogicalRegistration(fileName, intId);
       if (existingFileId != null && existingFileId >= 0) {
         if (existingFileId == intId) {
           throw new StorageException(storageName,
@@ -1213,6 +1276,8 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.put(fileName, intId);
       idNameMap.put(intId, fileName);
+      // Mirror the current set even if the name-id write below fails.
+      mirrorRegistration(fileName, intId, nonDurableFileIds.contains(intId));
 
       writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
 
@@ -1220,6 +1285,7 @@ public final class WOWCache extends AbstractWriteCache
         final var updated = new IntOpenHashSet(nonDurableFileIds);
         updated.add(intId);
         nonDurableFileIds = updated;
+        mirrorRegistration(fileName, intId, nonDurableFileIds.contains(intId));
         writeNonDurableRegistry();
       }
 
@@ -2437,6 +2503,10 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.put(newFileName, intId);
 
       idNameMap.put(intId, newFileName);
+      if (isLogicalIdentity(oldFileName, intId)) {
+        logicalFiles.forget(intId);
+      }
+      mirrorRegistration(newFileName, intId, nonDurableFileIds.contains(intId));
 
       writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
       writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
@@ -2560,6 +2630,9 @@ public final class WOWCache extends AbstractWriteCache
             }
           }
         }
+        if (logicalFiles != null) {
+          logicalFiles.clear();
+        }
         if (doubleWriteLogOpenAttempted) {
           doubleWriteLog.closeAfterFailedOpen();
           doubleWriteLogOpenAttempted = false;
@@ -2650,6 +2723,9 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.clear();
       idNameMap.clear();
+      if (logicalFiles != null) {
+        logicalFiles.clear();
+      }
       nonDurableFileIds = new IntOpenHashSet();
       closed = true;
 
@@ -5725,6 +5801,9 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.put(name, -internalFileId);
       idNameMap.put(-internalFileId, name);
+      if (isLogicalIdentity(name, internalFileId)) {
+        logicalFiles.delete(name, internalFileId);
+      }
 
       return new RawPair<>(fileClassic.getName(), name);
     }

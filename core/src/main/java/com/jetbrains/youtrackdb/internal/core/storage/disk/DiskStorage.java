@@ -1503,6 +1503,7 @@ public class DiskStorage extends AbstractStorage {
     if (startupOwner != null) {
       startupOwner.cache = wowCache;
     }
+    wowCache.setStorageFormat(getStorageFormat());
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
