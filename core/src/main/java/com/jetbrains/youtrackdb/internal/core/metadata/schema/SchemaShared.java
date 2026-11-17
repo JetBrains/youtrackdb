@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -1706,7 +1707,12 @@ public abstract class SchemaShared implements CloseableInStorage {
     String candidate;
     do {
       candidate = COLLECTION_NAME_PREFIX + nextCollectionIndex();
-    } while (session.getCollectionIdByName(candidate) != -1);
+    } while (session.getCollectionIdByName(candidate) != -1
+        || (session.getStorage().getStorageFormat()
+            == StorageFormat.LAYOUT_28
+            && session.getStorage().isCollectionNameStored(candidate,
+                session.isTxActive() ? session.getActiveTransaction().getAtomicOperation()
+                    : null)));
     return candidate;
   }
 

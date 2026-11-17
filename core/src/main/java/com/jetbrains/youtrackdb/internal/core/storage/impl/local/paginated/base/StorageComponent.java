@@ -26,6 +26,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
@@ -34,6 +36,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
@@ -100,6 +106,47 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   private final ApplyPhaseEpoch applyPhaseEpoch;
 
   private final boolean durable;
+
+  private static final java.util.EnumSet<PageFileRole> REBUILDABLE_ROLES =
+      java.util.EnumSet.of(PageFileRole.FREE_SPACE_MAP, PageFileRole.DIRTY_PAGE_BIT_SET,
+          PageFileRole.CONFIG_FREE_SPACE_MAP, PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET,
+          PageFileRole.HISTOGRAM);
+
+  /**
+   * Validates explicit ownership only and returns nothing. Subclasses call this directly after
+   * {@code super(...)} and before assigning fields or acquiring locks.
+   * Legacy construction does not inspect the storage format.
+   */
+  protected static void validateIdentity(AbstractStorage storage, String extension,
+      @Nullable PageFileIdentity identity, PageFileRole... allowedRoles) {
+    if (identity == null) {
+      return;
+    }
+    if (storage.getStorageFormat() != StorageFormat.LAYOUT_28) {
+      throw new StorageException(storage.getName(), "Page-file identities require layout 28");
+    }
+    if (!extension.equals(identity.role().layout27Extension())
+        || !java.util.List.of(allowedRoles).contains(identity.role())) {
+      throw new IllegalArgumentException("Page-file role does not match the component");
+    }
+  }
+
+  private long expectedFileId(PageFileIdentity identity) {
+    return AbstractWriteCache.composeFileId(writeCache.getId(), identity.internalId());
+  }
+
+  /**
+   * The owning caller asserts that the owner is live and this auxiliary can be rebuilt.
+   * Creation requires the storage state write lock through the end of the atomic operation.
+   */
+  protected final long reconstructAuxiliary(AtomicOperation operation,
+      @Nullable PageFileIdentity identity) throws IOException {
+    if (identity == null || !REBUILDABLE_ROLES.contains(identity.role())) {
+      throw new StorageException(storage.getName(), "Not a rebuildable auxiliary: " + identity);
+    }
+    return operation.addFile(PageFileNames.layout28(identity), expectedFileId(identity),
+        !durable, true);
+  }
 
   public StorageComponent(
       @Nonnull final AbstractStorage storage,
@@ -344,10 +391,27 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     return atomicOperation.addFile(fileName, !durable);
   }
 
+  protected long addFile(AtomicOperation operation, String fileName,
+      @Nullable PageFileIdentity identity) throws IOException {
+    if (identity == null) {
+      return addFile(operation, fileName);
+    }
+    return operation.addFile(PageFileNames.layout28(identity), expectedFileId(identity),
+        !durable, false);
+  }
+
   protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
     return atomicOperation.loadFile(fileName);
+  }
+
+  protected long openFile(AtomicOperation operation, String fileName,
+      @Nullable PageFileIdentity identity) throws IOException {
+    if (identity == null) {
+      return openFile(operation, fileName);
+    }
+    return operation.loadFile(PageFileNames.layout28(identity), expectedFileId(identity));
   }
 
   protected void deleteFile(@Nonnull final AtomicOperation atomicOperation, final long fileId)
@@ -356,10 +420,28 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     atomicOperation.deleteFile(fileId);
   }
 
+  protected void deleteFile(AtomicOperation operation, long fileId,
+      @Nullable PageFileIdentity identity) throws IOException {
+    if (identity != null
+        && operation.loadFile(PageFileNames.layout28(identity), expectedFileId(identity))
+            != fileId) {
+      throw new StorageException(storage.getName(), "Deletion handle changed");
+    }
+    deleteFile(operation, fileId);
+  }
+
   protected boolean isFileExists(
       @Nonnull final AtomicOperation atomicOperation, final String fileName) {
     assert atomicOperation != null;
     return atomicOperation.isFileExists(fileName);
+  }
+
+  protected boolean isFileExists(AtomicOperation operation, String fileName,
+      @Nullable PageFileIdentity identity) {
+    if (identity == null) {
+      return isFileExists(operation, fileName);
+    }
+    return operation.isFileExists(PageFileNames.layout28(identity), expectedFileId(identity));
   }
 
   // --- Recovery-time orphan-truncation template method ---

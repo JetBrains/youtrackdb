@@ -8,7 +8,7 @@ import org.junit.Test;
 public class EdgeSnapshotKeyTest {
 
   @Test
-  public void testNaturalOrderingByComponentId() {
+  public void testNaturalOrderingByLinkBagFileId() {
     var k1 = new EdgeSnapshotKey(1, 100L, 10, 200L, 5L);
     var k2 = new EdgeSnapshotKey(2, 100L, 10, 200L, 5L);
 
@@ -108,8 +108,8 @@ public class EdgeSnapshotKeyTest {
   }
 
   @Test
-  public void testComponentIdIsolation() {
-    // Verify that scanning within one component does not include entries from another
+  public void testLinkBagFileIdIsolation() {
+    // Verify that scanning within one link-bag file does not include entries from another
     var map = new ConcurrentSkipListMap<EdgeSnapshotKey, String>();
 
     map.put(new EdgeSnapshotKey(1, 50L, 10, 200L, 1L), "c1");

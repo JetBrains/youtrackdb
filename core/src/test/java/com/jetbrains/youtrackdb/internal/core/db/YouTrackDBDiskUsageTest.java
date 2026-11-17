@@ -9,6 +9,11 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -110,6 +115,32 @@ public class YouTrackDBDiskUsageTest {
     }
   }
 
+  /** A real selected-layout birth exposes the markers used by startup and public listing. */
+  @Test
+  public void layout28BirthDiscoveryMarkers() throws Exception {
+    var root = temporaryFolder.newFolder("layout28-markers").toPath();
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root)) {
+      try (var selection =
+          StorageBirthTestSupport
+              .selectBirthFormat(manager, "selected",
+                  StorageFormat.LAYOUT_28)) {
+        manager.create("selected", DatabaseType.DISK, new String[0]);
+      }
+      var identity =
+          new PageFileIdentity(
+              PageFileRole.CONFIG_DATA,
+              0);
+      var marker =
+          PageFileNames
+              .layout28DiskName(identity);
+      assertThat(Files.isRegularFile(root.resolve("selected/database.ocf"))).isFalse();
+      assertThat(Files.isRegularFile(root.resolve("selected").resolve(marker))).isTrue();
+      assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(root))
+          .containsExactly("selected");
+      assertThat(manager.listDatabases()).contains("selected");
+    }
+  }
+
   /** Startup discovery checks fixed markers without enumerating every database file. */
   @Test
   public void startupDiscoveryUsesBoundedMarkerChecks() throws Exception {
@@ -119,10 +150,27 @@ public class YouTrackDBDiskUsageTest {
     for (var i = 0; i < 100; i++) {
       Files.write(database.resolve("unrelated-" + i), new byte[1]);
     }
-    Files.createDirectory(managerDirectory.resolve("not-a-database"));
+    var legacy = Files.createDirectory(managerDirectory.resolve("legacy"));
+    Files.write(legacy.resolve("config.cd"), new byte[1]);
+    var identity =
+        new PageFileIdentity(
+            PageFileRole.CONFIG_DATA,
+            0);
+    var canonical = Files.createDirectory(managerDirectory.resolve("canonical"));
+    Files.write(canonical.resolve(
+        PageFileNames
+            .layout28DiskName(identity)),
+        new byte[1]);
+    var rejected = Files.createDirectory(managerDirectory.resolve("not-a-database"));
+    Files.write(rejected.resolve(
+        PageFileNames
+            .layout28(identity)),
+        new byte[1]);
+    Files.write(rejected.resolve("ytdb-p28-configuration-0-data_1.cd"), new byte[1]);
+    Files.write(rejected.resolve("ytdb-p28-collection-0-data_268435456.pcl"), new byte[1]);
 
     assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(managerDirectory))
-        .containsExactly("database");
+        .containsExactlyInAnyOrder("database", "legacy", "canonical");
     assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(
         managerDirectory.resolve("not-a-directory"))).isEmpty();
   }

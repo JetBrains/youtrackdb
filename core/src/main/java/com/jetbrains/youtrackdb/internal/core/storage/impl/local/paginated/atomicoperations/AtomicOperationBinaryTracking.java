@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -81,6 +82,12 @@ import javax.annotation.Nullable;
 final class AtomicOperationBinaryTracking implements AtomicOperation {
 
   private final int storageId;
+  @Nullable private AbstractStorage creationStorage;
+  private boolean suppliedFileCreated;
+  // Retain ownership after a pending supplied creation is deleted, so only its exact
+  // name and internal id can reuse the booking without weakening cache conflict checks.
+  private final Object2LongOpenHashMap<String> suppliedBookings = new Object2LongOpenHashMap<>();
+
   private long operationCommitTs = -1;
 
   private boolean rollback;
@@ -93,6 +100,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final Long2ObjectOpenHashMap<FileChanges> fileChanges = new Long2ObjectOpenHashMap<>();
   private final Object2LongOpenHashMap<String> newFileNamesId = new Object2LongOpenHashMap<>();
   private final LongOpenHashSet deletedFiles = new LongOpenHashSet();
+  // Positive committed-file IDs deleted by this operation.
+  // Commit deletes the committed file from the cache.
   private final Object2LongOpenHashMap<String> deletedFileNameIdMap =
       new Object2LongOpenHashMap<>();
 
@@ -168,6 +177,19 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // their locked logical components instead.
   @Nullable private final ApplyPhaseEpoch standaloneApplyPhaseEpoch;
 
+  AtomicOperationBinaryTracking(
+      AbstractStorage storage, ReadCache readCache, WriteCache writeCache,
+      @Nullable WriteAheadLog wal, int storageId, AtomicOperationsSnapshot snapshot,
+      ConcurrentSkipListMap<SnapshotKey, PositionEntry> snapshots,
+      ConcurrentSkipListMap<VisibilityKey, SnapshotKey> visibility, AtomicLong snapshotSize,
+      ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> edges,
+      ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> edgeVisibility,
+      AtomicLong edgeSize) {
+    this(readCache, writeCache, wal, storageId, snapshot, snapshots, visibility,
+        snapshotSize, edges, edgeVisibility, edgeSize);
+    this.creationStorage = storage;
+  }
+
   /**
    * Production constructor. Optimistic scopes receive their epoch from the component
    * starting each read, and commits receive epochs from their locked components.
@@ -221,6 +243,22 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         applyPhaseEpoch == null ? new OptimisticReadScope()
             : new OptimisticReadScope(applyPhaseEpoch);
     this.active = true;
+  }
+
+  @Override
+  public void validateCommit() {
+    checkIfActive();
+    if (suppliedFileCreated) {
+      requireCreationLock();
+    }
+  }
+
+  private void requireCreationLock() {
+    if (creationStorage == null || !creationStorage.isStateWriteLockedByCurrentThread()) {
+      rollbackInProgress();
+      throw new StorageException(writeCache.getStorageName(),
+          "Supplied-id creation requires the storage state write lock through commit");
+    }
   }
 
   @Override
@@ -841,13 +879,27 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     final boolean isNew;
 
     if (deletedFileNameIdMap.containsKey(fileName)) {
-      fileId = deletedFileNameIdMap.removeLong(fileName);
+      fileId = deletedFileNameIdMap.getLong(fileName);
+      validateReuseDurability(fileId, nonDurable);
+      deletedFileNameIdMap.removeLong(fileName);
       deletedFiles.remove(fileId);
       isNew = false;
     } else {
       fileId = writeCache.bookFileId(fileName);
       isNew = true;
     }
+    return bufferNewFile(fileName, fileId, nonDurable, isNew);
+  }
+
+  private void validateReuseDurability(long fileId, boolean nonDurable) {
+    if (writeCache.isNonDurable(fileId) != nonDurable) {
+      throw new StorageException(writeCache.getStorageName(),
+          "Cannot change durability when reusing file id " + fileId);
+    }
+  }
+
+  private long bufferNewFile(String fileName, long fileId, boolean nonDurable, boolean isNew)
+      throws IOException {
     newFileNamesId.put(fileName, fileId);
 
     final var fileChanges = new FileChanges();
@@ -868,8 +920,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     // The eagerlyInstalledInCache flag tells commitChanges to skip the late
     // readCache.addFile call for this fileChanges entry (a second addFile would throw
     // "File with id ... already exists"). The flag is only set for the truly-fresh
-    // path (isNew && readCache instanceof DirectMemoryOnlyDiskCache); deleted-then-readded
-    // files reuse the cache's existing entry so no eager call is needed.
+    // path (isNew && readCache instanceof DirectMemoryOnlyDiskCache). Reused committed
+    // files keep their cache entry. Re-created pending supplied files install a fresh entry.
     if (isNew && readCache instanceof DirectMemoryOnlyDiskCache) {
       readCache.addFile(fileName, fileId, writeCache, nonDurable);
       fileChanges.eagerlyInstalledInCache = true;
@@ -878,6 +930,126 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.fileChanges.put(fileId, fileChanges);
 
     return fileId;
+  }
+
+  @Override
+  public long addFile(String fileName, long expectedId, boolean nonDurable,
+      boolean reconstructAuxiliary) throws IOException {
+    checkIfActive();
+    try {
+      // Exclusion is checked before even inspecting operation-local conflicts.
+      requireCreationLock();
+      int internalId = AbstractWriteCache.extractFileId(expectedId);
+      if (internalId <= 0) {
+        throw new IllegalArgumentException("Internal file identifier must be positive");
+      }
+      if (newFileNamesId.containsKey(fileName)) {
+        throw identityConflict(fileName, expectedId);
+      }
+      for (long id : newFileNamesId.values()) {
+        if (AbstractWriteCache.extractFileId(id) == internalId) {
+          throw identityConflict(fileName, expectedId);
+        }
+      }
+      long deletedId = deletedFileNameIdMap.getLong(fileName);
+      final long fileId;
+      final boolean isNew;
+      if (deletedId != -1) {
+        // Only this operation's matching committed-file deletion may bypass strict booking.
+        validateIdentity(fileName, expectedId);
+        // The local deletion keeps the positive ID. Only disk cache deletion at commit negates it.
+        fileId = deletedId;
+        validateReuseDurability(fileId, nonDurable);
+        isNew = false;
+      } else if (suppliedBookings.containsKey(fileName)) {
+        fileId = suppliedBookings.getLong(fileName);
+        if (AbstractWriteCache.extractFileId(fileId) != internalId) {
+          throw identityConflict(fileName, expectedId);
+        }
+        isNew = true;
+      } else {
+        for (long id : suppliedBookings.values()) {
+          if (AbstractWriteCache.extractFileId(id) == internalId) {
+            throw identityConflict(fileName, expectedId);
+          }
+        }
+        for (long id : deletedFiles) {
+          if (AbstractWriteCache.extractFileId(id) == internalId) {
+            throw identityConflict(fileName, expectedId);
+          }
+        }
+        fileId = writeCache.bookFileId(fileName, expectedId, reconstructAuxiliary);
+        suppliedBookings.put(fileName, fileId);
+        isNew = true;
+      }
+      suppliedFileCreated = true;
+      if (!isNew) {
+        deletedFileNameIdMap.removeLong(fileName);
+        deletedFiles.remove(fileId);
+      }
+      return bufferNewFile(fileName, fileId, nonDurable, isNew);
+    } catch (IOException | RuntimeException failure) {
+      rollbackInProgress();
+      throw failure;
+    }
+  }
+
+  private StorageException identityConflict(String name, long expectedId) {
+    return new StorageException(writeCache.getStorageName(),
+        "Conflicting file identity for " + name + " and id "
+            + AbstractWriteCache.extractFileId(expectedId));
+  }
+
+  private void validateIdentity(String name, long expectedId) {
+    int internalId = AbstractWriteCache.extractFileId(expectedId);
+    if (internalId <= 0) {
+      throw new IllegalArgumentException("Internal file identifier must be positive");
+    }
+    long localId = newFileNamesId.getLong(name);
+    if (suppliedBookings.containsKey(name)
+        && AbstractWriteCache.extractFileId(suppliedBookings.getLong(name)) != internalId) {
+      throw identityConflict(name, expectedId);
+    }
+    long deletedId = deletedFileNameIdMap.getLong(name);
+    Integer registered = writeCache.registeredFileId(name);
+    if ((localId != -1 && AbstractWriteCache.extractFileId(localId) != internalId)
+        || (deletedId != -1 && AbstractWriteCache.extractFileId(deletedId) != internalId)
+        || (registered != null && Math.abs((long) registered) != internalId)) {
+      throw identityConflict(name, expectedId);
+    }
+  }
+
+  @Override
+  public boolean isFileExists(String name, long expectedId) {
+    checkIfActive();
+    validateIdentity(name, expectedId);
+    if (newFileNamesId.containsKey(name)) {
+      return true;
+    }
+    if (deletedFileNameIdMap.containsKey(name)) {
+      // This operation deleted the committed file, even though its cache entry still exists.
+      return false;
+    }
+    if (suppliedBookings.containsKey(name)) {
+      // This operation deleted the pending file. Its retained booking reserves only the name and ID.
+      return false;
+    }
+    return writeCache.registeredFileId(name) != null && writeCache.exists(name);
+  }
+
+  @Override
+  public long loadFile(String name, long expectedId) throws IOException {
+    checkIfActive();
+    validateIdentity(name, expectedId);
+    if (!isFileExists(name, expectedId)) {
+      throw new StorageException(writeCache.getStorageName(), "File does not exist: " + name);
+    }
+    long openedId = loadFile(name);
+    if (AbstractWriteCache.extractFileId(openedId)
+        != AbstractWriteCache.extractFileId(expectedId)) {
+      throw identityConflict(name, expectedId);
+    }
+    return openedId;
   }
 
   /**
@@ -915,6 +1087,17 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     final var fileChanges = this.fileChanges.remove(fileId);
     if (fileChanges != null && fileChanges.fileName != null) {
       newFileNamesId.removeLong(fileChanges.fileName);
+      if (!fileChanges.isNew) {
+        // Reuse cancelled a committed-file deletion. Deleting the replacement restores it.
+        deletedFiles.add(fileId);
+        deletedFileNameIdMap.put(fileChanges.fileName, fileId);
+      }
+      if (fileChanges.isNew && suppliedBookings.containsKey(fileChanges.fileName)
+          && fileChanges.eagerlyInstalledInCache) {
+        // Only a genuinely new supplied file belongs to this operation. Discard its
+        // eager pages so re-creation installs a fresh empty memory file.
+        ((DirectMemoryOnlyDiskCache) readCache).deleteFile(fileId);
+      }
     } else {
       deletedFiles.add(fileId);
       final var f = writeCache.fileNameById(fileId);
@@ -961,6 +1144,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     checkIfActive();
     assert this.writeAheadLog == null || this.writeAheadLog == writeAheadLog
         : "commitChanges WAL instance differs from flushPendingOperations WAL instance";
+    // Also guard direct commitChanges callers. The manager validates before persist hooks.
+    validateCommit();
     try {
       LogSequenceNumber txEndLsn;
 

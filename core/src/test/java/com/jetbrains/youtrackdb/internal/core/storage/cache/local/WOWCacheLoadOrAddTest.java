@@ -33,6 +33,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog
 import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
@@ -87,6 +90,214 @@ import org.mockito.Mockito;
 // The fixture changes process-global file access flags.
 @Category(SequentialTest.class)
 public class WOWCacheLoadOrAddTest {
+
+  /** Negative inventory is a detached snapshot, includes bookings, and never changes live files. */
+  @Test
+  public void deletionInventorySeparatesLiveFilesAndSurvivesReopen() throws Exception {
+    final long deleted = wowCache.addFile(AUX, 123456);
+    wowCache.deleteFile(deleted);
+    wowCache.bookFileId(OTHER, 123457, false);
+    final long live = wowCache.addFile("live.dat", 123458);
+    final var snapshot = wowCache.deletedFiles();
+    assertEquals(java.util.Set.of(AUX, OTHER), new java.util.HashSet<>(snapshot));
+    assertEquals(Map.of("live.dat", live), wowCache.files());
+    snapshot.clear();
+    assertEquals(2, wowCache.deletedFiles().size());
+    wowCache.close();
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    wowCache.loadRegisteredFiles();
+    assertEquals(java.util.Set.of(AUX, OTHER),
+        new java.util.HashSet<>(wowCache.deletedFiles()));
+    assertEquals(Map.of("live.dat", live), wowCache.files());
+    assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, deleted, false));
+  }
+
+  /** All normal conflicts, including identical live and negative pairs, reject without mutation. */
+  @Test
+  public void suppliedBookingRejectsLiveAndNegativeConflicts() throws Exception {
+    final int supplied = 123456;
+    final String name = AUX;
+    assertNull(wowCache.registeredFileId(name));
+    final long booked = wowCache.bookFileId(name, supplied, false);
+    assertEquals(supplied, wowCache.internalFileId(booked));
+    assertEquals(Integer.valueOf(-supplied), wowCache.registeredFileId(name));
+    assertEquals(-1L, wowCache.fileIdByName(name));
+    assertThrows(StorageException.class, () -> wowCache.bookFileId(name, supplied, false));
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class,
+          () -> wowCache.bookFileId(name, supplied + 1, auxiliary));
+      assertThrows(StorageException.class,
+          () -> wowCache.bookFileId(OTHER, booked, auxiliary));
+    }
+    assertNull(wowCache.registeredFileId(OTHER));
+    assertEquals(Integer.valueOf(-supplied), wowCache.registeredFileId(name));
+    // Only the explicit live-owner auxiliary permission may reuse this matching negative pair.
+    assertEquals(booked, wowCache.bookFileId(name, booked, true));
+    wowCache.addFile(name, booked);
+    assertEquals(Integer.valueOf(supplied), wowCache.registeredFileId(name));
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class, () -> wowCache.bookFileId(name, booked, auxiliary));
+      assertThrows(StorageException.class,
+          () -> wowCache.bookFileId(name, supplied + 1, auxiliary));
+      assertThrows(StorageException.class,
+          () -> wowCache.bookFileId(OTHER, booked, auxiliary));
+    }
+    assertThrows(IllegalArgumentException.class, () -> wowCache.bookFileId("invalid", 0, false));
+    assertThrows(IllegalArgumentException.class, () -> wowCache.bookFileId("invalid", -1, false));
+    assertNull(wowCache.registeredFileId("invalid"));
+  }
+
+  /** A legacy NUL-name booking must report its conflict before any disk path is built. */
+  @Test
+  public void suppliedBookingRejectsLegacyNulNameBeforeProbingDisk() {
+    final String name = "bad" + (char) 0 + ".dat";
+    final long booked = wowCache.bookFileId(name);
+    final int internalId = wowCache.internalFileId(booked);
+    final var failure = assertThrows(StorageException.class,
+        () -> wowCache.bookFileId(name, booked, false));
+    assertEquals(new StorageException(storageName,
+        "Conflicting registration or backing file for " + name + " and id " + internalId)
+        .getMessage(), failure.getMessage());
+    assertEquals(Integer.valueOf(-internalId), wowCache.registeredFileId(name));
+  }
+
+  /** Wrong deletion entries stay visible and reject. Only a matching auxiliary may rebuild. */
+  @Test
+  public void suppliedBookingChecksDeletionEntriesWithoutReactivatingThem() throws Exception {
+    final long deleted = wowCache.addFile(AUX, 123456);
+    wowCache.deleteFile(deleted);
+    assertEquals(Integer.valueOf(-123456), wowCache.registeredFileId(AUX));
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, 123457, auxiliary));
+      assertThrows(StorageException.class, () -> wowCache.bookFileId(OTHER, deleted, auxiliary));
+    }
+    // Strict creation rejects even a matching deletion entry.
+    assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, deleted, false));
+    assertEquals(Integer.valueOf(-123456), wowCache.registeredFileId(AUX));
+    assertEquals(deleted, wowCache.bookFileId(AUX, deleted, true));
+    wowCache.addFile(AUX, deleted);
+    assertEquals(Integer.valueOf(123456), wowCache.registeredFileId(AUX));
+  }
+
+  /** A test double cannot silently replace a supplied id with random name-based allocation. */
+  @Test
+  public void unsupportedCacheBookingFailsExplicitly() {
+    final var cache = mock(com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.class,
+        Mockito.CALLS_REAL_METHODS);
+    assertThrows(UnsupportedOperationException.class, () -> cache.bookFileId("a", 1, false));
+    assertThrows(UnsupportedOperationException.class, () -> cache.registeredFileId("a"));
+    assertTrue(cache.deletedFiles().isEmpty());
+  }
+
+  /** Rejected booking never truncates an existing file or adopts an unregistered leftover. */
+  @Test
+  public void suppliedBookingPreservesBackingBytesAndRejectsLeftovers() throws Exception {
+    final int supplied = 123456;
+    final long live = wowCache.addFile(AUX, supplied);
+    final Path backing = storagePath.resolve(wowCache.nativeFileNameById(live));
+    final byte[] bytes = {1, 3, 5, 7};
+    Files.write(backing, bytes);
+    assertThrows(StorageException.class,
+        () -> wowCache.bookFileId(AUX, live, true));
+    assertArrayEquals(bytes, Files.readAllBytes(backing));
+    assertEquals(bytes.length, Files.size(backing));
+    final Path orphan = storagePath.resolve("ytdb-p28-collection-43-free-space-map_123457.fsm");
+    Files.write(orphan, bytes);
+    for (boolean auxiliary : new boolean[] {false, true}) {
+      assertThrows(StorageException.class,
+          () -> wowCache.bookFileId(OTHER, 123457, auxiliary));
+      assertArrayEquals(bytes, Files.readAllBytes(orphan));
+      assertEquals(bytes.length, Files.size(orphan));
+      assertNull(wowCache.registeredFileId(OTHER));
+    }
+  }
+
+  /** Reopen the appended registry without close, then rebuild the auxiliary, not a disk alias. */
+  @Test
+  public void deletionRecordSurvivesRegistryReopenWithoutCleanClose() throws Exception {
+    final String logical = AUX;
+    final long fileId = wowCache.addFile(logical, 123456);
+    final String physical = wowCache.nativeFileNameById(fileId);
+    wowCache.deleteFile(fileId);
+    final var reader = WOWCache.class.getDeclaredMethod("readNextNameIdEntryV3", FileChannel.class);
+    reader.setAccessible(true);
+    try (var channel = FileChannel.open(storagePath.resolve("name_id_map_v3.cm"))) {
+      NameFileIdEntry last = null;
+      NameFileIdEntry entry;
+      while ((entry = (NameFileIdEntry) reader.invoke(wowCache, channel)) != null) {
+        last = entry;
+      }
+      assertNotNull(last);
+      assertEquals(logical, last.getName());
+      assertEquals(physical, last.getFileSystemName());
+      assertEquals(-123456, last.getFileId());
+    }
+    // Use empty maps in a fresh cache. No close or registry compaction occurs first.
+    final WOWCache abandoned = wowCache;
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    try {
+      wowCache.loadRegisteredFiles();
+    } finally {
+      // Release the old cache only after the crash-style registry replay.
+      abandoned.close();
+    }
+    assertNull(wowCache.fileNameById(fileId));
+    assertEquals(Integer.valueOf(-123456), wowCache.registeredFileId(logical));
+    assertNull(wowCache.registeredFileId(physical));
+    assertEquals(fileId, wowCache.bookFileId(logical, fileId, true));
+    wowCache.addFile(logical, fileId);
+    assertEquals(Integer.valueOf(123456), wowCache.registeredFileId(logical));
+    assertTrue(Files.exists(storagePath.resolve(physical)));
+  }
+
+  /** A matching tombstone cannot authorize reconstruction over leftover backing bytes. */
+  @Test
+  public void reconstructionRejectsMatchingDeletionWithLeftover() throws Exception {
+    final long deleted = wowCache.addFile(AUX, 123456);
+    final Path backing = storagePath.resolve(wowCache.nativeFileNameById(deleted));
+    wowCache.deleteFile(deleted);
+    final byte[] bytes = {9, 8, 7};
+    Files.write(backing, bytes);
+    assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, deleted, true));
+    assertEquals(Integer.valueOf(-123456), wowCache.registeredFileId(AUX));
+    assertArrayEquals(bytes, Files.readAllBytes(backing));
+    assertEquals(bytes.length, Files.size(backing));
+  }
+
+  /** Only strict layout 28 rebuildable roles authorize reconstruction, never primary data. */
+  @Test
+  public void reconstructionPermissionRequiresRebuildableLogicalRole() {
+    for (var role : PageFileRole.values()) {
+      final var identity = new PageFileIdentity(role, 99);
+      final String logical = PageFileNames.layout28(identity);
+      final boolean rebuildable = switch (role) {
+        case FREE_SPACE_MAP, DIRTY_PAGE_BIT_SET, CONFIG_FREE_SPACE_MAP,
+            CONFIG_DIRTY_PAGE_BIT_SET, HISTOGRAM -> true;
+        default -> false;
+      };
+      if (rebuildable) {
+        final long booked = wowCache.bookFileId(logical, identity.internalId(), true);
+        assertEquals(identity.internalId(), wowCache.internalFileId(booked));
+        assertEquals(booked, wowCache.bookFileId(logical, booked, true));
+      } else {
+        final var failure = assertThrows(StorageException.class,
+            () -> wowCache.bookFileId(logical, identity.internalId(), true));
+        assertTrue(failure.getMessage().contains("rebuildable role"));
+        assertNull(wowCache.registeredFileId(logical));
+      }
+    }
+    for (String invalid : new String[] {"legacy.fsm",
+        "ytdb-p28-collection-099-free-space-map.fsm",
+        "ytdb-p28-collection-99-free-space-map_335544419.fsm"}) {
+      assertThrows(StorageException.class, () -> wowCache.bookFileId(invalid, 123456, true));
+      assertNull(wowCache.registeredFileId(invalid));
+    }
+  }
+
+  private static final String AUX = "ytdb-p28-collection-42-free-space-map.fsm";
+  private static final String OTHER = "ytdb-p28-collection-43-free-space-map.fsm";
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
   private static final long PAGES_FLUSH_INTERVAL = 10L;
@@ -159,27 +370,30 @@ public class WOWCacheLoadOrAddTest {
             true,
             10);
     asyncFileExecutor = Executors.newCachedThreadPool();
-    wowCache =
-        new WOWCache(
-            PAGE_SIZE,
-            false,
-            bufferPool,
-            writeAheadLog,
-            new DoubleWriteLogNoOP(),
-            PAGES_FLUSH_INTERVAL,
-            SHUTDOWN_TIMEOUT,
-            EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
-            storagePath,
-            storageName,
-            files,
-            1,
-            ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
-            ChecksumMode.StoreAndVerify,
-            null,
-            null,
-            false,
-            asyncFileExecutor);
+    wowCache = newCache();
     wowCache.loadRegisteredFiles();
+  }
+
+  private WOWCache newCache() {
+    return new WOWCache(
+        PAGE_SIZE,
+        false,
+        bufferPool,
+        writeAheadLog,
+        new DoubleWriteLogNoOP(),
+        PAGES_FLUSH_INTERVAL,
+        SHUTDOWN_TIMEOUT,
+        EXCLUSIVE_WRITE_CACHE_MAX_SIZE,
+        storagePath,
+        storageName,
+        files,
+        1,
+        ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+        ChecksumMode.StoreAndVerify,
+        null,
+        null,
+        false,
+        asyncFileExecutor);
   }
 
   @After
