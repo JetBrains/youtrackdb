@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -15,20 +16,24 @@ import javax.annotation.Nullable;
 public class DoubleWriteLogNoOP implements DoubleWriteLog {
 
   @Override
-  public boolean write(ArrayList<ByteBuffer> buffers, IntArrayList fileId, IntArrayList pageIndex) {
-    return false;
+  public AppendResult write(ArrayList<ByteBuffer> buffers, IntArrayList fileId,
+      IntArrayList pageIndex) {
+    return new AppendResult(null, false, 0);
   }
 
   @Override
-  public void truncate() {
+  public void acknowledgeSync(long syncToken) {
+  }
+
+  @Override
+  public void truncate(Set<Long> retainedSegments) {
   }
 
   @Override
   public void open(String storageName, String baseName, Path storagePath, int pageSize) {
   }
 
-  @Nullable
-  @Override
+  @Nullable @Override
   public Pointer loadPage(int fileId, int pageIndex, ByteBufferPool bufferPool) {
     return null;
   }

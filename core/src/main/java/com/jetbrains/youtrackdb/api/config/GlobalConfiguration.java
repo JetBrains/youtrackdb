@@ -237,6 +237,16 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
+  STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT(
+      "youtrackdb.storage.doubleWriteLog.synchronizationLimit",
+      "Maximum number of successful page writes waiting for synchronization in each storage."
+          + " At the default, heap use per storage is about 64 to 80 MiB with compressed"
+          + " object references and about 80 to 100 MiB without them."
+          + " The limit applies to each storage separately."
+          + " A value below 1 makes disk storage open and create fail.",
+      Integer.class,
+      1_048_576),
+
   STORAGE_DOUBLE_WRITE_LOG_MAX_SEG_SIZE(
       "youtrackdb.storage.doubleWriteLog.maxSegSize",
       "Maximum size of double write log segment in megabytes, -1 means that size will be calculated"

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
+import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.io.IOUtils;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javax.annotation.Nullable;
 import net.jpountz.lz4.LZ4Compressor;
 import net.jpountz.lz4.LZ4Factory;
@@ -84,6 +86,17 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
   private FileChannel currentFile;
   private long currentSegment;
+  private long synchronizedSegment;
+  private long pendingSyncToken = -1;
+  private Path rotationCandidate;
+
+  @FunctionalInterface
+  interface DirectoryForce {
+    void force(Path directory) throws IOException;
+  }
+
+  private final DirectoryForce directoryForce;
+  private final boolean windows;
 
   private final long maxSegSize;
   private final boolean callFsync;
@@ -117,8 +130,7 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   public DoubleWriteLogGL(final long maxSegSize, final boolean callFsync) {
-    this.maxSegSize = maxSegSize;
-    this.callFsync = callFsync;
+    this(maxSegSize, 0, callFsync);
   }
 
   public DoubleWriteLogGL(final long maxSegSize, int blockSize) {
@@ -126,6 +138,18 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   public DoubleWriteLogGL(final long maxSegSize, int blockSize, final boolean callFsync) {
+    this(maxSegSize, blockSize, callFsync, FileUtils::forceDirectory);
+  }
+
+  DoubleWriteLogGL(long maxSegSize, int blockSize, boolean callFsync,
+      DirectoryForce directoryForce) {
+    this(maxSegSize, blockSize, callFsync, directoryForce, IOUtils.isOsWindows());
+  }
+
+  DoubleWriteLogGL(long maxSegSize, int blockSize, boolean callFsync,
+      DirectoryForce directoryForce, boolean windows) {
+    this.directoryForce = directoryForce;
+    this.windows = windows;
     this.maxSegSize = maxSegSize;
     this.blockSize = blockSize;
     this.callFsync = callFsync;
@@ -166,6 +190,8 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
 
       var path = createLogFilePath();
       this.currentFile = createLogFile(path);
+      forceDirectory();
+      synchronizedSegment = tailSegments.isEmpty() ? currentSegment : currentSegment - 1;
 
       if (blockSize <= 0) {
         var supposedBlockSize = IOUtils.calculateBlockSize(path);
@@ -206,10 +232,6 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
     return storagePath.resolve(generateSegmentsName(currentSegment));
   }
 
-  private FileChannel createLogFile() throws IOException {
-    return createLogFile(createLogFilePath());
-  }
-
   private String generateSegmentsName(long id) {
     return baseFileName + "_" + id + EXTENSION;
   }
@@ -219,11 +241,12 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
   }
 
   @Override
-  public boolean write(
+  public AppendResult write(
       final ArrayList<ByteBuffer> buffers,
       final IntArrayList fileIds,
       final IntArrayList pageIndexes)
       throws IOException {
+    final AppendResult result;
     synchronized (mutex) {
       assert checkpointCounter >= 0;
 
@@ -319,32 +342,82 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
         ALLOCATOR.deallocate(pageContainer);
       }
 
-      // we can not truncate log in restore mode because we remove all restore information
-      return !restoreMode && !tailSegments.isEmpty() && checkpointCounter == 0;
+      // Cleanup can remove a checkpoint rotation newer than the append token. An empty queue
+      // needs no sync. Retained tails alone do not request sync once their rotation is covered.
+      result = new AppendResult(currentSegment,
+          !restoreMode && !tailSegments.isEmpty()
+              && synchronizedSegment < currentSegment && checkpointCounter == 0,
+          currentSegment);
+    }
+    afterAppend();
+    return result;
+  }
+
+  /** Test seam after releasing the append mutex, before returning the captured identity. */
+  void afterAppend() {
+  }
+
+  private void forceDirectory() throws IOException {
+    // Windows does not support opening a directory as a FileChannel.
+    if (!windows) {
+      directoryForce.force(storagePath);
     }
   }
 
   private void addNewSegment() throws IOException {
     if (currentFile.size() > 0) {
+      // A failed directory force leaves this empty candidate available for the next retry.
+      // Do not publish it, or make the current segment eligible for cleanup, before the force.
+      final FileChannel candidate;
+      if (rotationCandidate == null) {
+        final var path = storagePath.resolve(generateSegmentsName(currentSegment + 1));
+        candidate = createLogFile(path);
+        rotationCandidate = path;
+      } else {
+        candidate = FileChannel.open(rotationCandidate, StandardOpenOption.WRITE);
+      }
+      try {
+        forceDirectory();
+      } catch (IOException e) {
+        try {
+          candidate.close();
+        } catch (IOException closeError) {
+          e.addSuppressed(closeError);
+        }
+        LogManager.instance().error(this,
+            "Cannot force DWL directory in storage %s. Rotation will be retried", e, storageName);
+        return;
+      }
       currentFile.close();
-
       tailSegments.add(currentSegment);
-
-      this.currentSegment++;
-      this.currentFile = createLogFile();
-      this.segmentPosition = 0;
+      currentSegment++;
+      currentFile = candidate;
+      rotationCandidate = null;
+      segmentPosition = 0;
     }
   }
 
   @Override
-  public void truncate() throws IOException {
+  public void acknowledgeSync(long syncToken) {
+    synchronized (mutex) {
+      // Publish coverage only with cleanup, which can still be suppressed by restore mode.
+      pendingSyncToken = Math.max(pendingSyncToken, syncToken);
+    }
+  }
+
+  @Override
+  public void truncate(Set<Long> retainedSegments) throws IOException {
     synchronized (mutex) {
       if (restoreMode) {
         return;
       }
 
+      synchronizedSegment = Math.max(synchronizedSegment, pendingSyncToken);
+      pendingSyncToken = -1;
+
       tailSegments
           .longStream()
+          .filter(segment -> !retainedSegments.contains(segment))
           .boxed()
           .map(this::generateSegmentsName)
           .forEach(
@@ -363,7 +436,9 @@ public class DoubleWriteLogGL implements DoubleWriteLog {
                 }
               });
 
-      tailSegments.clear();
+      // Failed deletions leave this session's cleanup queue, as with ordinary cleanup.
+      tailSegments.removeIf(
+          (java.util.function.LongPredicate) segment -> !retainedSegments.contains(segment));
     }
   }
 
