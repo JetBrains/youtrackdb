@@ -95,6 +95,68 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     }
   }
 
+  /** Duplicate labels decline before contradictory explicit and standard order semantics. */
+  @Test
+  public void duplicateLabelsBeforeContradictoryOrder() {
+    var traversal = graph.traversal().with("orderIncludesMissingKey", true)
+        .withStrategies(StandardOrderSemanticsStrategy.instance())
+        .V().as("same").out().as("same").asAdmin();
+    assertEarlyDeclineWithoutLookup(traversal);
+  }
+
+  /** Duplicate labels decline before invalid null-placement option validation. */
+  @Test
+  public void duplicateLabelsBeforeInvalidNullPlacement() {
+    assertEarlyDeclineWithoutLookup(graph.traversal().with("orderByNullsPlacementAsc", "invalid")
+        .V().as("same").out().as("same").asAdmin());
+  }
+
+  /** Duplicate reserved labels decline before the refused root can reject those labels. */
+  @Test
+  public void duplicateReservedLabelsBeforeRefusedRoot() {
+    assertEarlyDeclineWithoutLookup(
+        graph.traversal().V().as("$same").path().as("$same").asAdmin());
+  }
+
+  /** The early duplicate verdict must not dereference a missing settings configuration. */
+  @Test
+  public void duplicateLabelsBeforeNullConfiguration() {
+    var traversal = graph.traversal().V().as("same").out().as("same").asAdmin();
+    var session = spy(db);
+    var reads = new AtomicInteger();
+    org.mockito.Mockito.doAnswer(invocation -> reads.incrementAndGet() == 1
+        ? db.getConfiguration() : null).when(session).getConfiguration();
+    try (var util = org.mockito.Mockito.mockStatic(YTDBStrategyUtil.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      util.when(() -> YTDBStrategyUtil.resolveYtdbSession(traversal)).thenReturn(session);
+      assertEarlyDeclineWithoutLookup(traversal);
+      assertThat(reads).hasValue(1);
+    }
+  }
+
+  private void assertEarlyDeclineWithoutLookup(Traversal.Admin<?, ?> traversal) {
+    var cache = GremlinPlanCache.instance(db);
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    var generation = cache.getGeneration();
+    var steps = List.copyOf(traversal.getSteps());
+    var metrics = GremlinTranslationMetrics.of(db);
+    var declines = metrics.getDeclines();
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    try {
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+      assertThat(metrics.getDeclines()).isEqualTo(declines + 1);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses);
+      assertThat(cache.getGeneration()).isEqualTo(generation);
+      assertThat(counters.leases).isZero();
+    } finally {
+      GremlinShapeBuffer.TEST_COUNTERS.remove();
+    }
+  }
+
   /** Root admission, cold walk, cached decline and child calls all report the base text once. */
   @Test
   public void remainingDeclineSitesPreserveTextAndAccounting() {

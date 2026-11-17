@@ -42,7 +42,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var generation = cache.getGeneration();
     var plan = plan(db);
     cache.putInternal("physical", plan, db, generation);
-    cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
+    cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db,
         generation);
     var failure = new AtomicReference<Throwable>();
     var invalidator = new Thread(() -> {
@@ -59,7 +59,7 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
         other.activateOnCurrentThread();
         assertMisses(cache, other);
         cache.putInternal("physical", plan(other), other, generation);
-        cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(),
+        cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(),
             other, generation);
         assertMisses(cache, other);
       }
@@ -72,15 +72,15 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     assertThat(failure.get()).isNull();
     assertMisses(cache, db);
     cache.putInternal("physical", plan, db, generation);
-    cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
+    cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db,
         generation);
     assertMisses(cache, db);
     // Fresh builds replace stale entries without post-insert cleanup.
     var fresh = cache.putInternal("physical", plan, db, cache.getGeneration());
     var decline = new GremlinTranslationTemplate.Decline();
-    cache.putTranslationInternal("translation", decline, db, cache.getGeneration());
+    cache.putTranslationInternal(translationKey, decline, db, cache.getGeneration());
     assertThat(cache.templateInternal("physical", db)).isSameAs(fresh);
-    assertThat(cache.getTranslationInternal("translation", db)).isSameAs(decline);
+    assertThat(cache.getTranslationInternal(translationKey, db)).isSameAs(decline);
   }
 
   /** A delayed old publisher cannot replace either newer entry with the same key. */
@@ -93,11 +93,11 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     cache.invalidate();
     var fresh = cache.putInternal("physical", plan, db, cache.getGeneration());
     var decline = new GremlinTranslationTemplate.Decline();
-    cache.putTranslationInternal("translation", decline, db, cache.getGeneration());
+    cache.putTranslationInternal(translationKey, decline, db, cache.getGeneration());
     assertThat(cache.putInternal("physical", plan, db, old)).isNull();
-    cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db, old);
+    cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db, old);
     assertThat(cache.peekStored("physical")).isSameAs(fresh);
-    assertThat(cache.getTranslationInternal("translation", db)).isSameAs(decline);
+    assertThat(cache.getTranslationInternal(translationKey, db)).isSameAs(decline);
   }
 
   /** Real index invalidation makes an injected late decline miss and the next walk replace it. */
@@ -266,13 +266,13 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var cache = new GremlinPlanCache(8);
     var generation = cache.getGeneration();
     cache.putInternal("physical", plan(db), db, generation);
-    cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
+    cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db,
         generation);
     db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous + 1);
     try {
       assertThat(cache.templateInternal("physical", db)).isNull();
       assertThat(cache.getGeneration()).isGreaterThan(generation);
-      assertThat(cache.getTranslationInternal("translation", db)).isNull();
+      assertThat(cache.getTranslationInternal(translationKey, db)).isNull();
     } finally {
       db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, previous);
     }
@@ -286,9 +286,10 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     var plan = plan(db);
     assertThat(disabled.putInternal("p", plan, db, 0)).isNull();
     assertThat(disabled.templateInternal("p", db)).isNull();
-    disabled.putTranslationInternal("t", new GremlinTranslationTemplate.Decline(), db, 0);
-    assertThat(disabled.getTranslationInternal("t", db)).isNull();
-    assertThat(disabled.containsTranslation("t")).isFalse();
+    disabled.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db,
+        0);
+    assertThat(disabled.getTranslationInternal(translationKey, db)).isNull();
+    assertThat(disabled.containsTranslation(translationKey)).isFalse();
     assertThat(disabled.getMisses()).isZero();
     var cache = new GremlinPlanCache(8);
     assertThat(cache.putInternal(null, plan, db, 0)).isNull();
@@ -306,8 +307,9 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     assertThat(GremlinPlanCache.getTranslation(null, db)).isNull();
     assertThat(GremlinPlanCache.getTranslation("t", null)).isNull();
     GremlinPlanCache.putTranslation(null, new GremlinTranslationTemplate.Decline(), db, 0);
-    GremlinPlanCache.putTranslation("t", null, db, 0);
-    GremlinPlanCache.putTranslation("t", new GremlinTranslationTemplate.Decline(), null, 0);
+    GremlinPlanCache.putTranslation(translationKey, null, db, 0);
+    GremlinPlanCache.putTranslation(translationKey, new GremlinTranslationTemplate.Decline(), null,
+        0);
   }
 
   /** Creation and rebuild completion reject interval plans in both Gremlin maps and SQL. */
@@ -339,11 +341,11 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
         when(template.canBeCached()).thenReturn(true);
         when(template.copy(any())).thenReturn(template);
         cache.putInternal("physical", template, db, cache.getGeneration());
-        cache.putTranslationInternal("translation", new GremlinTranslationTemplate.Decline(), db,
+        cache.putTranslationInternal(translationKey, new GremlinTranslationTemplate.Decline(), db,
             cache.getGeneration());
         sqlCache.putInternal("sql", template, db, sqlCache.getGeneration(), null);
         assertThat(cache.templateInternal("physical", db)).isNotNull();
-        assertThat(cache.getTranslationInternal("translation", db)).isNotNull();
+        assertThat(cache.getTranslationInternal(translationKey, db)).isNotNull();
         assertThat(sqlCache.getInternal("sql", new BasicCommandContext(db), db)).isNotNull();
       }
     };
@@ -364,9 +366,12 @@ public class GenerationStampedGremlinPlanCacheTest extends GraphBaseTest {
     assertThat(cache.contains("physical")).isFalse();
     assertThat(cache.templateInternal("physical", db)).isNull();
     assertThat(cache.getInternal("physical", new BasicCommandContext(db), db)).isNull();
-    assertThat(cache.containsTranslation("translation")).isFalse();
-    assertThat(cache.getTranslationInternal("translation", db)).isNull();
+    assertThat(cache.containsTranslation(translationKey)).isFalse();
+    assertThat(cache.getTranslationInternal(translationKey, db)).isNull();
   }
+
+  private static final GremlinShapeKey translationKey =
+      new GremlinShapeKey(new Object[] {"translation"});
 
   private static InternalExecutionPlan plan(DatabaseSessionEmbedded db) {
     var plan = mock(InternalExecutionPlan.class);

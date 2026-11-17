@@ -1264,7 +1264,12 @@ public class LdbcGremlinShapeTranslationTest {
           long declinesBefore = metrics.getDeclines();
           long errorsBefore = metrics.getErrors();
           var admin = builder.apply(t).asAdmin();
-          admin.applyStrategies();
+          if (call == 1) {
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.TextShapeOracle
+                .requireFastHit(admin::applyStrategies);
+          } else {
+            admin.applyStrategies();
+          }
           GremlinTraversalShapes.requireNotTranslated(shape, admin);
           assertEquals(shape, nativeBefore + 1, metrics.getRuleNative());
           assertEquals(shape, declinesBefore, metrics.getDeclines());

@@ -27,9 +27,39 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  */
 class GremlinShapeEncoder {
 
-  private final List<Object> tokens = new ArrayList<>(96);
+  private final List<Object> tokens;
+  final GremlinShapeBuffer buffer;
+  private final long leaseEpoch;
 
-  private final List<Runnable> harvest = new ArrayList<>();
+  private void requireLease() {
+    if (buffer != null) {
+      buffer.requireLease(leaseEpoch);
+    }
+  }
+
+  private GremlinShapeKey frozenKey;
+  java.util.function.BiConsumer<
+      org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer,
+      Integer> containerObserver;
+
+  void recordContainer(
+      org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer container, int index) {
+    if (buffer != null
+        && container.getClass()
+            != org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer.class) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
+    if (containerObserver != null) {
+      containerObserver.accept(container, index);
+    }
+  }
+
+  Object lookupKey() {
+    requireLease();
+    return buffer == null ? compactKey() : buffer;
+  }
+
+  private final List<Runnable> harvest;
 
   private List<NativeHasOperands> frozenNativeOperands;
 
@@ -46,14 +76,23 @@ class GremlinShapeEncoder {
   private List<HasBindingContext.Contribution> frozenContributions;
 
   void deferHarvest(Runnable action) {
-    harvest.add(action);
+    if (buffer == null) {
+      harvest.add(action);
+    } else {
+      buffer.defer(action);
+    }
   }
 
   void harvest() {
+    requireLease();
     if (!harvested) {
       harvested = true;
-      harvest.forEach(Runnable::run);
-      harvest.clear();
+      if (buffer == null) {
+        harvest.forEach(Runnable::run);
+        harvest.clear();
+      } else {
+        buffer.replay();
+      }
       frozenBindings = bindings == null ? Map.of() : Map.copyOf(bindings);
       frozenContributions = List.copyOf(hasContributions);
     }
@@ -64,15 +103,29 @@ class GremlinShapeEncoder {
   }
 
   GremlinShapeKey compactKey() {
-    return new GremlinShapeKey(tokens);
+    requireLease();
+    if (frozenKey == null) {
+      frozenKey = buffer == null ? new GremlinShapeKey(tokens) : buffer.freeze();
+    }
+    return frozenKey;
   }
 
   private void appendRaw(String token) {
-    tokens.add(token);
+    frozenKey = null;
+    if (buffer == null) {
+      tokens.add(token);
+    } else {
+      buffer.append(token);
+    }
   }
 
   private void appendCount(int count) {
-    tokens.add(count);
+    frozenKey = null;
+    if (buffer == null) {
+      tokens.add(count);
+    } else {
+      buffer.append(count);
+    }
   }
 
   @Nullable private LinkedHashMap<Object, Object> bindings;
@@ -115,7 +168,15 @@ class GremlinShapeEncoder {
   }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
+    this(schema, null);
+  }
+
+  GremlinShapeEncoder(@Nullable Schema schema, GremlinShapeBuffer buffer) {
     this.schema = schema;
+    this.buffer = buffer;
+    leaseEpoch = buffer == null ? 0 : buffer.epoch();
+    tokens = buffer == null ? new ArrayList<>(96) : null;
+    harvest = buffer == null ? new ArrayList<>() : null;
   }
 
   @Nullable Schema schema() {
@@ -136,6 +197,9 @@ class GremlinShapeEncoder {
    * and does not store a template.
    */
   void markIncomplete() {
+    if (buffer != null) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
     complete = false;
   }
 
@@ -185,6 +249,22 @@ class GremlinShapeEncoder {
    * typed pattern structure, not rebound slots.
    */
   void appendPredicate(@Nullable P<?> predicate, boolean valuesAreStructural) {
+    if (buffer != null && predicate != null) {
+      // The audited fast subset uses scalar leaves. Connectives and custom predicates restart
+      // on the complete encoder before invoking conversions or walking their containers.
+      var type = predicate.getClass();
+      if (type != P.class && type != org.apache.tinkerpop.gremlin.process.traversal.TextP.class) {
+        throw GremlinShapeBuffer.UNSUPPORTED;
+      }
+      var operator = predicate.getBiPredicate();
+      if (!(operator instanceof org.apache.tinkerpop.gremlin.process.traversal.Compare
+          || operator instanceof org.apache.tinkerpop.gremlin.process.traversal.Contains
+          || operator instanceof Text
+          || (operator != null && operator.getClass() == Text.RegexPredicate.class))
+          || predicate.getValue() instanceof Collection<?>) {
+        throw GremlinShapeBuffer.UNSUPPORTED;
+      }
+    }
     if (predicate == null) {
       appendToken("P", "-");
       return;
@@ -248,11 +328,19 @@ class GremlinShapeEncoder {
   }
 
   void appendStructuralValue(@Nullable Object value) {
-    appendStructuralValue(value, new IdentityHashMap<>());
+    if (buffer != null && value != null && !(value instanceof String)
+        && !(value instanceof Integer) && !(value instanceof Long)
+        && !(value instanceof Boolean) && !(value instanceof Double)
+        && !(value instanceof Float) && !(value instanceof Short)
+        && !(value instanceof Byte) && !(value instanceof Character)) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
+    // Only collections need cycle tracking. Fast mode admits scalars only.
+    appendStructuralValue(value, value instanceof Collection<?> ? new IdentityHashMap<>() : null);
   }
 
   private void appendStructuralValue(@Nullable Object value,
-      IdentityHashMap<Collection<?>, Boolean> activeCollections) {
+      @Nullable IdentityHashMap<Collection<?>, Boolean> activeCollections) {
     // A value that prints like a String must not reuse an accepted String-label plan. Include the
     // type at every level so null, scalar values and nested collections also stay distinct.
     appendToken("sc", value == null ? "N" : value.getClass().getName());
@@ -276,6 +364,9 @@ class GremlinShapeEncoder {
   }
 
   void appendValueClass(@Nullable Object value) {
+    if (buffer != null && value instanceof Collection<?>) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
     if (value == null) {
       appendToken("vc", "N");
       return;
