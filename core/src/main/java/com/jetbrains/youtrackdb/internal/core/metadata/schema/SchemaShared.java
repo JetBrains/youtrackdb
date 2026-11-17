@@ -30,6 +30,8 @@ import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaNotCreatedException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded.IndexWriteOperation;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.clusterselection.CollectionSelectionFactory;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalProperty;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -75,6 +77,39 @@ public abstract class SchemaShared implements CloseableInStorage {
   public static final int VERSION_NUMBER_V5 = 5;
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+  // Guarded by the schema write lock. The retained pair belongs to its owning thread.
+  private IndexManagerEmbedded indexWriteManager;
+  private Runnable schemaSaveTestHook;
+
+  /** Test-only seam before the saving release of an index-affecting compound operation. */
+  void setSchemaSaveTestHook(Runnable hook) {
+    schemaSaveTestHook = hook;
+  }
+
+  /**
+   * Raises one body obligation and retains one schema-owned pair through the outer saving release.
+   * Reconstruction and private copies never participate in shared index publication.
+   */
+  @Nullable IndexWriteOperation beginCommittedIndexWrite(DatabaseSessionEmbedded session,
+      boolean affectsIndexes) {
+    if (!affectsIndexes || txLocal || session.isSeedingTxSchemaState()
+        || session.isReloadingSchema()) {
+      return null;
+    }
+    var manager = session.getSharedContext().getIndexManager();
+    var operation = manager.beginSchemaOwnedWrite();
+    indexWriteManager = manager;
+    operation.raise();
+    return operation;
+  }
+
+  static void resolveCommittedIndexWrite(
+      @Nullable IndexWriteOperation operation) {
+    if (operation != null) {
+      operation.resolve();
+    }
+  }
 
   /**
    * Whether the current thread holds this schema's write lock. Used by the metadata-write mutex
@@ -453,6 +488,18 @@ public abstract class SchemaShared implements CloseableInStorage {
       return new ImmutableSchema(this, session);
     } finally {
       releaseSchemaReadLock();
+    }
+  }
+
+  /** Retires only the observed cache object, never a replacement published in the meantime. */
+  public void retireSnapshotIfSame(ImmutableSchema expected) {
+    snapshotLock.lock();
+    try {
+      if (snapshot == expected) {
+        snapshot = null;
+      }
+    } finally {
+      snapshotLock.unlock();
     }
   }
 
@@ -892,8 +939,12 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public void releaseSchemaWriteLock(DatabaseSessionEmbedded session, final boolean iSave) {
     int count;
+    boolean saved = false;
     try {
       if (modificationCounter.intValue() == 1) {
+        if (indexWriteManager != null && schemaSaveTestHook != null) {
+          schemaSaveTestHook.run();
+        }
         // if it is embedded storage modification of schema is done by internal methods otherwise it
         // is done by
         // by sql commands and we need to reload local replica
@@ -908,11 +959,22 @@ public abstract class SchemaShared implements CloseableInStorage {
           snapshot = null;
         }
         advanceVersion();
+        saved = true;
       }
     } finally {
       modificationCounter.decrement();
       count = modificationCounter.intValue();
-      lock.writeLock().unlock();
+      var manager = count == 0 ? indexWriteManager : null;
+      if (count == 0) {
+        indexWriteManager = null;
+      }
+      try {
+        lock.writeLock().unlock();
+      } finally {
+        if (manager != null) {
+          manager.finishSchemaOwnedWrite(saved);
+        }
+      }
     }
 
     assert count >= 0;

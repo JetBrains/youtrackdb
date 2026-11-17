@@ -140,6 +140,242 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
             .contains(index.getIdentity()));
   }
 
+  /** Schema-only commits and discarded private index deltas leave the shared word untouched. */
+  @Test
+  public void noIndexOverlayAndPrivateRollbackDoNotMoveCounter() {
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(before));
+    session.begin();
+    var cls = session.getMetadata().getSchema().createClass("CounterPrivate");
+    cls.createProperty("value", PropertyType.STRING);
+    session.commit();
+    assertEquals(before, manager.readIndexChangeWord());
+    session.begin();
+    session.getMetadata().getSchema().getClass("CounterPrivate")
+        .createIndex("CounterPrivate.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    assertEquals("a deferred handle must stay private", before, manager.readIndexChangeWord());
+    session.rollback();
+    assertEquals(before, manager.readIndexChangeWord());
+  }
+
+  /** A separate reader observes an active writer at enrollment, engine build and publication. */
+  @Test
+  public void counterCoversCommitThroughPromotionAndSnapshotInvalidation() {
+    var cls = session.createClass("CounterCommit");
+    cls.createProperty("value", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    var windows = new java.util.concurrent.atomic.AtomicInteger();
+    Runnable observe = () -> {
+      var observed = new AtomicReference<Long>();
+      var reader = new Thread(() -> observed.set(manager.readIndexChangeWord()));
+      reader.start();
+      try {
+        reader.join(TimeUnit.SECONDS.toMillis(10));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(e);
+      }
+      assertFalse("counter reader must finish without acquiring metadata locks", reader.isAlive());
+      assertNotNull(observed.get());
+      assertTrue("the commit must still own its active pair", (observed.get() & 0xffffL) > 0);
+      assertFalse(IndexManagerEmbedded.isIdleIndexStamp(observed.get()));
+      assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP,
+          manager.finishIndexStampCapture(before));
+      windows.incrementAndGet();
+    };
+    storage().setCommitWindowTestHook(observe);
+    storage().setPostEngineBuildTestHook(observe);
+    manager.setReconciledIndexPublicationTestHook(observe);
+    storage().setSchemaPromotionTestHook(observe);
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("CounterCommit")
+          .createIndex("CounterCommit.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      assertEquals(before, manager.readIndexChangeWord());
+      session.commit();
+    } finally {
+      storage().setCommitWindowTestHook(null);
+      storage().setPostEngineBuildTestHook(null);
+      manager.setReconciledIndexPublicationTestHook(null);
+      storage().setSchemaPromotionTestHook(null);
+    }
+    assertTrue("all four phases must be observed", windows.get() >= 4);
+    long after = manager.readIndexChangeWord();
+    assertNotEquals(before, after);
+    assertTrue("complete publication must not poison",
+        IndexManagerEmbedded.isIdleIndexStamp(after));
+    assertEquals("all pairs must exit", 0, after & 0xffffL);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** A successful nested commit must not discharge an independent outer operation's obligation. */
+  @Test
+  public void commitSuccessCannotClearUnrelatedOuterObligation() {
+    var cls = session.createClass("CounterOuter");
+    cls.createProperty("value", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    var outer = manager.beginIndexWrite();
+    outer.raise();
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("CounterOuter")
+          .createIndex("CounterOuter.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      session.commit();
+      assertEquals("only the outer pair must remain", 1, manager.readIndexChangeWord() & 0xffffL);
+      assertTrue("unresolved is consumed only at outermost exit",
+          manager.readIndexChangeWord() >= 0);
+    } finally {
+      manager.endIndexWrite(outer);
+    }
+    assertTrue("the independent obligation must survive commit success",
+        manager.readIndexChangeWord() < 0);
+    assertEquals(0, manager.readIndexChangeWord() & 0xffffL);
+    assertNull(manager.currentIndexWrite());
+  }
+
+  /** An abort before enrollment enters and exits, but has no shared index obligation to poison. */
+  @Test
+  public void preEnrollmentAbortDoesNotPoisonCounter() {
+    var cls = session.createClass("CounterEarlyAbort");
+    cls.createProperty("value", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    storage().setCommitWindowTestHook(() -> {
+      assertTrue((manager.readIndexChangeWord() & 0xffffL) > 0);
+      throw new CommandInterruptedException(session.getDatabaseName(), "before index enrollment");
+    });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("CounterEarlyAbort")
+          .createIndex("CounterEarlyAbort.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      assertThrows(RuntimeException.class, session::commit);
+    } finally {
+      storage().setCommitWindowTestHook(null);
+    }
+    assertNotEquals(before, manager.readIndexChangeWord());
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    assertNull(manager.currentIndexWrite());
+    assertNull(manager.getIndex("CounterEarlyAbort.value"));
+  }
+
+  /** Verified pre-durability undo discharges only the commit's obligation and stays usable. */
+  @Test
+  public void successfulCommitUndoLeavesIdleUnpoisonedCounter() {
+    verifyCounterUndoFailure(0);
+  }
+
+  /** A swallowed created-engine cleanup failure stays unresolved after normal undo return. */
+  @Test
+  public void failedCreatedEngineRevertPoisonsCounter() {
+    verifyCounterUndoFailure(1);
+  }
+
+  /** A swallowed dropped-engine reconstruction failure cannot be hidden by membership undo. */
+  @Test
+  public void failedDroppedEngineRestorePoisonsCounter() {
+    verifyCounterUndoFailure(2);
+  }
+
+  /** An IOException after rollback teardown skips registry undo and must not report success. */
+  @Test
+  public void rollbackIOExceptionSkippingUndoPoisonsCounter() {
+    verifyCounterUndoFailure(3);
+  }
+
+  /** An internal endTxCommit rollback follows the same verified undo path, without poison. */
+  @Test
+  public void internalEndTxCommitRollbackLeavesIdleCounter() {
+    verifyCounterUndoFailure(4);
+  }
+
+  private void verifyCounterUndoFailure(int failure) {
+    var cls = session.createClass("CounterUndo");
+    cls.createProperty("value", PropertyType.STRING);
+    cls.createIndex("CounterUndo.old", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    var manager = session.getSharedContext().getIndexManager();
+    long before = manager.readIndexChangeWord();
+    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(before));
+    var faultSeen = new AtomicBoolean();
+    Runnable fault = () -> {
+      faultSeen.set(true);
+      throw new CommandInterruptedException(session.getDatabaseName(), "counter undo primary");
+    };
+    if (failure == 4) {
+      storage().setEndTxCommitFailureTestHook(fault);
+    } else {
+      storage().setPostEngineBuildTestHook(fault);
+    }
+    var cleanupSeen = new AtomicBoolean();
+    Runnable cleanupFault = () -> {
+      cleanupSeen.set(true);
+      throw new IllegalStateException("counter undo contained cleanup failure");
+    };
+    if (failure == 1) {
+      storage().setCreatedIndexRevertTestHook(cleanupFault);
+    } else if (failure == 2) {
+      storage().setDroppedIndexRestoreTestHook(cleanupFault);
+    } else if (failure == 3) {
+      storage().setRollbackCompletionTestHook(() -> {
+        cleanupSeen.set(true);
+        throw new java.io.IOException("counter undo rollback failure");
+      });
+    }
+    try {
+      session.begin();
+      manager.dropIndex(session, "CounterUndo.old");
+      session.getMetadata().getSchema().getClass("CounterUndo")
+          .createIndex("CounterUndo.new", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      assertEquals("private deltas must not enter", before, manager.readIndexChangeWord());
+      assertThrows(RuntimeException.class, session::commit);
+    } finally {
+      storage().setPostEngineBuildTestHook(null);
+      storage().setEndTxCommitFailureTestHook(null);
+      storage().setCreatedIndexRevertTestHook(null);
+      storage().setDroppedIndexRestoreTestHook(null);
+      storage().setRollbackCompletionTestHook(null);
+    }
+    assertTrue(faultSeen.get());
+    assertEquals(failure >= 1 && failure <= 3, cleanupSeen.get());
+    long after = manager.readIndexChangeWord();
+    assertNotEquals(before, after);
+    assertEquals("active zero is distinct from poison", 0, after & 0xffffL);
+    assertEquals("only incomplete undo poisons", failure >= 1 && failure <= 3, after < 0);
+    assertNull("owning-thread state must be retired", manager.currentIndexWrite());
+    if (failure == 0 || failure == 4) {
+      assertNotNull(manager.getIndex("CounterUndo.old"));
+      assertNull(manager.getIndex("CounterUndo.new"));
+      assertTrue(engineIsRegistered("CounterUndo.old"));
+      assertFalse(engineIsRegistered("CounterUndo.new"));
+    }
+  }
+
+  /** In-doubt durability keeps engine publication, contains writes and poisons private stamps. */
+  @Test
+  public void inDoubtIndexCommitPoisonsWithoutCompensatingUndo() {
+    var cls = session.createClass("CounterInDoubt");
+    cls.createProperty("value", PropertyType.STRING);
+    var manager = session.getSharedContext().getIndexManager();
+    storage().setEndTxCommitPostDurabilityFailureTestHook(() -> {
+      throw new CommandInterruptedException(session.getDatabaseName(), "counter in-doubt");
+    });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("CounterInDoubt")
+          .createIndex("CounterInDoubt.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      assertThrows(RuntimeException.class, session::commit);
+    } finally {
+      storage().setEndTxCommitPostDurabilityFailureTestHook(null);
+    }
+    long after = manager.readIndexChangeWord();
+    assertTrue("unknown durability must poison", after < 0);
+    assertEquals(0, after & 0xffffL);
+    assertNull(manager.currentIndexWrite());
+    assertTrue("the engine publication must stand", engineIsRegistered("CounterInDoubt.value"));
+    assertThrows(RuntimeException.class, () -> storage().checkErrorState());
+  }
+
   /** Successful creation commits every durable artifact before lifecycle publication. */
   @Test
   public void atomicCreationCommitsAllArtifactsAndThenPublishesLifecycle() {

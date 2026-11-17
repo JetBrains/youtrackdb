@@ -73,6 +73,12 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
     exercise(rebuild, fail, 0);
   }
 
+  /** Failed clear keeps uncertainty even after the fill and manager pairs exit. */
+  @Test
+  public void failedFillClearPoisonsCounterWithoutLeakingActiveWriters() {
+    exercise(true, true, 3);
+  }
+
   private void exercise(boolean rebuild, boolean fail, int entryPoint) {
     var clazz = session.createVertexClass("Filled");
     clazz.createProperty("k", PropertyType.INTEGER).setNotNull(true);
@@ -89,6 +95,13 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
     var definition = new PropertyIndexDefinition("Filled", "k", PropertyTypeInternal.INTEGER);
     var index = rebuild ? manager.createIndex(session, "Filled.k", "NOTUNIQUE", definition,
         clazz.getCollectionIds(), null, Map.of()) : null;
+    var counterBefore = manager.readIndexChangeWord();
+    assertThat(IndexManagerEmbedded.isIdleIndexStamp(counterBefore)).isTrue();
+    if (entryPoint == 3) {
+      ((IndexAbstract) index).failedFillClearTestHook = () -> {
+        throw new IllegalStateException("test clear failure");
+      };
+    }
     var events = new AtomicInteger();
     var atCompletion = new AtomicInteger(-1);
     var generationAtCompletion = new AtomicLong(-1);
@@ -109,10 +122,13 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
     var listener = new ProgressListener() {
       @Override
       public void onBegin(Object task, long total, Object metadata) {
+        // Creation has committed its descriptor but must stay active across the unlocked fill.
+        assertThat(manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK).isPositive();
       }
 
       @Override
       public boolean onProgress(Object task, long count, float percent) {
+        assertThat(manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK).isPositive();
         var current = progress.incrementAndGet();
         if (current == 11) {
           try {
@@ -152,6 +168,7 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
 
       @Override
       public void onCompletition(DatabaseSessionEmbedded db, Object task, boolean success) {
+        assertThat(manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK).isPositive();
         assertThat(success).isEqualTo(!fail);
         atCompletion.set(events.get());
         generationAtCompletion.set(cache.getGeneration());
@@ -203,6 +220,10 @@ public class IndexFillPlanInvalidationTest extends GraphBaseTest {
       } else {
         operation.run();
       }
+      assertThat(manager.readIndexChangeWord()).isNotEqualTo(counterBefore);
+      assertThat(manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK).isZero();
+      assertThat(manager.currentIndexWrite()).isNull();
+      assertThat(manager.readIndexChangeWord() < 0).isEqualTo(entryPoint == 3);
       assertThat(observed.get()).isEqualTo(1);
       assertThat(atCompletion.get()).isNotNegative();
       // Any earlier manager events are irrelevant. Exactly one new event follows fill completion.

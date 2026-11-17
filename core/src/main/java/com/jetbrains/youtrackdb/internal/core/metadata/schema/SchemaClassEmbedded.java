@@ -122,9 +122,12 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         return;
       }
 
+      final var operation = owner.beginCommittedIndexWrite(session,
+          subclasses.contains(baseClass) && !getIndexesInternal(session).isEmpty());
       if (subclasses.remove(baseClass)) {
         removePolymorphicCollectionIds(session, baseClass);
       }
+      SchemaShared.resolveCommittedIndexWrite(operation);
 
     } finally {
       releaseSchemaWriteLock(session);
@@ -172,8 +175,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 + "' as superclass");
       }
 
+      // Validate recursion before opening an obligation for the first relationship mutation.
+      if (superClass.isSubClassOf(this)) {
+        throw new SchemaException(session.getDatabaseName(),
+            "Cannot add base class '" + getName() + "', because of recursion");
+      }
+      final var operation = owner.beginCommittedIndexWrite(session,
+          !superClass.getIndexesInternal(session).isEmpty());
       superClass.addBaseClass(session, this, true);
       superClasses.add(superClass);
+      SchemaShared.resolveCommittedIndexWrite(operation);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -209,9 +220,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       cls = superClass;
 
       if (superClasses.contains(cls)) {
+        final var operation = owner.beginCommittedIndexWrite(session,
+            !cls.getIndexesInternal(session).isEmpty());
         cls.removeBaseClassInternal(session, this);
-
         superClasses.remove(superClass);
+        SchemaShared.resolveCommittedIndexWrite(operation);
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -229,7 +242,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
     acquireSchemaWriteLock(session);
     try {
-      setSuperClassesInternal(session, classes, true);
+      replaceSuperClasses(session, classes, true, true);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -238,6 +251,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   @Override
   protected void setSuperClassesInternal(DatabaseSessionEmbedded session,
       final List<SchemaClassImpl> classes, boolean validateIndexes) {
+    replaceSuperClasses(session, classes, validateIndexes, false);
+  }
+
+  private void replaceSuperClasses(DatabaseSessionEmbedded session,
+      final List<SchemaClassImpl> classes, boolean validateIndexes, boolean trackCompound) {
     if (!name.equals(SchemaClass.EDGE_CLASS_NAME) && isEdgeType()) {
       if (!classes.contains(owner.getClass(SchemaClass.EDGE_CLASS_NAME))) {
         throw new IllegalArgumentException(
@@ -270,6 +288,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     List<SchemaClassImpl> toRemoveList = new ArrayList<>(superClasses);
     toRemoveList.removeAll(newSuperClasses);
 
+    // Only the first add can still be a validation-only failure. Later failures must retain
+    // uncertainty about the already applied detach/attach prefix.
+    if (trackCompound && toRemoveList.isEmpty() && !toAddList.isEmpty()
+        && toAddList.getFirst().isSubClassOf(this)) {
+      throw new SchemaException(session.getDatabaseName(),
+          "Cannot add base class '" + getName() + "', because of recursion");
+    }
+    final var operation = owner.beginCommittedIndexWrite(session, trackCompound
+        && (toRemoveList.stream().anyMatch(c -> !c.getIndexesInternal(session).isEmpty())
+            || toAddList.stream().anyMatch(c -> !c.getIndexesInternal(session).isEmpty())));
     for (var toRemove : toRemoveList) {
       toRemove.removeBaseClassInternal(session, this);
     }
@@ -278,6 +306,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     }
     superClasses.clear();
     superClasses.addAll(newSuperClasses);
+    SchemaShared.resolveCommittedIndexWrite(operation);
   }
 
   @Override
@@ -317,6 +346,15 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     try {
       checkEmbedded(session);
       final var oldName = this.name;
+      if (oldName != null && oldName.equals(name)) {
+        throw new IllegalArgumentException(
+            "Class '" + oldName + "' cannot be renamed with the same name");
+      }
+      if (name != null && owner.classes.containsKey(name)) {
+        throw new IllegalArgumentException("Class '" + name + "' is already present in schema");
+      }
+      final boolean hasOwnIndexes = !getClassIndexesInternal(session).isEmpty();
+      final var operation = owner.beginCommittedIndexWrite(session, hasOwnIndexes);
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
       // A class rename is metadata-only: collection names are generated from a counter alone
@@ -339,10 +377,11 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           }
           txState.ensureIndexOverlay().recordClassRenamed(oldName, name);
         }
-      } else {
+      } else if (hasOwnIndexes) {
         session.getSharedContext().getIndexManager()
             .reassociateClassIndexesOnRename(session, oldName, name);
       }
+      SchemaShared.resolveCommittedIndexWrite(operation);
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -568,6 +607,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
 
     acquireSchemaWriteLock(database);
     try {
+      com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded.IndexWriteOperation operation =
+          null;
       if (isAbstract) {
         // SWITCH TO ABSTRACT
         if (defaultCollectionId != NOT_EXISTENT_COLLECTION_ID) {
@@ -577,6 +618,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
                 "Cannot set the class as abstract because contains records.");
           }
 
+          operation = owner.beginCommittedIndexWrite(database,
+              !getIndexesInternal(database).isEmpty());
           tryDropCollection(database, defaultCollectionId);
           for (var collectionId : getCollectionIds()) {
             tryDropCollection(database, collectionId);
@@ -602,6 +645,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         // re-creates committed classes through other paths and never through setAbstract, but the
         // guard keeps the recording uniform. Outside a transaction (or while seeding) the legacy
         // eager allocation is kept: there is no user transaction to defer the create to.
+        operation = owner.beginCommittedIndexWrite(database,
+            !getIndexesInternal(database).isEmpty());
         var collectionName = owner.nextCollectionName(database);
         final boolean provisional = owner.txLocal && !database.isSeedingTxSchemaState();
         final int collectionId;
@@ -644,6 +689,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       this.abstractClass = isAbstract;
+      SchemaShared.resolveCommittedIndexWrite(operation);
     } finally {
       releaseSchemaWriteLock(database);
     }
@@ -679,6 +725,8 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         }
       }
 
+      final var operation = owner.beginCommittedIndexWrite(session,
+          !getIndexesInternal(session).isEmpty());
       collectionIds = ArrayUtils.copyOf(collectionIds, collectionIds.length + 1);
       collectionIds[collectionIds.length - 1] = collectionId;
       Arrays.sort(collectionIds);
@@ -690,6 +738,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
       }
 
       ((SchemaEmbedded) owner).addCollectionForClass(session, collectionId, this);
+      SchemaShared.resolveCommittedIndexWrite(operation);
     } finally {
       releaseSchemaWriteLock(session);
     }

@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import java.util.Arrays;
 import org.junit.Test;
 
@@ -17,6 +19,80 @@ import org.junit.Test;
  * promotion are later steps; here the copy is built directly and inspected, never promoted.
  */
 public class CopyForTxTest extends DbTestBase {
+
+  /** The session records a manager-qualified baseline once for the complete transaction seed. */
+  @Test
+  public void sessionSeedCapturesIdleBaselineAndKeepsItForTransactionLifetime() {
+    var manager = session.getSharedContext().getIndexManager();
+    session.executeInTx(tx -> {
+      long before = manager.readIndexChangeWord();
+      var state = session.ensureTxSchemaState();
+      assertSame(manager, state.getBaselineIndexStampManager());
+      assertEquals(before, state.getBaselineIndexStamp());
+      assertTrue(IndexManagerEmbedded.isIdleIndexStamp(state.getBaselineIndexStamp()));
+      var operation = manager.beginIndexWrite();
+      manager.endIndexWrite(operation);
+      assertSame(state, session.ensureTxSchemaState());
+      assertEquals(before, state.getBaselineIndexStamp());
+    });
+  }
+
+  /** An active or poisoned interval during seeding cannot create a valid baseline. */
+  @Test
+  public void sessionSeedRefusesActiveAndPoisonedBaselines() {
+    var manager = session.getSharedContext().getIndexManager();
+    var operation = manager.beginIndexWrite();
+    try {
+      session.executeInTx(tx -> {
+        var state = session.ensureTxSchemaState();
+        assertSame(manager, state.getBaselineIndexStampManager());
+        assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, state.getBaselineIndexStamp());
+      });
+    } finally {
+      manager.endIndexWrite(operation);
+    }
+    manager.poisonIndexChangeCounter();
+    session.executeInTx(tx -> assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP,
+        session.ensureTxSchemaState().getBaselineIndexStamp()));
+  }
+
+  /** A change inside copyForTx is rejected even when the counter is idle before and after it. */
+  @Test
+  public void baselineCaptureBracketsTheEntireCopyForTx() {
+    var manager = session.getSharedContext().getIndexManager();
+    session.executeInTx(tx -> {
+      // Spy after begin so its copied session fields reference the active transaction.
+      var db = org.mockito.Mockito.spy(session);
+      var context = org.mockito.Mockito.spy(session.getSharedContext());
+      var committed = org.mockito.Mockito.spy(committedSchema());
+      org.mockito.Mockito.doReturn(context).when(db).getSharedContext();
+      org.mockito.Mockito.doReturn(committed).when(context).getSchema();
+      org.mockito.Mockito.doAnswer(invocation -> {
+        var result = invocation.callRealMethod();
+        var operation = manager.beginIndexWrite();
+        manager.endIndexWrite(operation);
+        return result;
+      }).when(committed).copyForTx(db);
+      var state = db.ensureTxSchemaState();
+      assertSame(manager, state.getBaselineIndexStampManager());
+      assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, state.getBaselineIndexStamp());
+      assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
+    });
+  }
+
+  /** Legacy construction without provenance fails closed, as does a stamp without its manager. */
+  @Test
+  public void holderWithoutQualifiedBaselineFailsClosed() {
+    var copy = session.computeInTx(tx -> committedSchema().copyForTx(session));
+    var legacy = new TxSchemaState(copy);
+    assertNull(legacy.getBaselineIndexStampManager());
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, legacy.getBaselineIndexStamp());
+    var unqualified = new TxSchemaState(copy, null, 0);
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, unqualified.getBaselineIndexStamp());
+    var manager = session.getSharedContext().getIndexManager();
+    var active = new TxSchemaState(copy, manager, 1);
+    assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, active.getBaselineIndexStamp());
+  }
 
   private SchemaShared committedSchema() {
     return session.getSharedContext().getSchema();

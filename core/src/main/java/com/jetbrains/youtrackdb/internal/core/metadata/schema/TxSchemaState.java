@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexOverlay;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntMaps;
@@ -82,7 +83,17 @@ public final class TxSchemaState {
   public static final int NO_RESOLUTION = Integer.MIN_VALUE;
 
   private final SchemaShared txLocalSchema;
+  @Nullable private final IndexManagerEmbedded baselineIndexStampManager;
+  private final long baselineIndexStamp;
   private final Set<String> changedClasses = new HashSet<>();
+
+  @Nullable public IndexManagerEmbedded getBaselineIndexStampManager() {
+    return baselineIndexStampManager;
+  }
+
+  public long getBaselineIndexStamp() {
+    return baselineIndexStamp;
+  }
 
   /**
    * The tx-local index-definition overlay, created lazily on the first index change (see
@@ -142,7 +153,16 @@ public final class TxSchemaState {
    *     the committed shared instance.
    */
   public TxSchemaState(@Nonnull SchemaShared txLocalSchema) {
+    this(txLocalSchema, null, IndexManagerEmbedded.INVALID_INDEX_STAMP);
+  }
+
+  public TxSchemaState(@Nonnull SchemaShared txLocalSchema,
+      @Nullable IndexManagerEmbedded baselineIndexStampManager, long baselineIndexStamp) {
     this.txLocalSchema = txLocalSchema;
+    this.baselineIndexStampManager = baselineIndexStampManager;
+    this.baselineIndexStamp = baselineIndexStampManager == null
+        || !IndexManagerEmbedded.isIdleIndexStamp(baselineIndexStamp)
+            ? IndexManagerEmbedded.INVALID_INDEX_STAMP : baselineIndexStamp;
     // NO_RESOLUTION (Integer.MIN_VALUE) is the "no resolution recorded" sentinel
     // getResolvedCollectionId returns on a miss. It is disjoint from every real id (>= 0), the
     // abstract marker (-1), and every provisional id the allocator hands out, so a not-resolved
