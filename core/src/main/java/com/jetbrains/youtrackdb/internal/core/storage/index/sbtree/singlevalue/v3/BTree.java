@@ -102,6 +102,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   // AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration()
   // after class loading.
   private volatile int maxKeySize;
+  private volatile int keySizeMargin;
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
@@ -680,7 +681,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
-              if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
+              // The RID allowance belongs only to the active prefix rule. Read the recorded
+              // limit fresh, as index-level key preparation does.
+              // Configuration trees have no margin and must not read their own configuration
+              // while its write lock is held.
+              int margin = keySizeMargin > 0 && storage.getRecordedMaxIndexKeySize() > 0
+                  ? keySizeMargin : 0;
+              if (maxKeySize > 0 && serializedKey.length > (long) maxKeySize + margin) {
                 // The display name (the index's logical name), not the internal ie_<fileBaseId>
                 // component stem — this exception is user-facing.
                 throw new TooBigIndexKeyException(storage.getName(),
@@ -1038,6 +1045,16 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             entryPoint.setApproximateEntriesCount(updated);
           }
         });
+  }
+
+  /**
+   * Enables the compact-RID growth allowance for one variable-length user key.
+   * Non-unique engines call this on creation and load, before publishing the tree.
+   */
+  public void configureKeySizeMargin(PropertyTypeInternal[] userKeyTypes) {
+    keySizeMargin = userKeyTypes != null && userKeyTypes.length == 1
+        && (userKeyTypes[0] == PropertyTypeInternal.STRING
+            || userKeyTypes[0] == PropertyTypeInternal.BINARY) ? Long.BYTES : 0;
   }
 
   @Override

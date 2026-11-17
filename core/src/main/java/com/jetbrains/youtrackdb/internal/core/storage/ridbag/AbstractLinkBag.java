@@ -273,6 +273,22 @@ public abstract class AbstractLinkBag implements LinkBagDelegate, IdentityChange
   }
 
   @Override
+  public int getCount(RID rid) {
+    if (rid == null) {
+      return 0;
+    }
+    assert assertIfNotActive();
+    rid = refreshNonPersistentRid(rid);
+    var entry = newEntries.get(rid);
+    var change = localChanges.getChange(rid);
+    if (change == null && rid.isPersistent()) {
+      change = getAbsoluteChange(rid);
+    }
+    // The iterator emits new entries as well as local or stored entries for the same RID.
+    return (entry == null ? 0 : entry.counter) + (change == null ? 0 : change.getValue());
+  }
+
+  @Override
   public int size() {
     assert assertIfNotActive();
     assert size >= 0;

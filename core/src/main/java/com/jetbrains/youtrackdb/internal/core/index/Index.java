@@ -192,9 +192,11 @@ public interface Index extends Comparable<Index> {
   String INDEX_VERSION = "indexVersion";
   String LIFECYCLE_RECORD = "lifecycleRecord";
   String METADATA = "metadata";
-  String MERGE_KEYS = "mergeKeys";
 
   Object getCollatingValue(final Object key);
+
+  /** Prefix byte budget, or a negative value when this index does not shorten keys. */
+  int keyPrefixLength();
 
   /**
    * Add given collection to the list of collections that should be automatically indexed.
