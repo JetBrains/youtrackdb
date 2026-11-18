@@ -491,6 +491,11 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
   }
 
+  /** Inspects published provenance without constructing a snapshot or taking a schema pin. */
+  @Nullable public ImmutableSchema peekSnapshot() {
+    return snapshot;
+  }
+
   /** Retires only the observed cache object, never a replacement published in the meantime. */
   public void retireSnapshotIfSame(ImmutableSchema expected) {
     snapshotLock.lock();

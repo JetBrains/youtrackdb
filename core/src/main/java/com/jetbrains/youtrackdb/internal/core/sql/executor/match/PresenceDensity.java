@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
+import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -77,7 +79,10 @@ record PresenceDensity(String alias, String candidateClass, Source source, doubl
           || !className.equals(definition.getClassName())
           || !definition.getProperties().equals(List.of(key))
           || definition.getTypes().length != 1 || definition.getTypes()[0].isMultiValue()
-          || !index.getCollections().equals(names)) {
+          || !(PrivatePreparationSchemaScope.isActive(session)
+              ? index instanceof IndexAbstract embedded
+                  && embedded.copyCollectionsForPrivatePreparation().equals(names)
+              : index.getCollections().equals(names))) {
         continue;
       }
       try {

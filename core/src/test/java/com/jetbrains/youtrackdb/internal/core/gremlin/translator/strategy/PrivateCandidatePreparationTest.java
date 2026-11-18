@@ -1282,7 +1282,9 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         doReturn(winnerPlan).when(winnerTranslation).planTemplate();
         doReturn(2).when(winnerTranslation).bindingCount();
         var winner = new GremlinTranslationTemplate.Candidate(1,
-            PrivatePrefixDiscovery.Reason.SELECTED, winnerTranslation);
+            PrivatePrefixDiscovery.Reason.SELECTED, winnerTranslation,
+            probe.session.getSharedContext().getIndexManager(),
+            probe.session.getSharedContext().getIndexManager().readIndexChangeWord());
         var envelope = new java.util.concurrent.atomic.AtomicReference<
             GremlinPlanCache.StampedTranslation>();
         probe.duringWalk = () -> {
@@ -1341,7 +1343,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         }
         var valid = (GremlinTranslationTemplate.Candidate) probe.resident().template();
         var malformed = new GremlinTranslationTemplate.Candidate(99, valid.reason(),
-            valid.translation());
+            valid.translation(), valid.indexManager(), valid.indexWord());
         probe.cache.putTranslationInternal(probe.key, malformed, probe.session,
             probe.cache.getGeneration(), probe.resident());
         var rejected = probe.resident();
@@ -1350,7 +1352,7 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         probe.duringWalk = () -> {
           probe.cache.putTranslationInternal(probe.key,
               new GremlinTranslationTemplate.Candidate(equalWinner ? 99 : valid.extent(),
-                  valid.reason(), valid.translation()),
+                  valid.reason(), valid.translation(), valid.indexManager(), valid.indexWord()),
               probe.session, probe.cache.getGeneration(), rejected);
           winner.set(probe.resident());
           assertThat(winner.get()).isNotSameAs(rejected);
@@ -1423,6 +1425,17 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
       long misses = probe.cache.getTranslationMisses();
       assertThat(graph.tx().isOpen()).isTrue();
       probe.session.ensureTxSchemaState();
+      probe.session.getMetadata().getSchema().getClass("CandidatePerson").createIndex(
+          "localCandidateAge",
+          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
+          "age");
+      var overlay = probe.session.getMetadata().getImmutableSchemaSnapshot();
+      assertThat(probe.session.getTxSchemaState().getIndexOverlay()
+          .getTxCreatedNames()).contains("localCandidateAge");
+      assertThat(overlay.getIndexStampManager())
+          .isSameAs(probe.session.getSharedContext().getIndexManager());
+      assertThat(overlay.getIndexStamp())
+          .isEqualTo(probe.session.getTxSchemaState().getBaselineIndexStamp());
       try {
         try (var own = prepare.prepare(query(40, 30), policy)) {
           assertThat(own.cacheHit()).isFalse();
@@ -1489,7 +1502,9 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
           assertThat(warm.plan()).isNotSameAs(template).isNotSameAs(cold.plan());
           probe.cache.putTranslationInternal(probe.key,
               new GremlinTranslationTemplate.Candidate(-1,
-                  PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, null),
+                  PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, null,
+                  probe.session.getSharedContext().getIndexManager(),
+                  probe.session.getSharedContext().getIndexManager().readIndexChangeWord()),
               probe.session, probe.cache.getGeneration(), resident);
           probe.cache.invalidate();
           // Shared templates are closed before publication, not by eviction or replacement.
@@ -1580,12 +1595,833 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
         assertThatThrownBy(() -> probe.prepare().prepare(query(30, 40), policy))
             .isSameAs(failure);
         verify(probe.originals.getFirst()).close();
-        assertThat(probe.resident() != null).isEqualTo(stage.equals("returned copy"));
+        assertThat(probe.resident()).isNull();
         if (!probe.copies.isEmpty()) {
           verify(probe.copies.getFirst()).close();
-          if (stage.equals("returned copy")) {
-            var resident = (GremlinTranslationTemplate.Candidate) probe.resident().template();
-            assertThat(resident.translation().planTemplate()).isSameAs(probe.copies.getFirst());
+          if (stage.equals("publication")) {
+            verify(probe.copies.getLast()).close();
+          }
+        }
+      }
+    }
+  }
+
+  /** Active admission refuses before pin acquisition and preserves the exact outer pin. */
+  @Test
+  public void activeIndexAdmissionDoesNotAcquireOrReplacePin() throws Exception {
+    var db = YTDBStrategyUtil.resolveYtdbSession(query(30, 40));
+    var entered = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var writer = new Thread(() -> {
+      try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+        var manager = other.getSharedContext().getIndexManager();
+        var operation = manager.beginIndexWrite();
+        try {
+          entered.countDown();
+          assertThat(release.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+          manager.endIndexWrite(operation);
+        }
+      } catch (Throwable thrown) {
+        failure.set(thrown);
+      }
+    }, "private-active-index-writer");
+    var metadata = db.getMetadata();
+    var outer = metadata.getImmutableSchemaSnapshot();
+    writer.start();
+    try {
+      assertThat(entered.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+      for (int depth = 0; depth <= 1; depth++) {
+        if (depth == 1) {
+          metadata.makeThreadLocalSchemaSnapshot();
+        }
+        try {
+          try (var probe = new PublicationProbe();
+              var result = probe.prepare().prepare(query(30, 40), policy)) {
+            assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+            assertThat(result.indexGuardFailure()).isTrue();
+            assertThat(result.plan()).isNull();
+            assertThat(probe.originals).isEmpty();
+            assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(depth);
+            assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(outer);
+          }
+        } finally {
+          if (depth == 1) {
+            metadata.clearThreadLocalSchemaSnapshot();
+          }
+        }
+      }
+    } finally {
+      release.countDown();
+      writer.join(30000);
+    }
+    assertThat(writer.isAlive()).isFalse();
+    assertThat(failure.get()).isNull();
+  }
+
+  /** Completed unnotified intervals reject both translated and refusal residents, then warm again. */
+  @Test
+  public void staleIndexStampsAreRejectedWithoutGenerationAdvance() throws Exception {
+    for (boolean refusal : List.of(false, true)) {
+      try (var probe = new PublicationProbe()) {
+        var prepare = probe.prepare();
+        var selectedPolicy = refusal ? new PrivateCandidatePreparation.Policy(Set.of()) : policy;
+        try (var cold = prepare.prepare(query(30, 40), selectedPolicy)) {
+          assertThat(cold.cacheHit()).isFalse();
+        }
+        var resident = probe.resident();
+        try (var warm = prepare.prepare(query(40, 30), selectedPolicy)) {
+          assertThat(warm.cacheHit()).isTrue();
+          assertThat(warm.indexGuardFailure()).isFalse();
+        }
+        long generation = probe.cache.getGeneration();
+        changeSchema(other -> {
+          var manager = other.getSharedContext().getIndexManager();
+          var operation = manager.beginIndexWrite();
+          manager.endIndexWrite(operation);
+        });
+        assertThat(probe.cache.getGeneration()).isEqualTo(generation);
+        try (var fresh = prepare.prepare(query(30, 40), selectedPolicy)) {
+          assertThat(fresh.cacheHit()).isFalse();
+          assertThat(fresh.indexGuardFailure()).isFalse();
+          assertThat(probe.resident()).isNotSameAs(resident);
+        }
+        try (var warm = prepare.prepare(query(40, 30), selectedPolicy)) {
+          assertThat(warm.cacheHit()).isTrue();
+        }
+      }
+    }
+  }
+
+  /** A template-copy overlap refuses and closes every completed owned plan. */
+  @Test
+  public void indexOverlapDuringTemplateCopyClosesEveryOwnedPlan() {
+    assertIndexOverlapDuringCopy(0);
+  }
+
+  /** A final cold invocation-copy overlap refuses without publishing its prepared template. */
+  @Test
+  public void indexOverlapDuringFinalCopyClosesEveryOwnedPlan() {
+    assertIndexOverlapDuringCopy(1);
+  }
+
+  /** A warm invocation-copy overlap refuses and closes the invocation, not the shared template. */
+  @Test
+  public void indexOverlapDuringWarmCopyClosesEveryOwnedPlan() {
+    assertIndexOverlapDuringCopy(2);
+  }
+
+  private void assertIndexOverlapDuringCopy(int stage) {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      if (stage == 2) {
+        try (var seed = prepare.prepare(query(30, 40), policy)) {
+          assertThat(seed.plan()).isNotNull();
+        }
+        var resident = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+        doAnswer(call -> {
+          var copy = spy((InternalExecutionPlan) call.callRealMethod());
+          probe.copies.add(copy);
+          var manager = probe.session.getSharedContext().getIndexManager();
+          var operation = manager.beginIndexWrite();
+          manager.endIndexWrite(operation);
+          return copy;
+        }).when(resident.translation().planTemplate()).copy(any(CommandContext.class));
+      } else {
+        int target = stage + 1;
+        probe.onCopy = copy -> {
+          if (probe.copies.size() == target) {
+            var manager = probe.session.getSharedContext().getIndexManager();
+            var operation = manager.beginIndexWrite();
+            manager.endIndexWrite(operation);
+          }
+        };
+      }
+      try (var result = prepare.prepare(query(40, 30), policy)) {
+        assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+        assertThat(result.indexGuardFailure()).isTrue();
+        assertThat(result.plan()).isNull();
+      }
+      for (var original : probe.originals) {
+        verify(original).close();
+      }
+      for (var copy : probe.copies) {
+        verify(copy).close();
+      }
+      if (stage != 2) {
+        assertThat(probe.resident()).isNull();
+      }
+    }
+  }
+
+  /** Cold and warm selected copies stay owned until release, including a failing discard. */
+  @Test
+  public void releaseFailureClosesSelectedInvocationBeforeRestoringMarker() {
+    for (boolean warm : List.of(false, true)) {
+      for (int depth = 0; depth <= 1; depth++) {
+        try (var probe = new PublicationProbe()) {
+          var preparation = probe.prepare();
+          if (warm) {
+            try (var seed = preparation.prepare(query(30, 40), policy)) {
+              assertThat(seed.plan()).isNotNull();
+            }
+          }
+          var db = spy(probe.session);
+          var metadata = spy(probe.session.getMetadata());
+          doReturn(metadata).when(db).getMetadata();
+          probe.statics.when(() -> GremlinPlanCache.instance(db)).thenReturn(probe.cache);
+          var release = new AssertionError("pin release");
+          var cleanup = new IllegalStateException("invocation discard");
+          var selected = new java.util.concurrent.atomic.AtomicReference<InternalExecutionPlan>();
+          java.util.function.Consumer<InternalExecutionPlan> observe = copy -> {
+            selected.set(copy);
+            doAnswer(call -> {
+              assertThat(
+                  com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                      .isActive(db))
+                  .isTrue();
+              throw cleanup;
+            }).when(copy).close();
+          };
+          if (warm) {
+            var template = ((GremlinTranslationTemplate.Candidate) probe.resident().template())
+                .translation().planTemplate();
+            doAnswer(call -> {
+              var copy = spy((InternalExecutionPlan) call.callRealMethod());
+              observe.accept(copy);
+              return copy;
+            }).when(template).copy(any(CommandContext.class));
+          } else {
+            probe.onCopy = copy -> {
+              if (probe.copies.size() == 2) {
+                observe.accept(copy);
+              }
+            };
+          }
+          if (depth == 1) {
+            metadata.makeThreadLocalSchemaSnapshot();
+          }
+          var outer = metadata.getImmutableSchemaSnapshot();
+          doAnswer(call -> {
+            call.callRealMethod();
+            throw release;
+          }).when(metadata).clearThreadLocalSchemaSnapshot();
+          try (var strategy = mockStatic(GremlinToMatchStrategy.class, CALLS_REAL_METHODS)) {
+            strategy.when(() -> GremlinToMatchStrategy.resolveSessionIfEnabled(any()))
+                .thenReturn(db);
+            assertThatThrownBy(() -> preparation.prepare(query(40, 30), policy))
+                .isSameAs(release).hasSuppressedException(cleanup);
+            verify(selected.get()).close();
+            assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(depth);
+            if (depth == 1) {
+              assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(outer);
+            }
+            assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+                .isActive(db)).isFalse();
+          } finally {
+            org.mockito.Mockito.doCallRealMethod().when(metadata).clearThreadLocalSchemaSnapshot();
+            if (depth == 1) {
+              metadata.clearThreadLocalSchemaSnapshot();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /** A primary Error survives original cleanup failure and publishes no partially built result. */
+  @Test
+  public void copyErrorPreservesOriginalCloseFailureAsSuppressed() {
+    try (var probe = new PublicationProbe()) {
+      var primary = new AssertionError("copy error");
+      var cleanup = new IllegalStateException("original close");
+      probe.onOriginal = original -> {
+        org.mockito.Mockito.doThrow(primary).when(original).copy(any(CommandContext.class));
+        org.mockito.Mockito.doThrow(cleanup).when(original).close();
+      };
+      assertThatThrownBy(() -> probe.prepare().prepare(query(30, 40), policy))
+          .isSameAs(primary).hasSuppressedException(cleanup);
+      verify(probe.originals.getFirst()).close();
+      assertThat(probe.resident()).isNull();
+    }
+  }
+
+  /** Original cleanup failure discards the initialized invocation and preserves a rejected resident. */
+  @Test
+  public void originalCloseFailureDiscardsInvocationWithoutReplacingExistingResident() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      try (var seed = preparation.prepare(query(30, 40), policy)) {
+        assertThat(seed.plan()).isNotNull();
+      }
+      var entry = probe.resident();
+      var valid = (GremlinTranslationTemplate.Candidate) entry.template();
+      probe.cache.putTranslationInternal(probe.key,
+          new GremlinTranslationTemplate.Candidate(99, valid.reason(), valid.translation(),
+              valid.indexManager(), valid.indexWord()),
+          probe.session, probe.cache.getGeneration(), entry);
+      var rejected = probe.resident();
+      var failure = new IllegalStateException("original cleanup");
+      probe.onOriginal = original -> org.mockito.Mockito.doThrow(failure).when(original).close();
+      assertThatThrownBy(() -> preparation.prepare(query(40, 30), policy)).isSameAs(failure);
+      assertThat(probe.resident()).isSameAs(rejected);
+      for (var copy : probe.copies) {
+        verify(copy).close();
+      }
+      verify(probe.originals.getLast()).close();
+    }
+  }
+
+  /** Real second-session creation overlaps template, final, non-cacheable and warm copies. */
+  @Test
+  public void realIndexCreationDuringCopiesRefusesWithoutPublishing() throws Exception {
+    for (int stage = 0; stage < 4; stage++) {
+      try (var probe = new PublicationProbe()) {
+        var prepare = probe.prepare();
+        if (stage == 2) {
+          try (var seed = prepare.prepare(query(30, 40), policy)) {
+            assertThat(seed.plan()).isNotNull();
+          }
+        }
+        var prior = stage == 2 ? probe.resident() : null;
+        if (stage == 3) {
+          probe.cacheable = false;
+        }
+        String name = "copyOverlap" + stage;
+        Runnable write = () -> {
+          try {
+            changeSchema(other -> {
+              var manager = other.getSharedContext().getIndexManager();
+              manager.createIndex(other, name, "NOTUNIQUE",
+                  new com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition(
+                      "CandidatePerson", "age",
+                      com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.INTEGER),
+                  other.getMetadata().getSchema().getClass("CandidatePerson").getCollectionIds(),
+                  null, java.util.Map.of());
+            });
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+          }
+        };
+        if (stage == 2) {
+          var template = ((GremlinTranslationTemplate.Candidate) probe.resident().template())
+              .translation().planTemplate();
+          doAnswer(call -> {
+            var copy = spy((InternalExecutionPlan) call.callRealMethod());
+            probe.copies.add(copy);
+            write.run();
+            return copy;
+          }).when(template).copy(any(CommandContext.class));
+        } else {
+          int target = stage == 1 ? 2 : 1;
+          probe.onCopy = copy -> {
+            if (probe.copies.size() == target) {
+              write.run();
+            }
+          };
+        }
+        try (var result = prepare.prepare(query(40, 30), policy)) {
+          assertThat(result.indexGuardFailure()).isTrue();
+          assertThat(result.plan()).isNull();
+          assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+        }
+        assertThat(probe.resident()).isSameAs(prior);
+        for (var original : probe.originals) {
+          verify(original).close();
+        }
+        for (var copy : probe.copies) {
+          verify(copy).close();
+        }
+        probe.onCopy = copy -> {
+        };
+        try (var fresh = prepare.prepare(query(30, 40), policy)) {
+          assertThat(fresh.indexGuardFailure()).isFalse();
+          assertThat(fresh.plan()).isNotNull();
+        }
+      }
+    }
+  }
+
+  /**
+   * Real independent writers change index structure after capture and before planning. Every
+   * operation must cause an uncached guard refusal, close owned plans and permit the first
+   * subsequent preparation. The query uses a separate class so rename/drop cannot mask the guard.
+   */
+  @Test
+  public void realStructuralWritersRefuseCapturedPreparationThenRecover() throws Exception {
+    for (String operation : List.of("rename", "drop", "rebuild", "add", "remove", "carry",
+        "hierarchy", "collation")) {
+      String className = "Structural" + operation;
+      String indexName = className + ".name";
+      String collection = "membership" + operation;
+      // Set up committed metadata before the graph opens its preparation transaction.
+      changeSchema(other -> {
+        var clazz = other.getMetadata().getSchema().createClass(className);
+        clazz.createProperty("name", PropertyType.STRING);
+        clazz.createIndex(indexName,
+            com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
+            "name");
+        other.addCollection(collection);
+        if (operation.equals("remove")) {
+          other.getSharedContext().getIndexManager()
+              .addCollectionToIndex(other, collection, indexName, false);
+        }
+      });
+      try (var probe = new PublicationProbe()) {
+        var manager = probe.session.getSharedContext().getIndexManager();
+        long before = manager.readIndexChangeWord();
+        probe.duringBuild = () -> {
+          try {
+            changeSchema(other -> {
+              var live = other.getMetadata().getSchema();
+              var indexes = other.getSharedContext().getIndexManager();
+              switch (operation) {
+                case "rename" -> live.getClass(className).setName(className + "Renamed");
+                case "drop" -> indexes.dropIndex(other, indexName);
+                case "rebuild" -> indexes.getIndex(indexName).rebuild(other);
+                case "add" -> indexes.addCollectionToIndex(other, collection, indexName, false);
+                case "remove" -> indexes.removeCollectionFromIndex(other, collection, indexName);
+                case "carry" -> {
+                  other.begin();
+                  try {
+                    live.getClass(className).setName(className + "Carried");
+                    other.commit();
+                  } finally {
+                    if (other.isTxActive()) {
+                      other.rollback();
+                    }
+                  }
+                }
+                case "hierarchy" -> live.createClass(className + "Child", live.getClass(className));
+                case "collation" -> live.getClass(className).getProperty("name").setCollate("ci");
+                default -> throw new AssertionError(operation);
+              }
+              assertThat(indexes.readIndexChangeWord()).isNotEqualTo(before);
+              assertThat(indexes.readIndexChangeWord() & 0xffffL).isZero();
+              assertThat(indexes.readIndexChangeWord()).isNotNegative();
+            });
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+          }
+        };
+        var preparation = probe.prepare();
+        try (var result = preparation.prepare(query(30, 40), policy)) {
+          assertThat(result.indexGuardFailure()).as(operation).isTrue();
+          assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+          assertThat(result.plan()).isNull();
+        }
+        assertThat(probe.originals).isNotEmpty();
+        assertThat(probe.resident()).isNull();
+        for (var original : probe.originals) {
+          verify(original).close();
+        }
+        for (var copy : probe.copies) {
+          verify(copy).close();
+        }
+        probe.duringBuild = () -> {
+        };
+        try (var fresh = preparation.prepare(query(40, 30), policy)) {
+          assertThat(fresh.indexGuardFailure()).as(operation).isFalse();
+          assertThat(fresh.plan()).isNotNull();
+          assertThat(fresh.cacheHit()).isFalse();
+        }
+      }
+    }
+  }
+
+  /** A foreign manager with an identical numeric word cannot authorize a warm resident. */
+  @Test
+  public void warmResidentRequiresManagerIdentityNotOnlyWord() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      try (var seed = preparation.prepare(query(30, 40), policy)) {
+        assertThat(seed.plan()).isNotNull();
+      }
+      var entry = probe.resident();
+      var candidate = (GremlinTranslationTemplate.Candidate) entry.template();
+      var foreign = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded.class);
+      probe.cache.putTranslationInternal(probe.key,
+          new GremlinTranslationTemplate.Candidate(candidate.extent(), candidate.reason(),
+              candidate.translation(), foreign, candidate.indexWord()),
+          probe.session, probe.cache.getGeneration(), entry);
+      var rejected = probe.resident();
+      try (var fresh = preparation.prepare(query(40, 30), policy)) {
+        assertThat(fresh.cacheHit()).isFalse();
+        assertThat(fresh.indexGuardFailure()).isFalse();
+        assertThat(fresh.plan()).isNotNull();
+        assertThat(probe.resident()).isNotSameAs(rejected);
+      }
+    }
+  }
+
+  /** Each metadata-dependent refusal keeps its ordinary cause unless interval validation fails. */
+  private void assertGuardedRefusal(PrivatePrefixDiscovery.Reason expected) {
+    for (int depth = 0; depth <= 1; depth++) {
+      for (boolean overlap : List.of(false, true)) {
+        for (boolean standalone : List.of(false, true)) {
+          try (var probe = new PublicationProbe()) {
+            var metadata = probe.session.getMetadata();
+            probe.session.getSharedContext().getSchema().forceSnapshot();
+            if (depth == 1) {
+              metadata.makeThreadLocalSchemaSnapshot();
+            }
+            var outer = metadata.getImmutableSchemaSnapshot();
+            try {
+              Traversal.Admin<?, ?> traversal = switch (expected) {
+                case REPEAT -> graph.traversal().V().repeat(__.out("candidateKnows")).times(2)
+                    .optional(__.identity()).asAdmin();
+                case SOURCE_STATE -> graph.traversal().withSideEffect("state", 1).V()
+                    .optional(__.identity()).asAdmin();
+                case FOLD_CUT -> graph.traversal().V().has("name", "first")
+                    .optional(__.identity()).asAdmin();
+                case ORDER_CUT -> graph.traversal().V().hasLabel("CandidatePerson")
+                    .order().by("age").order().by("name").optional(__.identity()).asAdmin();
+                case MULTI_PLAN -> graph.traversal().V()
+                    .union(__.out("candidateKnows"), __.out("candidateKnows"))
+                    .optional(__.identity()).asAdmin();
+                case RECORD_IDENTIFIERS -> graph.traversal().V("#12:0")
+                    .out("candidateKnows").optional(__.identity()).asAdmin();
+                case CUT_ADMISSION -> graph.traversal().V().out("candidateKnows")
+                    .optional(__.identity()).asAdmin();
+                case PLAIN -> graph.traversal().V().optional(__.identity()).asAdmin();
+                default -> query(30, 40);
+              };
+              int forced = switch (expected) {
+                case FOLD_CUT -> 1;
+                case ORDER_CUT -> 3;
+                case MULTI_PLAN -> 2;
+                default -> -1;
+              };
+              var discovery = new PrivatePrefixDiscovery((root, inputs, observer) -> {
+                if (expected == PrivatePrefixDiscovery.Reason.CAPABILITY_DECLINE) {
+                  return null;
+                }
+                if (forced > 0) {
+                  assertThat(observer).isNotNull();
+                  observer.accept(forced);
+                  return null;
+                }
+                return GremlinStepWalker.production().walkObserved(root, inputs, observer);
+              }, (db, translation, scope) -> {
+                if (expected == PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE) {
+                  throw new IllegalStateException("ordinary builder failure");
+                }
+                return GremlinToMatchStrategy.buildPlan(db, translation, scope);
+              });
+              // Capture is the earliest shared boundary, including the settings-only refusal.
+              try (var capture =
+                  mockStatic(GremlinStepWalker.WalkInputs.class, CALLS_REAL_METHODS)) {
+                capture.when(() -> GremlinStepWalker.WalkInputs.capture(traversal))
+                    .thenAnswer(call -> {
+                      var inputs = (GremlinStepWalker.WalkInputs) call.callRealMethod();
+                      if (overlap) {
+                        advanceIndexWord(probe.session);
+                      }
+                      return expected == PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE
+                          ? new GremlinStepWalker.WalkInputs(null, inputs.edgeVerification(),
+                              inputs.schema(), inputs.productiveKeys(), inputs.includesMissing(),
+                              inputs.nulls(), inputs.permitsGrouping(), inputs.commandTimeout())
+                          : inputs;
+                    });
+                var cuts = expected == PrivatePrefixDiscovery.Reason.CUT_ADMISSION
+                    ? new PrivateCandidatePreparation.Policy(Set.of()) : policy;
+                var reason = overlap ? PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE : expected;
+                if (standalone) {
+                  var safety = QuerySafetyAdmission.prepare(traversal);
+                  try (var result = discovery.discover(traversal, safety, cuts.cuts()::contains)) {
+                    assertThat(result.reason()).as("%s depth %s overlap %s standalone",
+                        expected, depth, overlap).isEqualTo(reason);
+                    assertThat(result.indexGuardFailure()).isEqualTo(overlap);
+                    assertThat(result.plan()).isNull();
+                  }
+                } else {
+                  try (var result = new PrivateCandidatePreparation(discovery)
+                      .prepare(traversal, cuts)) {
+                    assertThat(result.reason()).as("%s depth %s overlap %s candidate",
+                        expected, depth, overlap).isEqualTo(reason);
+                    assertThat(result.indexGuardFailure()).isEqualTo(overlap);
+                    assertThat(result.plan()).isNull();
+                  }
+                }
+              }
+              if (overlap) {
+                assertThat(probe.resident()).isNull();
+              }
+              assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(depth);
+              if (depth == 1) {
+                assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(outer);
+              }
+            } finally {
+              if (depth == 1) {
+                metadata.clearThreadLocalSchemaSnapshot();
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private static void advanceIndexWord(DatabaseSessionEmbedded db) {
+    var manager = db.getSharedContext().getIndexManager();
+    var operation = manager.beginIndexWrite();
+    manager.endIndexWrite(operation);
+  }
+
+  /** COMPLETE_NATIVE preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedCompleteNativeRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE);
+  }
+
+  /** REPEAT preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedRepeatRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.REPEAT);
+  }
+
+  /** SOURCE_STATE preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedSourceStateRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+  }
+
+  /** CUT_ADMISSION preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedCutAdmissionRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.CUT_ADMISSION);
+  }
+
+  /** FOLD_CUT preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedFoldCutRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.FOLD_CUT);
+  }
+
+  /** ORDER_CUT preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedOrderCutRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.ORDER_CUT);
+  }
+
+  /** MULTI_PLAN preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedMultiPlanRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.MULTI_PLAN);
+  }
+
+  /** RECORD_IDENTIFIERS preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedRecordIdentifiersRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.RECORD_IDENTIFIERS);
+  }
+
+  /** CAPABILITY_DECLINE preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedCapabilityDeclineRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.CAPABILITY_DECLINE);
+  }
+
+  /** PLAIN preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedPlainRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.PLAIN);
+  }
+
+  /** PLAN_BUILD_FAILURE preserves pin identity and is overridden only by internal guard evidence. */
+  @Test
+  public void guardedPlanBuildFailureRefusal() {
+    assertGuardedRefusal(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+  }
+
+  /** A demonstrated warm refusal must validate again after the successful lookup. */
+  @Test
+  public void warmRefusalOverlapAfterProvedHitRemainsUncached() {
+    for (int depth = 0; depth <= 1; depth++) {
+      try (var probe = new PublicationProbe()) {
+        var metadata = probe.session.getMetadata();
+        probe.session.getSharedContext().getSchema().forceSnapshot();
+        if (depth == 1) {
+          metadata.makeThreadLocalSchemaSnapshot();
+        }
+        var outer = metadata.getImmutableSchemaSnapshot();
+        try {
+          var preparation = probe.prepare();
+          var refusedPolicy = new PrivateCandidatePreparation.Policy(Set.of());
+          try (var cold = preparation.prepare(query(30, 40), refusedPolicy)) {
+            assertThat(cold.cacheHit()).isFalse();
+          }
+          try (var warm = preparation.prepare(query(40, 30), refusedPolicy)) {
+            assertThat(warm.cacheHit()).isTrue();
+            assertThat(warm.indexGuardFailure()).isFalse();
+          }
+          var resident = probe.resident();
+          probe.duringWalk = () -> {
+            throw new AssertionError("A valid warm refusal must not recognise again");
+          };
+          doAnswer(call -> {
+            var result = call.callRealMethod();
+            assertThat(result).isSameAs(resident);
+            advanceIndexWord(probe.session);
+            return result;
+          }).when(probe.cache).getTranslationEntry(any(Object.class), any());
+          try (var result = preparation.prepare(query(30, 40), refusedPolicy)) {
+            assertThat(result.indexGuardFailure()).isTrue();
+            assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+            assertThat(result.plan()).isNull();
+          }
+          org.mockito.Mockito.doCallRealMethod().when(probe.cache)
+              .getTranslationEntry(any(Object.class), any());
+          assertThat(probe.resident()).isSameAs(resident);
+          assertThat(probe.originals).isEmpty();
+          assertThat(probe.copies).isEmpty();
+          assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(depth);
+          if (depth == 1) {
+            assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(outer);
+          }
+        } finally {
+          if (depth == 1) {
+            metadata.clearThreadLocalSchemaSnapshot();
+          }
+        }
+      }
+    }
+  }
+
+  /** Failed final copies never replace a rejected resident and close all completed plans. */
+  @Test
+  public void finalCopyFailurePreservesRejectedResident() {
+    assertFailurePreservesRejectedResident(false);
+  }
+
+  /** Publication exceptions discard the initialized invocation and leave the old envelope intact. */
+  @Test
+  public void publicationFailurePreservesRejectedResident() {
+    assertFailurePreservesRejectedResident(true);
+  }
+
+  private void assertFailurePreservesRejectedResident(boolean publication) {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      try (var seed = preparation.prepare(query(30, 40), policy)) {
+        assertThat(seed.plan()).isNotNull();
+      }
+      var entry = probe.resident();
+      var valid = (GremlinTranslationTemplate.Candidate) entry.template();
+      probe.cache.putTranslationInternal(probe.key,
+          new GremlinTranslationTemplate.Candidate(99, valid.reason(), valid.translation(),
+              valid.indexManager(), valid.indexWord()),
+          probe.session, probe.cache.getGeneration(), entry);
+      var rejected = probe.resident();
+      var failure = new IllegalStateException("rejected resident failure");
+      int beforeCopies = probe.copies.size();
+      if (publication) {
+        org.mockito.Mockito.doThrow(failure).when(probe.cache).putTranslationInternal(
+            any(Object.class), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+      } else {
+        probe.onCopy = copy -> {
+          if (probe.copies.size() == beforeCopies + 1) {
+            org.mockito.Mockito.doThrow(failure).when(probe.originals.getLast())
+                .copy(any(CommandContext.class));
+          }
+        };
+      }
+      assertThatThrownBy(() -> preparation.prepare(query(40, 30), policy)).isSameAs(failure);
+      assertThat(probe.resident()).isSameAs(rejected);
+      assertThat(probe.copies).hasSize(beforeCopies + (publication ? 2 : 1));
+      for (var copy : probe.copies) {
+        verify(copy).close();
+      }
+      for (var original : probe.originals) {
+        verify(original).close();
+      }
+    }
+  }
+
+  /** Indexed hierarchy changes on the queried class refuse rather than returning an old scan. */
+  @Test
+  public void indexedQueryHierarchyChangeRefusesThenRecovers() throws Exception {
+    assertIndexedQueryChange(false);
+  }
+
+  /** Ordinary and post-union ordering refuse a collation change on their indexed source class. */
+  @Test
+  public void indexedQueryCollationChangeRefusesBothOrderPaths() throws Exception {
+    assertIndexedQueryChange(true);
+  }
+
+  private void assertIndexedQueryChange(boolean collation) throws Exception {
+    changeSchema(other -> other.getMetadata().getSchema().getClass("CandidatePerson").createIndex(
+        "queriedName",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
+        "name"));
+    for (boolean union : collation ? List.of(false, true) : List.of(false)) {
+      if (collation) {
+        changeSchema(other -> other.getMetadata().getSchema().getClass("CandidatePerson")
+            .getProperty("name").setCollate("default"));
+      }
+      try (var probe = new PublicationProbe()) {
+        probe.session.getSharedContext().getSchema().forceSnapshot();
+        var before = probe.session.getMetadata().getImmutableSchemaSnapshot();
+        var originalIds = before.getClass("CandidatePerson").getPolymorphicCollectionIds();
+        var traversal = union
+            ? graph.traversal().V().hasLabel("CandidatePerson")
+                .union(__.has("age", 30), __.has("age", 40)).order().by("name").asAdmin()
+            : graph.traversal().V().hasLabel("CandidatePerson").order().by("name").asAdmin();
+        probe.duringWalk = () -> {
+          var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
+          assertThat(GremlinStepWalker.production().walkObserved(traversal, inputs, null))
+              .isNotNull();
+          try {
+            changeSchema(other -> {
+              var person = other.getMetadata().getSchema().getClass("CandidatePerson");
+              if (collation) {
+                person.getProperty("name").setCollate("ci");
+              } else {
+                other.getMetadata().getSchema().createClass("IndexedQueryChild", person);
+              }
+            });
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(interrupted);
+          }
+          assertThat(probe.session.getMetadata().getImmutableSchemaSnapshot()).isSameAs(before);
+          assertThat(before.getClass("CandidatePerson").getPolymorphicCollectionIds())
+              .containsExactly(originalIds);
+          var captured = GremlinStepWalker.production().walkObserved(traversal, inputs, null);
+          assertThat(captured).isNotNull();
+          if (union) {
+            assertThat(captured.postConcatOps()).anyMatch(
+                com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcatOp.Order.class::isInstance);
+          }
+        };
+        var preparation = probe.prepare();
+        try (var result = preparation.prepare(traversal, policy)) {
+          assertThat(result.indexGuardFailure()).isTrue();
+          assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+          assertThat(result.plan()).isNull();
+        }
+        assertThat(probe.resident()).isNull();
+        for (var plan : probe.originals) {
+          verify(plan).close();
+        }
+        for (var plan : probe.copies) {
+          verify(plan).close();
+        }
+        try (var fresh = preparation.prepare(traversal.clone(), policy)) {
+          assertThat(fresh.indexGuardFailure()).isFalse();
+          assertThat(fresh.cacheHit()).isFalse();
+          if (union) {
+            assertThat(fresh.reason())
+                .isNotEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+            assertThat(fresh.plan()).isNull();
+            assertThat(GremlinStepWalker.production().walk(traversal.clone())).isNull();
+          } else {
+            assertThat(fresh.plan()).isNotNull();
           }
         }
       }

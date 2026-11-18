@@ -20,7 +20,13 @@ final class PrivatePrefixDiscovery {
 
   record Outcome(Reason reason, int cut,
       @Nullable GremlinToMatchTranslator.TranslationResult translation,
-      @Nullable InternalExecutionPlan plan) implements AutoCloseable {
+      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) implements AutoCloseable {
+    Outcome(Reason reason, int cut,
+        @Nullable GremlinToMatchTranslator.TranslationResult translation,
+        @Nullable InternalExecutionPlan plan) {
+      this(reason, cut, translation, plan, false);
+    }
+
     @Override
     public void close() {
       if (plan != null) {
@@ -61,8 +67,25 @@ final class PrivatePrefixDiscovery {
     }
     // Pin before capture and keep the view through recognition, planning and classification.
     try (var scope = PrivatePreparationSchemaScope.open(session)) {
-      return discover(traversal, admittedCut, session,
+      var outcome = discover(traversal, admittedCut, session,
           GremlinStepWalker.WalkInputs.capture(traversal), false);
+      try {
+        scope.validate();
+        scope.onReleaseFailure(outcome::close);
+        return outcome;
+      } catch (RuntimeException | Error failure) {
+        try {
+          outcome.close();
+        } catch (RuntimeException | Error closeFailure) {
+          failure.addSuppressed(closeFailure);
+        }
+        throw failure;
+      }
+    } catch (PrivatePreparationSchemaScope.GuardFailure failure) {
+      if (failure.getSuppressed().length != 0) {
+        throw failure;
+      }
+      return new Outcome(Reason.PLAN_BUILD_FAILURE, -1, null, null, true);
     }
   }
 

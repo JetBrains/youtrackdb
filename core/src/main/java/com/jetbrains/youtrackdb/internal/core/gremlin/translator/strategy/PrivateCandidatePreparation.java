@@ -27,7 +27,13 @@ final class PrivateCandidatePreparation {
 
   record Prepared(PrivatePrefixDiscovery.Reason reason, int extent, boolean cacheHit,
       Map<Object, Object> bindings, @Nullable ResultShaping shaping,
-      @Nullable InternalExecutionPlan plan) implements AutoCloseable {
+      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) implements AutoCloseable {
+    Prepared(PrivatePrefixDiscovery.Reason reason, int extent, boolean cacheHit,
+        Map<Object, Object> bindings, @Nullable ResultShaping shaping,
+        @Nullable InternalExecutionPlan plan) {
+      this(reason, extent, cacheHit, bindings, shaping, plan, false);
+    }
+
     @Override
     public void close() {
       if (plan != null) {
@@ -54,15 +60,32 @@ final class PrivateCandidatePreparation {
     var cache = GremlinPlanCache.instance(session);
     long generation = cache.getGeneration();
     try (var scope = PrivatePreparationSchemaScope.open(session)) {
-      return prepareCaptured(traversal, policy, safety, session, cache, generation);
+      var prepared = prepareCaptured(traversal, policy, safety, session, cache, generation, scope);
+      scope.onReleaseFailure(prepared::close);
+      return prepared;
+    } catch (PrivatePreparationSchemaScope.GuardFailure failure) {
+      if (failure.getSuppressed().length != 0) {
+        throw failure;
+      }
+      return new Prepared(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE, -1, false,
+          Map.of(), null, null, true);
+    }
+  }
+
+  private static void closeAfterFailure(Prepared prepared, Throwable failure) {
+    try {
+      prepared.close();
+    } catch (RuntimeException | Error closeFailure) {
+      failure.addSuppressed(closeFailure);
     }
   }
 
   private Prepared prepareCaptured(Traversal.Admin<?, ?> traversal, Policy policy,
       QuerySafetyAdmission.Result safety, DatabaseSessionEmbedded session,
-      GremlinPlanCache cache, long generation) {
+      GremlinPlanCache cache, long generation, PrivatePreparationSchemaScope scope) {
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     if (inputs.polymorphic() == null || inputs.nulls() == null) {
+      scope.validate();
       return refusal(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, false);
     }
     var extraction = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
@@ -76,10 +99,17 @@ final class PrivateCandidatePreparation {
       var resident = cache.getTranslationEntry(key, session);
       if (resident != null && cache.getGeneration() == generation
           && resident.template() instanceof GremlinTranslationTemplate.Candidate candidate) {
-        var reused = reuse(traversal, session, extraction, candidate, inputs);
+        var reused = scope.matches(candidate.indexManager(), candidate.indexWord())
+            ? reuse(traversal, session, extraction, candidate, inputs) : null;
         if (reused != null) {
           if (cache.getGeneration() == generation) {
-            return reused;
+            try {
+              scope.validate();
+              return reused;
+            } catch (RuntimeException | Error failure) {
+              closeAfterFailure(reused, failure);
+              throw failure;
+            }
           }
           reused.close();
         }
@@ -88,41 +118,59 @@ final class PrivateCandidatePreparation {
     }
     var outcome = discovery.discover(traversal, policy.cuts()::contains, session, inputs, true);
     if (outcome.plan() == null) {
+      scope.validate();
       if (eligible && outcome.reason() != PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE) {
         GremlinPlanCache.putTranslation(key,
-            new GremlinTranslationTemplate.Candidate(-1, outcome.reason(), null), session,
-            generation, rejected);
+            new GremlinTranslationTemplate.Candidate(-1, outcome.reason(), null,
+                scope.manager(), scope.word()),
+            session, generation, rejected);
       }
       return refusal(outcome.reason(), false);
     }
-    try (outcome) {
-      var translation = outcome.translation();
-      var prefix = prefix(traversal, extraction, outcome.cut(), inputs);
-      boolean agrees = prefix.bindings().size() == translation.inputParameters().size()
-          && GremlinToMatchStrategy.matchingLayout(prefix.hasContributions(),
-              translation.hasContributions())
-          && prefix.propertyMapBulkingCapacity()
-              == translation.shaping().propertyMapBulkingCapacity()
-          && OrderedFilterBinding.fromExtraction(translation.shaping(), prefix) != null;
-      if (eligible && agrees && translation.cacheEligible() && outcome.plan().canBeCached()) {
-        // Never publish the private prepared plan or its bound planning context.
-        var template = outcome.plan().copy(new BasicCommandContext(session));
-        template.close();
-        if (template.canBeCached()) {
-          var translate = new GremlinTranslationTemplate.Translate(template,
-              translation.boundaryAlias(), translation.outputType(), translation.returnClass(),
-              OrderedFilterBinding.unbound(translation.shaping()),
-              translation.inputParameters().size(), translation.hasContributions(),
-              PlainBoundaryClassifier.classify(outcome.plan(), translation));
-          GremlinPlanCache.putTranslation(key, new GremlinTranslationTemplate.Candidate(
-              outcome.cut(), outcome.reason(), translate), session, generation, rejected);
+    Prepared invocation = null;
+    GremlinTranslationTemplate.Candidate publication = null;
+    try {
+      try (outcome) {
+        var translation = outcome.translation();
+        var prefix = prefix(traversal, extraction, outcome.cut(), inputs);
+        boolean agrees = prefix.bindings().size() == translation.inputParameters().size()
+            && GremlinToMatchStrategy.matchingLayout(prefix.hasContributions(),
+                translation.hasContributions())
+            && prefix.propertyMapBulkingCapacity()
+                == translation.shaping().propertyMapBulkingCapacity()
+            && OrderedFilterBinding.fromExtraction(translation.shaping(), prefix) != null;
+        if (eligible && agrees && translation.cacheEligible() && outcome.plan().canBeCached()) {
+          // Never publish the private prepared plan or its bound planning context.
+          var template = outcome.plan().copy(new BasicCommandContext(session));
+          template.close();
+          if (template.canBeCached()) {
+            var translate = new GremlinTranslationTemplate.Translate(template,
+                translation.boundaryAlias(), translation.outputType(), translation.returnClass(),
+                OrderedFilterBinding.unbound(translation.shaping()),
+                translation.inputParameters().size(), translation.hasContributions(),
+                PlainBoundaryClassifier.classify(outcome.plan(), translation));
+            publication = new GremlinTranslationTemplate.Candidate(
+                outcome.cut(), outcome.reason(), translate, scope.manager(), scope.word());
+          }
         }
+        // A publication loser uses its own complete outcome. It never mixes winner fields.
+        var context = new BasicCommandContext(session);
+        context.setInputParameters(translation.inputParameters());
+        invocation =
+            new Prepared(outcome.reason(), outcome.cut(), false, translation.inputParameters(),
+                OrderedFilterBinding.fresh(translation.shaping()), outcome.plan().copy(context));
       }
-      // A publication loser uses its own complete outcome. It never mixes winner fields.
-      var context = new BasicCommandContext(session);
-      context.setInputParameters(translation.inputParameters());
-      return new Prepared(outcome.reason(), outcome.cut(), false, translation.inputParameters(),
-          OrderedFilterBinding.fresh(translation.shaping()), outcome.plan().copy(context));
+      // Original cleanup and every initialized copy precede validation and cold publication.
+      scope.validate();
+      if (publication != null) {
+        GremlinPlanCache.putTranslation(key, publication, session, generation, rejected);
+      }
+      return invocation;
+    } catch (RuntimeException | Error failure) {
+      if (invocation != null) {
+        closeAfterFailure(invocation, failure);
+      }
+      throw failure;
     }
   }
 

@@ -102,6 +102,7 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
     var metadata = org.mockito.Mockito.mock(
         com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
     org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    org.mockito.Mockito.when(db.getSharedContext()).thenReturn(session.getSharedContext());
     var acquisition = new IllegalStateException("pin acquisition");
     org.mockito.Mockito.doThrow(acquisition).when(metadata).makeThreadLocalSchemaSnapshot();
     assertSame(acquisition,
@@ -133,6 +134,7 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
     var metadata = org.mockito.Mockito.mock(
         com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
     org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    org.mockito.Mockito.when(db.getSharedContext()).thenReturn(session.getSharedContext());
     org.mockito.Mockito.when(metadata.getImmutableSchemaSnapshot())
         .thenReturn(session.getMetadata().getImmutableSchemaSnapshot());
     var failure = new IllegalStateException("clear failed");
@@ -148,6 +150,205 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
       assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
           .isActive(db));
     }
+  }
+
+  /** The first quiescent scope retires an invalid fill-time snapshot without retrying capture. */
+  @Test
+  public void privateScopeRetiresInvalidCachedSnapshotBeforeFirstCapture() {
+    var manager = session.getSharedContext().getIndexManager();
+    var shared = session.getSharedContext().getSchema();
+    shared.forceSnapshot();
+    var operation = manager.beginIndexWrite();
+    ImmutableSchema invalid;
+    try {
+      invalid = shared.makeSnapshot(session);
+      assertEquals(IndexManagerEmbedded.INVALID_INDEX_STAMP, invalid.getIndexStamp());
+    } finally {
+      manager.endIndexWrite(operation);
+    }
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      var captured = session.getMetadata().getImmutableSchemaSnapshot();
+      assertTrue(captured != invalid);
+      assertEquals(manager.readIndexChangeWord(), captured.getIndexStamp());
+      scope.validate();
+    }
+    assertEquals(0, session.getMetadata().getThreadLocalSchemaSnapshotPinCount());
+  }
+
+  /** An obsolete outer pin stays authoritative and refuses without replacing its object or depth. */
+  @Test
+  public void privateScopeRefusesStaleOuterPinWithoutRecapture() {
+    var metadata = session.getMetadata();
+    metadata.makeThreadLocalSchemaSnapshot();
+    var original = metadata.getImmutableSchemaSnapshot();
+    var manager = session.getSharedContext().getIndexManager();
+    var operation = manager.beginIndexWrite();
+    manager.endIndexWrite(operation);
+    try {
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+          () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+              .open(session));
+      assertEquals(1, metadata.getThreadLocalSchemaSnapshotPinCount());
+      assertSame(original, metadata.getImmutableSchemaSnapshot());
+    } finally {
+      metadata.clearThreadLocalSchemaSnapshot();
+    }
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      scope.validate();
+    }
+  }
+
+  /** A fresh overlay stamp cannot bless a baseline predating an unnotified shared change. */
+  @Test
+  public void freshOverlayRetainsOriginalBaselineConstraintWithoutGenerationChange() {
+    session.begin();
+    try {
+      var tx = session.ensureTxSchemaState();
+      var baseline = tx.getBaselineIndexStamp();
+      var manager = session.getSharedContext().getIndexManager();
+      long generation = session.getSharedContext().getGremlinPlanCache().getGeneration();
+      var operation = manager.beginIndexWrite();
+      manager.endIndexWrite(operation);
+      tx.invalidateOverlaySnapshot();
+      var overlay = session.getMetadata().getImmutableSchemaSnapshot();
+      assertEquals(manager.readIndexChangeWord(), overlay.getIndexStamp());
+      assertEquals(baseline, tx.getBaselineIndexStamp());
+      assertEquals(generation, session.getSharedContext().getGremlinPlanCache().getGeneration());
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+          () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+              .open(session));
+      assertEquals(baseline, tx.getBaselineIndexStamp());
+      assertEquals(0, session.getMetadata().getThreadLocalSchemaSnapshotPinCount());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * Retirement clears the obsolete overlay memo before recapture, but never refreshes its
+   * transaction baseline. A freshly stamped replacement still refuses the obsolete transaction.
+   */
+  @Test
+  public void privateScopeRetiresStaleOverlayMemoWithoutBlessingBaseline() {
+    session.begin();
+    try {
+      var tx = session.ensureTxSchemaState();
+      var memo = session.getMetadata().getImmutableSchemaSnapshot();
+      assertSame(memo, tx.getOverlaySnapshot());
+      long baseline = tx.getBaselineIndexStamp();
+      var manager = session.getSharedContext().getIndexManager();
+      var operation = manager.beginIndexWrite();
+      manager.endIndexWrite(operation);
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+          () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+              .open(session));
+      var replacement = tx.getOverlaySnapshot();
+      assertNotNull(replacement);
+      assertTrue(replacement != memo);
+      assertEquals(manager.readIndexChangeWord(), replacement.getIndexStamp());
+      assertEquals(baseline, tx.getBaselineIndexStamp());
+      assertEquals(0, session.getMetadata().getThreadLocalSchemaSnapshotPinCount());
+      assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+          .isActive(session));
+    } finally {
+      session.rollback();
+    }
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      scope.validate();
+    }
+  }
+
+  /** Final validation rejects a replaced manager even when its numeric word is unchanged. */
+  @Test
+  public void privateScopeFinalValidationRequiresSameManager() {
+    var db = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class);
+    var shared = org.mockito.Mockito.spy(session.getSharedContext());
+    var manager = session.getSharedContext().getIndexManager();
+    var foreign = org.mockito.Mockito.mock(IndexManagerEmbedded.class);
+    org.mockito.Mockito.when(foreign.readIndexChangeWord())
+        .thenReturn(manager.readIndexChangeWord());
+    org.mockito.Mockito.when(db.getSharedContext()).thenReturn(shared);
+    org.mockito.Mockito.when(db.getMetadata()).thenReturn(session.getMetadata());
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(db)) {
+      scope.validate();
+      org.mockito.Mockito.doReturn(foreign).when(shared).getIndexManager();
+      assertEquals(manager.readIndexChangeWord(), foreign.readIndexChangeWord());
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+          scope::validate);
+    }
+    assertEquals(0, session.getMetadata().getThreadLocalSchemaSnapshotPinCount());
+    assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+        .isActive(db));
+  }
+
+  /** A captured snapshot from another manager refuses even if its numeric stamp matches. */
+  @Test
+  public void privateScopeRejectsForeignCapturedSnapshotManager() {
+    assertForeignProvenanceRefused(false);
+  }
+
+  /** A fresh matching overlay cannot bless a baseline belonging to another manager. */
+  @Test
+  public void privateScopeRejectsForeignBaselineManager() {
+    assertForeignProvenanceRefused(true);
+  }
+
+  private void assertForeignProvenanceRefused(boolean baseline) {
+    var db = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded.class);
+    var metadata = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault.class);
+    var snapshot = org.mockito.Mockito.spy(session.getMetadata().getImmutableSchemaSnapshot());
+    var manager = session.getSharedContext().getIndexManager();
+    var foreign = org.mockito.Mockito.mock(IndexManagerEmbedded.class);
+    org.mockito.Mockito.when(db.getSharedContext()).thenReturn(session.getSharedContext());
+    org.mockito.Mockito.when(db.getMetadata()).thenReturn(metadata);
+    org.mockito.Mockito.when(metadata.getThreadLocalSchemaSnapshotPinCount()).thenReturn(1);
+    org.mockito.Mockito.when(metadata.getImmutableSchemaSnapshot()).thenReturn(snapshot);
+    assertEquals(manager.readIndexChangeWord(), snapshot.getIndexStamp());
+    if (baseline) {
+      var tx = org.mockito.Mockito.mock(TxSchemaState.class);
+      org.mockito.Mockito.when(db.getTxSchemaState()).thenReturn(tx);
+      long word = snapshot.getIndexStamp();
+      org.mockito.Mockito.when(tx.getBaselineIndexStamp()).thenReturn(word);
+      org.mockito.Mockito.when(tx.getBaselineIndexStampManager()).thenReturn(foreign);
+    } else {
+      org.mockito.Mockito.doReturn(foreign).when(snapshot).getIndexStampManager();
+    }
+    assertThrows(
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+        () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(db));
+    org.mockito.Mockito.verify(metadata).makeThreadLocalSchemaSnapshot();
+    org.mockito.Mockito.verify(metadata).clearThreadLocalSchemaSnapshot();
+    assertFalse(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+        .isActive(db));
+  }
+
+  /** Poison refuses admission even though its active count has been cleared to zero. */
+  @Test
+  public void privateScopeRejectsPoisonIndependentlyOfActiveCount() {
+    var manager = session.getSharedContext().getIndexManager();
+    manager.poisonIndexChangeCounter();
+    assertEquals(0, manager.readIndexChangeWord() & 0xffffL);
+    assertTrue(manager.readIndexChangeWord() < 0);
+    assertThrows(
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.GuardFailure.class,
+        () -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session));
+    assertEquals(0, session.getMetadata().getThreadLocalSchemaSnapshotPinCount());
   }
 
   /** Nested scopes restore the exact session marker and preserve an unrelated outer pin. */

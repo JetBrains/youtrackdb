@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision;
 import java.util.List;
@@ -20,7 +21,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 sealed interface GremlinTranslationTemplate {
 
   /** Complete private preparation. A null translation is a deterministic native refusal. */
-  record Candidate(int extent, PrivatePrefixDiscovery.Reason reason, Translate translation)
+  record Candidate(int extent, PrivatePrefixDiscovery.Reason reason, Translate translation,
+      IndexManagerEmbedded indexManager, long indexWord)
       implements GremlinTranslationTemplate {
   }
 

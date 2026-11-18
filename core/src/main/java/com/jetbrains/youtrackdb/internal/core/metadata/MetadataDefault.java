@@ -111,10 +111,11 @@ public class MetadataDefault implements MetadataInternal {
   }
 
   /**
-   * The current thread-local schema-snapshot pin depth — test observability for the commit
-   * path's single-owner pin/clear pairing (every commit escape path must return the count to its
-   * pre-commit value; a leak freezes the session's schema view, a double clear drives the count
-   * negative and poisons the next pin). Not used by production code.
+   * Returns the current thread-local schema-snapshot pin depth. Private preparation uses this
+   * count to retire a stale shared snapshot before acquiring the first pin, without replacing an
+   * outer scope's pinned view. Tests also use it to check the commit path's single-owner pin/clear
+   * pairing. Every commit escape path must restore the pre-commit count. A leaked pin freezes the
+   * session's schema view, and a double clear makes the count negative and poisons the next pin.
    */
   public int getThreadLocalSchemaSnapshotPinCount() {
     return immutableCount;
