@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.BackupUnitFiles;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import java.io.FilterInputStream;
@@ -93,15 +94,15 @@ public class BackupAdmissionRestoreTest {
           () -> absent.restoreFromBackup(source.names(), source.streams(), null));
       assertNoTargetExists(manager);
       manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
-      var disk = internal.getStorage(TARGET);
+      var disk = (DiskStorage) internal.getStorage(TARGET);
       disk.synch();
-      var before = targetBytes();
+      var before = targetBytes(disk);
       assertThrows(IllegalArgumentException.class,
           () -> disk.restoreFromBackup(syntheticBackupPath, null));
-      assertEquals(before, targetBytes());
+      assertEquals(before, targetBytes(disk));
       assertThrows(IllegalArgumentException.class,
           () -> disk.restoreFromBackup(source.names(), source.streams(), null));
-      assertEquals(before, targetBytes());
+      assertEquals(before, targetBytes(disk));
       manager.drop(TARGET);
       interruptRestoreOfTarget(manager);
       before = targetBytes();
@@ -191,13 +192,13 @@ public class BackupAdmissionRestoreTest {
       assertThrows(error, () -> absent.restoreFromBackup(source.names(), source.streams(), null));
       assertNoTargetExists(manager);
       manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
-      var disk = internal.getStorage(TARGET);
+      var disk = (DiskStorage) internal.getStorage(TARGET);
       disk.synch();
-      var before = targetBytes();
+      var before = targetBytes(disk);
       assertThrows(error, () -> disk.restoreFromBackup(backupPath, null));
-      assertEquals(before, targetBytes());
+      assertEquals(before, targetBytes(disk));
       assertThrows(error, () -> disk.restoreFromBackup(source.names(), source.streams(), null));
-      assertEquals(before, targetBytes());
+      assertEquals(before, targetBytes(disk));
       manager.drop(TARGET);
       interruptRestoreOfTarget(manager);
       before = targetBytes();
@@ -245,9 +246,9 @@ public class BackupAdmissionRestoreTest {
       source.afterEachClose(() -> {
       });
       manager.create(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
-      var disk = internal.getStorage(TARGET);
+      var disk = (DiskStorage) internal.getStorage(TARGET);
       disk.synch();
-      var before = targetBytes();
+      var before = targetBytes(disk);
       // A per-storage override must fail even while the process setting remains unchanged.
       var field = com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage.class
           .getDeclaredField("configuration");
@@ -259,13 +260,13 @@ public class BackupAdmissionRestoreTest {
       try {
         assertThrows(IllegalArgumentException.class,
             () -> disk.restoreFromBackup(backupPath, null));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
         assertThrows(IllegalArgumentException.class,
             () -> disk.restoreFromBackup(source.names(), source.streams(), null));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
         assertThrows(IllegalArgumentException.class,
             () -> disk.restoreFromPreparedBackupChain(prepared));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
       } finally {
         context.setValue(setting, previous);
       }
@@ -281,7 +282,7 @@ public class BackupAdmissionRestoreTest {
       try {
         assertThrows(IllegalArgumentException.class,
             () -> existingMemory.restoreFromPreparedBackupChain(prepared));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
       } finally {
         memoryContext.setValue(setting, memoryPrevious);
       }
@@ -289,7 +290,7 @@ public class BackupAdmissionRestoreTest {
       try {
         assertThrows(IllegalArgumentException.class,
             () -> disk.restoreFromPreparedBackupChain(prepared));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
         var absent = new com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage(
             "absent", databasesPath.resolve("absent").toString(), 902, null, null, 0, 0, internal);
         assertThrows(IllegalArgumentException.class,
@@ -297,7 +298,7 @@ public class BackupAdmissionRestoreTest {
         assertFalse(Files.exists(databasesPath.resolve("absent")));
         assertThrows(IllegalArgumentException.class,
             () -> existingMemory.restoreFromPreparedBackupChain(prepared));
-        assertEquals(before, targetBytes());
+        assertEquals(before, targetBytes(disk));
         var memory = new com.jetbrains.youtrackdb.internal.core.storage.memory.DirectMemoryStorage(
             "absentMemory", databasesPath.resolve("absentMemory").toString(), 903, internal);
         assertThrows(IllegalArgumentException.class,
@@ -342,12 +343,23 @@ public class BackupAdmissionRestoreTest {
 
   /** Hex encoding keeps equality byte-exact and includes the complete recursive entry-name set. */
   private java.util.Map<String, String> targetBytes() throws IOException {
+    return targetBytes(null);
+  }
+
+  private java.util.Map<String, String> targetBytes(DiskStorage storage) throws IOException {
     var target = databasesPath.resolve(TARGET);
     var bytes = new java.util.TreeMap<String, String>();
     try (var paths = Files.walk(target)) {
       for (var entry : paths.toList()) {
-        bytes.put(target.relativize(entry).toString(), Files.isDirectory(entry) ? "directory"
-            : java.util.HexFormat.of().formatHex(Files.readAllBytes(entry)));
+        if (Files.isDirectory(entry)) {
+          bytes.put(target.relativize(entry).toString(), "directory");
+        } else {
+          // Windows locks dirty.fl against reads through a second channel.
+          var content = storage != null && entry.equals(target.resolve("dirty.fl"))
+              ? storage.readStartupMetadataForTesting() : Files.readAllBytes(entry);
+          bytes.put(target.relativize(entry).toString(),
+              java.util.HexFormat.of().formatHex(content));
+        }
       }
     }
     return bytes;
