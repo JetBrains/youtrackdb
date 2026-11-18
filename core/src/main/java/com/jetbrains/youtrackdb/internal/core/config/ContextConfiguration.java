@@ -23,6 +23,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.io.Serializable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import javax.annotation.Nullable;
 import org.apache.commons.configuration2.Configuration;
 
@@ -67,7 +68,7 @@ public class ContextConfiguration implements Serializable {
 
   public ContextConfiguration(final ContextConfiguration iParent) {
     if (iParent != null) {
-      config.putAll(iParent.config);
+      iParent.forEach(config::put);
     }
   }
 
@@ -107,8 +108,7 @@ public class ContextConfiguration implements Serializable {
    *                                  bug can not be converted to instance of passed in enumeration
    *                                  class.
    */
-  @Nullable
-  public <T extends Enum<T>> T getValueAsEnum(
+  @Nullable public <T extends Enum<T>> T getValueAsEnum(
       final GlobalConfiguration config, Class<T> enumType) {
     final Object value;
     if (this.config != null && this.config.containsKey(config.getKey())) {
@@ -158,8 +158,7 @@ public class ContextConfiguration implements Serializable {
     return getValue(iName, iDefaultValue);
   }
 
-  @Nullable
-  public String getValueAsString(final GlobalConfiguration iConfig) {
+  @Nullable public String getValueAsString(final GlobalConfiguration iConfig) {
     final var v = getValue(iConfig);
     if (v == null) {
       return null;
@@ -199,8 +198,17 @@ public class ContextConfiguration implements Serializable {
     return config.keySet();
   }
 
+  /**
+   * Visits explicitly set entries without resolving global or system-property defaults.
+   * Concurrent updates follow the backing map's weakly consistent traversal semantics.
+   * Subclasses with delegated entries must include them in this traversal.
+   */
+  public void forEach(BiConsumer<String, Object> action) {
+    config.forEach(action);
+  }
+
   public void merge(ContextConfiguration contextConfiguration) {
-    this.config.putAll(contextConfiguration.config);
+    contextConfiguration.forEach(config::put);
   }
 
   public void merge(Configuration configuration) {
