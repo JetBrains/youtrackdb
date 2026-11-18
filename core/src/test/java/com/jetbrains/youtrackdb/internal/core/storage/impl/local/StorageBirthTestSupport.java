@@ -1,10 +1,13 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Opens the two birth completion boundaries of one storage to a test.
+ * Provides disk birth selection, birth observers and cache-only allocation fixtures.
  *
  * <p>Storage birth is the creation of a new storage image. Genesis is the creation of the initial
  * database metadata. A durability barrier forces earlier writes to durable media before later
@@ -18,6 +21,31 @@ import java.util.function.Consumer;
 public final class StorageBirthTestSupport {
 
   private StorageBirthTestSupport() {
+  }
+
+  /**
+   * Reserves a cache-only tail without scheduling blank-page writes. The caller pauses flushing
+   * and initializes the blank tail pages before using them as component pages.
+   */
+  @SuppressWarnings("unchecked")
+  public static void reserveUnwrittenTail(WOWCache cache, long fileId, long pages)
+      throws Exception {
+    var filesField = cache.getClass().getDeclaredField("files");
+    filesField.setAccessible(true);
+    var files = (ClosableLinkedContainer<Long, File>) filesField.get(cache);
+    files.get(fileId).reserveSpaceThrough(pages * cache.pageSize());
+    var tableField = cache.getClass().getDeclaredField("logicalFiles");
+    tableField.setAccessible(true);
+    var table = tableField.get(cache);
+    var live = table.getClass().getDeclaredMethod("live", int.class);
+    live.setAccessible(true);
+    var state = live.invoke(table, cache.internalFileId(fileId));
+    var extents = state.getClass().getDeclaredMethod("extents");
+    extents.setAccessible(true);
+    var counters = extents.invoke(state);
+    var allocate = counters.getClass().getDeclaredMethod("allocateThrough", long.class);
+    allocate.setAccessible(true);
+    allocate.invoke(counters, pages);
   }
 
   /** Selects one birth layout for one manager and database on the current thread. */

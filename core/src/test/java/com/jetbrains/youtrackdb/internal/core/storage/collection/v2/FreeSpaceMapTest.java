@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE;
+
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB.LocalUserCredential;
 import com.jetbrains.youtrackdb.api.YouTrackDB.PredefinedLocalRole;
@@ -11,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionSizeLimitException;
 import com.jetbrains.youtrackdb.internal.core.exception.PaginatedCollectionException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
@@ -117,6 +120,48 @@ public class FreeSpaceMapTest {
         db.close();
       }
     }
+  }
+
+  // Growth must start above cached initialized pages, preserving an earlier free-space entry.
+  @Test
+  public void growthPreservesCachedPagesAboveDiskExtent() throws Exception {
+    if (format != StorageFormat.LAYOUT_28) {
+      return;
+    }
+    var cache = (WOWCache) storage
+        .getWriteCache();
+    cache.pauseBackgroundFlush();
+    long fileId = cache.fileIdByName(mapFileName());
+    cache.flush(fileId);
+    var diskFile = cache.getRootDirectory().resolve(
+        PageFileNames.layout28DiskName(identity(PageFileRole.FREE_SPACE_MAP, 9000)));
+    Assert.assertEquals(
+        cache.pageSize() + HEADER_SIZE,
+        java.nio.file.Files.size(diskFile));
+    StorageBirthTestSupport.reserveUnwrittenTail(cache, fileId, 3);
+    manager.executeInsideAtomicOperation(op -> {
+      for (long index = 1; index < 3; index++) {
+        try (var page = op.loadPageForWrite(fileId, index, 1, true)) {
+          var contents = new FreeSpaceMapPage(page);
+          contents.init();
+          contents.updatePageMaxFreeSpace(0, 1024 / FreeSpaceMap.NORMALIZATION_INTERVAL);
+        }
+      }
+      try (var page = op.loadPageForWrite(fileId, 0, 1, true)) {
+        new FreeSpaceMapPage(page)
+            .updatePageMaxFreeSpace(0, 1024 / FreeSpaceMap.NORMALIZATION_INTERVAL);
+      }
+    });
+    Assert.assertEquals(3, cache.getFilledUpTo(fileId));
+    Assert.assertEquals(
+        cache.pageSize() + HEADER_SIZE,
+        java.nio.file.Files.size(diskFile));
+    manager.executeInsideAtomicOperation(op -> map.updatePageFreeSpace(op, N, 512));
+    manager.executeInsideAtomicOperation(op -> {
+      Assert.assertEquals(0, map.findFreePage(700, op));
+      map.updatePageFreeSpace(op, 0, 0);
+      Assert.assertEquals(N, map.findFreePage(259, op));
+    });
   }
 
   // Crosses both leaf and middle boundaries. Each committed extent matches the size formula.

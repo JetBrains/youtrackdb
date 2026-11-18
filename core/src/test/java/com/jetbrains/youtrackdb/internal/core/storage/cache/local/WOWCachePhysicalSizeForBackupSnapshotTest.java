@@ -10,6 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
@@ -175,6 +179,29 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
                 });
       }
     }
+  }
+
+  // Backup must include allocated cache-only pages even when the disk file is still empty.
+  @Test
+  public void snapshotLengthIncludesUnwrittenLogicalTail() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9100);
+    var name = PageFileNames.layout28(identity);
+    long fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    files.get(fileId).reserveSpaceThrough(5L * PAGE_SIZE);
+    wowCache.logicalFiles().live(identity.internalId()).extents().allocateThrough(5);
+    var pointer = wowCache.loadOrAdd(fileId, 4, false);
+    try {
+      pointer.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 731);
+      wowCache.store(fileId, 4, pointer);
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    assertEquals(File.HEADER_SIZE,
+        Files.size(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    assertEquals(5, wowCache.physicalSizeForBackupSnapshot(fileId));
+    assertEquals(0, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
   }
 
   /**
