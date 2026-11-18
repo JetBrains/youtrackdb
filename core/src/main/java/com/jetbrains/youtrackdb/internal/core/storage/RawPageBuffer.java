@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import java.nio.ByteBuffer;
 
 /**
@@ -30,9 +31,11 @@ import java.nio.ByteBuffer;
  * memory buffer pointing to the start of the record content (after the entry header
  * and metadata header). {@code contentLength} is the number of content bytes.
  *
- * <p>The caller must validate the PageFrame's stamp after reading to ensure the data
- * was not modified concurrently. If the stamp is invalid, the caller falls back to
- * the byte[]-based {@link RawBuffer} path.
+ * <p>After reading, the caller checks that the cached entry is still alive and holds this
+ * frame, then validates the frame's stamp. The lazy entity path from DatabaseSessionEmbedded
+ * to EntityImpl.fillFromPage checks only the stamp. The read's final identity check already
+ * passed. See the lazy validation comment in EntityImpl. If a required check fails, the caller
+ * falls back to the byte[]-based {@link RawBuffer} path.
  *
  * @param pageFrame the PageFrame containing the record data
  * @param stamp the optimistic read stamp obtained when the page was read
@@ -40,6 +43,7 @@ import java.nio.ByteBuffer;
  * @param contentLength number of bytes of record content
  * @param recordVersion record version at the time of reading
  * @param recordType record type byte
+ * @param cacheEntry the non-null unpinned cached-frame identity token
  */
 public record RawPageBuffer(
     PageFrame pageFrame,
@@ -47,13 +51,15 @@ public record RawPageBuffer(
     int contentOffset,
     int contentLength,
     long recordVersion,
-    byte recordType)
+    byte recordType,
+    CacheEntry cacheEntry)
     implements StorageReadResult {
 
   public RawPageBuffer {
     if (pageFrame == null) {
       throw new IllegalArgumentException("PageFrame must not be null");
     }
+    java.util.Objects.requireNonNull(cacheEntry, "Cache entry must not be null");
     if (contentOffset < 0) {
       throw new IllegalArgumentException(
           "contentOffset must be non-negative: " + contentOffset);
@@ -78,8 +84,8 @@ public record RawPageBuffer(
    * Returns an independent ByteBuffer view covering exactly the record content bytes.
    * The returned buffer has position 0 and limit equal to {@code contentLength}.
    *
-   * <p>The returned buffer shares native memory with the PageFrame — the caller must
-   * validate the stamp after reading from this buffer.
+   * <p>The returned buffer shares native memory with the PageFrame. The caller follows
+   * the validation rules above, including the lazy entity exception.
    */
   public ByteBuffer sliceContent() {
     return pageFrame.getBuffer().slice(contentOffset, contentLength);

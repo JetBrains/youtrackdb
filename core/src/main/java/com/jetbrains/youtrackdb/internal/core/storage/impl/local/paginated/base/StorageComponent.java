@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -566,7 +567,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   /**
    * Performs an optimistic cache lookup: returns a {@link PageView} for the given page
    * without CAS-based pinning. The caller must read data from the PageView's buffer and
-   * validate the stamp afterward (via {@link OptimisticReadScope#validateOrThrow()} or
+   * validate cached-frame identity and the stamp afterward (via
+   * {@link OptimisticReadScope#validateOrThrow()} or
    * {@link OptimisticReadScope#validateLastOrThrow()}).
    *
    * <p>Throws {@link OptimisticReadFailedException} on cache miss, stamp == 0 (exclusive
@@ -586,42 +588,54 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert pageIndex >= 0 && pageIndex <= Integer.MAX_VALUE
         : "pageIndex out of int range: " + pageIndex;
 
+    atomicOperation.getOptimisticReadScope().checkFailed();
+
     // If the current transaction has uncommitted WAL changes for this page,
     // the optimistic path would return stale committed data. Force fallback.
     if (atomicOperation.hasChangesForPage(fileId, pageIndex)) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters
+          .failure(OptimisticReadFailureCounters.Cause.LOCAL_CHANGES);
     }
 
-    final PageFrame frame = readCache.getPageFrameOptimistic(fileId, pageIndex);
+    final var entry = readCache.getCacheEntryOptimistic(fileId, pageIndex);
+    final var pointer = entry == null ? null : entry.getCachePointer();
+    final PageFrame frame = pointer == null ? null : pointer.getPageFrame();
     if (frame == null) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.LOOKUP_MISS);
     }
 
     final long stamp = frame.tryOptimisticRead();
     if (stamp == 0) {
       // Exclusive lock is held — cannot read optimistically
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.STAMP);
     }
 
     // Verify coordinates match to detect frame reuse (frame may have been
     // recycled for a different page between the CHM lookup and stamp acquisition)
     if (frame.getFileId() != fileId || frame.getPageIndex() != (int) pageIndex) {
-      throw OptimisticReadFailedException.INSTANCE;
+      throw OptimisticReadFailureCounters.failure(OptimisticReadFailureCounters.Cause.COORDINATES);
     }
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.record(frame, stamp);
+    scope.record(frame, stamp, entry);
 
-    return new PageView(frame.getBuffer(), frame, stamp);
+    return new PageView(frame.getBuffer(), frame, stamp, entry);
   }
 
   /**
    * Executes a read operation using the optimistic (no-CAS) path, falling back to the
    * CAS-pinned path if validation fails.
    *
-   * <p>The optimistic lambda reads data without pinning pages. If any page is evicted or
-   * modified during the read, the scope validation fails and the pinned lambda runs
-   * instead (under the component's shared lock).
+   * <p>The optimistic lambda reads data without pinning pages. Writers and frame-pool reuse
+   * invalidate stamps. Final validation also checks cached-frame identity, because eviction
+   * alone need not invalidate stamps. If validation fails, the pinned lambda runs instead
+   * under the component's shared lock.
+   *
+   * <p>A shared-cache load failure that a locked hit cannot repeat is kept in the scope.
+   * Loads then return no page and validation signals a failed attempt. Only the outermost
+   * wrapper reports the original throwable, after the lambda has unwound its page locals.
+   * Such a failure skips the locked fallback, even if the lambda swallows the retry signal
+   * or exits with another exception.
    *
    * <p>Reentrancy note: acquireSharedLock() is safe even if the current thread already
    * holds the exclusive lock on this component — SharedResourceAbstract's lock tracking
@@ -639,20 +653,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset(getApplyPhaseEpoch());
-    // -ea-only guard against nested optimistic read attempts: a nested
-    // executeOptimisticStorageRead call from inside an optimistic lambda would wipe the
-    // outer scope's stamps via reset(), silently voiding the outer validation. Kept
-    // OUTSIDE the try below — the fallback catch swallows AssertionError, so an assert
-    // placed inside the try could never surface. See OptimisticReadScope#enterAttempt.
-    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
+    scope.beginAttempt(getApplyPhaseEpoch());
 
-    // Tracks whether the fallback catch below already closed the attempt. The attempt
-    // must be closed exactly once on EVERY exit path — including throwables the catch
-    // does not handle (a checked IOException from the optimistic lambda, or a VM error)
-    // — otherwise attemptActive stays latched and every subsequent optimistic read on
-    // this AtomicOperation fails with a spurious "Nested optimistic read attempt"
-    // AssertionError under -ea.
     var attemptClosedByFallback = false;
     try {
       final T result = optimistic.apply();
@@ -664,6 +666,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
       return result;
     } catch (final RuntimeException | AssertionError e) {
+      if (scope.isOutermostAttempt()) {
+        scope.checkLoadFailure();
+      }
       // Catch RuntimeException and AssertionError because speculative reads from
       // stale/reused PageFrames can produce arbitrary exceptions (AIOOBE, NPE, etc.)
       // and assertion failures (e.g., position-consistency checks seeing stale data)
@@ -673,13 +678,16 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // caught — they propagate to the caller (and the finally below still closes
       // the attempt).
 
-      // Close the attempt before the pinned fallback runs: the fallback may itself
-      // legitimately start fresh optimistic reads (e.g., via helper methods), which
-      // must not trip a stale nesting flag. If a nested reset was detected during the
-      // failed attempt, this assert surfaces it (the nested AssertionError itself was
-      // swallowed by this catch).
+      // End production attempt state before entering the pinned fallback.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      scope.endAttempt();
+      if (scope.isAttemptActive()) {
+        // Do not run a pinned fallback inside a failed enclosing attempt.
+        if (!(e instanceof OptimisticReadFailedException)) {
+          scope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+        }
+        throw OptimisticReadFailedException.INSTANCE;
+      }
 
       acquireSharedLock();
       try {
@@ -688,11 +696,15 @@ public abstract class StorageComponent extends SharedResourceAbstract {
         releaseSharedLock();
       }
     } finally {
-      // Close the attempt on all remaining exit paths: normal return, and any
-      // throwable the catch above does not handle. Skipped when the fallback already
-      // closed it (exitAttempt is not idempotent — a second call reports ill-formed).
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        try {
+          // Report only after the lambda unwinds, including checked-exception and Error exits.
+          if (scope.isOutermostAttempt()) {
+            scope.checkLoadFailure();
+          }
+        } finally {
+          scope.endAttempt();
+        }
       }
     }
   }
@@ -708,9 +720,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset(getApplyPhaseEpoch());
-    // See the nesting-guard comments in the T-returning overload above.
-    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
+    scope.beginAttempt(getApplyPhaseEpoch());
 
     var attemptClosedByFallback = false;
     try {
@@ -719,9 +729,19 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
       recordOptimisticAccesses(scope);
     } catch (final RuntimeException | AssertionError e) {
+      if (scope.isOutermostAttempt()) {
+        scope.checkLoadFailure();
+      }
       // See comment in the T-returning overload above.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      scope.endAttempt();
+      if (scope.isAttemptActive()) {
+        // Do not run a pinned fallback inside a failed enclosing attempt.
+        if (!(e instanceof OptimisticReadFailedException)) {
+          scope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+        }
+        throw OptimisticReadFailedException.INSTANCE;
+      }
 
       acquireSharedLock();
       try {
@@ -731,7 +751,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       }
     } finally {
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        try {
+          // Report only after the lambda unwinds, including checked-exception and Error exits.
+          if (scope.isOutermostAttempt()) {
+            scope.checkLoadFailure();
+          }
+        } finally {
+          scope.endAttempt();
+        }
       }
     }
   }
@@ -747,23 +774,27 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * belt-and-braces hardening for the apply-phase epoch (YTDB-1178). The historical failure
    * mode this guards against is a <em>false null</em>: an optimistic B-tree descent composing
    * a per-page-valid but mutually inconsistent view and concluding "absent" for a present
-   * key. The epoch closes that race; this re-check is an independent second line of defense
-   * plus a live detector for any unmodeled anomaly.
+   * key. The epoch protects against fallback commits. Page-set commits lock every frame
+   * before the first change, so frame stamps, cached-frame identity and the pinned-load
+   * rules protect readers. This re-check is an independent second line of defense and
+   * a live detector for any unmodeled anomaly.
    *
    * <p>Decision rules:
    *
    * <ul>
-   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (per-page
-   *       stamps AND epoch both validated) and {@code recheckTrigger} accepts the result
+   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (cached-frame
+   *       identity, stamps, and epoch validated) and {@code recheckTrigger} accepts the result
    *       (typically: the lookup came back null). It NEVER triggers after the pinned fallback
    *       ran — the fallback's result is already authoritative, and re-checking it would make
    *       every legitimate miss pay the pinned cost twice more.
-   *   <li>On trigger, the pinned lambda runs once under the component shared lock. A non-null
-   *       pinned result that differs from the optimistic one is a disagreement: a rate-limited
+   *   <li>Nested attempts skip the locked re-check. Their result and stamps remain covered by
+   *       the outer attempt's final validation and locked fallback.
+   *   <li>On an outermost trigger, the pinned lambda runs once under the component shared lock.
+   *       A non-null pinned result that differs from the optimistic one is a disagreement: a rate-limited
    *       ERROR is emitted and the pinned result is returned. If the pinned result is null too,
    *       the null is confirmed and returned silently.
    *   <li>The trigger fires only on the load-bearing NULL by design: stale validated
-   *       NON-null results are guaranteed consistent by the apply-phase epoch, and
+   *       NON-null results are guaranteed consistent by the validation protocol, and
    *       re-verifying them would double the pinned cost of every successful lookup.
    * </ul>
    *
@@ -782,9 +813,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset(getApplyPhaseEpoch());
-    // See the nesting-guard comments in executeOptimisticStorageRead.
-    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
+    scope.beginAttempt(getApplyPhaseEpoch());
 
     final T result;
     var attemptClosedByFallback = false;
@@ -794,10 +823,20 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
       recordOptimisticAccesses(scope);
     } catch (final RuntimeException | AssertionError e) {
+      if (scope.isOutermostAttempt()) {
+        scope.checkLoadFailure();
+      }
       // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
       // re-check on this path: the pinned result below is already authoritative.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      scope.endAttempt();
+      if (scope.isAttemptActive()) {
+        // Do not run a pinned fallback inside a failed enclosing attempt.
+        if (!(e instanceof OptimisticReadFailedException)) {
+          scope.fail(OptimisticReadFailureCounters.Cause.LOAD);
+        }
+        throw OptimisticReadFailedException.INSTANCE;
+      }
 
       acquireSharedLock();
       try {
@@ -807,14 +846,21 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       }
     } finally {
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        try {
+          // Report only after the lambda unwinds, including checked-exception and Error exits.
+          if (scope.isOutermostAttempt()) {
+            scope.checkLoadFailure();
+          }
+        } finally {
+          scope.endAttempt();
+        }
       }
     }
 
     // Reaching here means the optimistic attempt completed cleanly (the catch above either
     // returned or threw). The trigger and the re-check run OUTSIDE the try/catch so that a
     // pinned-path failure cannot be misrouted into a second fallback.
-    if (!recheckTrigger.test(result)) {
+    if (scope.isAttemptActive() || !recheckTrigger.test(result)) {
       return result;
     }
 
@@ -928,7 +974,13 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * which is harmless: it only slightly skews eviction heuristics.
    */
   private void recordOptimisticAccesses(final OptimisticReadScope scope) {
+    if (!scope.isOutermostAttempt()) {
+      return;
+    }
     for (int i = 0; i < scope.count(); i++) {
+      if (scope.isPinned(i)) {
+        continue;
+      }
       final PageFrame frame = scope.getFrame(i);
       readCache.recordOptimisticAccess(frame.getFileId(), frame.getPageIndex());
     }

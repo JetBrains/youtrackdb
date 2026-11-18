@@ -63,6 +63,15 @@
 
   <build>
     <plugins>
+      <!-- Cache sizing and configuration are process-wide. Each smoke-test class needs
+           a fresh engine, including WriterBenchmarkTest's explicit small-cache settings. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <reuseForks>false</reuseForks>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>

@@ -36,8 +36,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.WTinyLFUPolicy;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,6 +80,22 @@ public class EngineLocalPaginated extends EngineAbstract {
 
   @Override
   public void startup() {
+    final int commitPageLimit =
+        GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getValueAsInteger();
+    if (commitPageLimit < 1) {
+      throw new IllegalArgumentException(
+          GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT.getKey() + "=" + commitPageLimit
+              + " must be in range 1 to 2147483647");
+    }
+    final double percent =
+        GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.getValueAsDouble();
+    if (!Double.isFinite(percent) || percent < 0
+        || percent > WTinyLFUPolicy.MAX_COMMIT_PIN_BUDGET_PERCENT) {
+      throw new IllegalArgumentException(
+          GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.getKey() + "=" + percent
+              + " must be in range 0 to " + WTinyLFUPolicy.MAX_COMMIT_PIN_BUDGET_PERCENT
+              + " inclusive");
+    }
     final var userName = System.getProperty("user.name", "unknown");
     LogManager.instance().info(this, "System is started under an effective user : `%s`", userName);
     if (Native.instance().isOsRoot()) {
@@ -118,7 +136,16 @@ public class EngineLocalPaginated extends EngineAbstract {
     // Otherwise, a concurrent thread in onEmbeddedFactoryInit() may see
     // isRunning()==true and skip startup, then call createStorage() while
     // readCache is still null.
-    readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize);
+    final int cachePages = (int) (diskCacheSize / pageSize);
+    final int pinBudget = commitPinBudgetPages(cachePages, percent);
+    if (percent > 0 && pinBudget == 0) {
+      LogManager.instance().warn(this,
+          "%s=%s rounds down to zero pages for a read cache of %d pages."
+              + " The page-set protocol is off.",
+          GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT.getKey(), percent, cachePages);
+    }
+    readCache = new LockFreeReadCache(ByteBufferPool.instance(null), diskCacheSize, pageSize,
+        pinBudget, commitPageLimit);
     assert readCache != null : "readCache must be initialized before marking engine as running";
     super.startup();
   }
@@ -128,18 +155,10 @@ public class EngineLocalPaginated extends EngineAbstract {
         * ((100 - GlobalConfiguration.DISK_WRITE_CACHE_PART.getValueAsInteger()) / 100.0));
   }
 
-  /**
-   * Changes the maximum amount of memory available to the read cache.
-   *
-   * @param cacheSize Cache size in bytes.
-   * @see ReadCache#changeMaximumAmountOfMemory(long)
-   */
-  public void changeCacheSize(final long cacheSize) {
-    if (readCache != null) {
-      readCache.changeMaximumAmountOfMemory(calculateReadCacheMaxMemory(cacheSize));
-    }
-
-    // otherwise memory size will be set during cache initialization.
+  // Decimal multiplication preserves exact whole-page boundaries such as 100000 * 14.99 / 100.
+  static int commitPinBudgetPages(int cachePages, double percent) {
+    return BigDecimal.valueOf(percent).multiply(BigDecimal.valueOf(cachePages))
+        .movePointLeft(2).intValue();
   }
 
   @Override

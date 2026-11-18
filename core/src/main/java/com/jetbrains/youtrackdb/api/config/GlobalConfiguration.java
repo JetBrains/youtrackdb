@@ -163,6 +163,43 @@ public enum GlobalConfiguration {
       "youtrackdb.storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class,
       4 << 10),
 
+  DISK_CACHE_COMMIT_PAGE_LIMIT(
+      "youtrackdb.storage.diskCache.commitPageLimit",
+      "Maximum changed pages in one page-set commit. Unit: pages. Range: 1 to 2147483647."
+          + " Default: 1024. The effective limit is the smaller of this value and the pin budget"
+          + " rounded down to whole pages. A zero pin budget turns the page-set protocol off."
+          + " A positive percent that rounds down to zero pages also turns it off and logs a"
+          + " startup warning with the setting, percent and cache page count. Disk storage only."
+          + " The in-memory engine does not use this setting. A large pin budget can keep the"
+          + " cache above its configured size. The frame pool can keep freed memory."
+          + " The automatic cache size leaves little free memory."
+          + " Read once at engine startup and not changeable at runtime."
+          + " Only the value for the whole Java process counts, set through a system property"
+          + " or the YOUTRACKDB_DISK_CACHE_COMMIT_PAGE_LIMIT environment variable."
+          + " A per-database-factory YouTrackDBConfig value has no effect.",
+      Integer.class,
+      1024, false, false, true),
+
+  DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT(
+      "youtrackdb.storage.diskCache.commitPinBudgetPercent",
+      "Shared page-set commit pin budget as a decimal percent of read-cache pages."
+          + " Range: 0 to 15 inclusive. Default: 1.0. NaN and infinity are not valid."
+          + " Budget pages are the cache page count times the percent divided by 100,"
+          + " rounded down to whole pages. Zero turns the page-set protocol off."
+          + " A positive percent that rounds down to zero pages also turns it off and logs a"
+          + " startup warning with the setting, percent and cache page count."
+          + " Disk storage only. The in-memory engine does not use this setting."
+          + " Pinned pages can keep the cache above its configured size."
+          + " The frame pool can keep freed memory."
+          + " The automatic cache size leaves little free memory, so choose a large budget"
+          + " only when the server has enough memory."
+          + " Read once at engine startup and not changeable at runtime."
+          + " Only the value for the whole Java process counts, set through a system property"
+          + " or the YOUTRACKDB_DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT environment variable."
+          + " A per-database-factory YouTrackDBConfig value has no effect.",
+      Double.class,
+      1.0, false, false, true),
+
   DISK_WRITE_CACHE_PART(
       "youtrackdb.storage.diskCache.writeCachePart",
       "Percentage of disk cache, which is used as write cache",

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.db.tool;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -73,7 +74,7 @@ public class DatabaseCompareReadRetryTest {
     // Second call returns a RawBuffer — toRawBuffer() succeeds immediately.
     var staleResult =
         new RawPageBuffer(frame, staleStamp, 0, EXPECTED_DATA.length, RECORD_VERSION,
-            RECORD_TYPE);
+            RECORD_TYPE, cacheEntry(frame));
     var successResult = new RawBuffer(EXPECTED_DATA, RECORD_VERSION, RECORD_TYPE);
 
     var storage = mock(Storage.class);
@@ -136,11 +137,11 @@ public class DatabaseCompareReadRetryTest {
     frame.releaseExclusiveLock(ws3);
 
     var stale1 = new RawPageBuffer(frame, staleStamp1, 0, EXPECTED_DATA.length,
-        RECORD_VERSION, RECORD_TYPE);
+        RECORD_VERSION, RECORD_TYPE, cacheEntry(frame));
     var stale2 = new RawPageBuffer(frame, staleStamp2, 0, EXPECTED_DATA.length,
-        RECORD_VERSION, RECORD_TYPE);
+        RECORD_VERSION, RECORD_TYPE, cacheEntry(frame));
     var stale3 = new RawPageBuffer(frame, staleStamp3, 0, EXPECTED_DATA.length,
-        RECORD_VERSION, RECORD_TYPE);
+        RECORD_VERSION, RECORD_TYPE, cacheEntry(frame));
     var successResult = new RawBuffer(EXPECTED_DATA, RECORD_VERSION, RECORD_TYPE);
 
     var storage = mock(Storage.class);
