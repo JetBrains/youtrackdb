@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
+import com.jetbrains.youtrackdb.internal.common.thread.ScheduledThreadPoolExecutorWithLogging;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
@@ -545,6 +546,12 @@ public final class WOWCache extends AbstractWriteCache
    */
   private Throwable flushError;
 
+  private final PageRetentionState pageRetentionState;
+
+  // Close writes this flag once, and flush work reads it. Only a truncate that passed its final
+  // check before close set the flag can complete. No truncate starts after that check sees it set.
+  private volatile boolean deferDwlCleanup;
+
   /**
    * IV is used for AES encryption
    */
@@ -658,7 +665,38 @@ public final class WOWCache extends AbstractWriteCache
       final boolean callFsync,
       ExecutorService executor,
       ChangedPageTracker changedPageTracker) {
+    this(pageSize, logFileDeletion, bufferPool, writeAheadLog, doubleWriteLog, pagesFlushInterval,
+        shutdownTimeout, exclusiveWriteCacheMaxSize, storagePath, storageName, files, id,
+        doubleWriteLogFileName, checksumMode, iv, aesKey, callFsync, executor, changedPageTracker,
+        (Integer) GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT.getDefValue());
+  }
 
+  /** The retention limit belongs to this storage, independently of other caches. */
+  public WOWCache(
+      final int pageSize,
+      final boolean logFileDeletion,
+      final ByteBufferPool bufferPool,
+      final WriteAheadLog writeAheadLog,
+      final DoubleWriteLog doubleWriteLog,
+      final long pagesFlushInterval,
+      final int shutdownTimeout,
+      final long exclusiveWriteCacheMaxSize,
+      final Path storagePath,
+      final String storageName,
+      final ClosableLinkedContainer<Long, File> files,
+      final int id, String doubleWriteLogFileName,
+      final ChecksumMode checksumMode,
+      final byte[] iv,
+      final byte[] aesKey,
+      final boolean callFsync,
+      ExecutorService executor,
+      ChangedPageTracker changedPageTracker,
+      final int synchronizationLimit) {
+    // Reject invalid settings before this cache can schedule any periodic work.
+    this.pageRetentionState = new PageRetentionState(
+        () -> ((ScheduledThreadPoolExecutorWithLogging) commitExecutor())
+            .isExecutingOnCurrentThread(),
+        synchronizationLimit);
     this.changedPageTracker = java.util.Objects.requireNonNull(changedPageTracker);
     this.logFileDeletion = logFileDeletion;
     this.doubleWriteLogFileName = doubleWriteLogFileName;
@@ -991,13 +1029,14 @@ public final class WOWCache extends AbstractWriteCache
         fileId = -fileId;
       }
 
+      final var externalId = composeFileId(id, fileId);
+      discardRetainedContents(externalId, 0);
       fileClassic = createFileInstance(fileName, fileId);
       createFile(fileClassic, callFsync);
       if (!startupReplayPreservation) {
         changedPageTracker.resetFile(fileId);
       }
 
-      final var externalId = composeFileId(id, fileId);
       files.add(externalId, fileClassic);
 
       nameIdMap.put(fileName, fileId);
@@ -1140,11 +1179,13 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         fileClassic.shrink(0);
+        discardRetainedContents(fileId, 0);
 
         if (callFsync) {
           fileClassic.synch();
         }
       } else {
+        discardRetainedContents(fileId, 0);
         fileClassic = createFileInstance(fileName, intId);
         createFile(fileClassic, callFsync);
 
@@ -2298,6 +2339,7 @@ public final class WOWCache extends AbstractWriteCache
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPages(intId, minPageIndex);
         file.shrink(targetBytes);
+        discardRetainedContents(fileId, minPageIndex);
         // Boolean/physical-truncate contract: the true return below is the sole signal
         // LockFreeReadCache.shrinkFile uses to gate its read-cache purge. Pin that the
         // file actually reached targetBytes so a future refactor that reorders the return
@@ -2471,8 +2513,44 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long[] close() throws IOException {
+    if (!closed) {
+      deferDwlCleanup = true;
+    }
     flush();
     stopFlush();
+
+    // A failed open admits no page writers. Release its handles without final synchronization.
+    if (!closed) {
+      // This task also drains submissions without a completion waiter.
+      final var barrier = commitExecutor().submit(() -> {
+        synchronizeDataFilesForClose();
+        if (flushError != null) {
+          throw BaseException.wrapException(
+              new WriteCacheException(storageName, "Background flush failed before close"),
+              flushError, storageName);
+        }
+        // An unreported write outcome is unknown, so its retained page may still be unresolved.
+        if (pageRetentionState.hasUnresolvedPages()
+            || pageRetentionState.hasPendingSynchronization()
+            || !pageRetentionState.retainedSegments().isEmpty()) {
+          throw new WriteCacheException(storageName,
+              "Cannot close write cache while retained pages await a successful write or synchronization");
+        }
+        return null;
+      });
+      try {
+        barrier.get();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName, "Write-cache close was interrupted"), e,
+            storageName);
+      } catch (final ExecutionException e) {
+        throw BaseException.wrapException(
+            new WriteCacheException(storageName, "Write-cache close safety check failed"),
+            e.getCause(), storageName);
+      }
+    }
 
     filesLock.acquireWriteLock();
     try {
@@ -3672,6 +3750,36 @@ public final class WOWCache extends AbstractWriteCache
     removeCachedPages(fileId, 0);
   }
 
+  // Call under lifecycle writer exclusion. The executor task must never acquire filesLock.
+  private void discardRetainedContents(long fileId, long firstRemovedPage) {
+    if (!pageRetentionState.hasRetainedContents(fileId)) {
+      return;
+    }
+    final var future = commitExecutor().submit(
+        () -> pageRetentionState.discardAfterRemoval(fileId, firstRemovedPage));
+    boolean interrupted = false;
+    try {
+      // Physical removal may already have succeeded. Complete the lifecycle operation even
+      // when interrupted so its caller still purges the read cache and finishes registration.
+      while (true) {
+        try {
+          future.get();
+          return;
+        } catch (final InterruptedException e) {
+          interrupted = true;
+        }
+      }
+    } catch (final ExecutionException e) {
+      throw BaseException.wrapException(
+          new WriteCacheException(storageName, "Retention discard failed"), e.getCause(),
+          storageName);
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
   /**
    * Drops the {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the
    * given file via {@link RemoveFilePagesTask} on the single-threaded commit executor.
@@ -3984,7 +4092,33 @@ public final class WOWCache extends AbstractWriteCache
     LogManager.instance().error(this, stringWriter.toString(), null);
   }
 
-  private void fsyncFiles() throws java.lang.InterruptedException, IOException {
+  private void synchronizeDataFilesForClose() throws InterruptedException, IOException {
+    if (!callFsync) {
+      return;
+    }
+    for (int fileId : idNameMap.keySet()) {
+      if (fileId < 0 || nonDurableFileIds.contains(fileId)) {
+        continue;
+      }
+      final var entry = files.acquire(externalFileId(fileId));
+      if (entry == null) {
+        continue;
+      }
+      try {
+        pageRetentionState.synchronizeOnFlushExecutor(Set.of(externalFileId(fileId)),
+            () -> entry.get().synch());
+      } finally {
+        files.release(entry);
+      }
+    }
+  }
+
+  private void fsyncFiles(long syncToken) throws java.lang.InterruptedException, IOException {
+    if (deferDwlCleanup) {
+      // Final close synchronization covers these writes. Do not force or acknowledge a rotation
+      // when its cleanup is deferred, or every close-time chunk would force the same rotation.
+      return;
+    }
     if (callFsync) {
       for (int intFileId : idNameMap.keySet()) {
         if (intFileId >= 0) {
@@ -3997,7 +4131,8 @@ public final class WOWCache extends AbstractWriteCache
           }
           try {
             final var fileClassic = fileEntry.get();
-            fileClassic.synch();
+            pageRetentionState.synchronizeOnFlushExecutor(Set.of(extFileId),
+                fileClassic::synch);
           } finally {
             files.release(fileEntry);
           }
@@ -4005,8 +4140,14 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
+    // Close can start while a data-file force is in progress. Keep the token unacknowledged
+    // when cleanup is deferred so the DWL files remain available after a rejected close.
+    if (deferDwlCleanup) {
+      return;
+    }
     // Truncate even without fsync so that the double-write log does not grow without bound.
-    doubleWriteLog.truncate();
+    doubleWriteLog.acknowledgeSync(syncToken);
+    doubleWriteLog.truncate(pageRetentionState.retainedSegments());
   }
 
   /**
@@ -4723,7 +4864,8 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
 
-    final boolean fsyncFiles;
+    final DoubleWriteLog.AppendResult appendResult;
+    final var retentionAttempts = new ArrayList<PageRetentionState.WriteAttempt>();
 
     var flushedPages = 0;
 
@@ -4744,11 +4886,28 @@ public final class WOWCache extends AbstractWriteCache
               buffersByFileId,
               chunkPageIndexes,
               chunkFileIds);
-      fsyncFiles = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
-      writePageChunksToFiles(buffersByFileId);
-      if (fsyncFiles) {
-        // The copies remain owned here until synchronization has completed or failed.
-        fsyncFiles();
+      appendResult = doubleWriteLog.write(containerBuffers, chunkFileIds, chunkPageIndexes);
+      if (appendResult.segment() != null) {
+        for (final var chunk : chunks) {
+          for (final var page : chunk) {
+            retentionAttempts.add(pageRetentionState.appendSucceeded(
+                page.originalPagePointer, appendResult.segment(), true));
+          }
+        }
+      }
+      try {
+        // Drain every submitted write before reporting any outcome or running synchronization.
+        writePageChunksToFiles(buffersByFileId);
+      } catch (final Exception | Error failure) {
+        pageRetentionState.writesFailed(retentionAttempts);
+        throw failure;
+      }
+      for (final var attempt : retentionAttempts) {
+        pageRetentionState.writeSucceeded(attempt, callFsync);
+      }
+      if (appendResult.syncRequired()
+          || (!deferDwlCleanup && pageRetentionState.synchronizationLimitReached())) {
+        fsyncFiles(appendResult.syncToken());
       }
     } catch (final Exception | Error e) {
       // Release per-page copy buffers on error to prevent direct memory leak.
@@ -5603,7 +5762,8 @@ public final class WOWCache extends AbstractWriteCache
         // missing file means an already-acknowledged page allocation lost its backing file.
         if (entry != null) {
           try {
-            entry.get().synch();
+            pageRetentionState.synchronizeOnFlushExecutor(Set.of(finalId),
+                () -> entry.get().synch());
           } finally {
             files.release(entry);
           }
@@ -5642,7 +5802,10 @@ public final class WOWCache extends AbstractWriteCache
     if (fileClassic != null) {
       if (fileClassic.exists()) {
         fileClassic.delete();
+      } else if (!Files.notExists(storagePath.resolve(fileClassic.getName()))) {
+        throw new IOException("Cannot confirm removal of " + fileClassic.getName());
       }
+      pageRetentionState.discardAfterRemoval(fileId, 0);
 
       final var name = idNameMap.get(internalFileId);
 
