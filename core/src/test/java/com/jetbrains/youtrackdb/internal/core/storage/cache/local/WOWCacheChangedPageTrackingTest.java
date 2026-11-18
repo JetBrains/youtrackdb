@@ -2295,7 +2295,14 @@ public class WOWCacheChangedPageTrackingTest {
     var flush = WOWCache.class.getDeclaredMethod(
         "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
     flush.setAccessible(true);
-    flush.invoke(cache, end.getSegment(), end.getSegment() + 1, 128);
+    flushExecutor().submit(() -> {
+      try {
+        flush.invoke(cache, end.getSegment(), end.getSegment() + 1, 128);
+      } catch (java.lang.reflect.InvocationTargetException e) {
+        throw new AssertionError("Background page flush failed", e.getCause());
+      }
+      return null;
+    }).get(10, TimeUnit.SECONDS);
     assertTrue(writes.get() > 0);
     assertNull(cache.getMinimalNotFlushedSegment());
     var disk = cache.loadIfPresent(file, 0, false);
