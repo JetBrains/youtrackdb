@@ -148,7 +148,7 @@ final class PrivateCandidatePreparation {
                 translation.boundaryAlias(), translation.outputType(), translation.returnClass(),
                 OrderedFilterBinding.unbound(translation.shaping()),
                 translation.inputParameters().size(), translation.hasContributions(),
-                PlainBoundaryClassifier.classify(outcome.plan(), translation));
+                outcome.decision());
             publication = new GremlinTranslationTemplate.Candidate(
                 outcome.cut(), outcome.reason(), translate, scope.manager(), scope.word());
           }

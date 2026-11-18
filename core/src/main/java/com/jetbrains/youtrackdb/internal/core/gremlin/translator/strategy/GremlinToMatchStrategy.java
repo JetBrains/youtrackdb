@@ -31,6 +31,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.slf4j.Logger;
@@ -55,8 +56,8 @@ import org.slf4j.LoggerFactory;
  * keeps MATCH. Multi-plan translations keep MATCH. The translation cache retains the immutable
  * decision with the plan, so a warm call requires no new walk, build or classification.
  * The throw-safety net preserves native execution when translation fails. Two deliberate throws
- * reach the caller. The first is a {@link ReservedAliasException} for a prohibited user alias in
- * the reserved {@code $} namespace. The second is a {@link ContradictoryOrderSemanticsException}
+ * reach the caller, as does a failed native restoration. The first is a
+ * {@link ReservedAliasException} for a prohibited user alias in the reserved {@code $} namespace. The second is a {@link ContradictoryOrderSemanticsException}
  * for incompatible order-mode instructions. The net re-throws both rather than degrading them
  * (see "Throw-safety net").
  *
@@ -107,17 +108,13 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Throw-safety net</h2>
  *
- * {@code apply} runs inside {@code traversal.applyStrategies()}, which fires on <em>every</em>
- * Gremlin traversal compilation, and the strategy is registered globally for all YTDB graph
- * traversals. An uncaught exception in {@code apply} would abort compilation for that
- * traversal, and the blast radius of a translator / walker bug would be every Gremlin query
- * the server runs, not only the recognized shapes. The whole body therefore runs inside a
- * {@code try} that catches {@link RuntimeException} and turns any ordinary failure — a walker bug, a
- * recognizer NPE, a malformed {@code MatchPlanInputs}, a planner exception — into a clean
- * decline: the method returns and the original step list is preserved for the native pipeline
- * (which, under the all-or-nothing rule, is at least as well-served as before). The net
- * degrades a translator bug to native execution rather than a broken query, and it exists from
- * the skeleton so the invariant holds before any recognizer runs under the strategy.
+ * {@code apply} runs inside {@code traversal.applyStrategies()} on every Gremlin traversal
+ * compilation. YTDB registers the strategy globally for all its graph traversals. Its outer
+ * {@code try} catches ordinary {@link RuntimeException} failures during translation preparation
+ * and installation. Walking and plan building finish before step-list mutation (see
+ * {@link #applyTranslation}). A failure before mutation leaves the native steps untouched and
+ * permits native fallback. An installation failure permits fallback only after verified
+ * restoration of the native traversal.
  *
  * <p>The net makes two deliberate exceptions. A {@link ReservedAliasException} is thrown by the
  * walker's reserved-prefix pre-flight when a user {@code as(...)} label sits in the reserved {@code
@@ -132,19 +129,21 @@ import org.slf4j.LoggerFactory;
  * resolver, so it does not avoid the contradictory-order exception. Degrading either exception to
  * a decline would therefore hide a user error.
  *
- * <p>The catch is narrowed to {@link RuntimeException}, so {@link Error} — including {@link
- * AssertionError} — is never swallowed: it is not a {@code RuntimeException} and propagates
- * untouched. Under {@code -ea} (the test/CI default) a genuine invariant violation in the walk
- * or plan build must surface loudly instead of degrading to a silent decline that masks a real
- * bug, and a fatal {@code OutOfMemoryError} / {@code StackOverflowError} must not be handed to
- * the native pipeline to re-attempt in an already-exhausted JVM. The body throws only unchecked
- * exceptions — its calls go through the {@code TraversalTranslator} / {@code MatchPlanBuilder}
- * seams and TinkerPop APIs — so {@code RuntimeException} covers every failure that can actually
- * occur.
+ * <p>For built-in traversals, a recoverable installation {@link RuntimeException} triggers bounded
+ * restoration. Restoration rebuilds the original step sequence and verifies step identity,
+ * traversal ownership and previous and next links. Step ids may change. Successful verification
+ * permits native fallback.
  *
- * <p>The net catches during the walk and the plan build; the actual step-list mutation happens
- * only after both succeed (see {@link #applyTranslation}), so a caught exception always leaves
- * the step list untouched.
+ * <p>If restoration fails, the strategy throws the original installation failure instead of
+ * falling back. The restoration failure stays secondary, including when it
+ * is an {@link Error}. The original failure retains it as suppressed when suppression is enabled
+ * and the two failures are distinct. Terminal failure does not depend on suppression.
+ *
+ * <p>The outer catch does not catch {@link Error}, including {@link AssertionError}. An error
+ * during walking, plan building or the initial installation attempt propagates without native
+ * fallback. Assertion failures must surface under {@code -ea}, not become silent declines.
+ * Fatal errors and repeatedly throwing custom mutation methods carry no restoration promise.
+ * The strategy never permits native fallback on an unverified traversal after installation fails.
  *
  * <h2>Strategy ordering</h2>
  *
@@ -344,12 +343,15 @@ public final class GremlinToMatchStrategy
     // narrowed to RuntimeException so Error and AssertionError are NOT caught — they propagate,
     // surfacing JVM errors and -ea invariant violations instead of masking them (see the class
     // Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after the walk and
-    // the plan build both succeed, so a caught exception always leaves the step list unmodified.
+    // the plan build both succeed. Installation failures permit fallback only after restoration.
     try {
       applyOrDecline(traversal);
     } catch (ReservedAliasException | ContradictoryOrderSemanticsException e) {
       // Deliberate input rejections must reach the caller instead of becoming native declines.
       throw e;
+    } catch (NativeRestorationFailure failure) {
+      // Control flow must not depend on whether the original exception enables suppression.
+      throw failure.primary;
     } catch (RuntimeException e) {
       // Swallow every other unchecked exception deliberately: translation is a best-effort
       // optimization. A recognizer/planner failure declines to the native pipeline, which handles the
@@ -659,8 +661,8 @@ public final class GremlinToMatchStrategy
    *
    * <p>Plan build order matters for the throw-safety net: the plan is built <em>before</em>
    * the step list is mutated, so a planner throw is caught by {@link #apply}'s net with the
-   * original step list still intact. Only once the plan exists does {@code removeAllSteps} +
-   * {@code addStep} run, and those TinkerPop calls do not throw for a well-formed boundary.
+   * original step list still intact. Replacement readiness precedes mutation. A recoverable
+   * installation failure restores the native topology before the throw-safety net may decline.
    *
    * <p>The plan is built with caching disabled (see class Javadoc): the inherited {@code
    * statement} field on the planner stays {@code null}, which the planner accepts only when
@@ -675,8 +677,13 @@ public final class GremlinToMatchStrategy
       @Nullable GremlinPlanCache.StampedTranslation rejected) {
     if (translation.isMultiPlan()) {
       var plans = buildChildPlans(session, translation, cacheScope);
-      replaceAllStepsWithBoundary(traversal, plans, translation);
-      return true;
+      try {
+        replaceAllStepsWithBoundary(traversal, plans, translation);
+        return true;
+      } catch (RuntimeException | Error failure) {
+        closePlans(plans, failure);
+        throw failure;
+      }
     }
     InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, cacheScope);
     var copyOnOpen = cacheScope.isShared(plan);
@@ -903,10 +910,11 @@ public final class GremlinToMatchStrategy
         if (cacheScope.isShared(childPlan)) {
           childPlan = childPlan.copy(YTDBMatchPlanStep.cleanCopyContext(childPlan.getContext()));
         }
+        // Track ownership before binding, which can fail on an initialized private child.
+        builtPlans.add(childPlan);
         if (!child.parameters().isEmpty()) {
           childPlan.getContext().setInputParameters(child.parameters());
         }
-        builtPlans.add(childPlan);
       }
       return List.copyOf(builtPlans);
     } catch (RuntimeException | Error e) {
@@ -951,11 +959,16 @@ public final class GremlinToMatchStrategy
   }
 
   private static void closePlans(List<InternalExecutionPlan> plans, Throwable primary) {
+    if (primary instanceof NativeRestorationFailure failure) {
+      primary = failure.primary;
+    }
     for (var plan : plans) {
       try {
         plan.close();
       } catch (RuntimeException | Error closeFailure) {
-        primary.addSuppressed(closeFailure);
+        if (closeFailure != primary) {
+          primary.addSuppressed(closeFailure);
+        }
       }
     }
   }
@@ -984,17 +997,11 @@ public final class GremlinToMatchStrategy
             bindings,
             shaping,
             true);
-    TraversalHelper.removeAllSteps(traversalRaw);
-    traversalRaw.addStep(boundary);
+    installBoundary(traversalRaw, boundary);
   }
 
   /**
-   * Removes every existing step and installs the boundary step as the traversal's sole step.
-   * Raw types are unavoidable here: the strategy receives a {@link Traversal.Admin}{@code <?,
-   * ?>} (the {@code TraversalStrategy} contract) but the boundary step's {@code <S, E>} type
-   * variables have no concrete binding at this point, so both collapse into the same raw
-   * container. {@link GremlinToMatchTranslator.TranslationResult#returnClass()} is the runtime
-   * source of truth for the emitted element class.
+   * Prepares a full-query boundary before replacing the native steps.
    *
    * @param copyOnOpen when {@code true}, {@code plan} is a shared cache template copied on first
    *     open rather than owned by the step
@@ -1015,8 +1022,7 @@ public final class GremlinToMatchStrategy
             translation.inputParameters(),
             translation.shaping(),
             copyOnOpen);
-    TraversalHelper.removeAllSteps(traversalRaw);
-    traversalRaw.addStep(boundary);
+    installBoundary(traversalRaw, boundary);
   }
 
   /**
@@ -1038,8 +1044,58 @@ public final class GremlinToMatchStrategy
             translation.outputType(),
             translation.shaping(),
             translation.postConcatOps());
-    TraversalHelper.removeAllSteps(traversalRaw);
-    traversalRaw.addStep(boundary);
+    installBoundary(traversalRaw, boundary);
+  }
+
+  /** Internal control signal. The public strategy rethrows the original installation failure. */
+  private static final class NativeRestorationFailure extends RuntimeException {
+    private final RuntimeException primary;
+
+    NativeRestorationFailure(RuntimeException primary, Throwable restoration) {
+      super("Native traversal restoration failed", primary);
+      this.primary = primary;
+      if (restoration != primary) {
+        primary.addSuppressed(restoration);
+      }
+    }
+  }
+
+  /**
+   * Bounded restoration for built-in traversal mutation. All replacement construction and the
+   * identity snapshot finish before mutation. No query execution occurs here. Fatal errors and
+   * repeatedly throwing custom mutation methods carry no restoration promise, and never permit
+   * native fallback on an unverified traversal.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static void installBoundary(Traversal.Admin traversal, Step boundary) {
+    List<Step> original = List.copyOf(traversal.getSteps());
+    try {
+      TraversalHelper.removeAllSteps(traversal);
+      traversal.addStep(boundary);
+    } catch (RuntimeException primary) {
+      try {
+        TraversalHelper.removeAllSteps(traversal);
+        for (var step : original) {
+          traversal.addStep(step);
+        }
+        // addStep can change ids. Identity, traversal ownership and native links are the contract.
+        if (traversal.getSteps().size() != original.size()) {
+          throw new IllegalStateException("Native step count was not restored");
+        }
+        for (int i = 0; i < original.size(); i++) {
+          var step = original.get(i);
+          var previous = i == 0 ? EmptyStep.instance() : original.get(i - 1);
+          var next = i + 1 == original.size() ? EmptyStep.instance() : original.get(i + 1);
+          if (traversal.getSteps().get(i) != step || step.getTraversal() != traversal
+              || step.getPreviousStep() != previous || step.getNextStep() != next) {
+            throw new IllegalStateException("Native step relationships were not restored");
+          }
+        }
+      } catch (RuntimeException | Error restoration) {
+        throw new NativeRestorationFailure(primary, restoration);
+      }
+      throw primary;
+    }
   }
 
   @Override
