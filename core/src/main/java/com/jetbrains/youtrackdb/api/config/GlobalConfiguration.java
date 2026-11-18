@@ -892,9 +892,9 @@ public enum GlobalConfiguration {
   // CLASS
   CLASS_COLLECTIONS_COUNT(
       "youtrackdb.class.collectionsCount",
-      "Minimum collections to create when a new class is created. 0 means Automatic",
+      "Minimum collections to create for a new class. Default is 1. 0 means automatic (1).",
       Integer.class,
-      8),
+      1),
 
   // LOG
   LOG_SUPPORTS_ANSI(
