@@ -214,7 +214,7 @@ def validate_rows(rows, require_nonempty=False):
     return result
 
 
-def identity(row):
+def identity(row, *, scenario=None):
     params = row["params"]
     if not isinstance(params, dict) or not all(isinstance(k, str) and isinstance(v, str)
                                                for k, v in params.items()):
@@ -227,6 +227,9 @@ def identity(row):
     metric = row["primaryMetric"]
     if not isinstance(metric, dict) or not isinstance(metric["scoreUnit"], str):
         raise ValueError("invalid primary metric")
+    params = dict(params)
+    if scenario is not None:
+        params["telemetryScenario"] = scenario
     return (row["benchmark"], tuple(sorted(params.items())), row["mode"], row["threads"],
             row["forks"], metric["scoreUnit"])
 
@@ -246,7 +249,7 @@ def present(value):
     return value is not None and value != ""
 
 
-def compatible(base, candidate, left, right):
+def compatible(base, candidate, left, right, *, scenario_pair=False):
     # Validate stored identities rather than trusting a serialized match flag.
     if not all(isinstance(doc.get("revision"), str) and present(doc["revision"])
                and doc["revision"] == doc.get("checkoutRevision")
@@ -268,6 +271,8 @@ def compatible(base, candidate, left, right):
                 or left.get(name) != right.get(name)):
             return False
     for name in SETUP:
+        if scenario_pair and name == "scenario":
+            continue
         a, b = (left.get("setup") or {}).get(name), (right.get("setup") or {}).get(name)
         if not present(a) or not present(b) or a != b:
             return False

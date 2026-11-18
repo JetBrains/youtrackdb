@@ -36,6 +36,15 @@ class ComparisonTest(unittest.TestCase):
         self.slower = copy.deepcopy(self.row)
         self.slower["primaryMetric"].update(score=90, scoreConfidence=[89, 91])
 
+    def test_shared_scenario_helpers_preserve_off_defaults(self):
+        # The local off route keeps scenario in its key and rejects changed setup.
+        on = copy.deepcopy(self.row)
+        on["params"]["telemetryScenario"] = on["setup"]["scenario"] = "on"
+        self.assertNotEqual(off.identity(self.row), off.identity(on))
+        self.assertEqual(off.identity(self.row), off.identity(on, scenario="off"))
+        self.assertFalse(off.compatible(self.doc, self.doc, self.row, on))
+        self.assertTrue(off.compatible(self.doc, self.doc, self.row, on, scenario_pair=True))
+
     def test_isolated_uncertainty_guards_and_exact_budget_boundary(self):
         # Every invalid case has separated intervals, so overlap cannot mask its guard.
         changes = [dict(score=70, scoreError=8, scoreConfidence=[62, 78]),

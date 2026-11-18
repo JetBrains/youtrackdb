@@ -153,6 +153,7 @@ transaction boundaries and cache settings.
 JMH supplies parameters, threads, mode, unit, JDK build, JVM options and harness version.
 The code revision identifies the database software version.
 The runner also retains dependency versions from the jar's Maven metadata.
+
 The jar reports setup through a separate Java entry point outside measured calls.
 Fixture bytecode hashes guard against changed workloads, including changes to call boundaries.
 A hash difference makes the setup incompatible.
@@ -162,6 +163,7 @@ All rendered input is bounded, escaped and labelled candidate-reported, includin
 Rendered values use code spans to suppress mentions and automatic links.
 Long values show a truncation marker and a short hash of the full value.
 Reports stop below 60,000 characters and show a truncation notice.
+
 Software lists and fixture lists also have explicit limits.
 Truncated values remain complete in the JSON file.
 Neither a label nor candidate-reported metadata proves hardware allocation or fixture correctness.
@@ -181,3 +183,63 @@ Statistical outcomes exit zero, including breaches and inconclusive results.
 Malformed files, duplicate identities and failed Java runs exit non-zero.
 Keep the JSON evidence beside the readable report.
 This route compares only off revisions and does not establish an on-arm result.
+
+## Offline telemetry comparison contract
+
+`telemetry_compare.py` validates raw JMH JSON without launching benchmarks.
+Its trusted catalog currently contains only off arms.
+It returns non-zero with status `not available` until a later feature track registers an on arm.
+Candidate data and command-line options cannot register arms.
+
+The offline command accepts trusted run identifiers and a directory of evidence:
+
+```sh
+python3 jmh-telemetry/telemetry_compare.py --directory /path/to/evidence \
+  --run run1 --producing-attempt attempt1 --revision REVISION --artifact artifact1 \
+  --repetitions 2 --passes 1 --validation-attempt validation1 --output /path/to/report.md
+```
+
+The output path must not exist.
+The directory contains `manifest.json` and exactly the required raw JMH files.
+The trusted catalog, repetition count and pass count determine those files.
+File names include run, producing attempt, revision, arm, repetition, pass and a benchmark hash.
+The manifest cannot change this inventory.
+
+Each raw file is a JMH result list with every catalog row size.
+An unavailable arm still needs its required file, containing an empty list.
+
+The manifest records `run`, `producingAttempt`, `revision`, `artifact`, `listing` and `files`.
+Listing entries contain `benchmark` and `arm`.
+File entries contain `name`, `sha256`, `execution` and `metadata`.
+Execution is either `ok` or `unavailable`. Other values are fatal.
+Metadata uses the local off envelope fields.
+
+The `setup` object maps each row-size string to its setup fields, including `expectedCount`.
+For example, `setup["10000"].expectedCount` describes the 10,000-row fixture.
+The setup scenario must match the arm.
+All labels, listing entries and metadata remain candidate-reported evidence.
+
+The validator pairs each scenario with its own off arm at the same revision, repetition and pass.
+Every parameter except `telemetryScenario`, plus setup and measurement dimensions, must match.
+Loss is `100 * (1 - scenario throughput / off throughput)`.
+No scores are pooled.
+
+Each repetition must exceed its approved budget with separated intervals before a breach is reported.
+Proposed budgets remain unapproved. Diagnostic losses are not budget decisions.
+Missing pairs, incompatible setups, invalid uncertainty, noise and disagreement are inconclusive.
+Rerun both arms in a new pass.
+
+A slowdown exits zero. Structural, execution and integrity failures exit non-zero.
+
+Run identifiers contain only ASCII letters, digits and underscores.
+Input files are limited to 4 MiB, with at most 256 records per raw file.
+Objects allow 256 fields, parameters allow 32 fields, and strings allow 4,096 characters.
+Nested values allow 12 levels. Inventories and arrays allow 2,048 entries.
+
+Over-limit input is a fatal validation error.
+Outcomes precede bounded evidence. If outcomes exceed report capacity, validation fails.
+
+Reports use the dedicated `ytdb-telemetry-comparison` comment marker.
+Candidate strings use the bounded renderer shared with the local off route.
+Producing attempt and artifact identity remain distinct from the validation attempt.
+This contract adds no runner, workflow mode, nightly history or artifact upload.
