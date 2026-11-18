@@ -1505,6 +1505,16 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  /** Detached structural membership for private planning, copied under the existing index lock. */
+  public Set<String> copyCollectionsForPrivatePreparation() {
+    acquireSharedLock();
+    try {
+      return Set.copyOf(collectionsToIndex);
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
   @Override
   public Set<String> getCollections() {
     acquireSharedLock();

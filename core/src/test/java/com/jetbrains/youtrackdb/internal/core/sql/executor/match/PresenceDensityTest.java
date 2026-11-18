@@ -24,6 +24,124 @@ import org.junit.Test;
 /** Population evidence and work-cost checks do not authorize an execution access path. */
 public class PresenceDensityTest extends GraphBaseTest {
 
+  /** Private density uses a detached locked membership copy, not the escaping ordinary view. */
+  @Test
+  public void privateDensityUsesLockedDetachedMembership() {
+    var clazz = session.createVertexClass("PrivateDensity");
+    clazz.createProperty("k", PropertyType.INTEGER).setNotNull(true);
+    clazz.getProperty("k").createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    graph.addVertex(T.label, "PrivateDensity", "k", 7);
+    graph.tx().commit();
+    session.begin();
+    var ordinary = read("PrivateDensity");
+    var index = (com.jetbrains.youtrackdb.internal.core.index.IndexAbstract) session
+        .getSharedContext().getIndexManager().getIndex("PrivateDensity.k");
+    var detached = index.copyCollectionsForPrivatePreparation();
+    assertThat(detached).isEqualTo(index.getCollections()).isNotSameAs(index.getCollections());
+    try (var scope =
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .open(session)) {
+      assertThat(read("PrivateDensity")).isEqualTo(ordinary);
+      scope.validate();
+    }
+    session.rollback();
+  }
+
+  /** Membership iteration excludes a concurrent writer on the handle lock, not a manager lock. */
+  @Test
+  public void detachedMembershipIterationHoldsReadLockAgainstMutation() throws Exception {
+    var clazz = session.createVertexClass("LockedDensity");
+    clazz.createProperty("k", PropertyType.INTEGER).createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+    var index = (com.jetbrains.youtrackdb.internal.core.index.IndexAbstract) session
+        .getSharedContext().getIndexManager().getIndex("LockedDensity.k");
+    var type = com.jetbrains.youtrackdb.internal.core.index.IndexAbstract.class;
+    var lockField = type.getDeclaredField("rwLock");
+    lockField.setAccessible(true);
+    var lock = (java.util.concurrent.locks.ReentrantReadWriteLock) lockField.get(index);
+    var membershipField = type.getDeclaredField("collectionsToIndex");
+    membershipField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var original = (Set<String>) membershipField.get(index);
+    var attempted = new java.util.concurrent.atomic.AtomicBoolean();
+    var writerFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var observed = new java.util.AbstractSet<String>() {
+      @Override
+      public int size() {
+        return original.size();
+      }
+
+      @Override
+      public java.util.Iterator<String> iterator() {
+        assertThat(lock.getReadHoldCount()).isPositive();
+        var writer = new Thread(() -> {
+          try {
+            boolean acquired = lock.writeLock().tryLock();
+            if (acquired) {
+              try {
+                original.add("unsafe-concurrent-membership");
+              } finally {
+                lock.writeLock().unlock();
+              }
+            }
+            assertThat(acquired).isFalse();
+            attempted.set(true);
+          } catch (Throwable failure) {
+            writerFailure.set(failure);
+          }
+        }, "private-membership-writer");
+        writer.start();
+        try {
+          writer.join(30000);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+          throw new AssertionError(interrupted);
+        }
+        assertThat(writer.isAlive()).isFalse();
+        assertThat(writerFailure.get()).isNull();
+        return original.iterator();
+      }
+    };
+    membershipField.set(index, observed);
+    try {
+      assertThat(index.copyCollectionsForPrivatePreparation()).isEqualTo(original);
+      assertThat(attempted).isTrue();
+      assertThat(lock.getReadLockCount()).isZero();
+    } finally {
+      membershipField.set(index, original);
+    }
+  }
+
+  /** An unsupported private handle must not escape through the ordinary live-membership API. */
+  @Test
+  public void unsupportedPrivateHandleDeclinesWithoutReadingLiveMembershipOrStatistics() {
+    var db = mock(DatabaseSessionEmbedded.class, RETURNS_DEEP_STUBS);
+    var clazz = mock(SchemaImmutableClass.class);
+    when(db.getMetadata().getImmutableSchemaSnapshot().getClassInternal("Target"))
+        .thenReturn(clazz);
+    when(clazz.approximateCountImpl(true, db)).thenReturn(1000L);
+    when(clazz.getPolymorphicCollectionIds()).thenReturn(new int[] {1});
+    when(db.getCollectionNameById(1)).thenReturn("target");
+    var property = mock(SchemaProperty.class);
+    when(property.isNotNull()).thenReturn(true);
+    when(clazz.getProperty("k")).thenReturn(property);
+    var index = mock(Index.class);
+    when(clazz.getIndexesInternal()).thenReturn(Set.of(index));
+    when(index.getDefinition()).thenReturn(new PropertyIndexDefinition("Target", "k",
+        PropertyTypeInternal.INTEGER));
+    try (var marker = org.mockito.Mockito.mockStatic(
+        com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      marker
+          .when(() -> com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+              .isActive(db))
+          .thenReturn(true);
+      assertThat(PresenceDensity.read("t", "Target", Set.of("k"), db).source())
+          .isEqualTo(PresenceDensity.Source.NO_COVERAGE);
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.never()).getCollections();
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.never()).getStatistics(db);
+    }
+  }
+
   /** Mandatory presence includes null and requires no property index or not-null constraint. */
   @Test
   public void mandatoryNullable_isFullDensityAndRetainsNulls() {
