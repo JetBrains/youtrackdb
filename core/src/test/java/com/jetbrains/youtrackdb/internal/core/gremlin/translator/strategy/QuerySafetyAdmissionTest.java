@@ -51,6 +51,59 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Every admitted unrecognised step has an explicit native encoding decision. New admission
+   * entries must extend this inventory rather than silently inheriting a cacheable suffix.
+   */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void admittedNativeInventoryHasExplicitCompleteOrBypassEncoding() throws Exception {
+    var field = QuerySafetyAdmission.class.getDeclaredField("PURE_EXTRA");
+    field.setAccessible(true);
+    var admitted = (java.util.Set<Class<?>>) field.get(null);
+    var decisions = java.util.Map.ofEntries(
+        java.util.Map.entry("InjectStep", false),
+        java.util.Map.entry("IdentityStep", true),
+        java.util.Map.entry("RepeatStep", false),
+        java.util.Map.entry("RepeatEndStep", false),
+        java.util.Map.entry("LocalStep", true),
+        java.util.Map.entry("OptionalStep", true),
+        java.util.Map.entry("ChooseStep", false),
+        java.util.Map.entry("CoalesceStep", true),
+        java.util.Map.entry("RequirementsStep", false),
+        java.util.Map.entry("IsStep", true),
+        java.util.Map.entry("PathStep", false),
+        java.util.Map.entry("NoOpBarrierStep", false),
+        java.util.Map.entry("TreeStep", false),
+        java.util.Map.entry("TraversalMapStep", true),
+        java.util.Map.entry("TraversalFlatMapStep", true),
+        java.util.Map.entry("EndStep", true));
+    assertThat(admitted).extracting(Class::getSimpleName)
+        .containsExactlyInAnyOrderElementsOf(decisions.keySet());
+    var complete = new java.util.HashSet<Class<?>>();
+    for (var type : admitted) {
+      // Only classification runs on these exact-class doubles. No traversal executes.
+      var step = (org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?>) org.mockito.Mockito
+          .mock(type);
+      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.IsStep is) {
+        org.mockito.Mockito.doReturn(P.gt(1)).when(is).getPredicate();
+      }
+      var encoder = new GremlinShapeEncoder(session.getMetadata().getImmutableSchemaSnapshot());
+      assertThat(QuerySafetyAdmission.nativeShapeComplete(step, encoder))
+          .as("explicit encoding decision for %s", type.getName())
+          .isEqualTo(decisions.get(type.getSimpleName()));
+      if (decisions.get(type.getSimpleName()) && !type.getSimpleName().equals("IsStep")) {
+        complete.add(type);
+      }
+    }
+    assertThat(QuerySafetyAdmission.STRUCTURAL_NATIVE).isEqualTo(complete);
+    var first = new GremlinShapeEncoder(session.getMetadata().getImmutableSchemaSnapshot());
+    var second = new GremlinShapeEncoder(session.getMetadata().getImmutableSchemaSnapshot());
+    QuerySafetyAdmission.nativeShapeComplete(__.is(P.gt(1)).asAdmin().getStartStep(), first);
+    QuerySafetyAdmission.nativeShapeComplete(__.is(P.lt(1)).asAdmin().getStartStep(), second);
+    assertThat(first.compactKey()).isNotEqualTo(second.compactKey());
+  }
+
   /** Writes at the root and in both child scopes suppress even independent vertex children. */
   @Test
   public void writesInEveryScopeVetoTheWholeTree() {
