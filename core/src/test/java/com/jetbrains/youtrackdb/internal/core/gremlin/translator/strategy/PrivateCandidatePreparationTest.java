@@ -21,9 +21,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Before;
@@ -893,6 +898,622 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
       assertThat(shortPrefix.nativeOperands()).isSameAs(shortPrefix.nativeOperands());
       assertThatThrownBy(() -> shortPrefix.nativeOperands().clear())
           .isInstanceOf(UnsupportedOperationException.class);
+    }
+  }
+
+  /** A shared resident rebinds prefix values and copies its context for the current reader. */
+  @Test
+  public void sharedCandidateRebindsAcrossUsersWithoutSharingInvocationPlans() {
+    try (var reader = youTrackDB.cachedPool(databaseName, readerUser, readerPassword).asGraph()) {
+      var adminDb = graphSession();
+      var readerQuery = reader.traversal().V().hasLabel("CandidatePerson").has("age", 40)
+          .out("candidateKnows").optional(__.has("age", 30)).asAdmin();
+      var readerDb = YTDBStrategyUtil.resolveYtdbSession(readerQuery);
+      var cache = GremlinPlanCache.instance(adminDb);
+      assertThat(readerDb).isNotSameAs(adminDb);
+      assertThat(GremlinPlanCache.instance(readerDb)).isSameAs(cache);
+      long hits = cache.getTranslationHits();
+      var prepare = preparation(false);
+      try (var cold = prepare.prepare(query(30, 40), policy);
+          var warm = prepare.prepare(readerQuery, policy)) {
+        assertThat(cold.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(warm.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(cold.extent()).isEqualTo(3);
+        assertThat(warm.extent()).isEqualTo(3);
+        assertThat(readerQuery.getSteps()).hasSize(4);
+        assertThat(cold.cacheHit()).isFalse();
+        assertThat(warm.cacheHit()).isTrue();
+        assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+        assertThat(cold.bindings()).containsExactlyEntriesOf(java.util.Map.of(0, 30));
+        assertThat(warm.bindings()).containsExactlyEntriesOf(java.util.Map.of(0, 40));
+        assertThat(warm.plan()).isNotSameAs(cold.plan());
+        assertThat(warm.plan().getContext()).isNotSameAs(cold.plan().getContext());
+        assertThat(cold.plan().getContext().getDatabaseSession()).isSameAs(adminDb);
+        assertThat(warm.plan().getContext().getDatabaseSession()).isSameAs(readerDb);
+        assertThat(warm.plan().getContext().getInputParameters())
+            .containsExactlyEntriesOf(java.util.Map.of(0, 40));
+        assertThat(cold.plan().getContext().getInputParameters())
+            .containsExactlyEntriesOf(java.util.Map.of(0, 30));
+      }
+      assertThat(walks).hasValue(2);
+      assertThat(builds).hasValue(1);
+    }
+  }
+
+  /**
+   * Ordinary permission-sensitive count shortcuts stay uncacheable. Private partial count copies
+   * defer permission checks until execution and obey each user's policy after a real warm hit.
+   */
+  @Test
+  public void ordinaryUncacheableCountAndPrivateCrossPolicyCountHaveIndependentControls() {
+    // A graph session owns an outer transaction. Commit the policy independently before readers open.
+    graph.tx().commit();
+    try (var writer = youTrackDB.open(databaseName, adminUser, adminPassword)) {
+      writer.begin();
+      var security = writer.getSharedContext().getSecurity();
+      var restriction = security.createSecurityPolicy(writer, "candidateReaderAge");
+      restriction.setActive(true);
+      restriction.setReadRule("age = 40");
+      security.saveSecurityPolicy(writer, restriction);
+      security.setSecurityPolicy(writer, writer.getMetadata().getSecurity().getRole("reader"),
+          "database.class.CandidatePerson", restriction);
+      writer.commit();
+    }
+    var adminDb = graphSession();
+    var context = new com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext(adminDb);
+    var ordinary = com.jetbrains.youtrackdb.internal.core.sql.SQLEngine.parse(
+        "MATCH {class:CandidatePerson,as:v} RETURN count(*) AS n", adminDb)
+        .createExecutionPlanNoCache(context, false);
+    try {
+      assertThat(ordinary.getSteps()).anyMatch(
+          com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep.class::isInstance);
+      assertThat(ordinary.canBeCached()).isFalse();
+      assertThat(executeScalar(ordinary)).isEqualTo(2L);
+    } finally {
+      ordinary.close();
+    }
+    try (var reader = youTrackDB.cachedPool(databaseName, readerUser, readerPassword).asGraph()) {
+      var readerQuery = reader.traversal().V().hasLabel("CandidatePerson").count()
+          .is(org.apache.tinkerpop.gremlin.process.traversal.P.gt(0L)).asAdmin();
+      var readerDb = YTDBStrategyUtil.resolveYtdbSession(readerQuery);
+      assertThat(readerDb.getCurrentUser().getName(readerDb)).isEqualTo(readerUser);
+      var security = readerDb.getSharedContext().getSecurity();
+      var effective = security.getSecurityPolicy(readerDb,
+          readerDb.getMetadata().getSecurity().getRole("reader"), "database.class.CandidatePerson");
+      assertThat(effective).isNotNull();
+      assertThat(effective.isActive()).isTrue();
+      assertThat(effective.getReadRule()).isEqualTo("age = 40");
+      // Independent permission-aware execution precedes any private count execution.
+      try (var oracle = readerDb.query("SELECT FROM CandidatePerson")) {
+        assertThat(oracle.stream().count()).isEqualTo(1L);
+      }
+      try (var oracle = adminDb.query("SELECT FROM CandidatePerson")) {
+        assertThat(oracle.stream().count()).isEqualTo(2L);
+      }
+      var cache = GremlinPlanCache.instance(adminDb);
+      assertThat(readerDb).isNotSameAs(adminDb);
+      assertThat(GremlinPlanCache.instance(readerDb)).isSameAs(cache);
+      cache.invalidate();
+      long hits = cache.getTranslationHits();
+      var cuts = new PrivateCandidatePreparation.Policy(Set.of(3));
+      var prepare = preparation(false);
+      try (var cold = prepare.prepare(graph.traversal().V().hasLabel("CandidatePerson").count()
+          .is(org.apache.tinkerpop.gremlin.process.traversal.P.gt(1L)).asAdmin(), cuts);
+          var warm = prepare.prepare(readerQuery, cuts)) {
+        assertThat(cold.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(warm.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(cold.extent()).isEqualTo(3);
+        assertThat(warm.extent()).isEqualTo(3);
+        assertThat(readerQuery.getSteps()).hasSize(4);
+        assertThat(cold.cacheHit()).isFalse();
+        assertThat(warm.cacheHit()).isTrue();
+        assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+        assertThat(cold.bindings()).isEmpty();
+        assertThat(warm.bindings()).isEmpty();
+        assertThat(warm.plan()).isNotSameAs(cold.plan());
+        assertThat(cold.plan().getContext().getDatabaseSession()).isSameAs(adminDb);
+        assertThat(warm.plan().getContext().getDatabaseSession()).isSameAs(readerDb);
+        for (var plan : List.of(cold.plan(), warm.plan())) {
+          assertThat(plan.getSteps()).noneMatch(
+              com.jetbrains.youtrackdb.internal.core.sql.executor.CountFromClassStep.class::isInstance);
+        }
+        assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .isActive(adminDb)).isFalse();
+        assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+            .isActive(readerDb)).isFalse();
+        // Execute only the standalone count prefix. Neither IsStep suffix runs here.
+        assertThat(executeScalar(cold.plan())).isEqualTo(2L);
+        assertThat(executeScalar(warm.plan())).isEqualTo(1L);
+        try (var oracle = readerDb.query("SELECT FROM CandidatePerson")) {
+          assertThat(oracle.stream().count()).isEqualTo(1L);
+        }
+        try (var oracle = adminDb.query("SELECT FROM CandidatePerson")) {
+          assertThat(oracle.stream().count()).isEqualTo(2L);
+        }
+      }
+      assertThat(walks).hasValue(2);
+      assertThat(builds).hasValue(1);
+    }
+  }
+
+  private long executeScalar(InternalExecutionPlan plan) {
+    var context = plan.getContext();
+    var stream = plan.start();
+    try {
+      var row = stream.next(context);
+      assertThat(row.getPropertyNames()).hasSize(1);
+      var value = (Number) row.getProperty(row.getPropertyNames().iterator().next());
+      assertThat(stream.hasNext(context)).isFalse();
+      return value.longValue();
+    } finally {
+      stream.close(context);
+    }
+  }
+
+  /**
+   * Count extraction, lookup, recognition and build separately. Changing policy or using the
+   * production full key must not consume a candidate resident, even for the same traversal shape.
+   */
+  @Test
+  public void operationAccountingAndPrivateFullPolicyIsolationUseActualEntries() {
+    var db = graphSession();
+    var cache = spy(GremlinPlanCache.instance(db));
+    var extractions = new AtomicInteger();
+    var lookups = new AtomicInteger();
+    var keys = new ArrayList<Object>();
+    doAnswer(call -> {
+      lookups.incrementAndGet();
+      keys.add(call.getArgument(0));
+      return call.callRealMethod();
+    }).when(cache).getTranslationEntry(any(Object.class), any());
+    try (var caches = mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS);
+        var extractor = mockStatic(GremlinShapeExtractor.class, call -> {
+          if (call.getMethod().getName().equals("extractPartial")) {
+            extractions.incrementAndGet();
+          }
+          return call.callRealMethod();
+        })) {
+      caches.when(() -> GremlinPlanCache.instance(db)).thenReturn(cache);
+      var prepare = preparation(false);
+      long hits = cache.getTranslationHits();
+      for (int invocation = 0; invocation < 2; invocation++) {
+        extractions.set(0);
+        lookups.set(0);
+        walks.set(0);
+        builds.set(0);
+        try (var candidate = prepare.prepare(query(30 + invocation, 40), policy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.extent()).isEqualTo(3);
+          assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+          assertThat(candidate.bindings()).containsExactlyEntriesOf(
+              java.util.Map.of(0, 30 + invocation));
+          assertThat(extractions).hasValue(1);
+          assertThat(lookups).hasValue(1);
+          assertThat(walks).hasValue(invocation == 0 ? 2 : 0);
+          assertThat(builds).hasValue(invocation == 0 ? 1 : 0);
+        }
+      }
+      assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+      assertThat(keys.get(1)).isEqualTo(keys.getFirst());
+      var originalKey = keys.getFirst();
+      var resident = cache.getTranslationEntry(originalKey, db);
+      assertThat(resident.template()).isInstanceOf(GremlinTranslationTemplate.Candidate.class);
+      // Same selected extent, different policy identity. The first resident remains intact.
+      try (var different = prepare.prepare(query(40, 30),
+          new PrivateCandidatePreparation.Policy(Set.of(3)))) {
+        assertThat(different.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(different.extent()).isEqualTo(3);
+        assertThat(different.cacheHit()).isFalse();
+      }
+      var otherKey = keys.getLast();
+      assertThat(otherKey).isNotEqualTo(originalKey);
+      assertThat(cache.containsTranslation(otherKey)).isTrue();
+      assertThat(cache.getTranslationEntry(originalKey, db)).isSameAs(resident);
+      var fullKeys = new ArrayList<Object>();
+      var fullResidents = new ArrayList<GremlinPlanCache.StampedTranslation>();
+      for (var fullPolicy : List.of(policy, new PrivateCandidatePreparation.Policy(Set.of(3)))) {
+        try (var full = prepare.prepare(fullQuery(30), fullPolicy)) {
+          assertThat(full.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+          assertThat(full.extent()).isEqualTo(5);
+          assertThat(full.cacheHit()).isFalse();
+        }
+        var fullKey = keys.getLast();
+        fullKeys.add(fullKey);
+        var fullResident = cache.getTranslationEntry(fullKey, db);
+        fullResidents.add(fullResident);
+        assertThat(fullResident.template())
+            .isInstanceOf(GremlinTranslationTemplate.Candidate.class);
+        try (var warm = prepare.prepare(fullQuery(40), fullPolicy)) {
+          assertThat(warm.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+          assertThat(warm.extent()).isEqualTo(5);
+          assertThat(warm.cacheHit()).isTrue();
+          assertThat(warm.bindings()).containsExactlyEntriesOf(java.util.Map.of(0, 40));
+        }
+      }
+      assertThat(fullKeys.get(0)).isNotEqualTo(fullKeys.get(1));
+      var shape = GremlinStepWalker.extractShape(fullQuery(30), db).key();
+      assertThat(fullKeys).doesNotContain(shape);
+      assertThat(cache.getTranslationEntry(shape, db)).isNull();
+      GremlinToMatchStrategy.instance().apply(fullQuery(30));
+      var ordinary = cache.getTranslationEntry(shape, db);
+      assertThat(ordinary).isNotNull();
+      assertThat(ordinary.template()).isInstanceOf(GremlinTranslationTemplate.Translate.class);
+      for (int index = 0; index < fullKeys.size(); index++) {
+        assertThat(cache.getTranslationEntry(fullKeys.get(index), db))
+            .isSameAs(fullResidents.get(index)).isNotSameAs(ordinary);
+      }
+      assertThat(cache.getTranslationEntry(originalKey, db)).isSameAs(resident);
+    }
+  }
+
+  /** Every configured bypass reaches private preparation without candidate lookup or publication. */
+  @Test
+  public void admittedNativeFixturesReachPrivateExtractionAndBypassIncompleteInputs() {
+    var fixtures = QuerySafetyAdmissionTest.nativeFixtures(() -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows"));
+    for (var fixture : fixtures) {
+      var traversal = fixture.traversal();
+      assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+          .as(fixture.name()).isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      assertThat(partialExtraction(traversal).complete())
+          .as("private extraction of %s", fixture.name()).isEqualTo(fixture.complete());
+      if (fixture.complete()) {
+        continue;
+      }
+      try (var probe = new PublicationProbe()) {
+        probe.key = null;
+        org.mockito.Mockito.clearInvocations(probe.cache);
+        try (var candidate = probe.prepare().prepare(traversal, policy)) {
+          assertThat(candidate.reason()).as(fixture.name())
+              .isNotEqualTo(PrivatePrefixDiscovery.Reason.SAFETY_VETO);
+          assertThat(candidate.cacheHit()).as(fixture.name()).isFalse();
+          assertThat(probe.key).as("no lookup for %s", fixture.name()).isNull();
+        }
+        verify(probe.cache, never()).getTranslationEntry(any(Object.class), any());
+        verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+      }
+    }
+  }
+
+  /** Child properties and literals survive extraction for each single-child native parent. */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void completeNativeParentsEncodeChildInputsAndCurrentBindings() {
+    List<BiFunction<
+        GraphTraversal,
+        Traversal,
+        GraphTraversal>> parents =
+            List.of((root, child) -> root.local(child), (root, child) -> root.optional(child),
+                (root, child) -> root.map(child), (root, child) -> root.flatMap(child));
+    for (var parent : parents) {
+      Supplier<
+          GraphTraversal> root =
+              () -> graph.traversal().V().hasLabel("CandidatePerson").has("age", 30)
+                  .out("candidateKnows");
+      var first = partialExtraction(parent.apply(root.get(), __.has("age", 40)).asAdmin());
+      var literal = partialExtraction(parent.apply(root.get(), __.has("age", 50)).asAdmin());
+      var property = partialExtraction(parent.apply(root.get(), __.has("name", "second"))
+          .asAdmin());
+      assertThat(first.complete()).isTrue();
+      assertThat(literal.complete()).isTrue();
+      assertThat(property.complete()).isTrue();
+      assertThat(literal.key()).isEqualTo(first.key());
+      assertThat(property.key()).isNotEqualTo(first.key());
+      assertThat(first.bindings())
+          .containsExactlyInAnyOrderEntriesOf(Map.of(0, 30, 1, 40));
+      assertThat(literal.bindings())
+          .containsExactlyInAnyOrderEntriesOf(Map.of(0, 30, 1, 50));
+      assertThat(property.bindings()).containsExactlyInAnyOrderEntriesOf(
+          Map.of(0, 30, 1, "second"));
+    }
+  }
+
+  /** Coalesce identity includes every local child in order, not just its first arm. */
+  @Test
+  public void coalesceLaterChildOrderAndLiteralsHaveIndependentExtractionControls() {
+    Supplier<
+        GraphTraversal<?, ?>> root =
+            () -> graph.traversal().V().hasLabel("CandidatePerson").has("age", 30)
+                .out("candidateKnows");
+    var first = partialExtraction(root.get().coalesce(__.has("age", 40),
+        __.has("name", "first")).asAdmin());
+    var literal = partialExtraction(root.get().coalesce(__.has("age", 50),
+        __.has("name", "second")).asAdmin());
+    var later = partialExtraction(root.get().coalesce(__.has("age", 40),
+        __.has("age", 40)).asAdmin());
+    var reordered = partialExtraction(root.get().coalesce(__.has("name", "first"),
+        __.has("age", 40)).asAdmin());
+    for (var extraction : List.of(first, literal, later, reordered)) {
+      assertThat(extraction.complete()).isTrue();
+    }
+    assertThat(literal.key()).isEqualTo(first.key());
+    assertThat(later.key()).isNotEqualTo(first.key());
+    assertThat(reordered.key()).isNotEqualTo(first.key());
+    assertThat(first.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 40, 2, "first"));
+    assertThat(literal.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 50, 2, "second"));
+    assertThat(later.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 40, 2, 40));
+    assertThat(reordered.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, "first", 2, 40));
+    assertCandidatePair(() -> root.get().coalesce(__.values("name"), __.values("age")).asAdmin(),
+        () -> root.get().coalesce(__.values("name"), __.values("name")).asAdmin(), false, true);
+    assertCandidatePair(() -> root.get().coalesce(__.values("name"), __.values("age")).asAdmin(),
+        () -> root.get().coalesce(__.values("age"), __.values("name")).asAdmin(), false, true);
+  }
+
+  /** Identity and internal end markers have labels. IsStep also has an operator and value type. */
+  @Test
+  public void completeNativeLeafInputsHavePrivateShapeControls() {
+    for (String name : List.of("IdentityStep", "EndStep", "IsStep")) {
+      var fixtures = QuerySafetyAdmissionTest.nativeFixtures(() -> graph.traversal().V()
+          .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows"));
+      var fixture = fixtures.stream().filter(item -> item.name().equals(name)).findFirst()
+          .orElseThrow();
+      var first = partialExtraction(fixture.traversal());
+      fixture.step().addLabel("nativeResult");
+      var labelled = partialExtraction(fixture.traversal());
+      assertThat(first.complete()).isTrue();
+      assertThat(labelled.complete()).isTrue();
+      assertThat(labelled.key()).as(name).isNotEqualTo(first.key());
+      assertThat(first.bindings()).containsExactlyInAnyOrderEntriesOf(Map.of(0, 30));
+      assertThat(labelled.bindings()).isEqualTo(first.bindings());
+    }
+    var gt = partialExtraction(graph.traversal().V().is(
+        P.gt(1)).asAdmin());
+    var literal = partialExtraction(graph.traversal().V().is(P.gt(2)).asAdmin());
+    var lt = partialExtraction(graph.traversal().V().is(
+        P.lt(1)).asAdmin());
+    var type = partialExtraction(graph.traversal().V().is(
+        P.gt(1L)).asAdmin());
+    assertThat(gt.complete()).isTrue();
+    assertThat(literal.complete()).isTrue();
+    assertThat(literal.key()).isEqualTo(gt.key());
+    assertThat(literal.bindings()).isEmpty();
+    assertThat(lt.complete()).isTrue();
+    assertThat(type.complete()).isTrue();
+    assertThat(gt.key()).isNotEqualTo(lt.key()).isNotEqualTo(type.key());
+    // Native IsStep values stay on the original suffix. They are not MATCH parameter slots.
+    assertThat(gt.bindings()).isEmpty();
+    assertThat(lt.bindings()).isEmpty();
+    assertThat(type.bindings()).isEmpty();
+  }
+
+  /** Collision pairs reach candidate lookup, not just encoder equality or composite-key equality. */
+  @Test
+  public void candidateCollisionMatrixSeparatesStructureAndRebindsOnlyLiterals() {
+    assertCandidatePair(() -> query(30, 40), () -> query(40, 40), true, true);
+    assertCandidatePair(() -> query(30, 40), () -> query(30, 30), true, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("name", "first").out("candidateKnows")
+        .optional(__.has("age", 40)).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").out("candidateKnows").has("age", 30)
+        .optional(__.has("age", 40)).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows")
+        .optional(__.has("name", "first")).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows")
+        .local(__.has("age", 40)).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).identity().out("candidateKnows")
+        .optional(__.has("age", 40)).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows").fold()
+        .optional(__.identity()).asAdmin(), false, true);
+    assertCandidatePair(() -> query(30, 40), () -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows").path()
+        .asAdmin(), false, false);
+  }
+
+  private void assertCandidatePair(java.util.function.Supplier<Traversal.Admin<?, ?>> first,
+      java.util.function.Supplier<Traversal.Admin<?, ?>> second, boolean sameKey,
+      boolean complete) {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      try (var seed = prepare.prepare(first.get(), policy)) {
+        assertThat(seed.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(seed.extent()).isEqualTo(3);
+      }
+      var key = probe.key;
+      assertThat(probe.cache.containsTranslation(key)).isTrue();
+      long hits = probe.cache.getTranslationHits();
+      probe.key = null;
+      var traversal = second.get();
+      assertThat(partialExtraction(traversal).complete()).isEqualTo(complete);
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.cacheHit()).isEqualTo(sameKey);
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + (sameKey ? 1 : 0));
+        if (complete) {
+          assertThat(probe.key).isNotNull();
+          assertThat(probe.key.equals(key)).isEqualTo(sameKey);
+        } else {
+          assertThat(probe.key).as("incomplete encoding must bypass lookup").isNull();
+        }
+      }
+      // A repeated alternate query proves retention under its own key, or complete bypass.
+      hits = probe.cache.getTranslationHits();
+      try (var again = prepare.prepare(second.get(), policy)) {
+        assertThat(again.cacheHit()).isEqualTo(complete);
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + (complete ? 1 : 0));
+      }
+    }
+  }
+
+  /** Production strategy applications never extract or construct private partial candidates. */
+  @Test
+  public void productionNeverDiscoversOrPublishesPartialCandidates() {
+    var extractions = new AtomicInteger();
+    var publications = new ArrayList<Object>();
+    var templates = new ArrayList<GremlinTranslationTemplate>();
+    try (var discovery = org.mockito.Mockito.mockConstruction(PrivatePrefixDiscovery.class);
+        var preparations = org.mockito.Mockito.mockConstruction(PrivateCandidatePreparation.class);
+        var extractor = mockStatic(GremlinShapeExtractor.class, call -> {
+          if (call.getMethod().getName().equals("extractPartial")) {
+            extractions.incrementAndGet();
+          }
+          return call.callRealMethod();
+        });
+        var caches = mockStatic(GremlinPlanCache.class, call -> {
+          if (call.getMethod().getName().equals("putTranslation")) {
+            publications.add(call.getArgument(0));
+            templates.add(call.getArgument(1));
+          }
+          return call.callRealMethod();
+        })) {
+      for (int invocation = 0; invocation < 2; invocation++) {
+        var partial = query(30 + invocation, 40);
+        GremlinToMatchStrategy.instance().apply(partial);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(partial)).isZero();
+        GremlinToMatchStrategy.instance().apply(fullQuery(30 + invocation));
+      }
+      assertThat(extractions).hasValue(0);
+      assertThat(discovery.constructed()).isEmpty();
+      assertThat(preparations.constructed()).isEmpty();
+      assertThat(publications).isNotEmpty()
+          .noneMatch(PrivateCandidatePreparation.CandidateKey.class::isInstance);
+      assertThat(templates).isNotEmpty()
+          .allMatch(GremlinTranslationTemplate.Translate.class::isInstance);
+    }
+  }
+
+  private Traversal.Admin<?, ?> fullQuery(int age) {
+    return graph.traversal().V().hasLabel("CandidatePerson").has("age", age)
+        .order().by("age").out("candidateKnows").limit(2).asAdmin();
+  }
+
+  /** Complete step encoding does not erase source-state refusal or its separate retained identity. */
+  @Test
+  public void sourceStateRefusalIsCompleteRetainedAndIsolatedFromOrdinaryResident() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      GremlinToMatchStrategy.instance().apply(fullQuery(30));
+      var ordinaryKey = GremlinStepWalker.extractShape(fullQuery(30), probe.session).key();
+      var ordinary = probe.cache.getTranslationEntry(ordinaryKey, probe.session);
+      assertThat(ordinary).isNotNull();
+      try (var seed = prepare.prepare(query(30, 40), policy)) {
+        assertThat(seed.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      }
+      var seedKey = probe.key;
+      Object refusalKey = null;
+      for (int invocation = 0; invocation < 2; invocation++) {
+        var traversal = graph.traversal().withBulk(false).V().hasLabel("CandidatePerson")
+            .has("age", 30).out("candidateKnows").optional(__.has("age", 40)).asAdmin();
+        assertThat(partialExtraction(traversal).complete()).isTrue();
+        long hits = probe.cache.getTranslationHits();
+        try (var refused = prepare.prepare(traversal, policy)) {
+          assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+          assertThat(refused.extent()).isEqualTo(-1);
+          assertThat(refused.plan()).isNull();
+          assertThat(refused.cacheHit()).isEqualTo(invocation == 1);
+        }
+        assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + invocation);
+        assertThat(probe.key).isNotEqualTo(seedKey).isNotEqualTo(ordinaryKey);
+        if (invocation == 0) {
+          refusalKey = probe.key;
+        } else {
+          assertThat(probe.key).isEqualTo(refusalKey);
+        }
+        assertThat(probe.cache.getTranslationEntry(ordinaryKey, probe.session)).isSameAs(ordinary);
+      }
+    }
+  }
+
+  /** Equal binding counts cannot equate source-folded and post-hop property contributions. */
+  @Test
+  public void equalBindingCountsKeepDifferentRolesAndAlternateExtents() {
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      Object firstKey = null;
+      for (int invocation = 0; invocation < 4; invocation++) {
+        boolean source = invocation % 2 == 0;
+        int age = invocation < 2 ? 30 : 40;
+        var traversal = source ? query(age, 40) : graph.traversal().V()
+            .hasLabel("CandidatePerson").out("candidateKnows").has("age", age)
+            .optional(__.has("age", 40)).asAdmin();
+        int extent = source ? 3 : 4;
+        var prefix = partialExtraction(traversal).prefix(extent, true, 0);
+        assertThat(prefix.bindings()).containsExactlyEntriesOf(java.util.Map.of(0, age));
+        assertThat(prefix.hasContributions()).hasSize(source ? 1 : 2);
+        if (!source) {
+          var label = prefix.hasContributions().getFirst();
+          assertThat(label.slots()).isEmpty();
+          assertThat(label.context().folded()).isTrue();
+          assertThat(label.context().gateClasses()).containsExactly("CandidatePerson");
+        }
+        var contribution = prefix.hasContributions().getLast();
+        assertThat(contribution.context().destination())
+            .isEqualTo(HasBindingContext.Destination.MATCH_VERTEX);
+        assertThat(contribution.context().folded()).isEqualTo(source);
+        assertThat(contribution.context().gateClasses())
+            .containsExactlyElementsOf(source ? List.of("CandidatePerson") : List.of());
+        assertThat(contribution.slots()).hasSize(1);
+        assertThat(contribution.slots().getFirst().role())
+            .isEqualTo(GremlinPredicateAdapter.SlotRole.OPERAND);
+        try (var candidate = prepare.prepare(traversal, policy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.extent()).isEqualTo(extent);
+          assertThat(candidate.cacheHit()).isEqualTo(invocation >= 2);
+          assertThat(candidate.bindings()).containsExactlyEntriesOf(prefix.bindings());
+        }
+        if (invocation == 0) {
+          firstKey = probe.key;
+        } else if (!source) {
+          assertThat(probe.key).isNotEqualTo(firstKey);
+        } else {
+          assertThat(probe.key).isEqualTo(firstKey);
+        }
+      }
+    }
+  }
+
+  /** A cursor-transparent barrier closes native source folding and changes the retained root cut. */
+  @Test
+  public void transparentBarrierSeparatesNativeFoldingAndRetainsLiteralExtent() {
+    assertThat(GremlinStepWalker.TRANSPARENT_STEPS).containsExactly(
+        org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep.class);
+    try (var probe = new PublicationProbe()) {
+      var prepare = probe.prepare();
+      Object seedKey;
+      try (var seed = prepare.prepare(query(30, 40), policy)) {
+        assertThat(seed.extent()).isEqualTo(3);
+        seedKey = probe.key;
+      }
+      for (int invocation = 0; invocation < 2; invocation++) {
+        var traversal = graph.traversal().V().hasLabel("CandidatePerson").barrier()
+            .has("age", 30 + invocation).out("candidateKnows")
+            .optional(__.has("age", 40)).asAdmin();
+        assertThat(traversal.getSteps()).hasSize(6);
+        var rules = new PartialCutRules(traversal.getSteps());
+        assertThat(rules.splitsFold(1)).isTrue();
+        assertThat(rules.splitsFold(3)).isFalse();
+        var prefix = partialExtraction(traversal).prefix(5, true, 0);
+        assertThat(prefix.hasContributions()).hasSize(2);
+        assertThat(prefix.hasContributions().getFirst().slots()).isEmpty();
+        assertThat(prefix.hasContributions().getFirst().context().folded()).isTrue();
+        assertThat(prefix.hasContributions().getLast().slots()).hasSize(1);
+        assertThat(prefix.hasContributions().getLast().context().folded()).isFalse();
+        try (var candidate = prepare.prepare(traversal, policy)) {
+          assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+          assertThat(candidate.extent()).isEqualTo(5);
+          assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+          assertThat(candidate.bindings())
+              .containsExactlyEntriesOf(java.util.Map.of(0, 30 + invocation));
+        }
+        assertThat(probe.key).isNotEqualTo(seedKey);
+        var nativeCopy = traversal.clone();
+        com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy
+            .instance().apply(nativeCopy);
+        var source =
+            (com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep<
+                ?,
+                ?>) nativeCopy.getStartStep();
+        assertThat(source.getHasContainers()).hasSize(1);
+        assertThat(nativeCopy.getSteps()).hasSize(5);
+      }
     }
   }
 
