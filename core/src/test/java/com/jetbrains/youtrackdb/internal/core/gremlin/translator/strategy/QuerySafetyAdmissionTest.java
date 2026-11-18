@@ -61,39 +61,22 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     var field = QuerySafetyAdmission.class.getDeclaredField("PURE_EXTRA");
     field.setAccessible(true);
     var admitted = (java.util.Set<Class<?>>) field.get(null);
-    var decisions = java.util.Map.ofEntries(
-        java.util.Map.entry("InjectStep", false),
-        java.util.Map.entry("IdentityStep", true),
-        java.util.Map.entry("RepeatStep", false),
-        java.util.Map.entry("RepeatEndStep", false),
-        java.util.Map.entry("LocalStep", true),
-        java.util.Map.entry("OptionalStep", true),
-        java.util.Map.entry("ChooseStep", false),
-        java.util.Map.entry("CoalesceStep", true),
-        java.util.Map.entry("RequirementsStep", false),
-        java.util.Map.entry("IsStep", true),
-        java.util.Map.entry("PathStep", false),
-        java.util.Map.entry("NoOpBarrierStep", false),
-        java.util.Map.entry("TreeStep", false),
-        java.util.Map.entry("TraversalMapStep", true),
-        java.util.Map.entry("TraversalFlatMapStep", true),
-        java.util.Map.entry("EndStep", true));
+    var fixtures = nativeFixtures(() -> graph.traversal().V());
     assertThat(admitted).extracting(Class::getSimpleName)
-        .containsExactlyInAnyOrderElementsOf(decisions.keySet());
+        .containsExactlyInAnyOrderElementsOf(
+            fixtures.stream().map(NativeFixture::name).toList());
     var complete = new java.util.HashSet<Class<?>>();
-    for (var type : admitted) {
-      // Only classification runs on these exact-class doubles. No traversal executes.
-      var step = (org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?>) org.mockito.Mockito
-          .mock(type);
-      if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.filter.IsStep is) {
-        org.mockito.Mockito.doReturn(P.gt(1)).when(is).getPredicate();
-      }
+    for (var fixture : fixtures) {
+      var step = fixture.step();
+      assertThat(QuerySafetyAdmission.prepare(fixture.traversal()).reason())
+          .as("configured safety admission for %s", fixture.name())
+          .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
       var encoder = new GremlinShapeEncoder(session.getMetadata().getImmutableSchemaSnapshot());
       assertThat(QuerySafetyAdmission.nativeShapeComplete(step, encoder))
-          .as("explicit encoding decision for %s", type.getName())
-          .isEqualTo(decisions.get(type.getSimpleName()));
-      if (decisions.get(type.getSimpleName()) && !type.getSimpleName().equals("IsStep")) {
-        complete.add(type);
+          .as("explicit encoding decision for %s", fixture.name())
+          .isEqualTo(fixture.complete());
+      if (fixture.complete() && !fixture.name().equals("IsStep")) {
+        complete.add(step.getClass());
       }
     }
     assertThat(QuerySafetyAdmission.STRUCTURAL_NATIVE).isEqualTo(complete);
@@ -102,6 +85,67 @@ public class QuerySafetyAdmissionTest extends GraphBaseTest {
     QuerySafetyAdmission.nativeShapeComplete(__.is(P.gt(1)).asAdmin().getStartStep(), first);
     QuerySafetyAdmission.nativeShapeComplete(__.is(P.lt(1)).asAdmin().getStartStep(), second);
     assertThat(first.compactKey()).isNotEqualTo(second.compactKey());
+  }
+
+  record NativeFixture(String name, boolean complete, Traversal.Admin<?, ?> traversal) {
+    org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?> step() {
+      return nativeSteps(traversal).stream()
+          .filter(step -> step.getClass().getSimpleName().equals(name)).findFirst().orElseThrow();
+    }
+  }
+
+  private static List<org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?>> nativeSteps(
+      Traversal.Admin<?, ?> traversal) {
+    var steps = new ArrayList<org.apache.tinkerpop.gremlin.process.traversal.Step<?, ?>>();
+    for (var step : traversal.getSteps()) {
+      steps.add(step);
+      if (step instanceof TraversalParent parent) {
+        parent.getLocalChildren().forEach(child -> steps.addAll(nativeSteps(child)));
+        parent.getGlobalChildren().forEach(child -> steps.addAll(nativeSteps(child)));
+      }
+    }
+    return steps;
+  }
+
+  /**
+   * Configured roots shared with the private-preparation bypass proof. Internal end markers are
+   * constructed explicitly when no standalone DSL spelling exists. These roots never execute.
+   */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  static List<NativeFixture> nativeFixtures(Supplier<GraphTraversal> root) {
+    var requirements = root.get().asAdmin();
+    requirements
+        .addStep(new org.apache.tinkerpop.gremlin.process.traversal.step.util.RequirementsStep(
+            requirements, java.util.Set.of(
+                org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement.PATH)));
+    var end = root.get().asAdmin();
+    end.addStep(
+        new org.apache.tinkerpop.gremlin.process.traversal.step.util.ComputerAwareStep.EndStep(
+            end));
+    return List.of(
+        new NativeFixture("InjectStep", false, root.get().inject(17, 29).asAdmin()),
+        new NativeFixture("IdentityStep", true, root.get().identity().asAdmin()),
+        new NativeFixture("RepeatStep", false,
+            root.get().repeat(__.identity()).times(2).asAdmin()),
+        new NativeFixture("RepeatEndStep", false,
+            root.get().repeat(__.identity()).times(3).asAdmin()),
+        new NativeFixture("LocalStep", true, root.get().local(__.has("age", 40)).asAdmin()),
+        new NativeFixture("OptionalStep", true, root.get().optional(__.has("age", 40)).asAdmin()),
+        new NativeFixture("ChooseStep", false,
+            root.get().choose(__.values("age")).option(30, __.identity())
+                .option(40, __.values("name"))
+                .asAdmin()),
+        new NativeFixture("CoalesceStep", true,
+            root.get().coalesce(__.values("name"), __.values("age")).asAdmin()),
+        new NativeFixture("RequirementsStep", false, requirements),
+        new NativeFixture("IsStep", true, root.get().is(P.gt(1)).asAdmin()),
+        new NativeFixture("PathStep", false, root.get().path().by("name").asAdmin()),
+        new NativeFixture("NoOpBarrierStep", false, root.get().barrier(0).asAdmin()),
+        new NativeFixture("TreeStep", false, root.get().tree().by("name").asAdmin()),
+        new NativeFixture("TraversalMapStep", true, root.get().map(__.has("age", 40)).asAdmin()),
+        new NativeFixture("TraversalFlatMapStep", true,
+            root.get().flatMap(__.has("age", 40)).asAdmin()),
+        new NativeFixture("EndStep", true, end));
   }
 
   /** Writes at the root and in both child scopes suppress even independent vertex children. */

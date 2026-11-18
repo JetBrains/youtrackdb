@@ -21,9 +21,14 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
+import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Before;
@@ -1139,6 +1144,141 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
       }
       assertThat(cache.getTranslationEntry(originalKey, db)).isSameAs(resident);
     }
+  }
+
+  /** Every configured bypass reaches private preparation without candidate lookup or publication. */
+  @Test
+  public void admittedNativeFixturesReachPrivateExtractionAndBypassIncompleteInputs() {
+    var fixtures = QuerySafetyAdmissionTest.nativeFixtures(() -> graph.traversal().V()
+        .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows"));
+    for (var fixture : fixtures) {
+      var traversal = fixture.traversal();
+      assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+          .as(fixture.name()).isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+      assertThat(partialExtraction(traversal).complete())
+          .as("private extraction of %s", fixture.name()).isEqualTo(fixture.complete());
+      if (fixture.complete()) {
+        continue;
+      }
+      try (var probe = new PublicationProbe()) {
+        probe.key = null;
+        org.mockito.Mockito.clearInvocations(probe.cache);
+        try (var candidate = probe.prepare().prepare(traversal, policy)) {
+          assertThat(candidate.reason()).as(fixture.name())
+              .isNotEqualTo(PrivatePrefixDiscovery.Reason.SAFETY_VETO);
+          assertThat(candidate.cacheHit()).as(fixture.name()).isFalse();
+          assertThat(probe.key).as("no lookup for %s", fixture.name()).isNull();
+        }
+        verify(probe.cache, never()).getTranslationEntry(any(Object.class), any());
+        verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+            org.mockito.ArgumentMatchers.anyLong(), any());
+      }
+    }
+  }
+
+  /** Child properties and literals survive extraction for each single-child native parent. */
+  @Test
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  public void completeNativeParentsEncodeChildInputsAndCurrentBindings() {
+    List<BiFunction<
+        GraphTraversal,
+        Traversal,
+        GraphTraversal>> parents =
+            List.of((root, child) -> root.local(child), (root, child) -> root.optional(child),
+                (root, child) -> root.map(child), (root, child) -> root.flatMap(child));
+    for (var parent : parents) {
+      Supplier<
+          GraphTraversal> root =
+              () -> graph.traversal().V().hasLabel("CandidatePerson").has("age", 30)
+                  .out("candidateKnows");
+      var first = partialExtraction(parent.apply(root.get(), __.has("age", 40)).asAdmin());
+      var literal = partialExtraction(parent.apply(root.get(), __.has("age", 50)).asAdmin());
+      var property = partialExtraction(parent.apply(root.get(), __.has("name", "second"))
+          .asAdmin());
+      assertThat(first.complete()).isTrue();
+      assertThat(literal.complete()).isTrue();
+      assertThat(property.complete()).isTrue();
+      assertThat(literal.key()).isEqualTo(first.key());
+      assertThat(property.key()).isNotEqualTo(first.key());
+      assertThat(first.bindings())
+          .containsExactlyInAnyOrderEntriesOf(Map.of(0, 30, 1, 40));
+      assertThat(literal.bindings())
+          .containsExactlyInAnyOrderEntriesOf(Map.of(0, 30, 1, 50));
+      assertThat(property.bindings()).containsExactlyInAnyOrderEntriesOf(
+          Map.of(0, 30, 1, "second"));
+    }
+  }
+
+  /** Coalesce identity includes every local child in order, not just its first arm. */
+  @Test
+  public void coalesceLaterChildOrderAndLiteralsHaveIndependentExtractionControls() {
+    Supplier<
+        GraphTraversal<?, ?>> root =
+            () -> graph.traversal().V().hasLabel("CandidatePerson").has("age", 30)
+                .out("candidateKnows");
+    var first = partialExtraction(root.get().coalesce(__.has("age", 40),
+        __.has("name", "first")).asAdmin());
+    var literal = partialExtraction(root.get().coalesce(__.has("age", 50),
+        __.has("name", "second")).asAdmin());
+    var later = partialExtraction(root.get().coalesce(__.has("age", 40),
+        __.has("age", 40)).asAdmin());
+    var reordered = partialExtraction(root.get().coalesce(__.has("name", "first"),
+        __.has("age", 40)).asAdmin());
+    for (var extraction : List.of(first, literal, later, reordered)) {
+      assertThat(extraction.complete()).isTrue();
+    }
+    assertThat(literal.key()).isEqualTo(first.key());
+    assertThat(later.key()).isNotEqualTo(first.key());
+    assertThat(reordered.key()).isNotEqualTo(first.key());
+    assertThat(first.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 40, 2, "first"));
+    assertThat(literal.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 50, 2, "second"));
+    assertThat(later.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, 40, 2, 40));
+    assertThat(reordered.bindings()).containsExactlyInAnyOrderEntriesOf(
+        Map.of(0, 30, 1, "first", 2, 40));
+    assertCandidatePair(() -> root.get().coalesce(__.values("name"), __.values("age")).asAdmin(),
+        () -> root.get().coalesce(__.values("name"), __.values("name")).asAdmin(), false, true);
+    assertCandidatePair(() -> root.get().coalesce(__.values("name"), __.values("age")).asAdmin(),
+        () -> root.get().coalesce(__.values("age"), __.values("name")).asAdmin(), false, true);
+  }
+
+  /** Identity and internal end markers have labels. IsStep also has an operator and value type. */
+  @Test
+  public void completeNativeLeafInputsHavePrivateShapeControls() {
+    for (String name : List.of("IdentityStep", "EndStep", "IsStep")) {
+      var fixtures = QuerySafetyAdmissionTest.nativeFixtures(() -> graph.traversal().V()
+          .hasLabel("CandidatePerson").has("age", 30).out("candidateKnows"));
+      var fixture = fixtures.stream().filter(item -> item.name().equals(name)).findFirst()
+          .orElseThrow();
+      var first = partialExtraction(fixture.traversal());
+      fixture.step().addLabel("nativeResult");
+      var labelled = partialExtraction(fixture.traversal());
+      assertThat(first.complete()).isTrue();
+      assertThat(labelled.complete()).isTrue();
+      assertThat(labelled.key()).as(name).isNotEqualTo(first.key());
+      assertThat(first.bindings()).containsExactlyInAnyOrderEntriesOf(Map.of(0, 30));
+      assertThat(labelled.bindings()).isEqualTo(first.bindings());
+    }
+    var gt = partialExtraction(graph.traversal().V().is(
+        P.gt(1)).asAdmin());
+    var literal = partialExtraction(graph.traversal().V().is(P.gt(2)).asAdmin());
+    var lt = partialExtraction(graph.traversal().V().is(
+        P.lt(1)).asAdmin());
+    var type = partialExtraction(graph.traversal().V().is(
+        P.gt(1L)).asAdmin());
+    assertThat(gt.complete()).isTrue();
+    assertThat(literal.complete()).isTrue();
+    assertThat(literal.key()).isEqualTo(gt.key());
+    assertThat(literal.bindings()).isEmpty();
+    assertThat(lt.complete()).isTrue();
+    assertThat(type.complete()).isTrue();
+    assertThat(gt.key()).isNotEqualTo(lt.key()).isNotEqualTo(type.key());
+    // Native IsStep values stay on the original suffix. They are not MATCH parameter slots.
+    assertThat(gt.bindings()).isEmpty();
+    assertThat(lt.bindings()).isEmpty();
+    assertThat(type.bindings()).isEmpty();
   }
 
   /** Collision pairs reach candidate lookup, not just encoder equality or composite-key equality. */
