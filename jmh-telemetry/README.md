@@ -36,6 +36,71 @@ Run fixture checks with:
 python3 -m unittest discover -s jmh-telemetry/tests
 ```
 
+## Local paired runner
+
+`telemetry_run.py` runs catalog arms for one candidate revision on one local machine.
+Use only a jar you trust to execute with your account privileges.
+The runner is not a sandbox.
+The shipped catalog has no on arm, so this command exits 2 with "not available" before launching Java.
+
+Real-runner use must wait for first-delivery merge and separate execution authorization.
+See the [delivery plan](../docs/adr/ytdb-496-opentelemetry-support/_workflow/plan/track-I1.md).
+
+Build the candidate jar once in its own clean checkout with the build command above.
+The checkout HEAD must match the requested revision.
+The runner copies the jar into private scratch and uses only that copy for all launches.
+Do not rebuild between arms or repetitions.
+Choose a scratch directory outside `target`.
+The fixture keeps its warmed dataset in memory and uses scratch for temporary database directories.
+Each fork creates its fixture and warms it before measurement.
+
+The following example uses an existing scratch directory and a new output directory.
+Replace the revision with the jar's full `Implementation-Build` revision.
+
+```sh
+python3 jmh-telemetry/telemetry_run.py \
+  --jar /path/to/candidate/jmh-telemetry/target/telemetry-benchmarks.jar \
+  --scratch /path/to/scratch --directory /path/to/new-results \
+  --run local_1 --producing-attempt attempt_1 --revision FULL_REVISION \
+  --artifact local_results --harness off_fixture_v1 --machine-type local_workstation \
+  --java /path/to/jdk21/bin/java --repetitions 2 --warmup 5
+```
+
+Identifiers accept only ASCII letters, digits and underscores.
+Use Python 3 and JDK 21, with at least two repetitions to alternate arm order.
+The runner fixes both heap bounds at 2 GiB and uses G1.
+Keep the dataset small enough to fit that heap.
+
+It records available CPUs, CPU model, memory and container limits before measurement.
+It also records software versions and setup evidence from the candidate jar.
+Candidate listing and setup data remain untrusted evidence, not proof of correct execution.
+
+Each invocation uses three forks, five one-second warmup iterations and ten one-second measurement iterations.
+Arms run sequentially, with their order reversed on even repetitions.
+Scenario values apply to one exact catalog benchmark at a time.
+Only arms present in that benchmark's parameter listing can launch.
+
+For a stabilization rerun, use `--warmup 5 10` in a new output directory.
+Pass one uses five warmup iterations, and pass two uses ten.
+Every pass repeats both arms and retains separate files for every repetition.
+The runner does not infer stabilization or pool passes.
+Never reuse an output directory, including after a failure.
+
+The output directory contains raw JMH JSON files and `manifest.json`.
+The runner validates the complete inventory before publishing the manifest.
+A failed launch, failed fork or interrupted pass exits with a non-success status.
+Any partial raw files remain for inspection without a complete manifest.
+Failed-launch output is shown on standard error with terminal control characters escaped.
+A preflight failure leaves no output directory.
+Missing catalog arms produce explicit unavailable evidence and exit 2.
+Use the unchanged `telemetry_compare.py` with the same run identifiers, repetitions and pass count.
+
+Later arm registrations must provide matching off fixtures and scenario-specific setup metadata.
+The runner accepts setup keys such as `sql.on.scenario` and `sql.on.query`.
+It also accepts the existing `sql.scenario` keys when they match the selected arm.
+Only the trusted Python catalog can register an arm.
+No command-line option or candidate listing can extend it.
+
 ## Workloads and interpretation
 
 The benchmark identities are `OffBenchmark.sql`, `OffBenchmark.translated`
@@ -242,4 +307,5 @@ Outcomes precede bounded evidence. If outcomes exceed report capacity, validatio
 Reports use the dedicated `ytdb-telemetry-comparison` comment marker.
 Candidate strings use the bounded renderer shared with the local off route.
 Producing attempt and artifact identity remain distinct from the validation attempt.
-This contract adds no runner, workflow mode, nightly history or artifact upload.
+The offline validator launches no candidate code.
+Neither local tool changes workflow mode, nightly history or artifact uploads.
