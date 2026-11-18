@@ -49,6 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
@@ -2727,17 +2728,28 @@ public class DiskStorage extends AbstractStorage {
         readCache.silentLoadForRead(fileId, backupPageIndex(pageIndex), writeCache, true);
     // A silent miss inside layout 28 allocation is a known blank only outside written bytes.
     // loadOrAdd preserves strict missing-file and EOF errors within the written range.
-    final var blankPointer = cacheEntry == null && getStorageFormat() == StorageFormat.LAYOUT_28
-        && pageIndex < writeCache.physicalSizeForBackupSnapshot(fileId)
-            ? writeCache.loadOrAdd(fileId, pageIndex, true) : null;
+    CachePointer blankPointer = null;
+    if (cacheEntry == null && getStorageFormat() == StorageFormat.LAYOUT_28
+        && pageIndex < writeCache.physicalSizeForBackupSnapshot(fileId)) {
+      blankPointer = writeCache.loadOrAdd(fileId, pageIndex, true);
+    }
     if (cacheEntry == null && blankPointer == null) {
       throw new IOException("Missing backup page " + pageIndex + " of file " + fileId);
     }
     // The fallback can return a live write-cache page that commits modify in place.
-    long sharedStamp = cacheEntry == null ? blankPointer.acquireSharedLock()
-        : cacheEntry.acquireSharedLock();
+    final long sharedStamp;
+    if (cacheEntry == null) {
+      sharedStamp = blankPointer.acquireSharedLock();
+    } else {
+      sharedStamp = cacheEntry.acquireSharedLock();
+    }
     try {
-      var cachePointer = cacheEntry == null ? blankPointer : cacheEntry.getCachePointer();
+      final CachePointer cachePointer;
+      if (cacheEntry == null) {
+        cachePointer = blankPointer;
+      } else {
+        cachePointer = cacheEntry.getCachePointer();
+      }
       assert cachePointer != null;
       var cachePointerBuffer = cachePointer.getBuffer();
       assert cachePointerBuffer != null;
