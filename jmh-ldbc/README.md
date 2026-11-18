@@ -86,7 +86,7 @@ Each fixed membership size and member-type layout has its own cache key.
 Each range bound pair also has its own cache key.
 Other methods reuse one translation entry as starts and same-type values rotate.
 
-Setup checks native results, runtime RID plans and template reuse.
+Only the `gremlin_rid*` methods prepare RID feeds and check native results, runtime RID plans and template reuse during setup.
 It also checks the traversals selected by the benchmark methods.
 Setup rejects unsuitable feeds before measurement.
 Only the range feed requires at least 60 KNOWS neighbors, so every window returns 20 rows.

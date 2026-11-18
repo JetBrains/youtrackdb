@@ -73,6 +73,29 @@ public class LdbcGremlinBenchmarkWiringTest {
         LIVE_DATE, LdbcGremlinTranslatorBenchmark.OrderedLimitIc2Workload.maxDate(arm, 7));
   }
 
+  /** All 16 RID methods need preparation, while the 36 existing methods must skip it. */
+  @Test
+  public void trialPreparationRuleSelectsOnlyRidBenchmarks() {
+    int rid = 0;
+    int existing = 0;
+    for (var method : LdbcGremlinTranslatorBenchmark.class.getDeclaredMethods()) {
+      if (method.isAnnotationPresent(Benchmark.class)) {
+        boolean isRid = method.getName().startsWith("gremlin_rid");
+        assertEquals(method.getName(), isRid,
+            LdbcGremlinTranslatorBenchmark.requiresRidPreparation(
+                LdbcGremlinTranslatorBenchmark.class.getName() + "." + method.getName()));
+        if (isRid) {
+          rid++;
+        } else {
+          existing++;
+        }
+      }
+    }
+    assertEquals(16, rid);
+    assertEquals(36, existing);
+    assertEquals(52, rid + existing);
+  }
+
   private static void assertBenchmarkAnnotation(String methodName) throws NoSuchMethodException {
     var method = LdbcGremlinTranslatorBenchmark.class.getMethod(
         methodName, LdbcBenchmarkState.class, LdbcGremlinTranslatorBenchmark.TranslatorArm.class);

@@ -23,6 +23,7 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
 /**
  * Gremlin translator benchmarks over {@link GremlinTraversalShapes} on the LDBC schema.
@@ -95,6 +96,11 @@ import org.openjdk.jmh.annotations.Warmup;
     "--add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED",
 })
 public class LdbcGremlinTranslatorBenchmark {
+
+  /** JMH supplies a fully qualified benchmark name. Only RID methods need RID trial checks. */
+  static boolean requiresRidPreparation(String benchmarkName) {
+    return benchmarkName.substring(benchmarkName.lastIndexOf('.') + 1).startsWith("gremlin_rid");
+  }
 
   /**
    * Per-arm trial state: the kill-switch position, a RID pool for the by-id shape, the person and
@@ -218,7 +224,11 @@ public class LdbcGremlinTranslatorBenchmark {
      * suspiciously fast numbers on the first Hetzner run.
      */
     @Setup(Level.Trial)
-    public void setUp(LdbcBenchmarkState state) {
+    public void setUp(LdbcBenchmarkState state, BenchmarkParams params) {
+      setUp(state, requiresRidPreparation(params.getBenchmark()));
+    }
+
+    void setUp(LdbcBenchmarkState state, boolean prepareRid) {
       flagBeforeTrial =
           GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(translatorEnabled);
@@ -289,7 +299,9 @@ public class LdbcGremlinTranslatorBenchmark {
       buildIc2DatePool(state);
 
       checkArmInstalled(state);
-      buildRidFeeds(state);
+      if (prepareRid) {
+        buildRidFeeds(state);
+      }
     }
 
     /**

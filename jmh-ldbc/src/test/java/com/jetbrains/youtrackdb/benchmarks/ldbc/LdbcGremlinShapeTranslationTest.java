@@ -17,6 +17,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -24,6 +25,12 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.openjdk.jmh.annotations.Mode;
+import org.openjdk.jmh.infra.BenchmarkParams;
+import org.openjdk.jmh.infra.IterationParams;
+import org.openjdk.jmh.runner.IterationType;
+import org.openjdk.jmh.runner.WorkloadParams;
+import org.openjdk.jmh.runner.options.TimeValue;
 
 /**
  * Drives every {@link GremlinTraversalShapes} builder the JMH harness measures, on both kill-switch
@@ -286,12 +293,24 @@ public class LdbcGremlinShapeTranslationTest {
           "CREATE EDGE WORK_AT FROM (SELECT FROM Person WHERE id = 1)"
               + " TO (SELECT FROM Organisation WHERE id = 50) SET workFrom = 2009")
           .iterate());
-      arm.personRids = new Object[] {aliceRid, feed.getFirst().rid(), feed.getLast().rid()};
-      var preparationState = new LdbcBenchmarkState();
-      preparationState.traversal = g;
+      var preparationState = trialPreparationState();
+      for (boolean enabled : new boolean[] {false, true}) {
+        arm.translatorEnabled = enabled;
+        flag.setValue(!enabled);
+        try {
+          // The JMH entry point must forward the RID method name into feed preparation.
+          arm.setUp(preparationState, benchmarkParams("gremlin_ridCount"));
+          assertEquals(enabled, flag.getValueAsBoolean());
+          org.junit.Assert.assertTrue(arm.ridKnows.size() >= 2);
+          assertEquals(2, arm.ridRange.size());
+          assertEquals(2, arm.ridWork.size());
+          org.junit.Assert.assertNull(arm.ridObserver);
+        } finally {
+          arm.restoreFlag();
+        }
+        assertEquals(!enabled, flag.getValueAsBoolean());
+      }
       flag.setValue(false);
-      arm.buildRidFeeds(preparationState);
-      org.junit.Assert.assertFalse(flag.getValueAsBoolean());
       org.junit.Assert.assertTrue(arm.ridKnows.stream().anyMatch(v -> v.rid().equals(aliceRid)));
       org.junit.Assert.assertFalse(arm.ridRange.stream().anyMatch(v -> v.rid().equals(aliceRid)));
       assertEquals(2, arm.ridRange.size());
@@ -499,6 +518,93 @@ public class LdbcGremlinShapeTranslationTest {
     } finally {
       flag.setValue(before);
     }
+  }
+
+  /** JMH setup for an existing method leaves all RID feeds null and restores either caller arm. */
+  @Test
+  public void existingMethodTrialSetupSkipsRidPreparationOnBothArms() {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      for (boolean enabled : new boolean[] {false, true}) {
+        var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+        arm.translatorEnabled = enabled;
+        flag.setValue(!enabled);
+        try {
+          arm.setUp(trialPreparationState(), benchmarkParams("gremlin_vertexByRid"));
+          assertEquals(enabled, flag.getValueAsBoolean());
+          requireNoRidPreparation(arm);
+        } finally {
+          arm.restoreFlag();
+        }
+        assertEquals(!enabled, flag.getValueAsBoolean());
+      }
+    } finally {
+      flag.setValue(before);
+    }
+  }
+
+  /** Forcing RID work makes the no-preparation assertion fail, even on an unsuitable fixture. */
+  @Test
+  public void existingMethodSetupNegativeControlDetectsRidWork() {
+    var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+    boolean before = flag.getValueAsBoolean();
+    try {
+      for (boolean enabled : new boolean[] {false, true}) {
+        var arm = new LdbcGremlinTranslatorBenchmark.TranslatorArm();
+        arm.translatorEnabled = enabled;
+        flag.setValue(!enabled);
+        try {
+          org.junit.Assert.assertThrows(IllegalStateException.class,
+              () -> arm.setUp(trialPreparationState(), true));
+          org.junit.Assert.assertFalse(arm.ridKnows.isEmpty());
+          org.junit.Assert.assertThrows(AssertionError.class, () -> requireNoRidPreparation(arm));
+          assertEquals(enabled, flag.getValueAsBoolean());
+        } finally {
+          arm.restoreFlag();
+        }
+        assertEquals(!enabled, flag.getValueAsBoolean());
+      }
+    } finally {
+      flag.setValue(before);
+    }
+  }
+
+  private static void requireNoRidPreparation(LdbcGremlinTranslatorBenchmark.TranslatorArm arm) {
+    org.junit.Assert.assertNull(arm.ridKnows);
+    org.junit.Assert.assertNull(arm.ridWork);
+    org.junit.Assert.assertNull(arm.ridRange);
+  }
+
+  private static BenchmarkParams benchmarkParams(String method) {
+    var warmup = new IterationParams(IterationType.WARMUP, 1, TimeValue.seconds(1), 1);
+    var measurement = new IterationParams(IterationType.MEASUREMENT, 1, TimeValue.seconds(1), 1);
+    // Only the benchmark name selects RID preparation. Keep other string fields distinct from it.
+    return new BenchmarkParams(LdbcGremlinTranslatorBenchmark.class.getName() + "." + method,
+        "unused.generated.target", true, 1, new int[] {1}, List.of(), 1, 0,
+        warmup, measurement, Mode.Throughput, new WorkloadParams(), TimeUnit.SECONDS, 1,
+        "java", List.of(), "21", "test-vm", "21", "1.37", TimeValue.seconds(10));
+  }
+
+  private static LdbcBenchmarkState trialPreparationState() {
+    var state = new LdbcBenchmarkState() {
+      @Override
+      public long isPersonId(long index) {
+        return ALICE;
+      }
+
+      @Override
+      public long isMessageId(long index) {
+        return POST;
+      }
+
+      @Override
+      public long ic2PersonId(long index) {
+        return ALICE;
+      }
+    };
+    state.traversal = g;
+    return state;
   }
 
   /** Setup rejects an empty range feed and still restores the caller's native arm. */
