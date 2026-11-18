@@ -524,8 +524,8 @@ public class WOWCacheLogicalFileStateTest {
     assertEquals(identity, state.identity());
     assertTrue(state.diskPresent());
     assertEquals(nonDurable, state.nonDurable());
-    assertEquals(LogicalPageFileTable.UNTRACKED_EXTENT, state.logicalExtent());
-    assertEquals(LogicalPageFileTable.UNTRACKED_EXTENT, state.diskExtent());
+    assertEquals(0, state.logicalExtent());
+    assertEquals(0, state.diskExtent());
     assertEquals(Integer.valueOf(identity.internalId()),
         cache.registeredFileId(PageFileNames.layout28(identity)));
   }

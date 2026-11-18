@@ -311,14 +311,15 @@ public interface WriteCache {
   void flush();
 
   /**
-   * Reads the physical (in-memory) file size, in pages, of the given file.
+   * Reads allocated extent in pages. Layout 28 disk storage uses committed logical extent,
+   * including cache-only pages. This is not a measurement of filesystem bytes.
    *
-   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel physical-size
+   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel allocated-extent
    * reads through the gated helper set: {@link #physicalSizeForBackupSnapshot(long)} for the
    * post-unfreeze incremental-backup snapshot reader (Layer A), and
    * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} for every
    * {@code StorageComponent}-anchored consumer (Layer B). The helper set is the audit-grep entry
-   * surface for "who reads physical size from outside the cache / atomic-operation core?" — a
+   * surface for "who reads allocated extent outside the cache / atomic-operation core?" — a
    * new direct call to this method anywhere outside the documented internal set below is a
    * regression.
    *
@@ -334,7 +335,7 @@ public interface WriteCache {
    *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
    *       method routes Layer B helpers through {@code AtomicOperation.filledUpTo} so the
    *       in-TX {@code FileChanges} placeholder side-effect is preserved on first touch.
-   *   <li>{@code AtomicOperationBinaryTracking.commitChanges} — committed physical file-size
+   *   <li>{@code AtomicOperationBinaryTracking.commitChanges} — committed allocated-extent
    *       floor for WAL records that declare newly allocated pages.
    *   <li>{@link #physicalSizeForBackupSnapshot(long)} — the Layer A helper body delegates here
    *       inside the {@link WriteCache} implementers ({@code WOWCache},
@@ -344,7 +345,7 @@ public interface WriteCache {
    * </ul>
    *
    * @param fileId external file id of the target file
-   * @return current in-memory file size in pages
+   * @return allocated extent in pages
    * @deprecated External / cross-component callers must use {@link
    *     #physicalSizeForBackupSnapshot(long)} (Layer A) or {@code
    *     StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} (Layer B).
@@ -354,19 +355,19 @@ public interface WriteCache {
   long getFilledUpTo(long fileId);
 
   /**
-   * Reads the physical (in-memory) file size, in pages, of the given file for the
+   * Reads allocated extent, including cache-only pages in layout 28 disk storage, for the
    * post-unfreeze incremental-backup snapshot iteration.
    *
    * <p>Named alias for the gated read of {@link #getFilledUpTo(long)} that callers from
    * outside the cache / atomic-operation core must funnel through. The cross-component
    * discovery contract enforced by this helper set: cross-TX readers route through the
    * logical surface (the component's {@code EntryPoint} {@code pagesSize} /
-   * {@code fileSize}) where one exists; physical-size reads from outside the documented
+   * {@code fileSize}) where one exists. Allocated-extent reads outside the documented
    * internal set route through this helper (cache-layer entry point used by the backup
    * snapshot) or through
    * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)}
    * (storage-component entry point used by every other surviving consumer). Tightening
-   * the discovery surface to this small named helper set turns "who reads physical size
+   * the discovery surface to this small named helper set turns "who reads allocated extent
    * from outside the cache/AOBT internal core?" into an audit-grep-able question.
    * {@link #getFilledUpTo(long)} stays callable for the documented internal set
    * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
@@ -399,53 +400,20 @@ public interface WriteCache {
   void deleteFile(long fileId) throws IOException;
 
   /**
-   * One-way shrink primitive: reduces the on-disk physical size of {@code fileId} to
-   * {@code targetBytes}, dropping any cached dirty page entries that sit at or above
-   * the target. This primitive carries an explicit target and never grows the file:
-   * callers passing a
-   * {@code targetBytes} greater than or equal to the current physical file size get a
-   * no-op.
+   * Reduces allocated extent to a page-aligned byte target and drops cached tail pages.
+   * Canonical layout 28 disk files use logical allocation, including cache-only pages.
+   * Legacy disk files use their existing allocated size. The memory implementation does not
+   * shrink files and always returns false.
    *
-   * <p>Used by the recovery-time orphan-truncation pass to repair the
-   * {@code logical &lt;= physical} invariant on the four entry-point-equipped storage
-   * components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
-   * PaginatedCollectionV2) after a partial-flush crash leaves physical pages past the
-   * EP-stored logical counter.
+   * <p>The target never grows allocation. A target at or above current allocation is a no-op.
+   * Recovery uses this to discard allocation beyond a component's persisted used-page count.
+   * The disk implementation excludes growth and drains flush work before purging cached tails
+   * and shrinking a present file. Pending logical files need no disk operation.
    *
-   * <p>The disk impl ({@code WOWCache}) acquires {@code filesLock.writeLock} so the
-   * truncate is mutually exclusive against concurrent file-table mutations; the
-   * write-back layer's dirty pages at {@code pageIndex >= targetBytes / pageSize} are
-   * dropped via the range-scoped {@code removeCachedPagesAtLeast} purge before the
-   * underlying {@code AsyncFile.shrink} runs, so a concurrent flush of an orphan
-   * dirty entry cannot re-extend the file past the target. Dirty entries below the
-   * target are preserved and will be persisted by the next periodic flush.
-   *
-   * <p>The in-memory impl ({@code DirectMemoryOnlyDiskCache}) is a no-op: an
-   * in-memory engine cannot produce on-disk orphans, so the recovery pass has
-   * nothing to repair. It always returns {@code false}.
-   *
-   * <p>Test-mock implementers throw {@link UnsupportedOperationException}; only the
-   * two production implementers (WOWCache and DirectMemoryOnlyDiskCache) need to
-   * participate in the recovery pass.
-   *
-   * <p><b>Return contract.</b> Returns {@code true} iff the file was physically
-   * shrunk, {@code false} on the pre-flight no-op (a {@code targetBytes} greater
-   * than or equal to the current physical file size, which drops nothing). The
-   * boolean lets the read-cache orchestrator ({@code LockFreeReadCache.shrinkFile})
-   * skip the read-cache purge on a no-op shrink, so the recovery-time pass costs
-   * O(1) per untouched component instead of an O(capacity) sweep. The disk impl
-   * derives the boolean from the same {@code getFileSize()} snapshot held under
-   * {@code filesLock.writeLock} that drives its early-return, so the return is
-   * exact: a recomputed size comparison after the lock drops would reopen a
-   * TOCTOU race.
-   *
-   * @param fileId external file id of the target file
-   * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be
-   *     a multiple of the page size (the recovery pass always supplies a
-   *     page-aligned value)
-   * @return {@code true} if the file was physically truncated, {@code false} on the
-   *     pre-flight no-op
-   * @throws IOException if the underlying disk I/O fails during the truncate
+   * @param fileId external file id
+   * @param targetBytes non-negative page-aligned target
+   * @return true if allocation shrank, which requires the read cache to purge its tail
+   * @throws IOException if a required disk operation fails
    */
   boolean shrinkFile(long fileId, long targetBytes) throws IOException;
 

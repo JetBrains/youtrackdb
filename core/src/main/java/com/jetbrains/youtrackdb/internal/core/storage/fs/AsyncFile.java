@@ -334,6 +334,11 @@ public final class AsyncFile implements File {
   }
 
   @Override
+  public void reserveSpaceThrough(long size) {
+    this.size.accumulateAndGet(size, Math::max);
+  }
+
+  @Override
   public long allocateSpace(int size) {
     return this.size.getAndAdd(size);
   }

@@ -91,6 +91,383 @@ import org.mockito.Mockito;
 @Category(SequentialTest.class)
 public class WOWCacheLoadOrAddTest {
 
+  // A paused reservation caller must not hold up growth of a different page in the same file.
+  @Test
+  public void logicalGrowerDoesNotBlockAnotherGrower() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9120);
+    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()));
+    final var original = files.remove(fileId);
+    final var entered = new CountDownLatch(1);
+    final var release = new CountDownLatch(1);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    Mockito.doAnswer(inv -> {
+      entered.countDown();
+      assertTrue(release.await(10, TimeUnit.SECONDS));
+      original.reserveSpaceThrough(inv.getArgument(0));
+      return null;
+    }).when(wrapper).reserveSpaceThrough(4L * PAGE_SIZE);
+    files.add(fileId, wrapper);
+    final var first = asyncFileExecutor.submit(() -> {
+      wowCache.loadOrAdd(fileId, 3, false).decrementReadersReferrer();
+      return null;
+    });
+    try {
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      final var second = asyncFileExecutor.submit(() -> {
+        wowCache.loadOrAdd(fileId, 6, false).decrementReadersReferrer();
+        return null;
+      });
+      second.get(10, TimeUnit.SECONDS);
+      assertEquals(7, wowCache.getFilledUpTo(fileId));
+    } finally {
+      release.countDown();
+      first.get(10, TimeUnit.SECONDS);
+    }
+    assertEquals(7L * PAGE_SIZE, original.getFileSize());
+    wowCache.flush(fileId);
+  }
+
+  // Pending files reject oversized requests before the extent or pointer index can wrap.
+  @Test
+  public void pendingLogicalAllocationRejectsOversizedIndex() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9121);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    wowCache.logicalFiles().register(PageFileNames.layout28(identity), identity.internalId(),
+        false, 0, 0, false);
+    try {
+      for (long index : new long[] {4294967296L, Long.MAX_VALUE,
+          Integer.MAX_VALUE / PAGE_SIZE}) {
+        assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, index, false));
+        assertEquals(0, wowCache.getFilledUpTo(fileId));
+      }
+    } finally {
+      wowCache.logicalFiles().forget(identity.internalId());
+    }
+  }
+
+  // No blank-stamp tasks run here. Only batch completion can publish the changed page's extent.
+  @Test
+  public void batchWritePublishesExtentBeforeEvictionAndReload() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final int internalId = wowCache.internalFileId(fileId);
+    final var changed = wowCache.loadIfPresent(fileId, 2, false);
+    changed.decrementReadersReferrer();
+    wowCache.flush(fileId);
+    assertEquals(3, wowCache.logicalFiles().live(internalId).diskExtent());
+    final var loaded = wowCache.loadIfPresent(fileId, 2, true);
+    assertNotNull(loaded);
+    try {
+      assertNotSame(changed, loaded);
+      assertEquals(728, loaded.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+    } finally {
+      loaded.decrementReadersReferrer();
+    }
+  }
+
+  // A failed batch completion must leave both the old written extent and the changed cache image.
+  @Test
+  public void failedBatchWriteKeepsExtentAndChangedImage() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    Mockito.doReturn((com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult) () -> {
+      throw new IllegalStateException("injected batch failure");
+    }).when(wrapper).write(Mockito.anyList());
+    files.add(fileId, wrapper);
+    try {
+      assertThrows(Exception.class, () -> wowCache.flush(fileId));
+      assertEquals(0, wowCache.logicalFiles().live(wowCache.internalFileId(fileId)).diskExtent());
+      final var cached = wowCache.loadIfPresent(fileId, 2, false);
+      assertNotNull(cached);
+      try {
+        assertEquals(728, cached.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      } finally {
+        cached.decrementReadersReferrer();
+      }
+    } finally {
+      files.remove(fileId);
+      files.add(fileId, original);
+      wowCache.flush(fileId);
+    }
+  }
+
+  private long prepareUnwrittenMaterializedPage() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9122);
+    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()));
+    files.get(fileId).reserveSpaceThrough(3L * PAGE_SIZE);
+    wowCache.logicalFiles().live(identity.internalId()).extents().allocateThrough(3);
+    final var pointer = wowCache.loadOrAdd(fileId, 2, false);
+    try {
+      pointer.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 728);
+      wowCache.store(fileId, 2, pointer);
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    return fileId;
+  }
+
+  // A completion during disk-size sampling must survive publication of the sampled stale size.
+  @Test
+  public void reregistrationPreservesWriteCompletionDuringSizeSample() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9123);
+    final var name = PageFileNames.layout28(identity);
+    final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    wowCache.renameFile(fileId, "registration-alias.pcl");
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    Mockito.doAnswer(inv -> {
+      final var state = wowCache.logicalFiles().live(identity.internalId());
+      assertNotNull(state);
+      state.extents().writtenThrough(7);
+      return 0L;
+    }).when(wrapper).getUnderlyingFileSize();
+    files.add(fileId, wrapper);
+    try {
+      wowCache.renameFile(fileId, name);
+      assertEquals(7, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    } finally {
+      files.remove(fileId);
+      files.add(fileId, original);
+    }
+  }
+
+  // A pending canonical file exposes cached allocation to readers and backup without a handle.
+  @Test
+  public void pendingLogicalExtentSurvivesCacheMissAndShrinksWithoutDisk() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9100);
+    final var name = PageFileNames.layout28(identity);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    wowCache.logicalFiles().register(name, identity.internalId(), false, 0, 0, false);
+    try {
+      final var page = wowCache.loadOrAdd(fileId, 4, false);
+      try {
+        page.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 731);
+        wowCache.store(fileId, 4, page);
+      } finally {
+        page.decrementReadersReferrer();
+      }
+      assertEquals(5, wowCache.getFilledUpTo(fileId));
+      assertEquals(5, wowCache.physicalSizeForBackupSnapshot(fileId));
+      assertEquals(0, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+      for (int reader = 0; reader < 3; reader++) {
+        final var cached = reader == 0 ? wowCache.loadOrAdd(fileId, 4, false)
+            : reader == 1 ? wowCache.loadIfPresent(fileId, 4, false)
+                : wowCache.load(fileId, 4, new ModifiableBoolean(), false);
+        try {
+          assertEquals(731, cached.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+        } finally {
+          cached.decrementReadersReferrer();
+        }
+      }
+      final var gap = wowCache.loadOrAdd(fileId, 2, false);
+      try {
+        assertEquals(0, gap.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      } finally {
+        gap.decrementReadersReferrer();
+      }
+      assertNull(wowCache.loadIfPresent(fileId, 3, false));
+      assertNull(files.get(fileId));
+      assertTrue(wowCache.shrinkFile(fileId, 2L * PAGE_SIZE));
+      assertEquals(2, wowCache.physicalSizeForBackupSnapshot(fileId));
+      assertNull(wowCache.loadIfPresent(fileId, 4, false));
+      assertFalse(wowCache.shrinkFile(fileId, 2L * PAGE_SIZE));
+    } finally {
+      wowCache.shrinkFile(fileId, 0);
+      wowCache.logicalFiles().forget(identity.internalId());
+    }
+  }
+
+  // Written extent gates disk reads without asking the file for either reserved or actual size.
+  // A failed materialized read remains an error rather than becoming an allocated blank page.
+  @Test
+  public void logicalReadUsesWrittenExtentWithoutSizeQueriesAndPreservesReadErrors()
+      throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9101);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    files.add(fileId, file);
+    wowCache.logicalFiles().register(PageFileNames.layout28(identity), identity.internalId(),
+        false, 3, 1, true);
+    try {
+      assertEquals(3, wowCache.getFilledUpTo(fileId));
+      final var page = wowCache.load(fileId, 0, new ModifiableBoolean(), false);
+      assertNotNull(page);
+      page.decrementReadersReferrer();
+      assertNull(wowCache.loadIfPresent(fileId, 1, false));
+      Mockito.doThrow(new IOException("lost materialized page"))
+          .when(file).read(eq(0L), any(ByteBuffer.class), eq(true));
+      assertThrows(IOException.class, () -> wowCache.loadOrAdd(fileId, 0, false));
+      Mockito.verify(file, Mockito.never()).getFileSize();
+      Mockito.verify(file, Mockito.never()).getUnderlyingFileSize();
+    } finally {
+      files.remove(fileId);
+      wowCache.logicalFiles().forget(identity.internalId());
+    }
+  }
+
+  // Canonical allocation follows logical state even when the file wrapper reserves farther ahead.
+  // Concurrent shared-lock growers retain the maximum, and queued writes cannot undo shrink.
+  @Test
+  public void logicalGrowthIgnoresReservationsAndShrinkOrdersQueuedWrites() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9110);
+    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()));
+    final var file = files.get(fileId);
+    file.allocateSpace(12 * PAGE_SIZE);
+    assertEquals(0, wowCache.getFilledUpTo(fileId));
+    final var start = new CountDownLatch(1);
+    final var first = asyncFileExecutor.submit(() -> {
+      start.await();
+      wowCache.loadOrAdd(fileId, 3, false).decrementReadersReferrer();
+      return null;
+    });
+    final var second = asyncFileExecutor.submit(() -> {
+      start.await();
+      wowCache.loadOrAdd(fileId, 6, false).decrementReadersReferrer();
+      return null;
+    });
+    start.countDown();
+    first.get(10, TimeUnit.SECONDS);
+    second.get(10, TimeUnit.SECONDS);
+    assertEquals(7, wowCache.getFilledUpTo(fileId));
+    assertEquals(12L * PAGE_SIZE, file.getFileSize());
+    wowCache.flush(fileId);
+    assertEquals(7, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    final var dirty = wowCache.loadOrAdd(fileId, 6, false);
+    wowCache.store(fileId, 6, dirty);
+    dirty.decrementReadersReferrer();
+    wowCache.loadOrAdd(fileId, 8, false).decrementReadersReferrer();
+    assertTrue(wowCache.shrinkFile(fileId, 2L * PAGE_SIZE));
+    wowCache.flush(fileId);
+    assertEquals(2, wowCache.getFilledUpTo(fileId));
+    assertEquals(2, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    assertEquals(2L * PAGE_SIZE, file.getUnderlyingFileSize());
+    assertNull(wowCache.loadIfPresent(fileId, 6, false));
+    assertTrue(wowCache.shrinkFile(fileId, 0));
+    assertEquals(0, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    wowCache.loadOrAdd(fileId, 0, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    assertEquals(1, wowCache.getFilledUpTo(fileId));
+    assertEquals(1, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+  }
+
+  // Alias writes and cold opens initialize current written length, not an old open snapshot.
+  @Test
+  public void canonicalReregistrationAndColdOpenUseCurrentWrittenExtent() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9111);
+    final var name = PageFileNames.layout28(identity);
+    final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    wowCache.loadOrAdd(fileId, 1, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    wowCache.renameFile(fileId, "extent-alias.pcl");
+    wowCache.loadOrAdd(fileId, 4, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    wowCache.renameFile(fileId, name);
+    assertEquals(5, wowCache.getFilledUpTo(fileId));
+    assertEquals(5, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    wowCache.close();
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    wowCache.loadRegisteredFiles();
+    assertEquals(5, wowCache.getFilledUpTo(fileId));
+    assertEquals(5, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
+    wowCache.loadOrAdd(fileId, 4, true).decrementReadersReferrer();
+  }
+
+  // Missing bytes within the written range and a deleted materialized file remain real errors.
+  @Test
+  public void lostMaterializedFileAndMissingWrittenPageAreNotBlankAllocations() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9112);
+    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()));
+    wowCache.loadOrAdd(fileId, 2, false).decrementReadersReferrer();
+    wowCache.flush(fileId);
+    final var path = storagePath.resolve(wowCache.nativeFileNameById(fileId));
+    try (var channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
+      channel.truncate(File.HEADER_SIZE + PAGE_SIZE);
+    }
+    assertThrows(java.io.EOFException.class, () -> wowCache.loadOrAdd(fileId, 2, false));
+    assertThrows(java.io.EOFException.class, () -> wowCache.loadIfPresent(fileId, 2, false));
+    assertTrue(files.close(fileId));
+    Files.delete(path);
+    assertFalse(Files.exists(path));
+    assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 0, false));
+    files.remove(fileId);
+    assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 0, false));
+    wowCache.logicalFiles().forget(identity.internalId());
+  }
+
+  // Unwritten and absent images still consult DWL, including silent backup-style loads.
+  // A changed cache image wins over DWL, and strict checksum failures are not rebuilt.
+  @Test
+  public void unwrittenLogicalPagesRecoverFromDwlAndPreferChangedCache() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9113);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    wowCache.logicalFiles().register(PageFileNames.layout28(identity), identity.internalId(),
+        false, 3, 0, false);
+    final var dwl = mock(DoubleWriteLog.class);
+    final var field = WOWCache.class.getDeclaredField("doubleWriteLog");
+    field.setAccessible(true);
+    field.set(wowCache, dwl);
+    when(dwl.loadPage(eq(identity.internalId()), eq(1), any())).thenAnswer(inv -> {
+      final var pointer = bufferPool.acquireDirect(true, Intention.LOAD_PAGE_FROM_DISK);
+      pointer.getNativeByteBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 912);
+      return pointer;
+    });
+    try {
+      final var recovered = wowCache.loadIfPresent(fileId, 1, false);
+      assertNotNull(recovered);
+      assertEquals(912, recovered.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      recovered.getBuffer().putInt(DurablePage.NEXT_FREE_POSITION, 913);
+      wowCache.store(fileId, 1, recovered);
+      recovered.decrementReadersReferrer();
+      final var cached = wowCache.loadIfPresent(fileId, 1, false);
+      assertEquals(913, cached.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      cached.decrementReadersReferrer();
+      Mockito.verify(dwl, Mockito.times(1)).loadPage(eq(identity.internalId()), eq(1), any());
+      wowCache.shrinkFile(fileId, 0);
+      wowCache.logicalFiles().live(identity.internalId()).extents().allocateThrough(3);
+      wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+      assertThrows(StorageException.class, () -> wowCache.loadOrAdd(fileId, 1, true));
+      assertNull(wowCache.loadIfPresent(fileId, 2, true));
+    } finally {
+      wowCache.shrinkFile(fileId, 0);
+      wowCache.logicalFiles().forget(identity.internalId());
+    }
+  }
+
   /** Negative inventory is a detached snapshot, includes bookings, and never changes live files. */
   @Test
   public void deletionInventorySeparatesLiveFilesAndSurvivesReopen() throws Exception {

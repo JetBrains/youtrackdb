@@ -819,7 +819,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     hasPendingOperations = false;
   }
 
-  // The committed-file fall-through below reads physical size via WriteCache.getFilledUpTo,
+  // The committed-file fall-through below reads allocated extent via WriteCache.getFilledUpTo,
   // one of the retained internal callers documented on that method's Javadoc. Layer B
   // helpers (StorageComponent.physicalSize) intentionally route through this method so the
   // FileChanges placeholder side-effect is registered on first in-TX touch — the read
@@ -836,10 +836,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           "File with id " + fileId + " is deleted.");
     }
     // A missing entry registers an empty FileChanges placeholder and falls through
-    // to the committed-file branch. A new or page-overlay-bearing entry returns
-    // the logical extent (maxNewPageIndex + 1); otherwise the physical extent
-    // from the write cache is the answer. The placeholder is registered so
-    // subsequent in-TX queries do not allocate another entry.
+    // to the committed-file branch. A new or page-overlay-bearing entry returns only its
+    // overlay extent. Allocation starts at the committed extent, and the component lock excludes
+    // competing growth, so the overlay already includes it. The placeholder avoids repeated entries.
     var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
       fileChanges.put(fileId, new FileChanges());

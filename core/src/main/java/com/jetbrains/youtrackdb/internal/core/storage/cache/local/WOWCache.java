@@ -502,7 +502,7 @@ public final class WOWCache extends AbstractWriteCache
    */
   private final ConcurrentMap<String, Integer> nameIdMap = new ConcurrentHashMap<>();
 
-  // Shadow state only. Production readers continue to use the retained registration maps.
+  // Canonical layout 28 files keep allocation and written extents independent of the maps.
   private LogicalPageFileTable logicalFiles;
 
   /** Select the disk layout under storage lifecycle exclusion, before loading registrations. */
@@ -514,9 +514,19 @@ public final class WOWCache extends AbstractWriteCache
     return logicalFiles;
   }
 
-  private void mirrorRegistration(String name, int internalId, boolean nonDurable) {
+  private void mirrorRegistration(String name, int internalId, boolean nonDurable)
+      throws IOException {
     if (isLogicalIdentity(name, internalId)) {
-      logicalFiles.register(name, internalId, nonDurable);
+      if (logicalFiles.live(internalId) == null) {
+        final var file = files.get(composeFileId(id, internalId));
+        final var allocated = file == null ? 0 : file.getFileSize() / pageSize;
+        // Publish before sampling disk so a concurrent flush can record its completed write.
+        logicalFiles.register(name, internalId, nonDurable, allocated, 0, file != null);
+        final var written = file == null ? 0 : file.getUnderlyingFileSize() / pageSize;
+        recordWrittenExtent(internalId, written);
+      } else {
+        logicalFiles.register(name, internalId, nonDurable);
+      }
     }
   }
 
@@ -1684,9 +1694,9 @@ public final class WOWCache extends AbstractWriteCache
    * {@link #loadOrAdd}.
    *
    * <p><b>Returns null when:</b> the page is not in the dirty {@code writeCachePages}
-   * map and {@link #loadFileContent} reports the on-disk file is shorter than the
-   * requested {@code pageIndex} (and the double-write log has nothing for that page
-   * either).
+   * map and no written image or double-write log image exists. Canonical layout 28
+   * uses tracked written extent, not the wrapper's reserved allocation. Missing bytes
+   * within that written extent remain errors.
    *
    * <p><b>Lock ordering:</b> identical to {@link #load} &mdash; acquire
    * {@link #filesLock} read lock, then the per-{@link PageKey} {@code lockManager}
@@ -1708,9 +1718,8 @@ public final class WOWCache extends AbstractWriteCache
 
       if (pagePointer == null) {
         try {
-          // On-disk fallback. loadFileContent returns null when the file is shorter than
-          // the requested page (and the double-write log has no copy either) — propagate
-          // that null straight back to the caller. Unlike loadOrAdd, we do not extend.
+          // A canonical unwritten range with no DWL copy is a miss. Legacy files use
+          // wrapper size for this boundary. Unlike loadOrAdd, this read never extends.
           final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
           if (filePagePointer != null) {
             filePagePointer.incrementReadersReferrer();
@@ -1732,71 +1741,12 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   /**
-   * Total page-access primitive: returns a usable {@link CachePointer} for the given
-   * {@code (fileId, pageIndex)} regardless of whether the page already exists on disk.
+   * Returns a cached, written or allocated blank page. Layout 28 dispatches by logical extent.
+   * Changed images stay in the write cache until a successful disk write publishes disk extent.
+   * Pending files need no handle. Materialized files retain asynchronous blank and gap writes.
    *
-   * <p>The implementation reads the in-memory {@link AsyncFile} size once into
-   * {@code currentSize} (in pages) and dispatches to one of three branches:
-   *
-   * <ul>
-   *   <li>{@code pageIndex < currentSize} &mdash; <b>load existing</b>. Acquires the
-   *       per-{@link PageKey} shared lock from {@code lockManager} (the same lock today's
-   *       {@code load} takes to serialize against {@code doRemoveCachePages} and
-   *       {@code flushExclusiveWriteCache}), probes the dirty {@code writeCachePages} map
-   *       first &mdash; if a more recent dirty pointer is sitting there, returning it takes
-   *       priority over an older on-disk version &mdash; and falls through to
-   *       {@code loadFileContent} on miss. The {@code loadFileContent}-returns-null branch
-   *       is defensive dead code today: with {@code pageIndex < currentSize} the test
-   *       {@code fileClassic.getFileSize() < pageEndPosition} cannot fire, because both
-   *       sides read the same in-memory {@link AsyncFile#getFileSize}. The fallback is
-   *       preserved to absorb future divergence (sparse-region misses, DWL recovery flows
-   *       that surface a null) without breaking the totality contract.
-   *   <li>{@code pageIndex == currentSize} &mdash; <b>one-page extend</b>. Calls
-   *       {@link AsyncFile#allocateSpace} (atomic {@code getAndAdd}), submits a single
-   *       {@link EnsurePageIsValidInFileTask} on the {@code wowCacheFlushExecutor}
-   *       (single-threaded, FIFO order across submissions), and returns a freshly-allocated
-   *       empty {@link CachePointer}. The {@code lockManager} shared lock is <b>not</b>
-   *       taken here: a freshly-installed pointer cannot race with concurrent flush until
-   *       the caller's outer {@code data.compute} segment write lock publishes it.
-   *   <li>{@code pageIndex > currentSize} &mdash; <b>multi-page gap-fill</b> (recovery
-   *       only). Calls {@link AsyncFile#allocateSpace} once for {@code (pageIndex -
-   *       currentSize + 1) * pageSize} bytes, submits an
-   *       {@link EnsurePageIsValidInFileTask} for every gap page in
-   *       {@code [currentSize, pageIndex]}, and returns the {@link CachePointer} for the
-   *       requested {@code pageIndex} only. The intermediate gap pages are stamped on disk
-   *       but not held in the read cache. Like the extend branch, the {@code lockManager}
-   *       shared lock is not taken: the caller's outer {@code data.compute} segment write
-   *       lock publishes the freshly-installed pointer before any concurrent flush could
-   *       observe it.
-   * </ul>
-   *
-   * <p><b>Totality contract.</b> The method never returns {@code null} for any open,
-   * non-deleted file. The only way the contract breaks is if the file was concurrently
-   * deleted by an unrelated thread, in which case {@code loadFileContent} surfaces an
-   * {@link IllegalArgumentException} that propagates raw to the caller as a caller-bug
-   * signal &mdash; the totality contract holds for the documented usage (caller still owns
-   * the fileId). A defensive {@link IllegalArgumentException} guard at the dispatch prelude
-   * also fires when the dispatch prelude itself observes a missing entry for {@code fileId}
-   * before {@code loadFileContent} would have a chance to.
-   *
-   * <p><b>Caller precondition.</b> The caller holds the segment write lock for the
-   * {@code (fileId, pageIndex)} key. The production caller is
-   * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache#doLoad},
-   * shared by {@code loadForRead} and {@code loadOrAddForWrite}, which calls this method from
-   * inside {@code data.compute(fileId, pageIndex, ...)} so the segment write lock is held
-   * across the call. Lock ordering inside this method:
-   * acquire {@link #filesLock} read lock; on the load branch additionally acquire the
-   * {@code lockManager} shared lock for the {@link PageKey}; the dispatch prelude opens
-   * one {@code files.acquire(fileId)} cycle and the chosen branch reuses the same handle
-   * (load branch releases before delegating to {@code loadFileContent}, which re-acquires
-   * internally; extend / gap-fill branches keep the handle open across
-   * {@link AsyncFile#allocateSpace}).
-   *
-   * <p><b>Magic stamp.</b> The returned {@link CachePointer} on the extend / gap-fill
-   * branches contains an in-memory empty buffer with LSN {@code (-1,-1)}; the on-disk
-   * magic stamp is written asynchronously by {@link EnsurePageIsValidInFileTask}. The
-   * task is idempotent (it only writes when the underlying file is shorter than the page
-   * offset), so resubmissions on the gap-fill branch are safe.
+   * <p>The caller holds the read-cache segment write lock for this page. This method takes
+   * filesLock in shared mode, then the page lock on the load branch. Growth is lock-free.
    */
   @Override
   public CachePointer loadOrAdd(
@@ -1809,6 +1759,35 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
+
+      final var state = logicalState(intId);
+      if (state != null) {
+        if (pageIndex < state.logicalExtent()) {
+          return loadOrAddLoadBranch(intId, pageIndex, verifyChecksums);
+        }
+        final long growth = pageIndex - state.logicalExtent() + 1;
+        if (pageIndex > Integer.MAX_VALUE || growth > Integer.MAX_VALUE / pageSize) {
+          throw new StorageException(storageName, "Logical allocation exceeds int limit");
+        }
+        if (state.diskPresent()) {
+          final var entry = files.acquire(fileId);
+          if (entry == null) {
+            throw new StorageException(storageName, "Missing materialized file " + intId);
+          }
+          try {
+            final var file = entry.get();
+            // Atomic maximum avoids duplicate reservations and lets independent growers progress.
+            file.reserveSpaceThrough((pageIndex + 1) * pageSize);
+          } finally {
+            files.release(entry);
+          }
+          for (long gap = state.logicalExtent(); gap <= pageIndex; gap++) {
+            commitExecutor().submit(new EnsurePageIsValidInFileTask(intId, (int) gap, this));
+          }
+        }
+        state.extents().allocateThrough(pageIndex + 1);
+        return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+      }
 
       // Single files.acquire / files.release cycle covers the whole call: the dispatch
       // prelude reads AsyncFile.size for branch selection; the load branch releases before
@@ -1863,15 +1842,8 @@ public final class WOWCache extends AbstractWriteCache
   /**
    * Load branch of {@link #loadOrAdd}: {@code pageIndex < currentSize}.
    *
-   * <p>Probes the dirty-write map first (so a fresh in-memory page wins over its older
-   * on-disk image), then falls through to {@code loadFileContent}. The
-   * {@code loadFileContent}-returns-null branch is defensive dead code today: given
-   * {@code pageIndex < currentSize} and that both dispatch prelude and {@code loadFileContent}
-   * read the same in-memory {@link AsyncFile#getFileSize}, the
-   * {@code fileClassic.getFileSize() < pageEndPosition} test inside {@code loadFileContent}
-   * cannot fire on this path. The fallback is preserved to absorb future divergence
-   * (e.g., {@code loadFileContent} taught to surface sparse-region misses, or DWL
-   * recovery flows that return null) without breaking the totality contract.
+   * <p>Changed cached pages take priority over disk. Layout 28 can return an allocated
+   * blank page only beyond the written range. A missing materialized page is an error.
    */
   private CachePointer loadOrAddLoadBranch(
       final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
@@ -1895,7 +1867,17 @@ public final class WOWCache extends AbstractWriteCache
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
       }
-      // Defensive totality fallback (dead code today; see method Javadoc): if
+      final var state = logicalState(intId);
+      if (state != null) {
+        if (pageIndex < state.logicalExtent() && pageIndex >= state.diskExtent()) {
+          // Unwritten allocated ranges use the blank representation. Changed pages stay in
+          // writeCachePages until a successful write publishes the written extent.
+          return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+        }
+        throw new StorageException(storageName,
+            "Missing materialized page " + pageIndex + " of file " + intId);
+      }
+      // Legacy-only defensive totality fallback: if
       // loadFileContent ever returns null on this path, return a magic-stamped empty
       // buffer without bumping AsyncFile.size so the totality contract holds.
       //
@@ -2187,6 +2169,10 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
+      final var state = logicalState(intId);
+      if (state != null) {
+        return state.logicalExtent();
+      }
       var file = files.get(fileId);
       // File may be null if it was concurrently deleted (e.g., during storage
       // close/drop while the periodic records GC is still running). Return 0
@@ -2213,6 +2199,17 @@ public final class WOWCache extends AbstractWriteCache
     // semantic difference is the audit-grep contract documented on the WriteCache
     // interface method, not the locking or branching shape.
     return getFilledUpTo(fileId);
+  }
+
+  private LogicalPageFileTable.State logicalState(int internalId) {
+    return logicalFiles == null ? null : logicalFiles.live(internalId);
+  }
+
+  private void recordWrittenExtent(int internalId, long pages) {
+    final var state = logicalState(internalId);
+    if (state != null) {
+      state.extents().writtenThrough(pages);
+    }
   }
 
   @Override
@@ -2395,6 +2392,17 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
+      final var logical = logicalState(intId);
+      if (logical != null) {
+        if (logical.logicalExtent() <= targetBytes / pageSize) {
+          return false;
+        }
+        if (!logical.diskPresent()) {
+          removeCachedPages(intId, (int) (targetBytes / pageSize));
+          logical.extents().shrink(targetBytes / pageSize);
+          return true;
+        }
+      }
       final var entry = files.acquire(fileId);
       // shrinkFile is only invoked by the recovery-time orphan-truncation orchestrator,
       // which iterates already-open components. A null entry here means the orchestrator
@@ -2418,7 +2426,7 @@ public final class WOWCache extends AbstractWriteCache
         // serialised against concurrent allocateSpace / shrink writers by the surrounding
         // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
         // stable for the duration of the call.
-        if (file.getFileSize() <= targetBytes) {
+        if (logical == null && file.getFileSize() <= targetBytes) {
           // Pre-flight no-op: nothing was truncated. Returning false here (versus true on
           // the real-truncate fall-through below) is derived from this same getFileSize()
           // snapshot held under filesLock.writeLock, so the read-cache orchestrator can
@@ -2433,14 +2441,20 @@ public final class WOWCache extends AbstractWriteCache
         // survive the next periodic flush).
         final var minPageIndex = (int) (targetBytes / pageSizeLocal);
         removeCachedPages(intId, minPageIndex);
-        file.shrink(targetBytes);
+        // Shrink the reserved range too. A logical tail need not have reserved disk bytes.
+        file.shrink(Math.min(targetBytes, file.getFileSize()));
+        final var state = logicalState(intId);
+        if (state != null) {
+          state.extents().shrink(targetBytes / pageSize);
+        }
         // Boolean/physical-truncate contract: the true return below is the sole signal
         // LockFreeReadCache.shrinkFile uses to gate its read-cache purge. Pin that the
         // file actually reached targetBytes so a future refactor that reorders the return
         // relative to file.shrink (or inserts an early return between removeCachedPages and
         // the truncate) cannot silently desync the boolean from the physical state. -ea-only,
         // zero production cost; coverage-gate.py excludes assert lines.
-        assert file.getFileSize() == targetBytes
+        assert logical != null ? logical.logicalExtent() * pageSize == targetBytes
+            : file.getFileSize() == targetBytes
             : "shrinkFile returned true but physical size "
                 + file.getFileSize()
                 + " != target "
@@ -2839,7 +2853,9 @@ public final class WOWCache extends AbstractWriteCache
 
       var time = System.currentTimeMillis();
 
-      final var filledUpTo = fileClassic.getFileSize();
+      final var state = logicalState(intId);
+      final var filledUpTo = state == null ? fileClassic.getFileSize()
+          : state.diskExtent() * pageSize;
       fileIsCorrect = true;
 
       for (long pos = 0; pos < filledUpTo; pos += pageSize) {
@@ -3866,8 +3882,16 @@ public final class WOWCache extends AbstractWriteCache
       final boolean verifyChecksums, final boolean rebuildAllowed)
       throws IOException {
     final var fileId = composeFileId(id, internalFileId);
+    final var state = logicalState(internalFileId);
+    // Pending files have no handle to acquire. An unwritten range has no disk image.
+    if (state != null && (!state.diskPresent() || pageIndex >= state.diskExtent())) {
+      return loadUnwrittenFromDoubleWriteLog(internalFileId, pageIndex, verifyChecksums);
+    }
     try {
       final var entry = files.acquire(fileId);
+      if (entry == null && state != null) {
+        throw new StorageException(storageName, "Missing materialized file " + internalFileId);
+      }
       try {
         final var fileClassic = entry.get();
         if (fileClassic == null) {
@@ -3879,14 +3903,21 @@ public final class WOWCache extends AbstractWriteCache
         final var pageEndPosition = pagePosition + pageSize;
 
         // if page is not stored in the file may be page is stored in double write log
-        if (fileClassic.getFileSize() >= pageEndPosition) {
+        if (state != null || fileClassic.getFileSize() >= pageEndPosition) {
           var pageFrame = pageFramePool.acquire(true, Intention.LOAD_PAGE_FROM_DISK);
           var buffer = pageFrame.getBuffer();
 
           assert buffer.position() == 0;
           assert buffer.order() == ByteOrder.nativeOrder();
 
-          fileClassic.read(pagePosition, buffer, false);
+          try {
+            fileClassic.read(pagePosition, buffer, state != null);
+          } catch (IOException | RuntimeException | Error failure) {
+            if (state != null) {
+              pageFramePool.release(pageFrame);
+            }
+            throw failure;
+          }
 
           if (verifyChecksums
               && (checksumMode == ChecksumMode.StoreAndVerify
@@ -3955,6 +3986,33 @@ public final class WOWCache extends AbstractWriteCache
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Data load was interrupted"), e, storageName);
+    }
+  }
+
+  private CachePointer loadUnwrittenFromDoubleWriteLog(int internalFileId, long pageIndex,
+      boolean verifyChecksums) throws IOException {
+    final var pointer = doubleWriteLog.loadPage(internalFileId, (int) pageIndex, bufferPool);
+    if (pointer == null) {
+      return null;
+    }
+    try {
+      final var buffer = pointer.getNativeByteBuffer();
+      final var frame = pageFramePool.acquire(true, Intention.LOAD_PAGE_FROM_DISK);
+      frame.getBuffer().put(0, buffer, 0, pageSize);
+      if (verifyChecksums && (checksumMode == ChecksumMode.StoreAndVerify
+          || checksumMode == ChecksumMode.StoreAndThrow
+          || checksumMode == ChecksumMode.StoreAndSwitchReadOnlyMode)
+          && !verifyMagicChecksumAndDecryptPage(buffer, internalFileId, pageIndex)) {
+        // The frame overload owns release on a throwing verification failure.
+        assertPageIsBroken(pageIndex, composeFileId(id, internalFileId), frame);
+      }
+      // Verification can decrypt the source buffer in place.
+      frame.getBuffer().put(0, buffer, 0, pageSize);
+      frame.getBuffer().position(0);
+      return new CachePointer(frame, pageFramePool, composeFileId(id, internalFileId),
+          (int) pageIndex);
+    } finally {
+      bufferPool.release(pointer);
     }
   }
 
@@ -4843,6 +4901,7 @@ public final class WOWCache extends AbstractWriteCache
 
             buffer.position(0);
             file.write(pagePosition, buffer);
+            recordWrittenExtent(internalFileId, pageIndex + 1L);
           } finally {
             DirectMemoryAllocator.instance().deallocate(pointer);
           }
@@ -5211,8 +5270,13 @@ public final class WOWCache extends AbstractWriteCache
         slotWait.progress(openFileSlotNanos());
 
         try {
-          submittedWrites
-              .add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue())));
+          long writtenExtent = 0;
+          for (var buffer : entry.getValue()) {
+            writtenExtent = Math.max(writtenExtent,
+                (buffer.first + buffer.second.limit()) / pageSize);
+          }
+          submittedWrites.add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue()),
+              extractFileId(entry.getLongKey()), writtenExtent));
         } catch (final Throwable t) {
           try {
             files.release(fileEntry);
@@ -5292,6 +5356,7 @@ public final class WOWCache extends AbstractWriteCache
     for (final var write : writes) {
       try {
         write.result.await();
+        recordWrittenExtent(write.internalFileId, write.writtenExtent);
       } catch (final Throwable t) {
         if (failure == null) {
           failure = t;
@@ -5341,7 +5406,8 @@ public final class WOWCache extends AbstractWriteCache
     throw new IOException("Unexpected page write failure", failure);
   }
 
-  private record SubmittedWrite(ClosableEntry<Long, File> fileEntry, IOResult result) {
+  private record SubmittedWrite(ClosableEntry<Long, File> fileEntry, IOResult result,
+      int internalFileId, long writtenExtent) {
   }
 
   private void flushExclusiveWriteCache(final CountDownLatch latch, long pagesToFlushLimit)

@@ -2720,14 +2720,24 @@ public class DiskStorage extends AbstractStorage {
     return (int) pageIndex;
   }
 
-  private void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
+  void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
       ZipOutputStream stream, byte[] encryptionIv, byte[] aesKey, byte[] data,
       LogSequenceNumber[] lastLsn) throws IOException {
     final var cacheEntry =
         readCache.silentLoadForRead(fileId, backupPageIndex(pageIndex), writeCache, true);
-    long sharedStamp = cacheEntry.acquireSharedLock();
+    // A silent miss inside layout 28 allocation is a known blank only outside written bytes.
+    // loadOrAdd preserves strict missing-file and EOF errors within the written range.
+    final var blankPointer = cacheEntry == null && getStorageFormat() == StorageFormat.LAYOUT_28
+        && pageIndex < writeCache.physicalSizeForBackupSnapshot(fileId)
+            ? writeCache.loadOrAdd(fileId, pageIndex, true) : null;
+    if (cacheEntry == null && blankPointer == null) {
+      throw new IOException("Missing backup page " + pageIndex + " of file " + fileId);
+    }
+    // The fallback can return a live write-cache page that commits modify in place.
+    long sharedStamp = cacheEntry == null ? blankPointer.acquireSharedLock()
+        : cacheEntry.acquireSharedLock();
     try {
-      var cachePointer = cacheEntry.getCachePointer();
+      var cachePointer = cacheEntry == null ? blankPointer : cacheEntry.getCachePointer();
       assert cachePointer != null;
       var cachePointerBuffer = cachePointer.getBuffer();
       assert cachePointerBuffer != null;
@@ -2746,8 +2756,13 @@ public class DiskStorage extends AbstractStorage {
         }
       }
     } finally {
-      cacheEntry.releaseSharedLock(sharedStamp);
-      readCache.releaseFromRead(cacheEntry);
+      if (cacheEntry != null) {
+        cacheEntry.releaseSharedLock(sharedStamp);
+        readCache.releaseFromRead(cacheEntry);
+      } else {
+        blankPointer.releaseSharedLock(sharedStamp);
+        blankPointer.decrementReadersReferrer();
+      }
     }
   }
 
