@@ -108,17 +108,13 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Throw-safety net</h2>
  *
- * {@code apply} runs inside {@code traversal.applyStrategies()}, which fires on <em>every</em>
- * Gremlin traversal compilation, and the strategy is registered globally for all YTDB graph
- * traversals. An uncaught exception in {@code apply} would abort compilation for that
- * traversal, and the blast radius of a translator / walker bug would be every Gremlin query
- * the server runs, not only the recognized shapes. The whole body therefore runs inside a
- * {@code try} that catches {@link RuntimeException} and turns any ordinary failure — a walker bug, a
- * recognizer NPE, a malformed {@code MatchPlanInputs}, a planner exception — into a clean
- * decline: the method returns and the original step list is preserved for the native pipeline
- * (which, under the all-or-nothing rule, is at least as well-served as before). The net
- * degrades a translator bug to native execution rather than a broken query, and it exists from
- * the skeleton so the invariant holds before any recognizer runs under the strategy.
+ * {@code apply} runs inside {@code traversal.applyStrategies()} on every Gremlin traversal
+ * compilation. YTDB registers the strategy globally for all its graph traversals. Its outer
+ * {@code try} catches ordinary {@link RuntimeException} failures during translation preparation
+ * and installation. Walking and plan building finish before step-list mutation (see
+ * {@link #applyTranslation}). A failure before mutation leaves the native steps untouched and
+ * permits native fallback. An installation failure permits fallback only after verified
+ * restoration of the native traversal.
  *
  * <p>The net makes two deliberate exceptions. A {@link ReservedAliasException} is thrown by the
  * walker's reserved-prefix pre-flight when a user {@code as(...)} label sits in the reserved {@code
@@ -133,19 +129,21 @@ import org.slf4j.LoggerFactory;
  * resolver, so it does not avoid the contradictory-order exception. Degrading either exception to
  * a decline would therefore hide a user error.
  *
- * <p>The catch is narrowed to {@link RuntimeException}, so {@link Error} — including {@link
- * AssertionError} — is never swallowed: it is not a {@code RuntimeException} and propagates
- * untouched. Under {@code -ea} (the test/CI default) a genuine invariant violation in the walk
- * or plan build must surface loudly instead of degrading to a silent decline that masks a real
- * bug, and a fatal {@code OutOfMemoryError} / {@code StackOverflowError} must not be handed to
- * the native pipeline to re-attempt in an already-exhausted JVM. The body throws only unchecked
- * exceptions — its calls go through the {@code TraversalTranslator} / {@code MatchPlanBuilder}
- * seams and TinkerPop APIs — so {@code RuntimeException} covers every failure that can actually
- * occur.
+ * <p>For built-in traversals, a recoverable installation {@link RuntimeException} triggers bounded
+ * restoration. Restoration rebuilds the original step sequence and verifies step identity,
+ * traversal ownership and previous and next links. Step ids may change. Successful verification
+ * permits native fallback.
  *
- * <p>The net catches during the walk and the plan build; the actual step-list mutation happens
- * only after both succeed (see {@link #applyTranslation}), so a caught exception always leaves
- * the step list untouched.
+ * <p>If restoration fails, the strategy throws the original installation failure instead of
+ * falling back. The restoration failure stays secondary, including when it
+ * is an {@link Error}. The original failure retains it as suppressed when suppression is enabled
+ * and the two failures are distinct. Terminal failure does not depend on suppression.
+ *
+ * <p>The outer catch does not catch {@link Error}, including {@link AssertionError}. An error
+ * during walking, plan building or the initial installation attempt propagates without native
+ * fallback. Assertion failures must surface under {@code -ea}, not become silent declines.
+ * Fatal errors and repeatedly throwing custom mutation methods carry no restoration promise.
+ * The strategy never permits native fallback on an unverified traversal after installation fails.
  *
  * <h2>Strategy ordering</h2>
  *
