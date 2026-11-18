@@ -147,6 +147,81 @@ public class SharedLinkBagBTreeOptimisticReadTest {
         });
   }
 
+  /** A failed child load must not release another reader's root pin in firstItem. */
+  @Test
+  public void testFirstItemLoadFailurePreservesOtherPin() throws Exception {
+    assertBoundaryLoadFailurePreservesOtherPin(false, new IllegalStateException("child load"));
+  }
+
+  /** An Error in a child load must retain its identity and the lastItem root owner's pin. */
+  @Test
+  public void testLastItemLoadErrorPreservesOtherPin() throws Exception {
+    assertBoundaryLoadFailurePreservesOtherPin(true, new AssertionError("child load"));
+  }
+
+  private void assertBoundaryLoadFailurePreservesOtherPin(boolean last, Throwable failure)
+      throws Exception {
+    var cache = storage.getReadCache();
+    long fileId = bTree.getFileId();
+    var field = com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache.class
+        .getDeclaredField("cacheHitRatio");
+    field.setAccessible(true);
+    var original = field.get(cache);
+    var ratio = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio.class);
+    var failNext = new java.util.concurrent.atomic.AtomicBoolean();
+    var fired = new java.util.concurrent.atomic.AtomicBoolean();
+    org.mockito.Mockito.doAnswer(call -> {
+      if (failNext.compareAndSet(true, false)) {
+        throw failure;
+      }
+      return null;
+    }).when(ratio).record(org.mockito.ArgumentMatchers.anyBoolean());
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(op -> {
+        try (var owner = op.loadPageForRead(fileId, 1)) {
+          int pins = pinState(owner);
+          var reader = org.mockito.Mockito.spy(op);
+          org.mockito.Mockito.doAnswer(call -> {
+            long page = call.getArgument(1);
+            if (page > 1 && op.getOptimisticReadScope().isAttemptActive()
+                && fired.compareAndSet(false, true)) {
+              failNext.set(true);
+            }
+            return call.callRealMethod();
+          }).when(reader).loadPageForRead(org.mockito.ArgumentMatchers.anyLong(),
+              org.mockito.ArgumentMatchers.anyLong());
+          field.set(cache, ratio);
+          try {
+            var reported = Assert.assertThrows(failure.getClass(), () -> {
+              if (last) {
+                bTree.lastKey(reader);
+              } else {
+                bTree.firstKey(reader);
+              }
+            });
+            Assert.assertTrue("The traversal must reach a child", fired.get());
+            Assert.assertEquals("Another owner's pin must remain", pins, pinState(owner));
+            Assert.assertSame(failure, reported);
+            Assert.assertFalse(op.getOptimisticReadScope().isAttemptActive());
+          } finally {
+            field.set(cache, original);
+          }
+        }
+      });
+    } finally {
+      field.set(cache, original);
+    }
+  }
+
+  private static int pinState(
+      com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry entry) throws Exception {
+    var field = com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl.class
+        .getDeclaredField("state");
+    field.setAccessible(true);
+    return field.getInt(entry);
+  }
+
   @After
   public void tearDown() throws Exception {
     reference.clear();

@@ -19,7 +19,10 @@ import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
@@ -505,6 +508,193 @@ public class WOWCacheLoadOrAddTest {
         "extend branch must advance AsyncFile.size by one page",
         1L,
         wowCache.getFilledUpTo(fileId));
+  }
+
+  /** The extend site must publish a fully zeroed page with an unset header LSN. */
+  @Test
+  public void extendPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    long fileId = wowCache.addFile(FILE_NAME);
+    try (var publication = new PublicationFixture(fileId,
+        Intention.ADD_NEW_PAGE_IN_DISK_CACHE, emptyPage())) {
+      publication.check(wowCache.loadOrAdd(fileId, 0, false));
+    }
+  }
+
+  /** Disk bytes, including the header and payload, must be complete before publication. */
+  @Test
+  public void plainDiskPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    var image = preparePublicationImage(false);
+    try (var publication = new PublicationFixture(image.fileId(),
+        Intention.LOAD_PAGE_FROM_DISK, image.complete())) {
+      publication.check(wowCache.loadOrAdd(image.fileId(), 0, true));
+    }
+  }
+
+  /** An encrypted disk image must be decrypted, not merely read, before publication. */
+  @Test
+  public void encryptedDiskPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    var image = preparePublicationImage(true);
+    assertFalse("encrypted bytes must differ from the expected plaintext",
+        java.util.Arrays.equals(image.disk(), image.complete()));
+    try (var publication = new PublicationFixture(image.fileId(),
+        Intention.LOAD_PAGE_FROM_DISK, image.complete())) {
+      publication.check(wowCache.loadOrAdd(image.fileId(), 0, true));
+    }
+  }
+
+  /** A corrupt disk page must be replaced with the complete DWL copy before publication. */
+  @Test
+  public void repairedDiskPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    checkRepairPublication(false);
+  }
+
+  /** An encrypted DWL copy must also be decrypted before the repaired frame is published. */
+  @Test
+  public void encryptedRepairPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    checkRepairPublication(true);
+  }
+
+  private void checkRepairPublication(boolean encrypted) throws Exception {
+    var image = preparePublicationImage(encrypted);
+    overwritePage(image.fileId(), new byte[PAGE_SIZE]);
+    var doubleWriteLog = mock(DoubleWriteLog.class);
+    setCacheField("doubleWriteLog", doubleWriteLog);
+    when(doubleWriteLog.loadPage(eq(wowCache.internalFileId(image.fileId())), eq(0), any()))
+        .thenAnswer(invocation -> {
+          var pointer = bufferPool.acquireDirect(false, Intention.LOAD_PAGE_FROM_DISK);
+          pointer.getNativeByteBuffer().put(image.disk()).clear();
+          return pointer;
+        });
+    try (var publication = new PublicationFixture(image.fileId(),
+        Intention.LOAD_PAGE_FROM_DISK, image.complete())) {
+      publication.check(wowCache.loadOrAdd(image.fileId(), 0, true));
+      Mockito.verify(doubleWriteLog).loadPage(
+          eq(wowCache.internalFileId(image.fileId())), eq(0), any());
+    }
+  }
+
+  /** Replay must finish both the zero fill and the unset LSN before publishing a rebuild. */
+  @Test
+  public void rebuiltDiskPublishesCoordinatesOnlyAfterContentIsComplete() throws Exception {
+    var image = preparePublicationImage(false);
+    var damaged = image.disk().clone();
+    damaged[0] ^= 1;
+    overwritePage(image.fileId(), damaged);
+    declare(wowCache.internalFileId(image.fileId()), 0, new LogSequenceNumber(8, 20));
+    try (var publication = new PublicationFixture(image.fileId(),
+        Intention.LOAD_PAGE_FROM_DISK, emptyPage())) {
+      publication.check(wowCache.loadOrAdd(image.fileId(), 0, true));
+    } finally {
+      wowCache.setRecoveryPageContext(null);
+    }
+  }
+
+  private static byte[] emptyPage() {
+    var buffer = ByteBuffer.allocate(PAGE_SIZE).order(ByteOrder.nativeOrder());
+    DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(-1, -1));
+    return buffer.array();
+  }
+
+  private void setCacheField(String name, Object value) throws ReflectiveOperationException {
+    var field = WOWCache.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(wowCache, value);
+  }
+
+  private record PublicationImage(long fileId, byte[] disk, byte[] complete) {
+  }
+
+  private PublicationImage preparePublicationImage(boolean encrypted) throws Exception {
+    if (encrypted) {
+      // Configure the real cache encryption before creating the image. No loader seam is used.
+      setCacheField("aesKey", new byte[16]);
+      setCacheField("iv", new byte[16]);
+    }
+    long fileId = wowCache.addFile(FILE_NAME);
+    var pointer = wowCache.loadOrAdd(fileId, 0, false);
+    byte[] complete = new byte[PAGE_SIZE];
+    try {
+      var buffer = pointer.getBuffer();
+      DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(7, 19));
+      for (int i = DurablePage.NEXT_FREE_POSITION; i < PAGE_SIZE; i++) {
+        buffer.put(i, (byte) (i * 3 + 1));
+      }
+      buffer.duplicate().clear().get(complete);
+      wowCache.updateDirtyPagesTable(pointer, new LogSequenceNumber(7, 19));
+      wowCache.store(fileId, 0, pointer);
+    } finally {
+      pointer.decrementReadersReferrer();
+    }
+    wowCache.flush(fileId);
+    byte[] disk = java.util.Arrays.copyOfRange(
+        Files.readAllBytes(storagePath.resolve(wowCache.nativeFileNameById(fileId))),
+        File.HEADER_SIZE, File.HEADER_SIZE + PAGE_SIZE);
+    // Encryption leaves the magic/update counter intact but encrypts the checksum and payload.
+    // Compute the plaintext checksum independently and retain the actual disk magic header.
+    System.arraycopy(disk, 0, complete, 0, WOWCache.CHECKSUM_OFFSET);
+    var crc = new java.util.zip.CRC32();
+    int dataOffset = WOWCache.CHECKSUM_OFFSET + Integer.BYTES;
+    crc.update(complete, dataOffset, PAGE_SIZE - dataOffset);
+    ByteBuffer.wrap(complete).order(ByteOrder.nativeOrder())
+        .putInt(WOWCache.CHECKSUM_OFFSET, (int) crc.getValue());
+    wowCache.setChecksumMode(ChecksumMode.StoreAndThrow);
+    return new PublicationImage(fileId, disk, complete);
+  }
+
+  /**
+   * Observes both production construction sites at the publication boundary. Assertions run
+   * inline before the real publication so no later fill can conceal premature visibility.
+   */
+  private final class PublicationFixture implements AutoCloseable {
+
+    private final DirectMemoryAllocator allocator = new DirectMemoryAllocator();
+    private final PageFramePool pool = new PageFramePool(PAGE_SIZE, allocator, 1);
+    private final PageFrame frame =
+        Mockito.spy(pool.acquire(true, Intention.TEST));
+    private final Object originalPool;
+    private final long fileId;
+
+    private PublicationFixture(long fileId, Intention intention, byte[] expected)
+        throws Exception {
+      this.fileId = fileId;
+      var poolField = WOWCache.class.getDeclaredField("pageFramePool");
+      poolField.setAccessible(true);
+      originalPool = poolField.get(wowCache);
+      var suppliedPool = Mockito.spy(pool);
+      Mockito.doReturn(frame).when(suppliedPool).acquire(true, intention);
+      Mockito.doAnswer(invocation -> {
+        var actual = new byte[PAGE_SIZE];
+        frame.getBuffer().duplicate().clear().get(actual);
+        assertArrayEquals("content must be complete at coordinate publication", expected, actual);
+        invocation.callRealMethod();
+        long stamp = frame.tryOptimisticRead();
+        assertTrue("publication must release the exclusive lock", stamp != 0);
+        assertEquals(fileId, frame.getFileId());
+        assertEquals(0, frame.getPageIndex());
+        assertTrue(frame.validate(stamp));
+        return null;
+      }).when(frame).publishPageCoordinates(fileId, 0);
+      poolField.set(wowCache, suppliedPool);
+    }
+
+    private void check(CachePointer pointer) {
+      try {
+        assertNotNull(pointer);
+        Mockito.verify(frame).publishPageCoordinates(fileId, 0);
+      } finally {
+        if (pointer != null) {
+          pointer.decrementReadersReferrer();
+        }
+      }
+    }
+
+    @Override
+    public void close() throws Exception {
+      setCacheField("pageFramePool", originalPool);
+      // clear also frees an acquired frame when a publication assertion interrupts construction.
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    }
   }
 
   /**

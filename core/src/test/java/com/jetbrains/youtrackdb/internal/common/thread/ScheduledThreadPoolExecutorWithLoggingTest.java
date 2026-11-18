@@ -14,6 +14,40 @@ import org.junit.Test;
  */
 public class ScheduledThreadPoolExecutorWithLoggingTest {
 
+  /** Replacement workers retain executor identity without admitting callers or other pools. */
+  @Test
+  public void taskOwnershipFollowsReplacementWorker() throws Exception {
+    var workers = new java.util.ArrayList<Thread>();
+    var executor = new ScheduledThreadPoolExecutorWithLogging(1, task -> {
+      var thread = new Thread(task);
+      workers.add(thread);
+      return thread;
+    });
+    var other = new ScheduledThreadPoolExecutorWithLogging(1, Thread::new);
+    try {
+      assertThat(executor.isExecutingOnCurrentThread()).isFalse();
+      var first = executor.submit(() -> {
+        assertThat(executor.isExecutingOnCurrentThread()).isTrue();
+        assertThat(other.isExecutingOnCurrentThread()).isFalse();
+        return Thread.currentThread();
+      }).get(5, TimeUnit.SECONDS);
+      executor.setKeepAliveTime(1, TimeUnit.MILLISECONDS);
+      executor.allowCoreThreadTimeOut(true);
+      first.join(5000);
+      assertThat(first.isAlive()).isFalse();
+      assertThat(executor.submit(executor::isExecutingOnCurrentThread)
+          .get(5, TimeUnit.SECONDS)).isTrue();
+      assertThat(workers).hasSize(2);
+      assertThat(other.submit(executor::isExecutingOnCurrentThread)
+          .get(5, TimeUnit.SECONDS)).isFalse();
+    } finally {
+      executor.shutdownNow();
+      other.shutdownNow();
+      assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+      assertThat(other.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+  }
+
   /**
    * Verifies that when a scheduled task throws an exception, afterExecute
    * extracts it from the future via get() and logs it. If the get() call

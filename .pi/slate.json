@@ -5,20 +5,5 @@
   "workerPromptDocs": ["docs-internal/agents/thread-guidelines.md"],
   "doctrineExtraPath": "docs-internal/agents/slate-doctrine-extra.md",
   "reviewPerspectivesPath": "docs-internal/agents/review-perspectives.md",
-  "router": {
-    "models": {
-      "include": [
-        "luna-6",
-        "claude-sonnet-5.5",
-        "sol-6.1",
-        "gemini-3.8-flash",
-        "claude-opus-5.5",
-        "gpt-6-astra"
-      ]
-    },
-    "compressor": {
-      "models": [{ "model": "claude-sonnet-5.5", "effort": "medium" }]
-    }
-  },
   "workerExtensions": ["pi-smart-fetch", "pi-web-search", "pi-mcp-adapter"]
 }
