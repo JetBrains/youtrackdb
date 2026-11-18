@@ -118,6 +118,86 @@ public class HistogramStatsPageHllSpillTest {
     return hll;
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  public void fittedKeyShapes_useRealWriterAndLargestCount() {
+    // Strings at the boundary limit and untruncated decimals must fit after
+    // reduction. Numeric keys exercise sketch spill without resolution loss.
+    var serializers = new BinarySerializer<?>[] {
+        com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE,
+        com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer.INSTANCE,
+        IntegerSerializer.INSTANCE};
+    for (int shape = 0; shape < serializers.length; shape++) {
+      var serializer = (BinarySerializer<Object>) serializers[shape];
+      int count = 128;
+      var bounds = new Comparable<?>[count + 1];
+      var frequencies = new long[count];
+      var distinct = new long[count];
+      for (int i = 0; i <= count; i++) {
+        bounds[i] = switch (shape) {
+          case 0 -> String.format("%04d", i) + "x".repeat(250);
+          case 1 -> new java.math.BigDecimal(
+              java.math.BigInteger.TEN.pow(700).add(java.math.BigInteger.valueOf(i)));
+          default -> i;
+        };
+      }
+      java.util.Arrays.fill(frequencies, 10);
+      java.util.Arrays.fill(distinct, 1);
+      var source = new IndexHistogramManager.BuildResult(
+          bounds, frequencies, distinct, count, count, null, 0);
+      IndexHistogramManager.BoundarySizeCalculator calculator = (keys, buckets) -> {
+        int bytes = 0;
+        for (int i = 0; i <= buckets; i++) {
+          bytes += 4 + serializer.getObjectSize(serializerFactory, keys[i]);
+        }
+        return bytes;
+      };
+      var fit = IndexHistogramManager.fitToPage(source, 1280, false, 0, calculator);
+      assertNotNull(fit);
+      var histogram = fit.histogram();
+      var hll = createPopulatedHll();
+      var snapshot = new HistogramSnapshot(new IndexStatistics(1280, 128, 0),
+          histogram, 0, 1280, 0, false, hll, fit.hllOnPage1());
+      var entry = allocatePage();
+      try {
+        var page = new HistogramStatsPage(entry);
+        page.writeSnapshot(snapshot, serializer.getId(), serializer, serializerFactory);
+        int blobBytes = rawBuffer(entry).getInt(HISTOGRAM_DATA_LENGTH_RAW_OFFSET);
+        int inlineBytes = fit.hllOnPage1() ? 0 : HyperLogLogSketch.serializedSize();
+        int measured = VARIABLE_DATA_OFFSET + blobBytes + inlineBytes;
+        assertTrue(measured <= PAGE_SIZE);
+        assertEquals(PAGE_SIZE - measured,
+            IndexHistogramManager.computeMaxBoundarySpace(
+                histogram.bucketCount(), inlineBytes, 0)
+                - calculator.computeSize(histogram.boundaries(), histogram.bucketCount()));
+        assertEquals(1280, java.util.Arrays.stream(histogram.frequencies()).sum());
+        assertEquals(128, java.util.Arrays.stream(histogram.distinctCounts()).sum());
+        if (histogram.bucketCount() < count) {
+          assertTrue(fit.hllOnPage1());
+          int next = histogram.bucketCount() + 1;
+          var merged = IndexHistogramManager.mergeBuckets(
+              bounds, frequencies, distinct, count, next);
+          var tooLarge = new EquiDepthHistogram(next, merged.boundaries,
+              merged.frequencies, merged.distinctCounts, 1280, null, 0);
+          var oversized = new HistogramSnapshot(snapshot.stats(), tooLarge,
+              0, 1280, 0, false, hll, true);
+          try {
+            page.writeSnapshot(oversized, serializer.getId(), serializer, serializerFactory);
+            fail("The next larger bucket count must exceed page capacity");
+          } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("exceeds page 0 capacity"));
+          }
+        } else if (PAGE_SIZE == 4096) {
+          assertTrue("Spill the sketch before reducing numeric buckets", fit.hllOnPage1());
+        }
+        System.out.printf("page=%d shape=%d buckets=%d spill=%s bytes=%d%n",
+            PAGE_SIZE, shape, histogram.bucketCount(), fit.hllOnPage1(), measured);
+      } finally {
+        releasePage(entry);
+      }
+    }
+  }
+
   // ---- Tests: inline HLL on page 0 (normal case) ----
 
   @Test

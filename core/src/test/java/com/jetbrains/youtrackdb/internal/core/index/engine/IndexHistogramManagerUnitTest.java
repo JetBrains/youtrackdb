@@ -1750,9 +1750,8 @@ public class IndexHistogramManagerUnitTest {
   // ═══════════════════════════════════════════════════════════════════════
 
   @Test
-  public void fitToPage_respectsMinimumBucketCount() {
-    // Create a BuildResult with 8 buckets where boundaries are very large
-    // so the page budget forces reduction. Verify it stops at 4 (minimum).
+  public void fitToPage_rejectsOversizedMinimum() {
+    // No histogram fits, including the minimum bucket count.
     int buckets = 8;
     var boundaries = new Comparable<?>[buckets + 1];
     var frequencies = new long[buckets];
@@ -1777,13 +1776,7 @@ public class IndexHistogramManagerUnitTest {
     var fitResult = IndexHistogramManager.fitToPage(
         result, 800, true, 0, hugeSize);
 
-    // The while loop exits when bucketCount reaches MINIMUM_BUCKET_COUNT (4).
-    // Even though boundaries don't fit, the histogram is returned with 4
-    // buckets — fitToPage does not return null for single-value when the
-    // minimum is reached.
-    assertNotNull(fitResult);
-    assertEquals(IndexHistogramManager.MINIMUM_BUCKET_COUNT,
-        fitResult.histogram().bucketCount());
+    assertNull(fitResult);
   }
 
   @Test
@@ -2110,9 +2103,8 @@ public class IndexHistogramManagerUnitTest {
   }
 
   @Test
-  public void mergeBuckets_lastBucketAbsorbsRemainder() {
-    // Given 6 buckets merged to 4: ratio = 6/4 = 1 (integer division).
-    // Last bucket absorbs remainder: buckets 4 and 5.
+  public void mergeBuckets_balancesRemainder() {
+    // Six source buckets form groups of one, two, one and two.
     var boundaries = new Comparable<?>[] {0, 10, 20, 30, 40, 50, 60};
     var frequencies = new long[] {10, 20, 30, 40, 50, 60};
     var distinctCounts = new long[] {1, 2, 3, 4, 5, 6};
@@ -2120,17 +2112,13 @@ public class IndexHistogramManagerUnitTest {
     var result = IndexHistogramManager.mergeBuckets(
         boundaries, frequencies, distinctCounts, 6, 4);
 
-    // ratio = 6/4 = 1.
-    // bucket 0: [0..10) = 10, ndv 1
-    // bucket 1: [10..20) = 20, ndv 2
-    // bucket 2: [20..30) = 30, ndv 3
-    // bucket 3 (last, absorbs remainder): [30..60] = 40+50+60=150, ndv 4+5+6=15
+    // Boundaries are 0, 10, 30, 40 and 60. Each sum uses its source range.
     assertEquals(4, result.actualBucketCount);
     assertEquals(10, result.frequencies[0]);
-    assertEquals(20, result.frequencies[1]);
-    assertEquals(30, result.frequencies[2]);
-    assertEquals(150, result.frequencies[3]);
-    assertEquals(15, result.distinctCounts[3]);
+    assertEquals(50, result.frequencies[1]);
+    assertEquals(40, result.frequencies[2]);
+    assertEquals(110, result.frequencies[3]);
+    assertEquals(11, result.distinctCounts[3]);
     assertEquals(60, result.boundaries[4]);
   }
 
@@ -2234,17 +2222,11 @@ public class IndexHistogramManagerUnitTest {
     IndexHistogramManager.BoundarySizeCalculator hugeSize =
         (b, count) -> Integer.MAX_VALUE;
 
-    // With 4 buckets: loop condition "bucketCount > MINIMUM_BUCKET_COUNT"
-    // is false (4 > 4 is false), so loop doesn't execute.
-    // The histogram is returned as-is (boundaries still don't fit but
-    // we exit the loop).
+    // Reject oversized boundaries even when the input starts at the minimum.
     var fitResult = IndexHistogramManager.fitToPage(
         result, 100, true, 0, hugeSize);
 
-    // The method returns the histogram at MINIMUM_BUCKET_COUNT even if
-    // boundaries don't fit — the loop won't enter.
-    assertNotNull(fitResult);
-    assertEquals(4, fitResult.histogram().bucketCount());
+    assertNull(fitResult);
   }
 
   @Test
@@ -3077,6 +3059,239 @@ public class IndexHistogramManagerUnitTest {
    *
    * @param isSingleValue true for single-value index, false for multi-value
    */
+  @Test
+  @Category(SequentialTest.class)
+  public void noFit_firstBuildPublishesScalars_rebalanceKeepsSnapshot_andWarns()
+      throws Exception {
+    // Decimal keys cannot be truncated. Neither the minimum histogram nor
+    // its full MCV fits. Each attempt must report the affected index.
+    var storage = createMockStorage();
+    when(storage.getAtomicOperationsManager().startAtomicOperation())
+        .thenReturn(mock(AtomicOperation.class));
+    var cache = new ConcurrentHashMap<Integer, HistogramSnapshot>();
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+    var serializer =
+        com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer.INSTANCE;
+    var manager = new IndexHistogramManager(storage, "oversized-decimal-index", 0,
+        false, cache, serializer, factory, serializer.getId());
+    var base = java.math.BigInteger.ONE.shiftLeft(DurablePage.MAX_PAGE_SIZE_BYTES * 8);
+    java.util.function.Supplier<Stream<Object>> keys = () -> IntStream.range(0, 1000)
+        .mapToObj(i -> new java.math.BigDecimal(base.add(
+            java.math.BigInteger.valueOf(i))));
+    var records = new ArrayList<java.util.logging.LogRecord>();
+    var logger = java.util.logging.Logger.getLogger(IndexHistogramManager.class.getName());
+    var handler = new java.util.logging.Handler() {
+      @Override
+      public void publish(java.util.logging.LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    var pool = new com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool(
+        DurablePage.MAX_PAGE_SIZE_BYTES);
+    var pointer = pool.acquireDirect(true,
+        com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.TEST);
+    var cachePointer = new com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer(
+        pointer, pool, 0, 0);
+    cachePointer.incrementReferrer();
+    var entry = new com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl(
+        0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    var op = mock(AtomicOperation.class);
+    when(op.loadPageForWrite(org.mockito.ArgumentMatchers.anyLong(),
+        org.mockito.ArgumentMatchers.eq(0L), org.mockito.ArgumentMatchers.anyInt(),
+        org.mockito.ArgumentMatchers.anyBoolean())).thenReturn(entry);
+    logger.addHandler(handler);
+    try {
+      assertEquals(1000, manager.buildHistogram(op,
+          keys.get(), 1000, 0, 1));
+      assertNull(manager.getHistogram());
+      assertEquals(1000, manager.getStatistics().totalCount());
+      assertEquals(1000, manager.getStatistics().distinctCount());
+      var previous = new HistogramSnapshot(new IndexStatistics(1000, 1000, 0),
+          createSimpleHistogram(1000), 500, 1000, 3, false, null, false);
+      cache.put(0, previous);
+      manager.setFileIdForTest(1);
+      manager.setKeyStreamSupplier(atomicOp -> keys.get());
+      var rebalance = IndexHistogramManager.class.getDeclaredMethod("doRebalance", boolean.class);
+      rebalance.setAccessible(true);
+      rebalance.invoke(manager, true);
+      org.junit.Assert.assertSame(previous, cache.get(0));
+      assertEquals(2,
+          records.stream().filter(
+              record -> record.getLevel().intValue() >= java.util.logging.Level.WARNING.intValue()
+                  && record.getMessage().contains("No histogram fits")
+                  && record.getMessage().contains("oversized-decimal-index"))
+              .count());
+    } finally {
+      logger.removeHandler(handler);
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+      pool.clear();
+    }
+  }
+
+  @Test
+  public void mergeBuckets_balancesContiguousGroupsAndPreservesSums() {
+    // Every group covers adjacent source buckets. Group widths differ by at
+    // most one, including targets close to the original bucket count.
+    for (var pair : new int[][] {{128, 68}, {128, 65}, {128, 127},
+        {16, 7}, {128, 128}}) {
+      int source = pair[0];
+      int target = pair[1];
+      var bounds = new Comparable<?>[source + 1];
+      var frequencies = new long[source];
+      var distinct = new long[source];
+      for (int i = 0; i <= source; i++) {
+        bounds[i] = i;
+      }
+      Arrays.fill(frequencies, 10);
+      Arrays.fill(distinct, 3);
+      var merged = IndexHistogramManager.mergeBuckets(
+          bounds, frequencies, distinct, source, target);
+      assertEquals(target, merged.actualBucketCount);
+      assertEquals(0, merged.boundaries[0]);
+      for (int i = 0; i < target; i++) {
+        int start = i * source / target;
+        int end = (i + 1) * source / target;
+        assertEquals("Balanced frequency for " + source + " to " + target,
+            (end - start) * 10L, merged.frequencies[i]);
+        assertEquals((end - start) * 3L, merged.distinctCounts[i]);
+        assertEquals(end, merged.boundaries[i + 1]);
+      }
+      assertEquals(source * 10L, Arrays.stream(merged.frequencies).sum());
+      assertEquals(source * 3L, Arrays.stream(merged.distinctCounts).sum());
+    }
+  }
+
+  @Test
+  public void fitToPage_decimalMcvFitsRealPageAndReducesBuckets() throws Exception {
+    // The full decimal MCV needs another bucket's space. Omitting its size
+    // selects too many buckets and the real page writer rejects the snapshot.
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+    var serializer =
+        com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer.INSTANCE;
+    var manager = new IndexHistogramManager(
+        createMockStorage(), "decimal-mcv-index", 0, true, new ConcurrentHashMap<>(),
+        serializer, factory, serializer.getId());
+    var bounds = new Comparable<?>[129];
+    var frequencies = new long[128];
+    var distinct = new long[128];
+    var base = java.math.BigInteger.TEN.pow(700);
+    for (int i = 0; i <= 128; i++) {
+      bounds[i] = new java.math.BigDecimal(base.add(java.math.BigInteger.valueOf(i)));
+    }
+    Arrays.fill(frequencies, 100);
+    Arrays.fill(distinct, 1);
+    var mcv = (java.math.BigDecimal) bounds[64];
+    var input = new IndexHistogramManager.BuildResult(
+        bounds, frequencies, distinct, 128, 128, mcv, 100);
+    var withoutMcv = new IndexHistogramManager.BuildResult(
+        bounds, frequencies, distinct, 128, 128, null, 0);
+    var method = IndexHistogramManager.class.getDeclaredMethod(
+        "fitToPage", IndexHistogramManager.BuildResult.class, long.class);
+    method.setAccessible(true);
+    var fit = (IndexHistogramManager.FitResult) method.invoke(manager, input, 12800L);
+    var baseline = (IndexHistogramManager.FitResult) method.invoke(manager, withoutMcv, 12800L);
+    assertNotNull(fit);
+    assertNotNull(baseline);
+    assertTrue("Reserve the full decimal MCV",
+        fit.histogram().bucketCount() < baseline.histogram().bucketCount());
+    @SuppressWarnings("unchecked")
+    var keys = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            ?>) serializer;
+    var pool = new com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool(
+        DurablePage.MAX_PAGE_SIZE_BYTES);
+    var pointer = pool.acquireDirect(true,
+        com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.TEST);
+    var cachePointer = new com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer(
+        pointer, pool, 0, 0);
+    cachePointer.incrementReferrer();
+    var entry = new com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl(
+        0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var snapshot = new HistogramSnapshot(new IndexStatistics(12800, 128, 0),
+          fit.histogram(), 0, 12800, 0, false, null, false);
+      var page = new HistogramStatsPage(entry);
+      page.writeSnapshot(snapshot, serializer.getId(), keys, factory);
+      var loaded = page.readSnapshot(keys, factory).histogram();
+      assertEquals(mcv, loaded.mcvValue());
+      assertEquals(100, loaded.mcvFrequency());
+      assertEquals(fit.histogram().bucketCount(), loaded.bucketCount());
+      assertEquals(12800, Arrays.stream(loaded.frequencies()).sum());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+      pool.clear();
+    }
+  }
+
+  @Test
+  public void fitToPage_fullMcvFitsRealPage() throws Exception {
+    // Boundaries remain short while the full MCV consumes half a page.
+    // The fit must reserve the original MCV, not its truncated boundary form.
+    var factory = BinarySerializerFactory.create(
+        BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+    var serializer =
+        com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer.INSTANCE;
+    var manager = new IndexHistogramManager(
+        createMockStorage(), "long-mcv-index", 0, true, new ConcurrentHashMap<>(),
+        serializer, factory, serializer.getId());
+    var bounds = new Comparable<?>[129];
+    var frequencies = new long[128];
+    var distinct = new long[128];
+    for (int i = 0; i <= 128; i++) {
+      bounds[i] = String.format("%04d", i) + "x".repeat(248);
+    }
+    Arrays.fill(frequencies, 100);
+    Arrays.fill(distinct, 1);
+    var mcv = "m".repeat(DurablePage.MAX_PAGE_SIZE_BYTES / 2);
+    var input = new IndexHistogramManager.BuildResult(
+        bounds, frequencies, distinct, 128, 128, mcv, 100);
+    var method = IndexHistogramManager.class.getDeclaredMethod(
+        "fitToPage", IndexHistogramManager.BuildResult.class, long.class);
+    method.setAccessible(true);
+    var fit = (IndexHistogramManager.FitResult) method.invoke(manager, input, 12800L);
+    assertNotNull(fit);
+    assertEquals(mcv, fit.histogram().mcvValue());
+    @SuppressWarnings("unchecked")
+    var keys = (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+        Object>) (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer<
+            ?>) serializer;
+    var pool = new com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool(
+        DurablePage.MAX_PAGE_SIZE_BYTES);
+    var pointer = pool.acquireDirect(true,
+        com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.TEST);
+    var cachePointer = new com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer(
+        pointer, pool, 0, 0);
+    cachePointer.incrementReferrer();
+    var entry = new com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl(
+        0, 0, cachePointer, false, null);
+    entry.acquireExclusiveLock();
+    try {
+      var snapshot = new HistogramSnapshot(new IndexStatistics(12800, 128, 0),
+          fit.histogram(), 0, 12800, 0, false, null, false);
+      new HistogramStatsPage(entry).writeSnapshot(snapshot, serializer.getId(), keys, factory);
+      assertEquals(mcv, new HistogramStatsPage(entry).readSnapshot(keys, factory)
+          .histogram().mcvValue());
+    } finally {
+      entry.releaseExclusiveLock();
+      cachePointer.decrementReferrer();
+      pool.clear();
+    }
+  }
+
   private static class Fixture {
     final int engineId = 0;
     final ConcurrentHashMap<Integer, HistogramSnapshot> cache =

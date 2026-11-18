@@ -93,6 +93,8 @@ final class HistogramStatsPage extends DurablePage {
   private static final int VARIABLE_DATA_OFFSET =
       HLL_REGISTER_COUNT_OFFSET + IntegerSerializer.INT_SIZE;
 
+  static final int FIXED_HEADER_SIZE = VARIABLE_DATA_OFFSET - NEXT_FREE_POSITION;
+
   static final int FORMAT_VERSION = 1;
 
   HistogramStatsPage(CacheEntry cacheEntry) {
