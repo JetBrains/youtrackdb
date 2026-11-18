@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision;
 import java.util.TreeSet;
 import java.util.function.IntPredicate;
 import javax.annotation.Nullable;
@@ -20,7 +21,14 @@ final class PrivatePrefixDiscovery {
 
   record Outcome(Reason reason, int cut,
       @Nullable GremlinToMatchTranslator.TranslationResult translation,
-      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) implements AutoCloseable {
+      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure,
+      @Nullable PlainPlanDecision decision) implements AutoCloseable {
+    Outcome(Reason reason, int cut,
+        @Nullable GremlinToMatchTranslator.TranslationResult translation,
+        @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) {
+      this(reason, cut, translation, plan, indexGuardFailure, null);
+    }
+
     Outcome(Reason reason, int cut,
         @Nullable GremlinToMatchTranslator.TranslationResult translation,
         @Nullable InternalExecutionPlan plan) {
@@ -182,9 +190,9 @@ final class PrivatePrefixDiscovery {
     } catch (RuntimeException failure) {
       return refused(Reason.PLAN_BUILD_FAILURE);
     }
-    boolean plain;
+    PlainPlanDecision decision;
     try {
-      plain = PlainBoundaryClassifier.classify(plan, candidate).plain();
+      decision = PlainBoundaryClassifier.classify(plan, candidate);
     } catch (RuntimeException | Error failure) {
       try {
         plan.close();
@@ -193,11 +201,11 @@ final class PrivatePrefixDiscovery {
       }
       throw failure;
     }
-    if (plain) {
+    if (decision.plain()) {
       plan.close();
       return refused(Reason.PLAIN);
     }
-    return new Outcome(selected, cut, candidate, plan);
+    return new Outcome(selected, cut, candidate, plan, false, decision);
   }
 
   private static Outcome refused(Reason reason) {

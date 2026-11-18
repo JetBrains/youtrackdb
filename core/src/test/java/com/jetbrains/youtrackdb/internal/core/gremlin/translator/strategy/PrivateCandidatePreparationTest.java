@@ -1146,6 +1146,49 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Classification belongs to the selected original and actual boundary. Its complete immutable
+   * decision survives publication and a genuine warm hit without classifying a copied plan.
+   */
+  @Test
+  public void selectedClassificationIsReusedWithoutReclassifyingCopies() {
+    try (var probe = new PublicationProbe();
+        var classifier = mockStatic(PlainBoundaryClassifier.class, CALLS_REAL_METHODS)) {
+      var prepare = probe.prepare();
+      var decisions = new ArrayList<
+          com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision>();
+      classifier.when(() -> PlainBoundaryClassifier.classify(any(), any()))
+          .thenAnswer(call -> {
+            var decision =
+                (com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision) call
+                    .callRealMethod();
+            decisions.add(decision);
+            return decision;
+          });
+      try (var cold = prepare.prepare(query(30, 40), policy)) {
+        assertThat(cold.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(cold.extent()).isEqualTo(3);
+        assertThat(cold.cacheHit()).isFalse();
+      }
+      assertThat(decisions).hasSize(1);
+      var resident = (GremlinTranslationTemplate.Candidate) probe.resident().template();
+      assertThat(resident.translation().decision()).isSameAs(decisions.getFirst());
+      probe.duringWalk = () -> {
+        throw new AssertionError("warm candidate must not recognize");
+      };
+      probe.duringBuild = () -> {
+        throw new AssertionError("warm candidate must not build");
+      };
+      try (var warm = prepare.prepare(query(40, 30), policy)) {
+        assertThat(warm.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(warm.extent()).isEqualTo(3);
+        assertThat(warm.cacheHit()).isTrue();
+        assertThat(warm.bindings()).containsExactlyEntriesOf(Map.of(0, 40));
+      }
+      assertThat(decisions).hasSize(1);
+    }
+  }
+
   /** Every configured bypass reaches private preparation without candidate lookup or publication. */
   @Test
   public void admittedNativeFixturesReachPrivateExtractionAndBypassIncompleteInputs() {
