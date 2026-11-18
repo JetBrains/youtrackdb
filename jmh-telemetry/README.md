@@ -5,6 +5,40 @@ Off installs no telemetry listener, local capture or log hook.
 The module skips installation, deployment and Central publishing, including its executable jar.
 Neither the normal compare job nor the nightly job builds it.
 
+## Manual compare workflow
+
+Dispatch `ldbc-jmh-compare.yml` from develop and choose `mode=telemetry`.
+Supply one pull request number or one full same-repository commit SHA.
+Normal mode remains the default.
+The telemetry choice is independent from `gremlin_arms`.
+It compares candidate-on against candidate-off at one revision, not against the base revision.
+
+Select eight vCPUs. Telemetry mode rejects the 32-vCPU selection.
+
+Trusted develop tooling checks the catalog before allocating a benchmark runner.
+The shipped catalog has no on arm, so telemetry dispatch ends non-success with "not available".
+Later registrations must add trusted catalog entries and matching candidate fixture values.
+Real-runner use requires first-delivery merge and separate execution authorization.
+
+Telemetry uses a separate workflow concurrency group.
+It cannot replace a pending normal comparison.
+The benchmark job builds the jar in its own clean candidate checkout.
+Trusted tooling reads the candidate listing as untrusted evidence and runs two sequential paired repetitions.
+The benchmark job runs candidate code on the same runner as the tooling.
+Candidate code can affect that job's step summary and raw artifact bundle.
+Only the `telemetry-validate` summary and the `telemetry-report_*` artifact contain the trusted report.
+That separate read-only job validates the producer identity and labels values as candidate-reported.
+The report does not prove that the candidate ran the expected code.
+Neither job can sign, attest or publish pull request completion.
+
+Raw files identify run, producing attempt, revision, arm, repetition and measurement pass.
+Artifact bundles identify the run, producing attempt and revision.
+Reports also identify the validation attempt.
+Artifacts have 90-day retention. Telemetry writes no results to S3.
+Telemetry mode cannot satisfy normal signed completion.
+
+Nightly and normal compare jobs do not build this module.
+
 ## Local execution
 
 Build the executable jar from the repository root:

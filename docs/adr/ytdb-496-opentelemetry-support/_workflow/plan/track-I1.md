@@ -14,7 +14,7 @@ The off arm installs no telemetry listener, local capture or log hook.
 The user decision date is **2026-11-16**.
 That decision narrows I1 to two parts in pull request (PR) #1108.
 Part 1 spans Tracks 108, 112 and 113.
-Part 2 is planned Track 109.
+Part 2 spans Tracks 109, 114 and 115.
 
 This record applies the decision sentence by sentence without editing the accepted source documents.
 Only the conflicting parts named below change.
@@ -25,7 +25,15 @@ All other accepted requirements remain binding on their owners.
 - Part 1, Track 108: delivered off fixtures in the separate `jmh-telemetry` module.
 - Part 1, Track 112: delivered setup metadata and local off-against-off comparison through `jmh-telemetry/off_compare.py`.
 - Part 1, Track 113: this detailed record and its sentence replacements.
-- Part 2, Track 109: planned optional on-against-off mode. It is not delivered by the local off route.
+- Part 2, Track 109: trusted on-against-off validation and rendering.
+- Part 2, Track 114: paired execution through trusted tooling.
+- Part 2, Track 115: opt-in manual workflow mode and completion isolation.
+
+The manual telemetry mode uses its own concurrency group and a fixed eight-vCPU runner.
+Trusted develop tooling checks availability before benchmark-runner allocation.
+The shipped catalog has no on arm and returns non-success as `not available`.
+Telemetry validation has no signing, attestation or pull-request-write permissions.
+The signing job excludes telemetry, and the completion command also rejects that mode.
 
 The delivered facts below are checked against these repository files:
 
@@ -64,7 +72,18 @@ Neither the normal compare job nor the nightly job builds this module.
 The root reactor includes it, so default-job exclusion does not mean exclusion from every repository build.
 Only planned telemetry mode builds it through trusted workflow tooling.
 Local builds and off comparisons remain available.
-Default-selection checks live in `jmh-telemetry/tests/test_selection.py`.
+Reactor selection checks live in `jmh-telemetry/tests/test_selection.py`.
+Workflow isolation checks live in `.github/scripts/mandatory-benchmark-test.py`.
+The workflow check reads both workflows as PyYAML values and as source text.
+Comments in these workflows must not name telemetry tools or Maven.
+Normal Maven commands must match an exact list in the test.
+The check does not evaluate bash, the GitHub expression engine or the GitHub YAML parser.
+It does not evaluate other files or programs.
+Names and commands that these systems build or change when the workflow runs are outside the check.
+
+R1: Shell code can join separate strings to form a forbidden path.
+R2: A workflow expression can use `format()` to form a forbidden path.
+R3: Another repository script can call telemetry tooling without naming it in the workflow.
 
 Track 112 supplies a local base-off against candidate-off route.
 The base is the reference revision. The candidate is the revision under review.
@@ -361,7 +380,7 @@ The retained rows name the exact sentences and locations instead of replacing th
 This track changes documentation only.
 It changes no code, workflow, script, build, nightly storage, exclusion list, InfluxDB service, dashboard or alert rule.
 Nightly self-comparison is outside I1 and requires no new issue.
-Track 109 remains planned implementation work.
+Tracks 109, 114 and 115 implement Part 2.
 No pointer is added to `implementation-plan.md` because this standalone record supplies the full sentence inventory.
 
 ## Validation and recovery

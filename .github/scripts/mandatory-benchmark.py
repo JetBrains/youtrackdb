@@ -252,7 +252,7 @@ def validate_comparison(arguments):
   }
 
 
-def canonical_completion(fields):
+def canonical_completion(fields, mode="normal"):
   required = {
       "repository", "pr_number", "executed_repository", "head_sha", "base_sha",
       "baseline_sha", "queries", "gremlin_arms", "validation_contract",
@@ -262,7 +262,7 @@ def canonical_completion(fields):
   for key in required:
     if not isinstance(fields[key], (str, int)) or isinstance(fields[key], bool):
       raise ContractError(f"completion field has an invalid type: {key}")
-  if (fields["queries"] != "" or fields["gremlin_arms"] != "on"
+  if (mode != "normal" or fields["queries"] != "" or fields["gremlin_arms"] != "on"
       or fields["validation_contract"] != CONTRACT
       or fields["validator_workflow"] != WORKFLOW_IDENTITY):
     raise ContractError("only a full production-arm PR comparison can complete")
@@ -397,6 +397,7 @@ def parser():
   validation.add_argument("--gremlin-arms", choices=("on", "both"), default="on")
   validation.add_argument("--output", required=True)
   completion = commands.add_parser("completion")
+  completion.add_argument("--mode", choices=("normal", "telemetry"), default="normal")
   completion.add_argument("--fields", required=True)
   completion.add_argument("--output", required=True)
   comment = commands.add_parser("comment")
@@ -440,7 +441,7 @@ def main():
       Path(arguments.output).write_text(json.dumps(result, sort_keys=True) + "\n")
     elif arguments.command == "completion":
       fields = load_json(arguments.fields)
-      Path(arguments.output).write_bytes(canonical_completion(fields))
+      Path(arguments.output).write_bytes(canonical_completion(fields, arguments.mode))
     else:
       body = completion_comment(
           Path(arguments.completion).read_bytes(), Path(arguments.bundle).read_bytes())

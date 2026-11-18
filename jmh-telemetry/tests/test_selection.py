@@ -1,7 +1,6 @@
 """Offline contract checks for default job isolation and unpublished artifacts."""
 import copy
 import pathlib
-import re
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -47,13 +46,8 @@ def require_isolated(modules):
 class SelectionTest(unittest.TestCase):
     def test_default_jobs_select_only_ldbc_upstream_closure(self):
         require_isolated(reactor())
-        for job in ("ldbc-jmh-compare.yml", "ldbc-jmh-nightly.yml"):
-            content = (ROOT / ".github/workflows" / job).read_text()
-            commands = re.findall(r"./mvnw[^\n]+", content)
-            self.assertTrue(commands)
-            for command in commands:
-                self.assertIn("-pl jmh-ldbc -am", command)
-            self.assertNotIn("jmh-telemetry", content)
+        nightly = ROOT / ".github/workflows/ldbc-jmh-nightly.yml"
+        self.assertNotIn("jmh-telemetry", nightly.read_text())
 
     def test_profile_and_plugin_dependency_canaries_reject_selection(self):
         # Inject each forbidden edge in memory, without changing repository POMs.

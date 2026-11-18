@@ -44,6 +44,12 @@ on:
         required: false
         type: string
         default: ''
+      mode:
+        description: Normal revision comparison or opt-in telemetry on-against-off comparison.
+        required: false
+        type: choice
+        options: ['normal', 'telemetry']
+        default: 'normal'
       gremlin_arms:
         description: Production arm or optional investigation A/B arms
         required: false
@@ -58,7 +64,7 @@ on:
         default: '8'
 
 concurrency:
-  group: ldbc-jmh-${{ inputs.pr_number != '' && format('pr-{0}', inputs.pr_number) || format('sha-{0}', inputs.commit_sha) }}
+  group: ${{ inputs.mode == 'telemetry' && 'telemetry-paired-' || 'ldbc-jmh-' }}${{ inputs.pr_number != '' && format('pr-{0}', inputs.pr_number) || format('sha-{0}', inputs.commit_sha) }}
   cancel-in-progress: false
 
 permissions:
@@ -73,6 +79,7 @@ jobs:
     name: Resolve immutable comparison target
     runs-on: ubuntu-latest-8-cores-x64-public
     outputs:
+      mode: ${{ inputs.mode || 'normal' }}
       target_mode: ${{ steps.identity.outputs.target_mode }}
       target_key: ${{ steps.identity.outputs.target_key }}
       pr_number: ${{ steps.identity.outputs.pr_number }}
@@ -110,6 +117,29 @@ jobs:
           ref: ${{ steps.tooling.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Check telemetry availability before runner allocation
+        env:
+          MODE: ${{ inputs.mode || 'normal' }}
+          RUNNER_CORES: ${{ inputs.runner_cores || '8' }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import sys
+          mode = os.environ["MODE"]
+          if mode not in ("normal", "telemetry"):
+              sys.exit("invalid comparison mode")
+          if mode == "telemetry":
+              if os.environ["EVENT_NAME"] != "workflow_dispatch":
+                  sys.exit("telemetry requires manual dispatch")
+              if os.environ["RUNNER_CORES"] != "8":
+                  sys.exit("telemetry requires the fixed eight-vCPU compare machine")
+              sys.path.insert(0, "jmh-telemetry")
+              from telemetry_compare import CATALOG
+              if not any(arm.arm != "off" for arm in CATALOG):
+                  sys.exit("not available: trusted catalog has no on arm")
+          PY
 
       - name: Resolve target, baseline, and filter
         id: identity
@@ -219,6 +249,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   retrieve-dataset:
+    if: inputs.mode != 'telemetry'
     name: Retrieve benchmark dataset
     needs: resolve
     runs-on: ubuntu-latest-8-cores-x64-public
@@ -258,6 +289,7 @@ jobs:
           if-no-files-found: error
 
   benchmark:
+    if: inputs.mode != 'telemetry'
     name: Execute comparison on requested ${{ needs.resolve.outputs.runner_cores }}-vCPU profile
     needs: [resolve, retrieve-dataset]
     runs-on:
@@ -391,10 +423,128 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
+  telemetry-benchmark:
+    name: Execute candidate telemetry pairs
+    if: inputs.mode == 'telemetry'
+    needs: resolve
+    runs-on:
+      - self-hosted
+      - type-ccx33
+      - image-x86-system-ubuntu-24.04
+      - in-nbg1-fsn1-hel1
+    timeout-minutes: 1800
+    permissions:
+      contents: read
+    outputs:
+      producing_attempt: ${{ steps.identity.outputs.attempt }}
+      artifact: ${{ steps.identity.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.resolve.outputs.tooling_sha }}
+          path: trusted-workflow
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.resolve.outputs.head_repository }}
+          ref: ${{ needs.resolve.outputs.head_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: temurin
+          overwrite-settings: false
+      - name: Record telemetry producer identity
+        id: identity
+        env:
+          REVISION: ${{ needs.resolve.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          echo "attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "artifact=telemetry_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}_$REVISION" >> "$GITHUB_OUTPUT"
+      - name: Build candidate and run trusted telemetry tooling
+        env:
+          REVISION: ${{ needs.resolve.outputs.head_sha }}
+          ARTIFACT: ${{ steps.identity.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT" =~ ^[A-Za-z0-9_]+$ ]]
+          [[ "$(git -C candidate rev-parse HEAD)" == "$REVISION" ]]
+          [[ -z "$(git -C candidate status --porcelain)" ]]
+          cd candidate
+          ./mvnw -pl jmh-telemetry -am clean package -DskipTests -Dspotless.check.skip=true
+          cd ..
+          mkdir "$RUNNER_TEMP/telemetry-scratch"
+          python3 trusted-workflow/jmh-telemetry/telemetry_run.py \
+            --jar "$GITHUB_WORKSPACE/candidate/jmh-telemetry/target/telemetry-benchmarks.jar" \
+            --scratch "$RUNNER_TEMP/telemetry-scratch" --directory "$RUNNER_TEMP/telemetry-raw" \
+            --run "$GITHUB_RUN_ID" --producing-attempt "$GITHUB_RUN_ATTEMPT" \
+            --revision "$REVISION" --artifact "$ARTIFACT" --harness off_fixture_v1 \
+            --machine-type type_ccx33 --repetitions 2 --warmup 5
+      - uses: actions/upload-artifact@v7
+        if: always() && steps.identity.outputs.artifact != ''
+        with:
+          name: ${{ steps.identity.outputs.artifact }}
+          path: ${{ runner.temp }}/telemetry-raw
+          retention-days: 90
+          if-no-files-found: error
+
+  telemetry-validate:
+    name: Validate and render telemetry evidence
+    if: "!cancelled() && inputs.mode == 'telemetry' && needs.telemetry-benchmark.outputs.artifact != ''"
+    needs: [resolve, telemetry-benchmark]
+    runs-on: ubuntu-latest-8-cores-x64-public
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ needs.resolve.outputs.tooling_sha }}
+          path: trusted-workflow
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.telemetry-benchmark.outputs.artifact }}
+          path: ${{ runner.temp }}/telemetry-raw
+      - name: Render with trusted validator
+        env:
+          REVISION: ${{ needs.resolve.outputs.head_sha }}
+          PRODUCING_ATTEMPT: ${{ needs.telemetry-benchmark.outputs.producing_attempt }}
+          ARTIFACT: ${{ needs.telemetry-benchmark.outputs.artifact }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]]
+          [[ "$PRODUCING_ATTEMPT" =~ ^[0-9]+$ ]]
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARTIFACT" == "telemetry_${GITHUB_RUN_ID}_${PRODUCING_ATTEMPT}_$REVISION" ]]
+          python3 trusted-workflow/jmh-telemetry/telemetry_compare.py \
+            --directory "$RUNNER_TEMP/telemetry-raw" --run "$GITHUB_RUN_ID" \
+            --producing-attempt "$PRODUCING_ATTEMPT" --revision "$REVISION" \
+            --artifact "$ARTIFACT" --repetitions 2 --passes 1 \
+            --validation-attempt "$GITHUB_RUN_ATTEMPT" --output "$RUNNER_TEMP/telemetry-report.md"
+          cat "$RUNNER_TEMP/telemetry-report.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: telemetry-report_${{ github.run_id }}_${{ needs.telemetry-benchmark.outputs.producing_attempt }}_${{ needs.resolve.outputs.head_sha }}_validation${{ github.run_attempt }}
+          path: ${{ runner.temp }}/telemetry-report.md
+          retention-days: 90
+          if-no-files-found: error
+
   validate:
     name: Validate and publish comparison completion
     needs: [resolve, benchmark]
-    if: needs.benchmark.result == 'success'
+    if: inputs.mode != 'telemetry' && needs.benchmark.result == 'success'
     runs-on: ubuntu-latest-8-cores-x64-public
     permissions:
       contents: read
@@ -493,6 +643,7 @@ jobs:
         env:
           COMPLETED_AT: ${{ github.event.repository.updated_at }}
           RESULT_DIGEST: ${{ steps.results.outputs.artifact-digest }}
+          MODE: ${{ needs.resolve.outputs.mode }}
         run: |
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
@@ -512,7 +663,7 @@ jobs:
               validator_revision:$validator_revision,completed_at:$completed_at}' \
             > /tmp/completion-fields.json
           python3 trusted-workflow/.github/scripts/mandatory-benchmark.py completion \
-            --fields /tmp/completion-fields.json --output /tmp/completion.json
+            --mode "$MODE" --fields /tmp/completion-fields.json --output /tmp/completion.json
       - name: Attest exact completion JSON
         if: needs.resolve.outputs.full_pr == 'true'
         id: attest
