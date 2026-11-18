@@ -26,7 +26,7 @@ public class PresenceDensityTest extends GraphBaseTest {
 
   /** Private density uses a detached locked membership copy, not the escaping ordinary view. */
   @Test
-  public void privateDensityUsesLockedDetachedMembership() {
+  public void privateDensityUsesLockedDetachedMembership() throws Exception {
     var clazz = session.createVertexClass("PrivateDensity");
     clazz.createProperty("k", PropertyType.INTEGER).setNotNull(true);
     clazz.getProperty("k").createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -38,13 +38,47 @@ public class PresenceDensityTest extends GraphBaseTest {
         .getSharedContext().getIndexManager().getIndex("PrivateDensity.k");
     var detached = index.copyCollectionsForPrivatePreparation();
     assertThat(detached).isEqualTo(index.getCollections()).isNotSameAs(index.getCollections());
+    var type = com.jetbrains.youtrackdb.internal.core.index.IndexAbstract.class;
+    var lockField = type.getDeclaredField("rwLock");
+    lockField.setAccessible(true);
+    var lock = (java.util.concurrent.locks.ReentrantReadWriteLock) lockField.get(index);
+    var membershipField = type.getDeclaredField("collectionsToIndex");
+    membershipField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var original = (Set<String>) membershipField.get(index);
+    var iterations = new java.util.concurrent.atomic.AtomicInteger();
+    var observed = new java.util.AbstractSet<String>() {
+      @Override
+      public int size() {
+        return original.size();
+      }
+
+      @Override
+      public java.util.Iterator<String> iterator() {
+        assertThat(lock.getReadHoldCount())
+            .as("private density must iterate membership under the handle read lock")
+            .isPositive();
+        iterations.incrementAndGet();
+        return original.iterator();
+      }
+    };
     try (var scope =
         com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
             .open(session)) {
-      assertThat(read("PrivateDensity")).isEqualTo(ordinary);
-      scope.validate();
+      // Instrument the real registered handle after scope admission, not snapshot capture.
+      membershipField.set(index, observed);
+      try {
+        assertThat(read("PrivateDensity")).isEqualTo(ordinary);
+        assertThat(iterations.get()).as("private density inspected supported membership")
+            .isPositive();
+        assertThat(lock.getReadHoldCount()).isZero();
+        scope.validate();
+      } finally {
+        membershipField.set(index, original);
+      }
+    } finally {
+      session.rollback();
     }
-    session.rollback();
   }
 
   /** Membership iteration excludes a concurrent writer on the handle lock, not a manager lock. */
