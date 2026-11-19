@@ -37,6 +37,7 @@
     (not bundled) and must be provided by the user:
     - Netty: native transport relies on class-path-relative resource loading.
     - SLF4J: logging facade whose binding must be chosen by the user.
+    - OpenTelemetry Context/common: shared with the host for correlation.
     - GraalVM/Truffle: internal class loading by name; needed only if the
       Gremlin JavaScript engine is used.
     The shaded jar is unsigned (original signatures are stripped during
@@ -49,6 +50,11 @@
   </properties>
 
   <dependencies>
+    <!-- Keep Context on the published classpath after core is bundled. -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-context</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.graalvm.js</groupId>
       <artifactId>js</artifactId>
@@ -163,6 +169,9 @@
               <!-- Exclude dependencies that must NOT be bundled in the uber-jar -->
               <artifactSet>
                 <excludes>
+                  <!-- Context must share the host class identity and storage. -->
+                  <exclude>io.opentelemetry:opentelemetry-context</exclude>
+                  <exclude>io.opentelemetry:opentelemetry-common</exclude>
                   <!-- SLF4J: logging facade, user provides binding -->
                   <exclude>org.slf4j:*</exclude>
                   <!-- GraalVM / Truffle: internal class loading by name; relocating breaks polyglot engine -->

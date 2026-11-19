@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import io.opentelemetry.context.Context;
+import java.util.Optional;
+import java.util.OptionalLong;
 import javax.annotation.Nullable;
 
 /// Transaction-level listener that gets notified when a query is finished.
@@ -19,7 +22,8 @@ public interface QueryMetricsListener {
   QueryMetricsListener NO_OP = (queryDetails, startedAtMillis, executionTimeNanos) -> {
   };
 
-  /// Details about the current query.
+  /// Callback-scoped query view. Copy owned scalar values with [QueryCompletion#capture].
+  /// Do not retain this view, its plan or its Context. Query text is not a retained value.
   interface QueryDetails {
 
     /// Get the string representation of the query.
@@ -28,8 +32,66 @@ public interface QueryMetricsListener {
     /// Optional client-provided summary of the query.
     @Nullable String getQuerySummary();
 
-    /// Get transaction tracking id
-    String getTransactionTrackingId();
+    /// Transaction tracking identifier, or null when the operation has no transaction.
+    /// A producer must not substitute a numeric placeholder for absence.
+    @Nullable String getTransactionTrackingId();
+
+    /// Explicit caller tracking identifier, absent when unset or without a transaction.
+    default Optional<String> getExplicitTrackingId() {
+      return Optional.empty();
+    }
+
+    /// Whole-call operation name, absent when classification cannot prove one operation.
+    default Optional<String> getOperationName() {
+      return Optional.empty();
+    }
+
+    /// Whole-call collection name, absent when classification cannot prove one collection.
+    default Optional<String> getCollectionName() {
+      return Optional.empty();
+    }
+
+    /// Database name captured for this operation, absent when unavailable.
+    default Optional<String> getDatabaseName() {
+      return Optional.empty();
+    }
+
+    /// Known outcome, absent when the producer does not report it.
+    default Optional<CompletionOutcome> getOutcome() {
+      return Optional.empty();
+    }
+
+    /// Failure class name, absent on success or when the outcome is unavailable.
+    default Optional<String> getErrorType() {
+      return getOutcome().flatMap(CompletionOutcome::errorType);
+    }
+
+    /// Returned rows, absent when unavailable. A known zero is present.
+    default OptionalLong getResultCount() {
+      return OptionalLong.empty();
+    }
+
+    /// Real start on the epoch timeline in nanoseconds, absent when unavailable.
+    default OptionalLong getStartedAtEpochNanos() {
+      return OptionalLong.empty();
+    }
+
+    /// Real end on the epoch timeline in nanoseconds, absent when unavailable.
+    /// This endpoint includes consumer pauses and cleanup, unlike EXACT active time.
+    default OptionalLong getFinishedAtEpochNanos() {
+      return OptionalLong.empty();
+    }
+
+    /// Captured transaction threshold in nanoseconds, absent when unset. Zero is valid.
+    default OptionalLong getSlowQueryThresholdOverrideNanos() {
+      return OptionalLong.empty();
+    }
+
+    /// Entry-captured parent Context, absent when not captured.
+    /// Context can contain live objects. Use it only within the synchronous callback.
+    default Optional<Context> getParentContext() {
+      return Optional.empty();
+    }
 
     /// The execution plan of the monitored query, or {@code null} if no plan was captured.
     ///

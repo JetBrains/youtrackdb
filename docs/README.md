@@ -10,6 +10,7 @@
 | [Backup and Restore](backup-restore.md) | Operator guide for binary backups — supported backup header, migration of older backups, restore admission order, restart of an interrupted restore, temporary disk space |
 | [Database Migration Procedure](operator-migration-procedure.md) | Operator runbook for export/import format migration — exit-status gates, fresh-target discipline, failure handling, best-effort dumps, crash residue |
 | [Gremlin Order By and Missing Properties](gremlin-order-by.md) | How a global-scope Gremlin order treats a record that lacks the ordered property, the setting and the per-traversal override that restore standard order semantics, and one known limitation |
+| [Completion Listener Values](listener-completions.md) | Internal listener fields, absence semantics, value lifetime and the Context dependency |
 | [Release Notes](release-notes.md) | Behavioral changes that affect an existing deployment, with the switch that restores each previous behavior |
 | [YQL Reference](yql/README.md) | Reference for the YouTrackDB Query Language (YQL) — commands, functions, methods, syntax, and MATCH traversals |
 | [Query Engine Internals](yql-internals-book/chapters/01-why-a-graph-database.md) | Deep-dive book on how YouTrackDB's YQL/MATCH queries compile and run — parser, pattern graph, cost-based planner, execution steps, traversers, and optimisation layers — in 17 chapters. Start at Chapter 1. |

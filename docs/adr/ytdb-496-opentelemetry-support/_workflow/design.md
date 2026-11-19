@@ -53,19 +53,19 @@ A second optional gate selects a wall-clock heartbeat sample: `OPENTELEMETRY_QUE
 
 Other subsystems restructured to fit.
 
-**`QueryDetails` accessors.** Five new accessors on the nested `QueryMetricsListener.QueryDetails` SPI, each mapped one-to-one to a sem-conv v1.33.0 span attribute the OTel listener emits:
+**`QueryDetails` completion accessors.** Producers report `getOutcome(): Optional<CompletionOutcome>` using `CompletionOutcome.succeeded()` or `CompletionOutcome.failed(failure)`. An empty outcome means unavailable. The default `getErrorType()` derives the failure class name from that outcome. Producers must supply the outcome rather than override the derived error accessor. These accessors feed the sem-conv v1.33.0 attributes the OTel listener emits:
 
 | Accessor | Type | Source at fire-site | Sem-conv mapping | Empty when |
 |---|---|---|---|---|
 | `getOperationName()` | `Optional<String>` | `GremlinBytecodeClassifier` or `SqlSyntaxClassifier`, after the whole-call operation test | `db.operation.name` | no single known operation describes the call |
 | `getCollectionName()` | `Optional<String>` | same classifier, after the independent whole-call collection test | `db.collection.name` | structured execution metadata cannot prove one collection |
 | `getDatabaseName()` | `Optional<String>` | `session.getDatabaseName()` at wrapper construction (SQL) / step fire (Gremlin) | `db.namespace` | session has no database name |
-| `getErrorType()` | `Optional<String>` | fully qualified class name (FQN) of a failure from `statement.execute(...)`, iteration or delegated close | `error.type` plus span status `ERROR` plus slow-query gate bypass | query succeeded |
+| `getOutcome()` / derived `getErrorType()` | `Optional<CompletionOutcome>` / `Optional<String>` | outcome from execution, iteration or delegated close, with only the failure class name retained | `error.type` plus span status `ERROR` plus slow-query gate bypass | outcome unavailable / success or unavailable |
 | `getResultCount()` | `OptionalLong` | row counter on `InstrumentedSqlResultSet` (SQL); row counter on `YTDBQueryMetricsStep` (Gremlin, increments after a successful `super.next()` on the terminal step) | `db.client.response.returned_rows` (embedded) or `youtrackdb.server.response.returned_rows` (server) histogram input | consumer abandoned the result-set without `close()` |
 
 **`getResultCount()` shape.** `OptionalLong.empty()` is distinct from `OptionalLong.of(0L)`: empty means "no signal" and the histogram skips the sample, `of(0L)` means "the query returned no rows" and produces a `0`-bucket sample. Both fire sites populate the counter. On the SQL side it lives on `InstrumentedSqlResultSet` and is correct for every inner result-set type (`LocalResultSet`, `CachedResultSetView`, `LocalResultSetLifecycleDecorator(prefetched)`); cache hits produce the same value as cache misses for the same query. On the Gremlin side it lives on `YTDBQueryMetricsStep` and covers both Path A (translated MATCH) and Path B (fallback bytecode) because the Gremlin traversal strategy `YTDBQueryMetricsStrategy.apply` appends the step at the tail of the pipeline (`traversal.addStep(metricsStep)` at `YTDBQueryMetricsStrategy.java:44`), so every traverser the consumer pulls flows through `super.next()` on this step; the counter increments only on a successful return, which preserves lazy iteration. A Gremlin traversal strategy is a pass that inspects or rewrites a traversal before execution. Bulk-aware online analytical processing (OLAP) semantics are out of scope (YTDB uses online transaction processing (OLTP), traverser bulk is always 1), so `+= 1` per `next()` mirrors what `toList()` returns. See § "Sem-conv attribute mapping" for the full sem-conv table.
 
-**`TransactionDetails` accessor.** The nested `TransactionMetricsListener.TransactionDetails` gains one accessor, `getDatabaseName()`. It maps to `db.namespace` on the commit span and to the bounded-cardinality span name `"commit " + dbName` (see § "Commit span emission"). Operation, collection, errorType, and resultCount are not needed at the TX level: commit is a single operation, write-failure has its own `writeTransactionFailed` callback, and TX-level row counts are not a sem-conv concept.
+**`TransactionDetails` accessors.** The nested `TransactionMetricsListener.TransactionDetails` gains two default accessors, `getDatabaseName()` and `getExplicitTrackingId()`, both returning `Optional<String>` and defaulting to empty. The explicit identifier is absent when unset. The database name maps to `db.namespace` on the commit span and to the bounded-cardinality span name `"commit " + dbName` (see § "Commit span emission"). Commit is a single operation and needs no collection or result count. Its failure callback supplies the error. TX-level row counts are not a sem-conv concept.
 
 **Exception isolation widens.** The existing exception-isolation try/catch in `FrontendTransactionImpl` and `YTDBQueryMetricsStep` widens from `Exception` to the narrower-than-`Throwable` union `Exception | LinkageError | AssertionError`. The wider catch covers OTel-specific failure modes (a misconfigured SDK, missing exporter classes on the classpath, assertions firing inside OTel internals) without masking the two failure modes the JVM never recovers from cleanly: `VirtualMachineError` and `ThreadDeath`.
 
@@ -125,7 +125,9 @@ The capture and export concepts follow the architecture above. Each is named and
 - `FrontendTransaction.getTrackingId(): String` — returns the explicit value when host set one, else falls back to `String.valueOf(getId())`. Used by non-OTel listeners and YTDB-internal logging that always want a stable string.
 - `FrontendTransaction.getExplicitTrackingId(): Optional<String>` — returns `Optional.of(explicit)` when host set one via `withTrackingId(...)`, else `Optional.empty()`. The OTel listener uses this accessor to gate the `youtrackdb.transaction.tracking_id` span attribute: `details.getExplicitTrackingId().ifPresent(id -> span.setAttribute(...))`. Hosts that did NOT call the setter pay zero cardinality cost (attribute omitted). Hosts that DID call the setter get cross-system correlation; cardinality is the host's responsibility (a host templating a UUID per request blows cardinality consciously). No separate config flag — the explicit setter call IS the opt-in, by construction.
 
-Both `QueryDetails.getTransactionTrackingId(): String` and `TransactionDetails.getTransactionTrackingId(): String` read through `getTrackingId()` for the always-stable fallback; `QueryDetails.getExplicitTrackingId(): Optional<String>` (new accessor) routes through `getExplicitTrackingId()` for OTel-side gating. → §"Class Design" and §"Listener registration and ordering".
+With an active transaction, `QueryDetails.getTransactionTrackingId()` and `TransactionDetails.getTransactionTrackingId()` use the stable `getTrackingId()` fallback.
+Without a transaction, the query accessor returns `null`, never a numeric placeholder.
+The accessor `QueryDetails.getExplicitTrackingId(): Optional<String>` (new accessor) routes through `getExplicitTrackingId()` for OTel-side gating. → §"Class Design" and §"Listener registration and ordering".
 
 **Log appender chokepoint.** YTDB's process-global `com.jetbrains.youtrackdb.internal.common.log.LogManager` extends `SLF4JLogManager`, whose single `log(...)` method funnels every log call from `core`, `embedded`, `server`, and the new `youtrackdb-opentelemetry` module into one SLF4J emit site at `SLF4JLogManager.log:98` (immediately before `logEventBuilder.log()`). `LogAppenderHook` is a public internal SPI (service provider interface) in the core logging package. It is not part of the supported public product API. The OTel module and host implementations can implement it. The OTel module installs a hook on that emit site at SDK init via `SLF4JLogManager.installAppenderHook(LogAppenderHook)`, so every existing YTDB log call also feeds the OTel `LogRecordBuilder` pipeline without source-side changes and independent of which SLF4J binding is on the classpath (server mode runs on `slf4j-jdk14`; embedded hosts may bind Logback, `log4j-slf4j-impl`, or `slf4j-simple` — the hook fires for all of them because it sits below the facade, on the SLF4J side of every binding). The hook reads `Context.current()` at invocation time. Gremlin, SQL and commit spans are built at completion and never made current. Traversal Context values preserve the host span. Logs during traversal work carry that host span ID when present. Without a host span, they have no trace correlation. Earlier iterations of this design attempted a Java Util Logging (JUL) `Handler` on the root logger, which catches records only when the SLF4J binding routes through JUL. The hook avoids that coupling. **Scope caveat**: the hook captures YTDB's own log calls only (every emit through `LogManager.instance()`). Third-party libraries that call SLF4J directly — Jackson, Netty, Guice, Lucene, the OTel exporter itself — are NOT captured. Operators who need full host-process log coverage use the OTel ecosystem path (`opentelemetry-instrumentation-logback-appender` or its log4j equivalent) on their SLF4J binding instead of YTDB's hook. Enable only one capture path to avoid emitting each YTDB log record twice. Replaces "logs not integrated" (prior design scope). → §"OpenTelemetry logs integration".
 
@@ -194,12 +196,14 @@ classDiagram
         +getOperationName() Optional~String~
         +getCollectionName() Optional~String~
         +getDatabaseName() Optional~String~
+        +getOutcome() Optional~CompletionOutcome~
         +getErrorType() Optional~String~
         +getQuerySource() Optional~QuerySource~
         +getParentContext() Optional~Context~
-        +getStartedAtEpochNanos() long
-        +getEndedAtEpochNanos() OptionalLong
+        +getStartedAtEpochNanos() OptionalLong
+        +getFinishedAtEpochNanos() OptionalLong
         +getResultCount() OptionalLong
+        +getSlowQueryThresholdOverrideNanos() OptionalLong
         +getWherePresent() Optional~Boolean~
         +getOrderPresent() Optional~Boolean~
         +getLimitPresent() Optional~Boolean~
@@ -252,8 +256,9 @@ classDiagram
         <<interface>>
         +getTransactionTrackingId() String
         +getDatabaseName() Optional~String~
+        +getExplicitTrackingId() Optional~String~
         +getCommittedAtEpochNanos() long
-        +getEndedAtEpochNanos() OptionalLong
+        +getFinishedAtEpochNanos() OptionalLong
     }
     class OTelQueryMetricsListener {
         -Tracer tracer
@@ -402,7 +407,8 @@ classDiagram
         -SQLStatement statement
         -String rawSql
         -Object args
-        -FrontendTransaction currentTx
+        -String capturedTrackingId
+        -Optional~String~ capturedExplicitTrackingId
         -Iterable~QueryMetricsListener~ listeners
         -QueryMonitoringMode mode
         -io.opentelemetry.context.Context capturedContext
@@ -944,14 +950,21 @@ It retains no live resources in the snapshot, as defined in the immutable snapsh
 
 **TL;DR.** Every query span keeps its recorded real start and completion timestamps. Emit both in `TimeUnit.NANOSECONDS`. EXACT still measures active time through the unchanged per-call accumulator. It exposes that value as `youtrackdb.active_time_nanos` on recording spans. Gates still compare `executionTimeNanos`. The selected embedded or server duration histogram records elapsed time between the real endpoints of the instrumented window.
 
-`QueryDetails` and `TransactionDetails` gain `getEndedAtEpochNanos(): OptionalLong`, default empty for custom producers. Native fire sites populate it before listener dispatch. EXACT captures `Instant.now()` at completion. LIGHTWEIGHT captures the ticker wall-clock at completion. Capture once and reuse the endpoint for metrics, span end and buffered snapshots. Successful SQL captures it after the wrapper closes its delegated result set. Preserve an earlier execution failure. Report a close failure only when no earlier execution failure exists. Emit completion once after cleanup and preserve delegate exception propagation. The active-time accumulator still measures only delegated iteration calls. Close contributes to endpoint duration without changing that gate input. Tests cover a close-only failure, execution plus close failure, successful cleanup, repeated close and normal exception suppression. Early SQL failures capture it in the guarded catch path. Gremlin captures it after resource close and before callbacks. Commit captures it after the commit attempt and before callbacks. An empty accessor falls back to one callback-entry wall-clock read. That compatibility fallback can include callback delay. It never derives an EXACT endpoint from active time.
+`QueryDetails` supplies `getStartedAtEpochNanos(): OptionalLong` and `getFinishedAtEpochNanos(): OptionalLong`, both default empty for custom producers. A present zero is a known timestamp, not absence. `TransactionDetails` has only database and explicit tracking defaults in the completion-value contract. The commit instrumentation track adds its recorded start and `getFinishedAtEpochNanos(): OptionalLong` endpoint.
+
+Native fire sites populate `getFinishedAtEpochNanos()` before listener dispatch. EXACT captures `Instant.now()` at completion. LIGHTWEIGHT captures the ticker wall-clock at completion. Capture once and reuse the endpoint for metrics, span end and buffered snapshots. Successful SQL captures it after the wrapper closes its delegated result set.
+
+Preserve an earlier execution failure. Report a close failure only when no earlier execution failure exists. Emit completion once after cleanup and preserve delegate exception propagation. The active-time accumulator still measures only delegated iteration calls. Close contributes to endpoint duration without changing that gate input. Tests cover a close-only failure, execution plus close failure, successful cleanup, repeated close and normal exception suppression.
+
+Early SQL failures capture it in the guarded catch path. Gremlin captures it after resource close and before callbacks. Commit captures it after the commit attempt and before callbacks. An empty accessor falls back to one callback-entry wall-clock read. That compatibility fallback can include callback delay. It never derives an EXACT endpoint from active time.
 
 The mapping inside `OTelQueryMetricsListener.queryFinished(...)`:
 
 ```java
-long startNanos = details.getStartedAtEpochNanos();
+long startNanos = details.getStartedAtEpochNanos()
+    .orElseGet(() -> TimeUnit.MILLISECONDS.toNanos(startedAtMillis));
 long endNanos = Math.max(startNanos,
-    details.getEndedAtEpochNanos().orElseGet(this::currentEpochNanos));
+    details.getFinishedAtEpochNanos().orElseGet(this::currentEpochNanos));
 // Embedded direct SQL uses its captured host Context. Gremlin uses its recorded Context.
 // Server requests use root parenting regardless of ambient worker Context.
 // Nested SQL takes the buffer path instead of this immediate builder. At drain its builder
@@ -1148,7 +1161,7 @@ These are candidate operations. Check whether one known operation describes ever
 
 The Path B table also lists candidates. Filters, projections, ordering, limits and terminal aggregates can preserve one known operation without proving a collection. An unlabeled `V()` or `E()` emits operation `SELECT` and no collection. Multiple label constraints can retain `SELECT` while omitting collection. For multiple mutations, branches, subtraversals, lambdas, graph navigation and unknown steps, omit each identity fact that cannot be proved across the complete call. Do not infer facts from an unvisited subtree. Both paths use the same independent eligibility rules.
 
-Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility with one public entry point (`Classification classify(Traversal)`) and two private dispatch targets (`classifyFromBoundaryStep(AbstractMatchPlanStep, List<Step> suffix)` for Path A, which resolves operation from the traversal verbs and independently checks collection using the boundary step's pattern facts and the suffix; `classifyFromBytecode(Bytecode)` for Path B). The dispatcher scans `traversal.getSteps()` for the first `AbstractMatchPlanStep` (`YTDBMatchPlanStep` or `MultiPlanMatchStep` — siblings under PR #1038, not in an inheritance chain); when one is present it takes Path A, passing the steps after the boundary step as the suffix, otherwise Path B. After the listener-first guard, `YTDBQueryMetricsStep.close()` supplies lazy classification through the inline `QueryDetails` and memoizes the complete `Classification` for `QueryDetails.getOperationName()`, `getCollectionName()` and `getGeneratedQuerySummary()`. The same `QueryDetails` instance also carries the `errorType` slot populated from any exception caught around the traversal-close path (the `step.next()` / `step.hasNext()` flow), so the slow-query threshold gate in `OTelQueryMetricsListener` can bypass on error. The first classification accessor computes and memoizes the complete result, including `generatedSummary`. Name, sampler inputs or enabled histograms can require that walk before span construction. Span-only text rendering and plan inspection remain lazy until recording is known. Nested SQL captures required immutable values at completion after delegated cleanup, as defined in the snapshot contract. It retains no live resources in the snapshot.
+Implementation lives in `core/.../profiler/monitoring/GremlinBytecodeClassifier.java` as a static utility with one public entry point (`Classification classify(Traversal)`) and two private dispatch targets (`classifyFromBoundaryStep(AbstractMatchPlanStep, List<Step> suffix)` for Path A, which resolves operation from the traversal verbs and independently checks collection using the boundary step's pattern facts and the suffix, and `classifyFromBytecode(Bytecode)` for Path B). The dispatcher scans `traversal.getSteps()` for the first `AbstractMatchPlanStep` (`YTDBMatchPlanStep` or `MultiPlanMatchStep` — siblings under PR #1038, not in an inheritance chain). When one is present it takes Path A, passing the steps after the boundary step as the suffix, otherwise Path B. After the listener-first guard, `YTDBQueryMetricsStep.close()` supplies lazy classification through the inline `QueryDetails` and memoizes the complete `Classification` for `QueryDetails.getOperationName()`, `getCollectionName()` and `getGeneratedQuerySummary()`. The same `QueryDetails` instance supplies `getOutcome()` from the traversal-close result, including exceptions caught during `step.next()` or `step.hasNext()`. Its derived `getErrorType()` lets the slow-query threshold gate in `OTelQueryMetricsListener` bypass on error. The first classification accessor computes and memoizes the complete result, including `generatedSummary`. Name, sampler inputs or enabled histograms can require that walk before span construction. Span-only text rendering and plan inspection remain lazy until recording is known. Nested SQL captures required immutable values at completion after delegated cleanup, as defined in the snapshot contract. It retains no live resources in the snapshot.
 
 ### Strategy ordering: metrics step after translator
 
@@ -1391,7 +1404,7 @@ InternalResultSet (drained in-memory buffer)
   └─ LocalResultSetLifecycleDecorator                   // returned to the caller; no listener fires on its close
 ```
 
-**Behavior.** SQL entry checks `isQueryMetricsEnabled()` before instrumentation work. When false, it executes ordinary SQL without telemetry state and returns `inner` unchanged. Otherwise it increments the current thread's SQL entry depth and restores it in `finally`. A nested entry at depth `> 1` skips telemetry capture and emits no completion, including early failures. The outer entry captures one operation listener snapshot, Context, tag, provenance and mode before setup. Pass that entry state to `wrapIfListening(...)`. The wrapper inherits it without repeating listener selection, Context capture or mode resolution. A standalone factory call without entry state performs its own presence check and capture. An empty captured snapshot returns `inner`. Construction retains the entry state and prepares successful-result timing. SQL inside tagged Gremlin uses the tag rules. Direct SQL uses the per-TX default. Under `LIGHTWEIGHT` the constructor captures a wall-clock start from `GranularTicker` (no syscall on the hot path) and reads the ticker again at `close()`; the duration is the tick difference. Under `EXACT` the constructor captures the wall-clock start from one `Instant.now()` read with platform-dependent precision. During iteration each delegated `hasNext()` / `next()` call is bracketed by paired `System.nanoTime()` reads that accumulate into a per-result-set active-time total, and `close()` reports that total as `executionTimeNanos`. The constructor stores the captured Context for completion routing. Embedded direct SQL uses its captured host span as the explicit parent at completion. Server direct SQL uses explicit root parenting. Nested SQL uses the private traversal-state key to offer a snapshot. Its span is built later with `recordedHostContext.with(gremlinSpan)` as the explicit parent. See §"Span timing capture" for the full clock-source rules. Iteration: `hasNext()` / `next()` delegate to `inner`, increment a row counter, capture any thrown exception, and (under `EXACT`) feed the timing accumulator. `tryAdvance` / `forEachRemaining` route through these so `.stream()`, `.toList()`, and the other consumer patterns all see the counter and (when relevant) the accumulator. `close()` closes the delegated result set first. It preserves an earlier execution failure for telemetry and reports a close failure only if no earlier failure exists. Completion fires once after cleanup. Delegate exceptions keep their normal propagation and suppression behavior. It then computes elapsed time per the resolved mode (`endTick - startTick` under `LIGHTWEIGHT`, accumulated active-time total under `EXACT`), builds `QueryDetails` (lazy classification + sanitization, `errorType`, `resultCount`, `parentContext`), and calls `queryFinished` on every listener in the inherited operation snapshot or the standalone factory's snapshot. Listener exceptions are isolated per the existing `Exception | LinkageError | AssertionError` contract.
+**Behavior.** SQL entry checks `isQueryMetricsEnabled()` before instrumentation work. When false, it executes ordinary SQL without telemetry state and returns `inner` unchanged. Otherwise it increments the current thread's SQL entry depth and restores it in `finally`. A nested entry at depth `> 1` skips telemetry capture and emits no completion, including early failures. The outer entry captures one operation listener snapshot, Context, tag, provenance and mode before setup. Pass that entry state to `wrapIfListening(...)`. The wrapper inherits it without repeating listener selection, Context capture or mode resolution. A standalone factory call without entry state performs its own presence check and capture. An empty captured snapshot returns `inner`. Construction retains the entry state and prepares successful-result timing. SQL inside tagged Gremlin uses the tag rules. Direct SQL uses the per-TX default. Under `LIGHTWEIGHT` the constructor captures a wall-clock start from `GranularTicker` (no syscall on the hot path) and reads the ticker again at `close()`. The duration is the tick difference. Under `EXACT` the constructor captures the wall-clock start from one `Instant.now()` read with platform-dependent precision. During iteration each delegated `hasNext()` / `next()` call is bracketed by paired `System.nanoTime()` reads that accumulate into a per-result-set active-time total, and `close()` reports that total as `executionTimeNanos`. The constructor stores the captured Context for completion routing. Embedded direct SQL uses its captured host span as the explicit parent at completion. Server direct SQL uses explicit root parenting. Nested SQL uses the private traversal-state key to offer a snapshot. Its span is built later with `recordedHostContext.with(gremlinSpan)` as the explicit parent. See §"Span timing capture" for the full clock-source rules. Iteration: `hasNext()` / `next()` delegate to `inner`, increment a row counter, capture any thrown exception, and (under `EXACT`) feed the timing accumulator. `tryAdvance` / `forEachRemaining` route through these so `.stream()`, `.toList()`, and the other consumer patterns all see the counter and (when relevant) the accumulator. `close()` closes the delegated result set first. It preserves an earlier execution failure for telemetry and reports a close failure only if no earlier failure exists. Completion fires once after cleanup. Delegate exceptions keep their normal propagation and suppression behavior. It then computes elapsed time per the resolved mode (`endTick - startTick` under `LIGHTWEIGHT`, accumulated active-time total under `EXACT`), builds `QueryDetails` (lazy classification + sanitization, `outcome`, `resultCount`, `parentContext`), and calls `queryFinished` on every listener in the inherited operation snapshot or the standalone factory's snapshot. Listener exceptions are isolated per the existing `Exception | LinkageError | AssertionError` contract.
 
 Two mechanisms keep the listener firing once per outer query. Sub-plans: MATCH steps, sub-query steps, `IF` / `WHILE` flow control, and script-line steps build their own un-instrumented inner `LocalResultSet` via the existing 2-arg constructor; they never traverse the six entry points, so `wrapIfListening` does not see them. Public re-entry: a UDF, sub-query expression, or context-variable resolution that calls `db.query(...)` from inside an outer plan is suppressed by a `ThreadLocal<int[]> sqlEntryDepth` counter on `DatabaseSessionEmbedded`. After the listener-presence guard, each instrumented public entry increments the executing thread's slot and decrements it in `finally`. `wrapIfListening(...)` returns `inner` unchanged at depth `> 1`. Each delegated `inner.hasNext()`, `inner.next()` and `inner.close()` also increments that thread's depth and restores it in `finally`. Retain no depth while the result set is idle. Consumer callbacks such as `action.accept` run outside the delegated scope. Suppressed nested entries emit no early-failure completion. Inner execution time accrues to the outer span. Multi-statement scripts have one outer SQL completion site per script call. Inner statements are not separately instrumented at this layer.
 
@@ -1413,13 +1426,16 @@ Hook anatomy in `InstrumentedSqlResultSet` (constructor captures the start clock
 wrapIfListening(inner, statement, rawSql, args, currentTx, entryState):
 1. If entryState is absent, check listener presence. If no listeners: return inner.
 2. If sqlEntryDepth.get()[0] > 1: return inner. Do not capture nested telemetry state.
-3. If entryState is absent, capture standalone entry state.
+3. If entryState is absent, capture standalone entry state, using currentTx for tracking values.
 4. If no non-empty operation snapshot exists: return inner.
-5. return new InstrumentedSqlResultSet(inner, statement, rawSql, args, entryState, currentTx)
+5. return new InstrumentedSqlResultSet(inner, statement, rawSql, args, entryState)
 
-Constructor(inner, statement, rawSql, args, entryState, currentTx):
-1. Reuse listeners, capturedContext, tag, invokedVia and mode from entryState.
-   // Entry captures Context.current(), QUERY_TAG and GREMLIN_ORIGIN after its listener guard.
+Constructor(inner, statement, rawSql, args, entryState):
+1. Reuse listeners, capturedContext, tag, invokedVia, mode, capturedTrackingId and
+   capturedExplicitTrackingId from entryState, including captured absence without a transaction.
+   // Entry captures Context.current(), QUERY_TAG, GREMLIN_ORIGIN and tracking values
+   // after its listener guard. Tracking uses the explicit ID or numeric transaction fallback.
+   // Without a transaction it captures null trackingId and an empty explicit ID.
    // Entry resolves mode once. The wrapper does not repeat capture or listener selection.
    // Successful-result timing below stays separate from the entry's early-failure clock.
 2. if LIGHTWEIGHT:
@@ -1436,7 +1452,8 @@ Constructor(inner, statement, rawSql, args, entryState, currentTx):
      activeNanos      = 0                                 // accumulator for per-call System.nanoTime() deltas
 3. Keep the captured Context for completion routing: traversal buffer when present.
    // Embedded direct SQL uses its captured host parent. Server direct SQL uses explicit root parenting.
-4. Store: inner, statement, rawSql, args, currentTx, listeners, mode, capturedContext, tag, invokedVia,
+4. Store: inner, statement, rawSql, args, capturedTrackingId, capturedExplicitTrackingId,
+          listeners, mode, capturedContext, tag, invokedVia,
           startMillis, startEpochNanos, startTick, activeNanos, rowCount = 0, caughtError = null
 
 Iteration surface — `hasNext` / `next` are the row-counter, error-capture, and (under EXACT) per-call timing entry points; every other read pathway (`tryAdvance`, `forEachRemaining`, `stream`, `toList`, `findFirst`, `detach`, the inherited `Spliterator` and `Iterator` surface) routes back through `hasNext` / `next` so the same accounting runs for every consumer pattern (the dominant YTDB consumer uses `.toList()` or `.stream()`, not direct `hasNext` / `next`):
@@ -1491,10 +1508,15 @@ close():
                     ? ticker.approximateNanoTime() - startTick    // wall-clock delta, includes consumer idle
                     : activeNanos                                  // EXACT: sum of per-call deltas, excludes consumer idle
 3. Build QueryDetails (lazy sanitization + classification from statement,
-   trackingId from currentTx; errorType from caughtError.getClass().getName() when present;
-   resultCount = OptionalLong.of(rowCount);
-   startedAtMillis = startMillis; getStartedAtEpochNanos() returns startEpochNanos;
-   getEndedAtEpochNanos() returns the captured completion endpoint;
+   trackingId = capturedTrackingId
+   explicitTrackingId = capturedExplicitTrackingId
+   getOutcome() returns Optional.of(caughtError == null
+       ? CompletionOutcome.succeeded() : CompletionOutcome.failed(caughtError))
+   getErrorType() uses its default derivation from getOutcome()
+   resultCount = OptionalLong.of(rowCount)
+   startedAtMillis = startMillis
+   getStartedAtEpochNanos() returns OptionalLong.of(startEpochNanos)
+   getFinishedAtEpochNanos() returns OptionalLong.of(endEpochNanos)
    parentContext = capturedContext; querySummary = inherited tag; invokedVia = captured provenance)
    // The resolver reads the original tag, not the classifier-derived display summary.
 4. for each listener in the snapshot:
@@ -1607,8 +1629,15 @@ Parameter indices count only original positional input-parameter nodes, in sourc
 - `stringStatement` can be null when an internal recursive call passes a pre-parsed `SQLStatement`. The wrapper falls back to `statement.getOriginalStatement()` for the raw SQL. If both are null (unusual), the wrapper omits query text when no parsed representation is available. Classification remains independent and emits each identity attribute only when its own whole-call test passes.
 - Apply the sanitizer to DDL as well as data queries. DDL can contain passwords, defaults and other sensitive literals. A literal-free statement such as `CREATE INDEX User.email UNIQUE` remains unchanged after sanitization.
 - Multi-target FROM and MATCH patterns with multiple classes omit collection but retain a known operation when it describes the complete call. For example, `SELECT FROM User, Order` produces summary `SELECT User Order`. Anonymous, dynamic and unknown targets cannot prove a collection.
-- The transaction tracking ID comes from `currentTx.getTrackingId()` (the lifted accessor on `FrontendTransaction` per §"Core Concepts" Explicit transaction tracking ID), which returns the explicit ID set via `YTDBTransaction.withTrackingId(...)` when present and `String.valueOf(getId())` otherwise. `FrontendTransaction.getId(): long` remains the fallback source. The interface also exposes `getExplicitTrackingId(): Optional<String>` for explicit-only attribute gating. Both accessors read storage on `FrontendTransactionImpl`.
-- An exception thrown during stream iteration (inside `hasNext` / `next`) propagates to the caller. The wrapper captures the exception class on its way out and surfaces it through `QueryDetails.getErrorType()` when `close()` fires the listener; the span carries status ERROR and `error.type`. If the consumer abandons iteration without calling `close()` (rare; `try-with-resources` is the documented usage), no listener fire happens — the same drop-rate the existing per-traversal Gremlin path already has. Under YTDB-820 cache hit the same contract holds because the consumer-facing `CachedResultSetView` is the object the wrapper delegates `close()` to.
+- Capture the transaction tracking identifier at SQL operation entry, not at completion.
+  With an active transaction, use `currentTx.getTrackingId()`, which returns the explicit identifier or the numeric transaction identifier as a string.
+  Without a transaction, `QueryDetails.getTransactionTrackingId()` returns `null`.
+  Never emit `0` or another placeholder for absence.
+  `getExplicitTrackingId()` returns an empty optional without a transaction or an explicit identifier.
+  A later begin must not replace the captured values.
+- An exception from stream iteration (`hasNext` / `next`) propagates to the caller. The wrapper reports `CompletionOutcome.failed(caughtError)` through `QueryDetails.getOutcome()` when `close()` fires the listener. It retains only the class name. The default `getErrorType()` derives that name from the outcome. The span carries status ERROR and `error.type`.
+
+  Consumers must use `try-with-resources` to ensure completion. Without `close()`, no listener fires. This also applies to the Gremlin path. The cache-hit wrapper delegates `close()` to the consumer-facing `CachedResultSetView`, so the same contract holds.
 - Row count from `QueryDetails.getResultCount()` is the wrapper's own per-`next()` counter. It is correct for every inner result-set type (LocalResultSet, CachedResultSetView, splice-failure fallback) because the count is driven by what the consumer pulled, not by executor internals or cache state.
 - Non-idempotent writes (INSERT / UPDATE / DELETE / DDL / CREATE / DROP via `executeInternal()` non-idempotent prefetched branch) fire `queryFinished` from inside `executeInternal()` after the eager `forEachRemaining(...)` drain completes, not on the caller's `close()` of the returned object. The caller receives a wrapper-free `LocalResultSetLifecycleDecorator(prefetched)` and iterating that decorator emits no further listener calls. `executionTimeNanos` reflects the executor's drain duration, which is what operators expect for write spans. Consumer-abandon (caller never calls `close()`) does NOT drop the span on this branch because the listener already fired before the return; this is the opposite of the read-query contract above, where consumer abandon would skip the listener fire entirely. Row count from `getResultCount()` is the number of rows the executor drained into the prefetched buffer (always equal to the full result set size for writes, since the drain pulls every row).
 - `LIGHTWEIGHT` and `EXACT` measure different things, not just different precisions, per the original observability design. `LIGHTWEIGHT` records wall-clock from fire-site start to close (consumer idle time included) at ~10 ms granularity. `EXACT` records the sum of per-call execution times across every `hasNext()` / `next()` invocation (consumer idle gaps excluded) at ns precision. EXACT spans keep their real completion endpoints. `youtrackdb.active_time_nanos` exposes the unchanged active measurement. Standard duration histograms use the real endpoint difference. Operators reading "query duration" from a dashboard should know which mode was active to interpret the number. A host selects the per-TX default through `withQueryMonitoringMode(EXACT)`. Tagged Gremlin can override it through `OPENTELEMETRY_QUERY_MODE_TAG_RULES`. SQL inside that traversal inherits the tag. Direct SQL has no per-statement tag API.
