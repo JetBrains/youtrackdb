@@ -25,7 +25,7 @@ import org.junit.Test;
  * and requires storage infrastructure to instantiate.
  *
  * <p>Pure unit tests for the static {@code evictStaleSnapshotEntries} method (including
- * null/out-of-bounds/negative componentId guards) are in
+ * null/out-of-bounds/negative collectionId guards) are in
  * {@link com.jetbrains.youtrackdb.internal.core.storage.impl.local.SnapshotIndexCleanupTest},
  * which is in the same package as {@code AbstractStorage} and can access the package-private
  * overloads.

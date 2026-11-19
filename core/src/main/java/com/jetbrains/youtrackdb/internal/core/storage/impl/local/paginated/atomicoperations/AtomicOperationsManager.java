@@ -144,7 +144,7 @@ public class AtomicOperationsManager {
       segmentLock.sharedUnlock();
     }
     var snapshot = atomicOperationsTable.snapshotAtomicOperationTableState(lastId);
-    return new AtomicOperationBinaryTracking(readCache, writeCache, writeAheadLog,
+    return new AtomicOperationBinaryTracking(storage, readCache, writeCache, writeAheadLog,
         storage.getId(),
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
@@ -409,8 +409,8 @@ public class AtomicOperationsManager {
    */
   public void endAtomicOperation(@Nonnull final AtomicOperation operation, final Throwable error)
       throws IOException {
-    // Local mutable copy of the inbound error: Hook A below may capture a
-    // persist failure into this slot and convert the commit into a rollback,
+    // Local mutable copy of the inbound error: validation or Hook A may capture a
+    // failure into this slot and convert the commit into a rollback,
     // so the parameter cannot stay final downstream.
     Throwable currentError = error;
     try {
@@ -421,6 +421,15 @@ public class AtomicOperationsManager {
       }
 
       try {
+        if (currentError == null && !operation.isRollbackInProgress()) {
+          try {
+            operation.validateCommit();
+          } catch (RuntimeException validationFailure) {
+            // This is before persist hooks and committing WAL, not a catch around commitChanges.
+            currentError = validationFailure;
+            operation.rollbackInProgress();
+          }
+        }
         // Hook A — persist accumulated index count deltas to BTree entry
         // point pages before WAL commit. Runs only on the success path
         // (no inbound error, not already rolling back). The isPersisted()
@@ -495,7 +504,7 @@ public class AtomicOperationsManager {
           lsn = null;
         }
 
-        if (currentError != null) {
+        if (currentError != null || operation.isRollbackInProgress()) {
           atomicOperationsTable.rollbackOperation(commitTs);
         } else {
           atomicOperationsTable.commitOperation(commitTs);
@@ -556,7 +565,7 @@ public class AtomicOperationsManager {
         operation.deactivate();
       }
 
-      // Re-raise a persist failure captured by Hook A above. Must run after
+      // Re-raise a prerequisite or persist failure captured above. Must run after
       // the inner-finally releaseLocks so the per-index locks are released
       // before the exception escapes. The wrap is structurally required for
       // AssertionError: endAtomicOperation declares only throws IOException,
@@ -570,15 +579,11 @@ public class AtomicOperationsManager {
       // RuntimeException short-circuits as-is so existing error-type
       // contracts (e.g. ConcurrentModificationException) survive intact.
       if (currentError != null && currentError != error) {
-        // currentError != error is true only when Hook A's catch above
-        // overwrote the slot, since Hook A is the only mutator inside this
-        // method. The bounded catch above narrows persistFailure to
-        // RuntimeException | AssertionError, so currentError here must be
-        // one of those; a future broadening of Hook A's catch that did
-        // not update this dispatch would be caught by the assert below.
+        // Validation captures RuntimeException and Hook A captures RuntimeException or
+        // AssertionError. Keep this dispatch in sync with those bounded catches.
         assert currentError instanceof RuntimeException
             || currentError instanceof AssertionError
-            : "Hook A inner-catch must yield RuntimeException | AssertionError, got "
+            : "Validation or Hook A must yield RuntimeException | AssertionError, got "
                 + currentError.getClass().getName();
         if (currentError instanceof RuntimeException re) {
           throw re;
