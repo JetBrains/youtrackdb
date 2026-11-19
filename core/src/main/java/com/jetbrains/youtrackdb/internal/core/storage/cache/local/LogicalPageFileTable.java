@@ -58,15 +58,19 @@ final class LogicalPageFileTable {
   // Background writes consult this table without acquiring filesLock.
   private final Map<Integer, State> states = new ConcurrentHashMap<>();
 
-  // Writers hold filesLock. Name lookups and background enumeration need no lock or copy.
+  // Mutations hold WOWCache's exclusive filesLock, including commit-executor work while its
+  // submitter holds that lock. inventory() callers hold the shared filesLock.
+  // Name lookups and background enumeration need no lock or copy.
   private final Map<String, Integer> liveNames = new ConcurrentHashMap<>();
   private volatile Map<String, Integer> inventory = Map.of();
 
-  synchronized Map<String, Integer> inventory() {
-    if (inventory == null) {
-      inventory = Map.copyOf(liveNames);
+  Map<String, Integer> inventory() {
+    var snapshot = inventory;
+    if (snapshot == null) {
+      snapshot = Map.copyOf(liveNames);
+      inventory = snapshot;
     }
-    return inventory;
+    return snapshot;
   }
 
   Integer fileId(String name) {
@@ -109,7 +113,7 @@ final class LogicalPageFileTable {
     register(name, expectedId, nonDurable, 0, 0, true);
   }
 
-  synchronized void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
+  void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
       long diskExtent, boolean diskPresent) {
     var identity = resolve(name, expectedId);
     var previous = live(expectedId);
@@ -122,7 +126,7 @@ final class LogicalPageFileTable {
     }
   }
 
-  private synchronized void put(String name, int expectedId, boolean nonDurable, Kind kind) {
+  private void put(String name, int expectedId, boolean nonDurable, Kind kind) {
     var identity = resolve(name, expectedId);
     var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind));
     if (previous != null && previous.kind() == Kind.LIVE) {
@@ -131,8 +135,8 @@ final class LogicalPageFileTable {
     }
   }
 
-  // A rename to an alias removes canonical membership, not the physical file.
-  synchronized void forget(int internalId) {
+  // Remove session membership without changing the physical file.
+  void forget(int internalId) {
     var previous = states.remove(internalId);
     if (previous != null) {
       liveNames.remove(PageFileNames.layout28(previous.identity()));
@@ -160,7 +164,7 @@ final class LogicalPageFileTable {
     return state != null && state.kind() == Kind.DELETED;
   }
 
-  synchronized void clear() {
+  void clear() {
     states.clear();
     liveNames.clear();
     invalidateInventory();
