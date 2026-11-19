@@ -139,13 +139,13 @@ public class YouTrackDBEmbeddedTests {
     try {
       var root = folder.getRoot().toPath();
       var database = Files.createDirectory(root.resolve("layout28"));
-      Files.createFile(database.resolve("ytdb-p28-collection-0-record-data_268435456.pcl"));
+      Files.createFile(database.resolve("ytdb-p28-collection-0-record-data_650489682.pcl"));
       var indexDatabase = Files.createDirectory(root.resolve("layout28Index"));
-      Files.createFile(indexDatabase.resolve("ytdb-p28-index-7-null-key-data_603979783.cbt"));
+      Files.createFile(indexDatabase.resolve("ytdb-p28-index-7-null-key-data_2055768198.cbt"));
       var foreign = Files.createDirectory(root.resolve("foreign"));
       Files.createFile(foreign.resolve("foreign.p26"));
       var wrongSuffix = Files.createDirectory(root.resolve("wrongSuffix"));
-      Files.createFile(wrongSuffix.resolve("ytdb-p28-collection-0-record-data_268435457.pcl"));
+      Files.createFile(wrongSuffix.resolve("ytdb-p28-collection-0-record-data_587100165.pcl"));
       try (var youTrackDb = YourTracks.instance(root)) {
         assertEquals(Set.of("layout28", "layout28Index"), Set.copyOf(youTrackDb.listDatabases()));
       }
