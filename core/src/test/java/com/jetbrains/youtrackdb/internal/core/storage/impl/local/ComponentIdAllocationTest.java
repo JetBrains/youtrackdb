@@ -768,6 +768,21 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // Memory keeps positive aliases, so malformed reserved-prefix evidence reaches seeding itself.
+  // Seeding must reject it with the offending name even without disk-cache hydration validation.
+  @Test
+  public void memorySeedRejectsMalformedPositiveLayout28Name() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.MEMORY);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var file = "ytdb-p28-index-9000-unknown.cbt";
+      storage.getWriteCache().addFile(file,
+          new PageFileIdentity(PageFileRole.INDEX_DATA, 9000).internalId());
+      assertTrue(storage.getWriteCache().registrationEvidence().positiveNames().contains(file));
+      assertStorageFailureNames(assertThrows(StorageException.class, () -> seed(storage)), file);
+    }
+  }
+
   // A full backup and then an incremental chain both reseed the same live target before loading.
   // Restored evidence must win over the counters, while an even higher live mark must survive.
   @Test

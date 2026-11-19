@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Layout 28 disk-cache logical inventory. Callers supply existing file or lifecycle exclusion.
@@ -58,19 +59,32 @@ final class LogicalPageFileTable {
   // Background writes consult this table without acquiring filesLock.
   private final Map<Integer, State> states = new ConcurrentHashMap<>();
 
-  // Mutations hold WOWCache's exclusive filesLock, including commit-executor work while its
-  // submitter holds that lock. inventory() callers hold the shared filesLock.
+  // Callers use WOWCache's existing filesLock. An interrupted submitter can release it before
+  // executor deletion finishes, so inventory publication must also tolerate concurrent mutation.
   // Name lookups and background enumeration need no lock or copy.
   private final Map<String, Integer> liveNames = new ConcurrentHashMap<>();
-  private volatile Map<String, Integer> inventory = Map.of();
+
+  private record Inventory(long version, Map<String, Integer> snapshot) {
+  }
+
+  private final AtomicReference<Inventory> inventory =
+      new AtomicReference<>(new Inventory(0, Map.of()));
 
   Map<String, Integer> inventory() {
-    var snapshot = inventory;
+    var current = inventory.get();
+    var snapshot = current.snapshot();
     if (snapshot == null) {
-      snapshot = Map.copyOf(liveNames);
-      inventory = snapshot;
+      snapshot = copyLiveNames();
+      // A mutation invalidates the version even when no snapshot is cached. Never let a late
+      // reader publish a copy that predates that invalidation.
+      inventory.compareAndSet(current, new Inventory(current.version(), snapshot));
     }
     return snapshot;
+  }
+
+  // Separate copying from publication so tests can interleave executor deletion deterministically.
+  Map<String, Integer> copyLiveNames() {
+    return Map.copyOf(liveNames);
   }
 
   Integer fileId(String name) {
@@ -88,7 +102,7 @@ final class LogicalPageFileTable {
 
   private void invalidateInventory() {
     // Mutations are constant time. Only cold inventory readers pay for an immutable copy.
-    inventory = null;
+    inventory.updateAndGet(current -> new Inventory(current.version() + 1, null));
   }
 
   static PageFileIdentity resolve(String name, int expectedId) {

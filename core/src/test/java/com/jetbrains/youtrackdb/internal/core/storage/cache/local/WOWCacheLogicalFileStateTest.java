@@ -8,6 +8,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
@@ -437,23 +441,45 @@ public class WOWCacheLogicalFileStateTest {
   // Membership updates invalidate the snapshot without rebuilding it, even over many mutations.
   @Test
   public void individualMutationsDeferInventoryCopyUntilRead() throws Exception {
-    var table = new LogicalPageFileTable();
-    var snapshot = LogicalPageFileTable.class.getDeclaredField("inventory");
-    snapshot.setAccessible(true);
+    var table = spy(new LogicalPageFileTable());
     for (int component = 9100; component < 10100; component++) {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
       table.register(PageFileNames.layout28(identity), identity.internalId(), false);
-      assertNull(snapshot.get(table));
+      verify(table, never()).copyLiveNames();
     }
     var before = table.inventory();
     assertEquals(1000, before.size());
     for (int component = 9100; component < 10100; component++) {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
       table.forget(identity.internalId());
-      assertNull(snapshot.get(table));
+      verify(table, times(1)).copyLiveNames();
     }
     assertTrue(table.inventory().isEmpty());
     assertEquals(1000, before.size());
+  }
+
+  // An executor deletion can invalidate an uncached inventory after a reader copies live names.
+  // The in-flight reader may return its old copy, but later readers must not reuse that copy.
+  @Test
+  public void deletionBetweenInventoryCopyAndPublicationCannotCacheStaleNames() {
+    var table = spy(new LogicalPageFileTable());
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9060);
+    var name = PageFileNames.layout28(identity);
+    table.register(name, identity.internalId(), false);
+    doAnswer(invocation -> {
+      var copy = invocation.callRealMethod();
+      table.delete(name, identity.internalId());
+      return copy;
+    }).doCallRealMethod().when(table).copyLiveNames();
+
+    var inFlight = table.inventory();
+    assertEquals(Map.of(name, identity.internalId()), inFlight);
+    assertTrue(table.deleted(identity.internalId()));
+    assertNull(table.fileId(name));
+    var fresh = table.inventory();
+    assertTrue(fresh.isEmpty());
+    org.junit.Assert.assertSame(fresh, table.inventory());
+    assertEquals(Map.of(name, identity.internalId()), inFlight);
   }
 
   // Lazy snapshots reflect each mutation, reuse unchanged results and preserve older snapshots.
