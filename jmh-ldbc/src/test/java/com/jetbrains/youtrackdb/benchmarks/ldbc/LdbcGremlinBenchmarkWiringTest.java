@@ -8,6 +8,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import java.util.Date;
+import java.util.HashSet;
+import java.util.Set;
 import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.tinkerpop.gremlin.structure.util.empty.EmptyGraph;
 import org.junit.Test;
@@ -73,10 +75,10 @@ public class LdbcGremlinBenchmarkWiringTest {
         LIVE_DATE, LdbcGremlinTranslatorBenchmark.OrderedLimitIc2Workload.maxDate(arm, 7));
   }
 
-  /** All 16 RID methods need preparation, while the 36 existing methods must skip it. */
+  /** All five RID methods need preparation, while the 36 existing methods must skip it. */
   @Test
   public void trialPreparationRuleSelectsOnlyRidBenchmarks() {
-    int rid = 0;
+    var ridNames = new HashSet<String>();
     int existing = 0;
     for (var method : LdbcGremlinTranslatorBenchmark.class.getDeclaredMethods()) {
       if (method.isAnnotationPresent(Benchmark.class)) {
@@ -85,15 +87,17 @@ public class LdbcGremlinBenchmarkWiringTest {
             LdbcGremlinTranslatorBenchmark.requiresRidPreparation(
                 LdbcGremlinTranslatorBenchmark.class.getName() + "." + method.getName()));
         if (isRid) {
-          rid++;
+          ridNames.add(method.getName());
         } else {
           existing++;
         }
       }
     }
-    assertEquals(16, rid);
+    assertEquals(Set.of("gremlin_ridCount", "gremlin_ridValues", "gremlin_ridOrder",
+        "gremlin_ridFirstNameCount", "gremlin_ridWorkFromCount"), ridNames);
+    assertEquals(5, ridNames.size());
     assertEquals(36, existing);
-    assertEquals(52, rid + existing);
+    assertEquals(41, ridNames.size() + existing);
   }
 
   private static void assertBenchmarkAnnotation(String methodName) throws NoSuchMethodException {
