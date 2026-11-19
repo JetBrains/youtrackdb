@@ -1765,10 +1765,10 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       if (logicalFiles != null) {
-        final var snapshot = new HashMap<String, Long>();
-        logicalFiles.inventory()
-            .forEach((name, internalId) -> snapshot.put(name, composeFileId(id, internalId)));
-        return Map.copyOf(snapshot);
+        final var inventory = logicalFiles.inventory();
+        final var snapshot = HashMap.<String, Long>newHashMap(inventory.size());
+        inventory.forEach((name, internalId) -> snapshot.put(name, composeFileId(id, internalId)));
+        return Collections.unmodifiableMap(snapshot);
       }
       final var result = new Object2LongOpenHashMap<String>(1_000);
       result.defaultReturnValue(-1);
