@@ -567,7 +567,7 @@ public final class WOWCache extends AbstractWriteCache
       var file = files.get(externalId);
       final var firstAdmission = file == null;
       if (firstAdmission) {
-        file = createFileInstance(canonicalName, identity.internalId());
+        file = createFileHandle(canonicalName, identity.internalId());
       }
       if (!file.exists()) {
         if (permission != RecoveryFilePermission.REPLAY_CREATE) {
@@ -1091,7 +1091,7 @@ public final class WOWCache extends AbstractWriteCache
         fileId = -fileId;
       }
 
-      fileClassic = createFileInstance(fileName, fileId);
+      fileClassic = createFileHandle(fileName, fileId);
 
       if (!fileClassic.exists()) {
         throw new StorageException(storageName,
@@ -1166,7 +1166,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       validateLogicalRegistration(fileName, fileId);
 
-      fileClassic = createFileInstance(fileName, fileId);
+      fileClassic = createFileHandle(fileName, fileId);
       createFile(fileClassic, callFsync);
       if (!startupReplayPreservation) {
         changedPageTracker.resetFile(fileId);
@@ -1322,7 +1322,7 @@ public final class WOWCache extends AbstractWriteCache
           fileClassic.synch();
         }
       } else {
-        fileClassic = createFileInstance(fileName, intId);
+        fileClassic = createFileHandle(fileName, intId);
         createFile(fileClassic, callFsync);
 
         files.add(fileId, fileClassic);
@@ -3418,7 +3418,7 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private File createFileInstance(final String fileName, final int fileId) {
+  private File createFileHandle(final String fileName, final int fileId) {
     final var internalFileName = createInternalFileName(fileName, fileId);
     return new AsyncFile(
         storagePath.resolve(internalFileName),
@@ -5934,7 +5934,7 @@ public final class WOWCache extends AbstractWriteCache
       final var name = PageFileNames.layout28(identity);
       var file = files.remove(fileId);
       if (file == null) {
-        file = createFileInstance(name, internalFileId);
+        file = createFileHandle(name, internalFileId);
       }
       if (file.exists()) {
         file.delete();
