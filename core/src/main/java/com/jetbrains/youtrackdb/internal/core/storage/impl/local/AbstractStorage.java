@@ -10276,9 +10276,12 @@ public abstract class AbstractStorage
   private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
       LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
     final var identityRecovery = writeCache.supportsIdentityRecovery();
-    if (identityRecovery
-        ? writeCache.resolveRecoveryFile(null, fileId, WriteCache.RecoveryFilePermission.OPEN_ONLY)
-        : writeCache.exists(fileId)) {
+    if (identityRecovery) {
+      if (writeCache.resolveRecoveryFile(null, fileId,
+          WriteCache.RecoveryFilePermission.OPEN_ONLY)) {
+        return true;
+      }
+    } else if (writeCache.exists(fileId)) {
       return true;
     }
 
