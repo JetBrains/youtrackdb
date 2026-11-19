@@ -879,7 +879,8 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // All reserved-prefix parse failures are visible storage errors, including every kind over bound.
+  // Invalid names fail registration and cold-open hydration of present-file evidence,
+  // including every kind over bound. Both errors identify the offending name.
   @Test
   public void layout28ColdOpenRejectsInvalidRegisteredEvidenceWithFileName() throws Exception {
     for (String file : new String[] {
@@ -890,10 +891,18 @@ public class ComponentIdAllocationTest {
         "ytdb-p28-configuration-33554432-data.cd",
         "ytdb-p28-index-9000-unknown.cbt"}) {
       create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+      final WOWCache cache;
+      final String sourceFile;
       try (var session = open()) {
-        session.getStorage().getWriteCache().addFile(file);
+        cache = (WOWCache) session.getStorage().getWriteCache();
+        assertThrows(StorageException.class, () -> cache.addFile(file));
+        sourceFile = cache.nativeFileNameById(cache.files().values().iterator().next());
       }
       ytdb.close();
+      // Inject a present-file record into the closed registry, bypassing cache validation.
+      var fixture = Path.of(directory, "counters", "invalid-evidence.bin");
+      Files.copy(Path.of(directory, "counters", sourceFile), fixture);
+      appendRegistry(cache, file, 123456, fixture.getFileName().toString());
       ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
       assertStorageFailureNames(assertThrows(DatabaseException.class, this::open), file);
       // Drop opens the poisoned storage, so dispose only this test's closed fixture instead.

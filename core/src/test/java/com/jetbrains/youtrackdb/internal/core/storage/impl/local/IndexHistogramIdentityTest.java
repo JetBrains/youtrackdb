@@ -311,7 +311,8 @@ public class IndexHistogramIdentityTest {
   }
 
   // Every single survivor, especially the histogram alone, activates family cleanup.
-  // Legacy stems, other identities, and non-index roles must not activate layout 28 cleanup.
+  // Disk caches reject legacy stems. Memory legacy stems, other identities and non-index roles
+  // must not activate layout 28 cleanup.
   @Test
   public void everyRoleAloneIsFamilyEvidenceInDiskAndMemory() throws Exception {
     for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
@@ -320,7 +321,11 @@ public class IndexHistogramIdentityTest {
         var storage = session.getStorage();
         var cache = storage.getWriteCache();
         assertFalse(storage.engineFilesPresent(9000));
-        cache.addFile("ie_9000.ixs");
+        if (cache instanceof WOWCache) {
+          assertThrows(StorageException.class, () -> cache.addFile("ie_9000.ixs"));
+        } else {
+          cache.addFile("ie_9000.ixs");
+        }
         var unrelated = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9000);
         cache.addFile(PageFileNames.layout28(unrelated), unrelated.internalId());
         var other = new PageFileIdentity(PageFileRole.HISTOGRAM, 9001);
