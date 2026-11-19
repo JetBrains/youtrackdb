@@ -10075,14 +10075,17 @@ public abstract class AbstractStorage
             continue;
           }
           if (writeCache.supportsIdentityRecovery()) {
-            if (!writeCache.resolveRecoveryFile(fileCreatedCreatedWALRecord.getFileName(),
-                fileCreatedCreatedWALRecord.getFileId(),
-                atomicUnit.getFirst() instanceof AtomicUnitStartRecord
-                    ? WriteCache.RecoveryFilePermission.REPLAY_CREATE
-                    : WriteCache.RecoveryFilePermission.OPEN_ONLY)) {
-              if (replayDeletions != null && replayDeletions.deletedAfter(
-                  writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()),
-                  walRecord.getLsn())) {
+            final var fileName = fileCreatedCreatedWALRecord.getFileName();
+            final var fileId = fileCreatedCreatedWALRecord.getFileId();
+            final var completeCreatingUnit = atomicUnit.getFirst() instanceof AtomicUnitStartRecord;
+            final var permission = completeCreatingUnit
+                ? WriteCache.RecoveryFilePermission.REPLAY_CREATE
+                : WriteCache.RecoveryFilePermission.OPEN_ONLY;
+            final var fileResolved = writeCache.resolveRecoveryFile(fileName, fileId, permission);
+            if (!fileResolved) {
+              final var deletedLater = replayDeletions != null && replayDeletions.deletedAfter(
+                  writeCache.internalFileId(fileId), walRecord.getLsn());
+              if (deletedLater) {
                 continue;
               }
               throw new IOException("Missing replay file without a complete creating unit");
