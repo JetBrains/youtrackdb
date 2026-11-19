@@ -241,6 +241,20 @@ public class IndexHandleStateTest {
         () -> new IndexHandleState(1, new IndexEngineReference(2, 0, 1), null, null));
   }
 
+  /** Packed identifiers retain their slot and API version, and reject a different API version. */
+  @Test
+  public void packedIdentifierMustMatchReferenceApiVersion() {
+    var identifier = (1 << 27) | 7;
+    var state = new IndexHandleState(
+        identifier, new IndexEngineReference(7, 1, 1), null, null);
+    assertTrue(state.hasEngine());
+    assertEquals(identifier, state.engineIdentifier());
+    assertThrows(
+        IllegalStateException.class,
+        () -> new IndexHandleState(
+            identifier, new IndexEngineReference(7, 0, 1), null, null));
+  }
+
   @Test
   public void lifecycleCellRequiresDurableIdentity() {
     var cell = mock(IndexLifecycleCell.class);

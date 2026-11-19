@@ -199,6 +199,18 @@ public abstract class IndexMultiValues extends IndexAbstract {
   }
 
   @Override
+  public void doPut(AbstractStorage storage, CommitBinding binding, Object key, RID rid,
+      AtomicOperation operation) {
+    storage.putRidIndexEntry(binding.engine(), key, rid, operation);
+  }
+
+  @Override
+  public boolean doRemove(AbstractStorage storage, CommitBinding binding, Object key, RID rid,
+      AtomicOperation operation) {
+    return storage.removeRidIndexEntry(binding.engine(), key, rid, operation);
+  }
+
+  @Override
   public Stream<RawPair<Object, RID>> streamEntriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {

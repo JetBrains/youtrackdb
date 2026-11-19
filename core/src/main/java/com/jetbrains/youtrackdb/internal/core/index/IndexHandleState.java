@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineReference;
 import com.jetbrains.youtrackdb.internal.core.index.lifecycle.IndexLifecycleCell;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import javax.annotation.Nullable;
 
 /** One immutable and coherently published snapshot of an index handle. */
@@ -19,8 +20,9 @@ record IndexHandleState(
       throw new IllegalStateException("An absent index engine cannot carry a reference");
     }
     if (engineReference != null
-        && (engineReference.slot() != (engineIdentifier & 0x7_FF_FF_FF)
-            || engineReference.apiVersion() != engineIdentifier >>> (Integer.SIZE - 5))) {
+        && (engineReference.slot() != AbstractStorage.extractInternalId(engineIdentifier)
+            || engineReference.apiVersion()
+                != AbstractStorage.extractEngineAPIVersion(engineIdentifier))) {
       throw new IllegalStateException("An index engine identifier must match its reference");
     }
     if (lifecycleCell != null

@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexStatistics;
@@ -230,9 +231,10 @@ public interface Index extends Comparable<Index> {
 
   /**
    * Acquires exclusive lock in the active atomic operation running on the current thread for this
-   * index.
+   * index. The caller holds storage state protection. Returns the exact locked engine after any
+   * owner-bound recovery. Unresolved stale ownership raises a retryable error.
    */
-  boolean acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
+  BaseIndexEngine acquireAtomicExclusiveLock(AtomicOperation atomicOperation);
 
   /**
    * Returns the number of entries in this index.

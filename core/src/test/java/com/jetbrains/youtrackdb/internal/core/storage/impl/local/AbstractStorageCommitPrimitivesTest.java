@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.RecordBytes;
-import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -58,13 +57,17 @@ public class AbstractStorageCommitPrimitivesTest {
 
   @Before
   public void before() {
-    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, DatabaseType.MEMORY, getClass());
+    var testEnv = System.getProperty("youtrackdb.test.env", "memory");
+    var dbType =
+        List.of("ci", "release").contains(testEnv) ? DatabaseType.DISK : DatabaseType.MEMORY;
+    youTrackDB = DbTestBase.createYTDBManagerAndDb(dbName, dbType, getClass());
     db = youTrackDB.open(dbName, "admin", DbTestBase.ADMIN_PASSWORD);
   }
 
   @After
   public void after() {
     db.close();
+    youTrackDB.drop(dbName);
     youTrackDB.close();
   }
 
@@ -438,20 +441,22 @@ public class AbstractStorageCommitPrimitivesTest {
     storage.stateLock.readLock().lock();
     try {
       IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
-      index.acquireAtomicExclusiveLock(operation);
+      var locked = index.acquireAtomicExclusiveLock(operation);
+      assertThat(index.getIndexId()).isNotEqualTo(Integer.MAX_VALUE);
+      assertThat(locked).isSameAs(storage.getIndexEngineWithStateLock(
+          index.engineSnapshot().engineIdentifier(), index.engineSnapshot().engineReference()));
+      assertThat(storage.stateLock.isReadLockedByCurrentThread()).isTrue();
       try (var executor = Executors.newSingleThreadExecutor()) {
-        var writerEntered =
-            executor.submit(
-                () -> {
-                  if (!storage.stateLock.writeLock().tryLock()) {
-                    return false;
-                  }
-                  try {
-                    return true;
-                  } finally {
-                    storage.stateLock.writeLock().unlock();
-                  }
-                });
+        var writerEntered = executor.submit(() -> {
+          if (!storage.stateLock.writeLock().tryLock()) {
+            return false;
+          }
+          try {
+            return true;
+          } finally {
+            storage.stateLock.writeLock().unlock();
+          }
+        });
         assertThat(writerEntered.get(10, TimeUnit.SECONDS))
             .as("stale-id reload must retain the outer state read lock")
             .isFalse();
@@ -465,7 +470,11 @@ public class AbstractStorageCommitPrimitivesTest {
       storage.enterCommitWindow();
       try {
         IndexEngineTestSupport.setEngineIdentifier(index, Integer.MAX_VALUE);
-        index.acquireAtomicExclusiveLock(operation);
+        var locked = index.acquireAtomicExclusiveLock(operation);
+        assertThat(index.getIndexId()).isNotEqualTo(Integer.MAX_VALUE);
+        assertThat(locked).isSameAs(storage.getIndexEngineWithStateLock(
+            index.engineSnapshot().engineIdentifier(), index.engineSnapshot().engineReference()));
+        assertThat(storage.stateLock.isWriteLockedByCurrentThread()).isTrue();
       } finally {
         storage.exitCommitWindow();
       }
@@ -813,7 +822,7 @@ public class AbstractStorageCommitPrimitivesTest {
         storage
             .getAtomicOperationsManager()
             .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
-    assertThat(((RawBuffer) stored).buffer()).isEqualTo(updatedContent);
+    assertThat(stored.toRawBuffer().buffer()).isEqualTo(updatedContent);
   }
 
   /** A stale caller-owned update rolls back and preserves the last durable record bytes. */
@@ -858,7 +867,7 @@ public class AbstractStorageCommitPrimitivesTest {
         storage
             .getAtomicOperationsManager()
             .calculateInsideAtomicOperation(operation -> storage.readRecord(rid, operation));
-    assertThat(((RawBuffer) stored).buffer()).isEqualTo(durableContent);
+    assertThat(stored.toRawBuffer().buffer()).isEqualTo(durableContent);
   }
 
   /** Caller-owned record primitives fail before taking a second collection lock. */
@@ -957,8 +966,9 @@ public class AbstractStorageCommitPrimitivesTest {
                 .calculateInsideAtomicOperation(op -> storage.readRecord(rid, op)));
         assertThat(result)
             .as("readRecord must resolve a persistent record lock-free under the held write lock")
-            .isInstanceOf(RawBuffer.class);
-        assertThat(((RawBuffer) result).buffer())
+            .isNotNull();
+        // Disk reads can return a zero-copy page view. Validate it through the shared result API.
+        assertThat(result.toRawBuffer().buffer())
             .as("the resolved raw buffer must be non-empty")
             .isNotEmpty();
       } finally {
