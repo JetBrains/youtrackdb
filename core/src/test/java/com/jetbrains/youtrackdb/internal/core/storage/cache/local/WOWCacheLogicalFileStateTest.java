@@ -148,10 +148,11 @@ public class WOWCacheLogicalFileStateTest {
         assertReserved(cache, loaded);
         cache.deleteFile(id);
         assertDeleted(cache, identity);
-        assertEquals(name, cache.restoreFileById(id));
-        assertLive(cache, identity, false);
-        cache.deleteFile(id);
+        assertNull("identity recovery must not resurrect a map tombstone",
+            cache.restoreFileById(id));
         assertDeleted(cache, identity);
+        assertFalse(Files.exists(((DiskStorage) session.getStorage()).getStoragePath()
+            .resolve(PageFileNames.layout28DiskName(identity))));
 
         var reserved = new PageFileIdentity(PageFileRole.RECORD_DATA, 9002);
         cache.bookFileId(PageFileNames.layout28(reserved),
@@ -247,10 +248,13 @@ public class WOWCacheLogicalFileStateTest {
       assertAbsent(cache, b);
       for (ThrowingRunnable registration : List.<ThrowingRunnable>of(
           () -> cache.addFile(name),
-          () -> cache.bookFileId(name),
-          () -> cache.restoreFileById(wrongId))) {
+          () -> cache.bookFileId(name))) {
         assertRejectedUnchanged(cache, registration);
       }
+
+      // Identity recovery refuses tombstones with null, without mutating any staged state.
+      assertRejectedUnchanged(cache,
+          () -> org.junit.Assert.assertNull(cache.restoreFileById(wrongId)), false);
 
       var aliasId = cache.bookFileId("booked.pcl");
       assertOracle(cache);
@@ -445,6 +449,11 @@ public class WOWCacheLogicalFileStateTest {
 
   private static void assertRejectedUnchanged(WOWCache cache, ThrowingRunnable registration)
       throws Exception {
+    assertRejectedUnchanged(cache, registration, true);
+  }
+
+  private static void assertRejectedUnchanged(WOWCache cache, ThrowingRunnable registration,
+      boolean throwsException) throws Exception {
     var names = snapshot(cache, "nameIdMap");
     var ids = snapshot(cache, "idNameMap");
     var states = snapshot(cache.logicalFiles(), "states");
@@ -456,7 +465,15 @@ public class WOWCacheLogicalFileStateTest {
     try (var entries = Files.list(path.getParent())) {
       files = entries.collect(java.util.stream.Collectors.toSet());
     }
-    assertThrows(StorageException.class, registration);
+    if (throwsException) {
+      assertThrows(StorageException.class, registration);
+    } else {
+      try {
+        registration.run();
+      } catch (Throwable failure) {
+        throw new AssertionError(failure);
+      }
+    }
     assertEquals(names, snapshot(cache, "nameIdMap"));
     assertEquals(ids, snapshot(cache, "idNameMap"));
     assertEquals(states, snapshot(cache.logicalFiles(), "states"));

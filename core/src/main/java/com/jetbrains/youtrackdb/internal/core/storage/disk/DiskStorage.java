@@ -51,6 +51,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
@@ -65,6 +66,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
@@ -1311,10 +1313,23 @@ public class DiskStorage extends AbstractStorage {
 
             @Override
             public String currentName(int internalId) {
+              if (owner.cache.supportsIdentityRecovery()) {
+                return currentRecoveryFileName(internalId);
+              }
               return owner.cache.fileNameById(owner.cache.externalFileId(internalId));
             }
           });
       startupHistoryBarrier();
+    }
+  }
+
+  private String currentRecoveryFileName(int internalId) {
+    try {
+      var identity = PageFileIdentity.decode(internalId);
+      return Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity)))
+          ? PageFileNames.layout28(identity) : null;
+    } catch (IllegalArgumentException invalidId) {
+      return null;
     }
   }
 
@@ -3426,7 +3441,14 @@ public class DiskStorage extends AbstractStorage {
       }
 
       var fileName = zipEntryPath.getFileName().toString();
-      if (!writeCache.exists(fileName)) {
+      if (writeCache.supportsIdentityRecovery()) {
+        if (writeCache.resolveRecoveryFile(fileName, expectedFileId,
+            RecoveryFilePermission.RESTORE)) {
+          fileId = writeCache.externalFileId(writeCache.internalFileId(expectedFileId));
+        } else {
+          fileId = readCache.addFile(fileName, expectedFileId, writeCache);
+        }
+      } else if (!writeCache.exists(fileName)) {
         fileId = readCache.addFile(fileName, expectedFileId, writeCache);
       } else {
         fileId = writeCache.fileIdByName(fileName);

@@ -90,6 +90,26 @@ public interface WriteCache {
    */
   long loadFile(String fileName) throws IOException;
 
+  /** Whether this cache supports computed disk identities before inventory hydration. */
+  default boolean supportsIdentityRecovery() {
+    return false;
+  }
+
+  enum RecoveryFilePermission {
+    OPEN_ONLY, REPLAY_CREATE, RESTORE
+  }
+
+  /**
+   * Opens a computed disk identity before inventory hydration. Only REPLAY_CREATE authorizes
+   * creation from a complete creating WAL unit. RESTORE admits a present file. Restore callers
+   * create absent files through addFile after archive admission.
+   */
+  default boolean resolveRecoveryFile(
+      @Nullable String fileName, long fileId, RecoveryFilePermission permission)
+      throws IOException {
+    throw new UnsupportedOperationException("Identity recovery is not supported");
+  }
+
   long addFile(String fileName) throws IOException;
 
   long addFile(String fileName, long fileId) throws IOException;

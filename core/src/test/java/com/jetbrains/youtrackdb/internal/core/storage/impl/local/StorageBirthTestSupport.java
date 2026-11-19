@@ -48,6 +48,35 @@ public final class StorageBirthTestSupport {
     allocate.invoke(counters, pages);
   }
 
+  /** Removes one file's hydration and map evidence while retaining its computed disk path. */
+  @SuppressWarnings("unchecked")
+  public static void detachRecoveryIdentity(WOWCache cache, long fileId) throws Exception {
+    int internalId = cache.internalFileId(fileId);
+    var name = com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+        .layout28(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity
+                .decode(internalId));
+    var filesField = WOWCache.class.getDeclaredField("files");
+    filesField.setAccessible(true);
+    var files = (ClosableLinkedContainer<Long, File>) filesField.get(cache);
+    var file = files.remove(fileId);
+    if (file != null) {
+      file.close();
+    }
+    for (var fieldName : new String[] {"nameIdMap", "idNameMap"}) {
+      var field = WOWCache.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      var map = (java.util.Map<?, ?>) field.get(cache);
+      map.remove(fieldName.equals("nameIdMap") ? name : internalId);
+    }
+    var tableField = WOWCache.class.getDeclaredField("logicalFiles");
+    tableField.setAccessible(true);
+    var table = tableField.get(cache);
+    var forget = table.getClass().getDeclaredMethod("forget", int.class);
+    forget.setAccessible(true);
+    forget.invoke(table, internalId);
+  }
+
   /** Selects one birth layout for one manager and database on the current thread. */
   public static AutoCloseable selectBirthFormat(
       com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl manager,

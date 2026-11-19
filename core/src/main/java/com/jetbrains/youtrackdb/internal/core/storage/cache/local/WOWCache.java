@@ -61,6 +61,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.fs.AsyncFile;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -544,6 +545,56 @@ public final class WOWCache extends AbstractWriteCache
         throw BaseException.wrapException(new StorageException(storageName,
             "Invalid layout 28 registration: " + name + " and id " + internalId), e, storageName);
       }
+    }
+  }
+
+  @Override
+  public boolean supportsIdentityRecovery() {
+    return logicalFiles != null;
+  }
+
+  @Override
+  public boolean resolveRecoveryFile(
+      @Nullable String name, long fileId, RecoveryFilePermission permission) throws IOException {
+    final var identity = name == null
+        ? PageFileIdentity.decode(extractFileId(fileId))
+        : LogicalPageFileTable.resolve(name, extractFileId(fileId));
+    final var canonicalName = PageFileNames.layout28(identity);
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      final var externalId = composeFileId(id, identity.internalId());
+      var file = files.get(externalId);
+      if (file == null) {
+        file = createFileInstance(canonicalName, identity.internalId());
+      }
+      if (!file.exists()) {
+        if (permission != RecoveryFilePermission.REPLAY_CREATE) {
+          return false;
+        }
+        // Only a complete creating WAL unit authorizes an empty physical file here.
+        createFile(file, callFsync);
+      } else if (files.get(externalId) == null) {
+        openFile(storageName, file);
+      }
+      if (files.get(externalId) == null) {
+        files.add(externalId, file);
+        // Publish the lifecycle mirror only on first physical admission, never as recovery
+        // evidence. Repeated page replay must not append and force another registry record.
+        idNameMap.remove(-identity.internalId());
+        nameIdMap.put(canonicalName, identity.internalId());
+        idNameMap.put(identity.internalId(), canonicalName);
+        mirrorRegistration(canonicalName, identity.internalId(),
+            nonDurableFileIds.contains(identity.internalId()));
+        writeNameIdEntry(new NameFileIdEntry(canonicalName, identity.internalId(), file.getName()),
+            true);
+      }
+      return true;
+    } catch (java.lang.InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted while resolving recovery file " + canonicalName, e);
+    } finally {
+      filesLock.releaseWriteLock();
     }
   }
 
@@ -2327,7 +2378,7 @@ public final class WOWCache extends AbstractWriteCache
       if (!startupReplayPreservation) {
         changedPageTracker.deleteFile(intId);
       }
-      if (file != null) {
+      if (file != null || logicalFiles != null) {
         // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
         if (nonDurableFileIds.contains(intId)) {
           final var updated = new IntOpenHashSet(nonDurableFileIds);
@@ -2341,7 +2392,9 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
+        if (file != null) {
+          writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
+        }
       }
     } finally {
       filesLock.releaseWriteLock();
@@ -2781,6 +2834,10 @@ public final class WOWCache extends AbstractWriteCache
 
   @Nullable @Override
   public String restoreFileById(final long fileId) throws IOException {
+    if (logicalFiles != null) {
+      // Deleted map entries never authorize creation of layout 28 files.
+      return null;
+    }
     final var intId = extractFileId(fileId);
     filesLock.acquireWriteLock();
     try {
@@ -3344,8 +3401,11 @@ public final class WOWCache extends AbstractWriteCache
       final var result = new IntOpenHashSet(count);
       for (var i = 0; i < count; i++) {
         final var fileId = buffer.getInt();
-        // Only keep IDs that still exist in the name-id map (filter stale entries)
-        if (idNameMap.containsKey(fileId)) {
+        // Layout 28 registry evidence is independent of the legacy map.
+        if (logicalFiles != null) {
+          PageFileIdentity.decode(fileId);
+          result.add(fileId);
+        } else if (idNameMap.containsKey(fileId)) {
           result.add(fileId);
         }
       }
@@ -5853,6 +5913,42 @@ public final class WOWCache extends AbstractWriteCache
     final var fileId = composeFileId(id, internalFileId);
 
     doRemoveCachePages(internalFileId, 0);
+
+    // deleteFile holds filesLock while waiting for this task. Never reacquire it here.
+    final var registered = files.get(fileId);
+    PageFileIdentity identity = null;
+    if (logicalFiles != null) {
+      try {
+        identity = PageFileIdentity.decode(internalFileId);
+      } catch (IllegalArgumentException invalidId) {
+        if (registered == null) {
+          return null;
+        }
+        // Hydrated legacy aliases retain their existing deletion path.
+      }
+    }
+    if (logicalFiles != null && (registered == null
+        || (identity != null
+            && registered.getName().equals(PageFileNames.layout28DiskName(identity))))) {
+      final var name = PageFileNames.layout28(identity);
+      var file = files.remove(fileId);
+      if (file == null) {
+        file = createFileInstance(name, internalFileId);
+      }
+      if (file.exists()) {
+        file.delete();
+      }
+      logicalFiles.delete(name, internalFileId);
+      // Handle-free deletion changes physical and logical state, but owns no map mirror.
+      if (registered == null) {
+        return null;
+      }
+      // Keep the staged lifecycle mirror, without using it to decide physical deletion.
+      idNameMap.remove(internalFileId);
+      nameIdMap.put(name, -internalFileId);
+      idNameMap.put(-internalFileId, name);
+      return new RawPair<>(file.getName(), name);
+    }
 
     final var fileClassic = files.remove(fileId);
 

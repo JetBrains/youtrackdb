@@ -10063,7 +10063,8 @@ public abstract class AbstractStorage
               writeCache.internalFileId(fileDeletedWALRecord.getFileId()))) {
             continue;
           }
-          if (writeCache.exists(fileDeletedWALRecord.getFileId())) {
+          if (writeCache.supportsIdentityRecovery()
+              || writeCache.exists(fileDeletedWALRecord.getFileId())) {
             readCache.deleteFile(fileDeletedWALRecord.getFileId(), writeCache);
           }
         }
@@ -10073,7 +10074,20 @@ public abstract class AbstractStorage
               writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()))) {
             continue;
           }
-          if (!writeCache.exists(fileCreatedCreatedWALRecord.getFileName())) {
+          if (writeCache.supportsIdentityRecovery()) {
+            if (!writeCache.resolveRecoveryFile(fileCreatedCreatedWALRecord.getFileName(),
+                fileCreatedCreatedWALRecord.getFileId(),
+                atomicUnit.getFirst() instanceof AtomicUnitStartRecord
+                    ? WriteCache.RecoveryFilePermission.REPLAY_CREATE
+                    : WriteCache.RecoveryFilePermission.OPEN_ONLY)) {
+              if (replayDeletions != null && replayDeletions.deletedAfter(
+                  writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()),
+                  walRecord.getLsn())) {
+                continue;
+              }
+              throw new IOException("Missing replay file without a complete creating unit");
+            }
+          } else if (!writeCache.exists(fileCreatedCreatedWALRecord.getFileName())) {
             readCache.addFile(
                 fileCreatedCreatedWALRecord.getFileName(),
                 fileCreatedCreatedWALRecord.getFileId(),
@@ -10239,7 +10253,8 @@ public abstract class AbstractStorage
    * non-durable files and uses an empty exclusion set.
    *
    * <ol>
-   *   <li><b>Existing file.</b> Return true without consulting deletion evidence.</li>
+   *   <li><b>Existing file.</b> Resolve computed disk presence for layout 28, otherwise legacy
+   *       existence. Return true without consulting deletion evidence.</li>
    *   <li><b>Pending-create consult.</b> Scan the current unit for a matching
    *       {@link FileCreatedWALRecord}, comparing internal file ids because backup restore rewrites
    *       external high bits. If its file name is absent, materialize the file through
@@ -10248,44 +10263,61 @@ public abstract class AbstractStorage
    *   <li><b>Later committed deletion.</b> If this recovery call has a counted deletion after the
    *       page change, log the skip and return false without restoring the missing file.</li>
    *   <li><b>{@code restoreFileById} fallback.</b> If no skip applies, attempt to restore the missing
-   *       file from its persisted negative name-id entry. Return true on success.</li>
-   *   <li><b>Throw.</b> If the file remains missing, throw {@link StorageException} so the caller
-   *       abandons the rest of the restore.</li>
+   *       file from its persisted negative name-id entry for layout 27 only.</li>
+   *   <li><b>Throw.</b> Layout 28 fails recovery with an IOException if the file remains missing.
+   *       Layout 27 retains its StorageException failure.</li>
    * </ol>
    *
    * @return true if the file exists or was materialized, false if the caller must skip the change
    */
   private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
       LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
-    if (writeCache.exists(fileId)) {
+    final var identityRecovery = writeCache.supportsIdentityRecovery();
+    if (identityRecovery
+        ? writeCache.resolveRecoveryFile(null, fileId, WriteCache.RecoveryFilePermission.OPEN_ONLY)
+        : writeCache.exists(fileId)) {
       return true;
     }
 
     final var internalId = writeCache.internalFileId(fileId);
-    for (final var record : atomicUnit) {
-      // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
-      // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
-      // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
-      // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
-      // entry but absent file) would slip past it and make addFile throw. That window is not
-      // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
-      // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
-      // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
-      // consistency, the same assumption the sibling branch makes.
-      //
-      // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
-      // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
-      // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
-      // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
-      //
-      // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
-      // so this scan finds nothing for it. Check later deletion evidence before the fallback.
-      if (record instanceof FileCreatedWALRecord fileCreated
-          && writeCache.internalFileId(fileCreated.getFileId()) == internalId
-          && !writeCache.exists(fileCreated.getFileName())) {
-        readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
-        return true;
+    if (identityRecovery) {
+      // Page redo precedes file creation in WAL. The complete unit supplies creation evidence.
+      if (atomicUnit.getFirst() instanceof AtomicUnitStartRecord) {
+        for (final var record : atomicUnit) {
+          if (record instanceof FileCreatedWALRecord creation
+              && writeCache.internalFileId(creation.getFileId()) == internalId) {
+            return writeCache.resolveRecoveryFile(creation.getFileName(), fileId,
+                WriteCache.RecoveryFilePermission.REPLAY_CREATE);
+          }
+        }
       }
+    } else {
+      for (final var record : atomicUnit) {
+        // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
+        // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
+        // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
+        // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
+        // entry but absent file) would slip past it and make addFile throw. That window is not
+        // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
+        // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
+        // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
+        // consistency, the same assumption the sibling branch makes.
+        //
+        // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
+        // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
+        // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
+        // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
+        //
+        // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
+        // so this scan finds nothing for it. Check later deletion evidence before the fallback.
+        if (record instanceof FileCreatedWALRecord fileCreated
+            && writeCache.internalFileId(fileCreated.getFileId()) == internalId
+            && !writeCache.exists(fileCreated.getFileName())) {
+          readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
+          return true;
+        }
+      }
+
     }
 
     if (replayDeletions != null && replayDeletions.deletedAfter(internalId, position)) {
@@ -10295,7 +10327,7 @@ public abstract class AbstractStorage
       return false;
     }
 
-    final var fileName = writeCache.restoreFileById(fileId);
+    final var fileName = identityRecovery ? null : writeCache.restoreFileById(fileId);
     if (fileName != null) {
       LogManager.instance()
           .warn(
@@ -10306,10 +10338,12 @@ public abstract class AbstractStorage
       return true;
     }
 
-    throw new StorageException(name,
-        "File with id "
-            + fileId
-            + " was deleted from storage, the rest of operations can not be restored");
+    final var message = "File with id " + fileId
+        + " was deleted from storage, the rest of operations can not be restored";
+    if (identityRecovery) {
+      throw new IOException(message);
+    }
+    throw new StorageException(name, message);
   }
 
   @SuppressWarnings("unused")
