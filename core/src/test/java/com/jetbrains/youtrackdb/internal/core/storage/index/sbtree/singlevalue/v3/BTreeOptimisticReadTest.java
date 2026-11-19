@@ -117,10 +117,183 @@ public class BTreeOptimisticReadTest {
         });
   }
 
+  /** A failed child load must not release another reader's root pin in firstItem. */
+  @Test
+  public void testFirstItemLoadFailurePreservesOtherPin() throws Exception {
+    assertBoundaryLoadFailurePreservesOtherPin(false, new IllegalStateException("child load"));
+  }
+
+  /** An Error in a child load must retain its identity and the lastItem root owner's pin. */
+  @Test
+  public void testLastItemLoadErrorPreservesOtherPin() throws Exception {
+    assertBoundaryLoadFailurePreservesOtherPin(true, new AssertionError("child load"));
+  }
+
+  private void assertBoundaryLoadFailurePreservesOtherPin(boolean last, Throwable failure)
+      throws Exception {
+    var cache = storage.getReadCache();
+    long fileId = singleValueTree.getFileId();
+    var field = com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache.class
+        .getDeclaredField("cacheHitRatio");
+    field.setAccessible(true);
+    var original = field.get(cache);
+    var ratio = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.common.profiler.metrics.Ratio.class);
+    var failNext = new java.util.concurrent.atomic.AtomicBoolean();
+    var fired = new java.util.concurrent.atomic.AtomicBoolean();
+    org.mockito.Mockito.doAnswer(call -> {
+      if (failNext.compareAndSet(true, false)) {
+        throw failure;
+      }
+      return null;
+    }).when(ratio).record(org.mockito.ArgumentMatchers.anyBoolean());
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(op -> {
+        try (var owner = op.loadPageForRead(fileId, 1)) {
+          int pins = pinState(owner);
+          var reader = org.mockito.Mockito.spy(op);
+          org.mockito.Mockito.doAnswer(call -> {
+            long page = call.getArgument(1);
+            if (page > 1 && op.getOptimisticReadScope().isAttemptActive()
+                && fired.compareAndSet(false, true)) {
+              failNext.set(true);
+            }
+            return call.callRealMethod();
+          }).when(reader).loadPageForRead(org.mockito.ArgumentMatchers.anyLong(),
+              org.mockito.ArgumentMatchers.anyLong());
+          field.set(cache, ratio);
+          try {
+            var reported = Assert.assertThrows(failure.getClass(), () -> {
+              if (last) {
+                singleValueTree.lastKey(reader);
+              } else {
+                singleValueTree.firstKey(reader);
+              }
+            });
+            Assert.assertTrue("The traversal must reach a child", fired.get());
+            Assert.assertEquals("Another owner's pin must remain", pins, pinState(owner));
+            Assert.assertSame(failure, reported);
+            Assert.assertFalse(op.getOptimisticReadScope().isAttemptActive());
+          } finally {
+            field.set(cache, original);
+          }
+        }
+      });
+    } finally {
+      field.set(cache, original);
+    }
+  }
+
   @After
   public void afterMethod() {
     youTrackDB.drop(dbName);
     youTrackDB.close();
+  }
+
+  /**
+   * A real leaf split between root and leaf reads invalidates the pinned root stamp.
+   * A private test epoch isolates stamps from the commit protocol's epoch guard.
+   */
+  @Test
+  public void testLastKeyFallsBackAcrossLeafSplit() throws Exception {
+    storage.getReadCache().clear();
+    Assert
+        .assertNull(storage.getReadCache().getCacheEntryOptimistic(singleValueTree.getFileId(), 1));
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      try (var root = op.loadPageForRead(singleValueTree.getFileId(), 1)) {
+        var bucket = new CellBTreeSingleValueBucketV3<String>(root);
+        Assert.assertFalse("The root must be internal", bucket.isLeaf());
+        try (var child = op.loadPageForRead(singleValueTree.getFileId(), bucket.getLeft(0))) {
+          Assert.assertTrue("The tree must have exactly two levels",
+              new CellBTreeSingleValueBucketV3<String>(child).isLeaf());
+        }
+      }
+    });
+    storage.getReadCache().clear();
+    long stampsBefore =
+        com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.count(
+            com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause.STAMP);
+    var tree = org.mockito.Mockito.spy(singleValueTree);
+    org.mockito.Mockito.doReturn(
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch())
+        .when(tree).getApplyPhaseEpoch();
+    var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    var fired = new java.util.concurrent.atomic.AtomicBoolean();
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(op -> {
+        var reader = org.mockito.Mockito.spy(op);
+        org.mockito.Mockito.doAnswer(call -> {
+          long page = call.getArgument(1);
+          if (page > 1 && op.getOptimisticReadScope().isAttemptActive()
+              && fired.compareAndSet(false, true)) {
+            long sizeBefore = storage.getWriteCache().getFilledUpTo(tree.getFileId());
+            executor.submit(() -> {
+              atomicOperationsManager.executeInsideAtomicOperation(writer -> {
+                for (int i = 0; i < 2000; i++) {
+                  singleValueTree.put(writer, String.format("z%05d", i), new RecordId(1, i));
+                }
+              });
+              return null;
+            }).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            Assert.assertTrue(storage.getWriteCache().getFilledUpTo(tree.getFileId()) > sizeBefore);
+          }
+          return call.callRealMethod();
+        }).when(reader).loadPageForRead(org.mockito.ArgumentMatchers.anyLong(),
+            org.mockito.ArgumentMatchers.anyLong());
+        Assert.assertEquals("z01999", tree.lastKey(reader));
+        Assert.assertFalse(op.getOptimisticReadScope().isAttemptActive());
+      });
+      Assert.assertTrue(fired.get());
+      Assert.assertTrue(
+          com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.count(
+              com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause.STAMP)
+              > stampsBefore);
+    } finally {
+      executor.shutdownNow();
+      Assert.assertTrue("Split executor must terminate",
+          executor.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS));
+    }
+  }
+
+  private static int pinState(
+      com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry entry) throws Exception {
+    var field = com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl.class
+        .getDeclaredField("state");
+    field.setAccessible(true);
+    return field.getInt(entry);
+  }
+
+  /** A torn first-item child pointer fails without file growth or a leaked root pin. */
+  @Test
+  public void testFirstItemTornChildDoesNotGrowOrLeak() throws Exception {
+    long fileId = singleValueTree.getFileId();
+    long size = storage.getWriteCache().getFilledUpTo(fileId);
+    var root = storage.getReadCache().getCacheEntryOptimistic(fileId, 1);
+    int pins = pinState(root);
+    var fired = new java.util.concurrent.atomic.AtomicBoolean();
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var reader = org.mockito.Mockito.spy(op);
+      org.mockito.Mockito.doAnswer(call -> {
+        long page = call.getArgument(1);
+        if (page > 1 && op.getOptimisticReadScope().isAttemptActive()
+            && fired.compareAndSet(false, true)) {
+          return op.loadPageForRead(fileId, size + 100);
+        }
+        return call.callRealMethod();
+      }).when(reader).loadPageForRead(org.mockito.ArgumentMatchers.anyLong(),
+          org.mockito.ArgumentMatchers.anyLong());
+      Assert.assertEquals("0", singleValueTree.firstKey(reader));
+      Assert.assertFalse(op.getOptimisticReadScope().isAttemptActive());
+    });
+    Assert.assertTrue(fired.get());
+    Assert.assertEquals(size, storage.getWriteCache().getFilledUpTo(fileId));
+    Assert.assertEquals(pins, pinState(root));
+    for (long page = 0; page < size; page++) {
+      var entry = storage.getReadCache().getCacheEntryOptimistic(fileId, page);
+      if (entry != null) {
+        Assert.assertEquals(0, pinState(entry));
+      }
+    }
   }
 
   /**

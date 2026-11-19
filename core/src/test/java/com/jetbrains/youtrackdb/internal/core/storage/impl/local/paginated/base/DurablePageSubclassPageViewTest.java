@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -52,7 +53,7 @@ public class DurablePageSubclassPageViewTest {
 
     long stamp = frame.tryOptimisticRead();
     assertTrue("Stamp must be valid", stamp != 0);
-    pageView = new PageView(frame.getBuffer(), frame, stamp);
+    pageView = new PageView(frame.getBuffer(), frame, stamp, cacheEntry(frame));
   }
 
   @After

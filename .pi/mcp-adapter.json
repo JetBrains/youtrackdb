@@ -5,7 +5,6 @@
     "deferWithMissingMetadata": true,
     "directTools": false,
     "namespaceProxyTools": false,
-    "scriptMode": false,
-    "jev": false
+    "semanticSearch": false
   }
 }
