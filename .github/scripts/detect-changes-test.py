@@ -65,7 +65,11 @@ class Decisions(unittest.TestCase):
                 code = detect.main(argv)
             out = stream.getvalue()
         self.assertEqual(code, 0, out)
-        values = {}
+        # Each build starts with the five empty defaults declared by the DSL.
+        values = dict.fromkeys(("should_build", "run_integration_tests",
+                                "integration_skip_reason", "integration_scope",
+                                "integration_modules"), "")
+        emitted = set()
         for line in out.splitlines():
             if line.startswith("##teamcity[message "):
                 self.assertTrue(
@@ -74,10 +78,13 @@ class Decisions(unittest.TestCase):
             elif line.startswith("##teamcity["):
                 self.assertTrue(line.startswith("##teamcity[setParameter name='detect."), out)
                 name, value = line.split("name='detect.", 1)[1].split("' value='")
+                self.assertIn(name, values, out)
+                self.assertNotIn(name, emitted, out)
+                self.assertNotEqual(value[:-2], "", out)
+                emitted.add(name)
                 values[name] = value[:-2]
-        self.assertEqual(set(values), {"should_build", "run_integration_tests",
-                                     "integration_skip_reason", "integration_scope",
-                                     "integration_modules"})
+        self.assertTrue({"should_build", "run_integration_tests", "integration_scope"}
+                        <= emitted, out)
         self.assertIn("Decision:", out)
         return values, out
 
@@ -393,7 +400,33 @@ class Decisions(unittest.TestCase):
             values, out = self.pr()
             self.full(values, out)
             self.assertIn(detect.escape(hostile), out)
-            self.assertEqual(out.count("##teamcity["), 6)
+            self.assertEqual(out.count("##teamcity["), 4)
+
+    def test_empty_values_use_fresh_build_defaults(self):
+        """Selected and full builds omit empty values and retain empty dependency values."""
+        self.put("core/A.java")
+        self.commit("Change Java owner")
+        values, out = self.pr(cli=True)
+        self.expected(values, modules="core")
+        self.assertNotIn("setParameter name='detect.integration_skip_reason'", out)
+        self.assertIn("integration_skip_reason= integration_scope=selected", out)
+        values, out = self.develop(["core/A.java"])
+        self.expected(values, reason="develop")
+        self.assertNotIn("setParameter name='detect.integration_modules'", out)
+        self.assertIn("integration_scope=full integration_modules=", out)
+        self.assertNotIn(" value=''", out)
+
+    def test_nonempty_parameter_values_remain_escaped(self):
+        """Injected non-empty output values keep all TeamCity escapes in parameter messages."""
+        hostile = "'|]\n##teamcity[forged]\ré😀"
+        escaped = "|'|||]|n##teamcity|[forged|]|r|0x00E9|0xD83D|0xDE00"
+        with mock.patch.object(detect, "decide", return_value=(True, hostile, [hostile])):
+            values, out = self.pr()
+        self.expected(values, reason=escaped, modules=escaped)
+        for name in ("integration_skip_reason", "integration_modules"):
+            self.assertIn(f"##teamcity[setParameter name='detect.{name}' value='{escaped}']", out)
+        self.assertEqual(out.count("##teamcity["), 5)
+        self.assertNotIn(hostile, out)
 
     def test_usage_errors(self):
         """Missing or conflicting arguments exit nonzero without unsafe caller text."""

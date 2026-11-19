@@ -9,7 +9,10 @@ the PR subject marker. The caller must set it only for a same-repository PR.
 The checkout must contain the head revision and its source tree. For a PR, pass
 its head commit as --head when the checkout is not that commit.
 
-Set these TeamCity build parameters on every successful invocation:
+Provide these TeamCity build parameters on every successful invocation.
+Emit setParameter messages only for non-empty values. Empty values use the
+build configuration's declared empty defaults. Each build starts from those defaults.
+The caller must declare all five parameters with empty defaults.
   detect.should_build: true or false
   detect.run_integration_tests: true or false
   detect.integration_skip_reason: empty when running, otherwise no-it-tests,
@@ -174,7 +177,8 @@ def main(argv=None):
         "integration_modules": ",".join(selected),
     }
     for name, value in values.items():
-        print(f"##teamcity[setParameter name='{escape('detect.' + name)}' value='{escape(value)}']")
+        if value:
+            print(f"##teamcity[setParameter name='{escape('detect.' + name)}' value='{escape(value)}']")
     print("Decision: " + " ".join(f"{name}={escape(value)}" for name, value in values.items()))
     return 0
 
