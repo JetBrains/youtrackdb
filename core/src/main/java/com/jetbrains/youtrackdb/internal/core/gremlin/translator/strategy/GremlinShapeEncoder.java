@@ -61,6 +61,16 @@ class GremlinShapeEncoder {
 
   private final List<Runnable> harvest;
 
+  List<NativeHasOperands> nativeOperands;
+  boolean orderedExpandAbsent;
+  int propertyMapBulkingCapacity;
+
+  GremlinShapeExtractor.Extraction extraction() {
+    GremlinShapeBuffer.count(counters -> counters.extractions++);
+    return new GremlinShapeExtractor.Extraction(buffer == null ? compactKey() : null, Map.of(),
+        complete, List.of(), nativeOperands, orderedExpandAbsent, propertyMapBulkingCapacity, this);
+  }
+
   private List<NativeHasOperands> frozenNativeOperands;
 
   List<NativeHasOperands> nativeOperands(List<NativeHasOperands> operands) {
@@ -94,7 +104,7 @@ class GremlinShapeEncoder {
         buffer.replay();
       }
       frozenBindings = bindings == null ? Map.of() : Map.copyOf(bindings);
-      frozenContributions = List.copyOf(hasContributions);
+      frozenContributions = hasContributions == null ? List.of() : List.copyOf(hasContributions);
     }
   }
 
@@ -138,9 +148,9 @@ class GremlinShapeEncoder {
 
   private HasBindingContext hasBindingContext;
 
-  private final List<HasBindingContext.Slot> hasSlots = new ArrayList<>();
+  private List<HasBindingContext.Slot> hasSlots;
 
-  private final List<HasBindingContext.Contribution> hasContributions = new ArrayList<>();
+  private List<HasBindingContext.Contribution> hasContributions;
 
   void setHasBindingContext(HasBindingContext context) {
     hasBindingContext = context;
@@ -151,20 +161,29 @@ class GremlinShapeEncoder {
   }
 
   int hasSlotCount() {
-    return hasSlots.size();
+    return hasSlots == null ? 0 : hasSlots.size();
   }
 
   void recordHasSlot(HasBindingContext.Slot slot) {
+    if (hasSlots == null) {
+      hasSlots = new ArrayList<>();
+    }
     hasSlots.add(slot);
   }
 
   void recordHasContribution(HasBindingContext context, int fromSlot) {
+    if (hasContributions == null) {
+      hasContributions = new ArrayList<>();
+    }
+    GremlinShapeBuffer.count(counters -> counters.contributions++);
     hasContributions.add(new HasBindingContext.Contribution(context,
-        hasSlots.subList(fromSlot, hasSlots.size())));
+        hasSlots == null ? List.of() : hasSlots.subList(fromSlot, hasSlots.size())));
   }
 
   List<HasBindingContext.Contribution> hasContributions() {
-    return frozenContributions == null ? List.copyOf(hasContributions) : frozenContributions;
+    return frozenContributions == null
+        ? (hasContributions == null ? List.of() : List.copyOf(hasContributions))
+        : frozenContributions;
   }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
@@ -384,6 +403,7 @@ class GremlinShapeEncoder {
 
   private SQLPositionalParameter bindParam(Object value) {
     if (bindings == null) {
+      GremlinShapeBuffer.count(counters -> counters.bindingMaps++);
       bindings = new LinkedHashMap<>();
     }
     var slot = bindings.size();

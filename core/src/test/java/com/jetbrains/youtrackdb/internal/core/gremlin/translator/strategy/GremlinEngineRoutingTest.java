@@ -134,6 +134,25 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     }
   }
 
+  /** Both whole-query scans precede invalid settings, root admission and lazy timeout checks. */
+  @Test
+  public void bothEarlyScansPrecedeValidationLookupAndTimeoutInvalidation() {
+    var source = graph.traversal().with("orderByNullsPlacementAsc", "invalid");
+    var duplicate = source.V().as("$same").path().as("$same").asAdmin();
+    var collision = source.V().as("$reserved").path().select("side").asAdmin();
+    collision.getSideEffects().register("side", () -> "live", (a, b) -> b);
+    var cache = GremlinPlanCache.instance(db);
+    cache.getTranslationEntry(new GremlinShapeKey(new Object[] {"timeout-baseline"}), db);
+    var timeout = db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, timeout + 1);
+    try {
+      assertEarlyDeclineWithoutLookup(duplicate);
+      assertEarlyDeclineWithoutLookup(collision);
+    } finally {
+      db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, timeout);
+    }
+  }
+
   private void assertEarlyDeclineWithoutLookup(Traversal.Admin<?, ?> traversal) {
     var cache = GremlinPlanCache.instance(db);
     var hits = cache.getTranslationHits();
@@ -143,7 +162,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     var metrics = GremlinTranslationMetrics.of(db);
     var declines = metrics.getDeclines();
     var counters = new GremlinShapeBuffer.Counters();
-    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    GremlinShapeBuffer.startCounting(counters);
     try {
       GremlinToMatchStrategy.instance().apply(traversal);
       assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
@@ -153,7 +172,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
       assertThat(cache.getGeneration()).isEqualTo(generation);
       assertThat(counters.leases).isZero();
     } finally {
-      GremlinShapeBuffer.TEST_COUNTERS.remove();
+      GremlinShapeBuffer.stopCounting();
     }
   }
 
@@ -353,7 +372,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
             rootStrategies, options);
         util.clearInvocations();
         GremlinToMatchStrategy.instance().apply(traversal);
-        util.verify(() -> YTDBStrategyUtil.translationSettings(traversal, session),
+        util.verify(() -> YTDBStrategyUtil.translationSettings(options, false, session),
             org.mockito.Mockito.times(1));
         util.verify(() -> YTDBStrategyUtil.resolveYtdbSession(
             org.mockito.ArgumentMatchers.any()), org.mockito.Mockito.times(1));
@@ -371,12 +390,14 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
             org.mockito.Mockito.times(1));
         verify(configuration, org.mockito.Mockito.times(2)).getContextKeys();
         verify(options, org.mockito.Mockito.times(4)).getOptions();
-        verify(rootStrategies, org.mockito.Mockito.times(1)).getStrategy(OptionsStrategy.class);
-        verify(rootStrategies, org.mockito.Mockito.times(1))
-            .getStrategy(StandardOrderSemanticsStrategy.class);
-        verify(strategies, org.mockito.Mockito.times(1))
-            .getStrategy(EdgeLabelVerificationStrategy.class);
-        verify(strategies, org.mockito.Mockito.times(1)).getStrategy(ProductiveByStrategy.class);
+        verify(rootStrategies, org.mockito.Mockito.times(1)).iterator();
+        if (rootStrategies != strategies) {
+          verify(strategies, org.mockito.Mockito.times(1)).iterator();
+        }
+        verify(rootStrategies, never()).getStrategy(OptionsStrategy.class);
+        verify(rootStrategies, never()).getStrategy(StandardOrderSemanticsStrategy.class);
+        verify(strategies, never()).getStrategy(EdgeLabelVerificationStrategy.class);
+        verify(strategies, never()).getStrategy(ProductiveByStrategy.class);
       }
     }
   }

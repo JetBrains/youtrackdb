@@ -425,24 +425,26 @@ public final class GremlinToMatchStrategy
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is
     // storage-wide and outlives the session.
-    var settings = YTDBStrategyUtil.translationSettings(traversal, session);
+    var environment = TranslationEnvironment.resolve(traversal, session);
+    var settings = YTDBStrategyUtil.translationSettings(
+        environment.references().options, environment.references().standard, session);
     if (settings == null) {
       return;
     }
     var orderIncludesMissingKey = settings.orderIncludesMissingKey();
     var orderByNullsPlacements = settings.nullPlacements();
     var polymorphic = settings.polymorphic();
-    var environment = TranslationEnvironment.resolve(traversal, session);
     var lease = populateTranslationCache && eligible ? GremlinShapeBuffer.acquire() : null;
     try {
-      GremlinShapeExtractor.Extraction extraction;
+      GremlinShapeExtractor.Extraction extraction = null;
+      GremlinShapeEncoder emitted = null;
       if (lease == null) {
         extraction = GremlinStepWalker.extractShape(traversal, session, orderIncludesMissingKey,
             orderByNullsPlacements, polymorphic, environment);
       } else {
         try {
           GremlinShapeBuffer.count(counters -> counters.emissions++);
-          extraction = GremlinShapeExtractor.extract(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+          emitted = GremlinShapeExtractor.emit(GremlinStepWalker.PRODUCTION_RECOGNISERS,
               GremlinStepWalker.TRANSPARENT_STEPS, traversal, orderIncludesMissingKey,
               orderByNullsPlacements, polymorphic, environment,
               new GremlinShapeEncoder(session.getSchema(), lease));
@@ -454,13 +456,16 @@ public final class GremlinToMatchStrategy
       }
       var metrics = GremlinTranslationMetrics.of(session);
       if (extractionObserver != null) {
+        extraction = extraction == null ? emitted.extraction() : extraction;
         extractionObserver.accept(extraction);
       }
       GremlinPlanCache.StampedTranslation rejected = null;
-      if (populateTranslationCache && eligible && extraction.complete()) {
-        var resident = cache.getTranslationEntry(extraction.lookupKey(), session);
+      if (populateTranslationCache && eligible
+          && (emitted == null ? extraction.complete() : emitted.complete())) {
+        var lookupKey = emitted == null ? extraction.lookupKey() : emitted.lookupKey();
+        var resident = cache.getTranslationEntry(lookupKey, session);
         var cached = resident == null ? null : resident.template();
-        if (cached != null && extraction.lookupKey() instanceof GremlinShapeBuffer) {
+        if (cached != null && lookupKey instanceof GremlinShapeBuffer) {
           GremlinShapeBuffer.count(counters -> counters.hits++);
         }
         if (cache.getGeneration() != generation) {
@@ -477,6 +482,7 @@ public final class GremlinToMatchStrategy
             metrics.recordRuleNative();
             return;
           }
+          extraction = extraction == null ? emitted.extraction() : extraction;
           var boundShaping = extraction.bindings().size() == translate.bindingCount()
               && matchingLayout(extraction.hasContributions(), translate.hasContributions())
               && extraction.propertyMapBulkingCapacity()
@@ -491,6 +497,7 @@ public final class GremlinToMatchStrategy
           agreementFailure.accept("Translation cache binding agreement failed");
         }
       }
+      extraction = extraction == null ? emitted.extraction() : extraction;
       var translation =
           translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
               polymorphic, environment);

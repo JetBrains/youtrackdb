@@ -8,7 +8,7 @@ public final class TextShapeOracle {
   /** Require a warm lookup through the internal fast-hit counters, not route telemetry. */
   public static void requireFastHit(Runnable compile) {
     var counters = new GremlinShapeBuffer.Counters();
-    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    GremlinShapeBuffer.startCounting(counters);
     try {
       compile.run();
       org.junit.Assert.assertEquals(1, counters.leases);
@@ -16,7 +16,7 @@ public final class TextShapeOracle {
       org.junit.Assert.assertEquals(1, counters.hits);
       org.junit.Assert.assertEquals(0, counters.fallbacks);
     } finally {
-      GremlinShapeBuffer.TEST_COUNTERS.remove();
+      GremlinShapeBuffer.stopCounting();
     }
   }
 

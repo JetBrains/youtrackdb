@@ -11,6 +11,17 @@ final class GremlinShapeBuffer implements GremlinShapeTokens, AutoCloseable {
   static final long SEED = 0xcbf29ce484222325L;
   static volatile java.util.function.LongUnaryOperator hasherForTests;
   static final ThreadLocal<Counters> TEST_COUNTERS = new ThreadLocal<>();
+  static volatile boolean countingForTests;
+
+  static void startCounting(Counters counters) {
+    TEST_COUNTERS.set(counters);
+    countingForTests = true;
+  }
+
+  static void stopCounting() {
+    countingForTests = false;
+    TEST_COUNTERS.remove();
+  }
 
   static final class Counters {
     int leases;
@@ -19,6 +30,9 @@ final class GremlinShapeBuffer implements GremlinShapeTokens, AutoCloseable {
     int hits;
     int scopes;
     int countScans;
+    int extractions;
+    int bindingMaps;
+    int contributions;
   }
 
   static long finishHash(long hash) {
@@ -27,6 +41,10 @@ final class GremlinShapeBuffer implements GremlinShapeTokens, AutoCloseable {
   }
 
   static void count(java.util.function.Consumer<Counters> action) {
+    // Production calls skip the test-only ThreadLocal lookup.
+    if (!countingForTests) {
+      return;
+    }
     var counters = TEST_COUNTERS.get();
     if (counters != null) {
       action.accept(counters);

@@ -38,7 +38,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
   @After
   public void clearTestInstrumentation() {
     GremlinShapeBuffer.hasherForTests = null;
-    GremlinShapeBuffer.TEST_COUNTERS.remove();
+    GremlinShapeBuffer.stopCounting();
   }
 
   /** Frozen tokens and text remain independent references for keys and complete binding layouts. */
@@ -257,7 +257,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true);
     strategy.extractionObserver = observed::add;
     var counters = new GremlinShapeBuffer.Counters();
-    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    GremlinShapeBuffer.startCounting(counters);
     strategy.apply(traversal);
     assertThat(counters.fallbacks).isEqualTo(1);
     assertThat(counters.emissions).isEqualTo(1);
@@ -371,7 +371,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     // Two applications must both fall back and walk. Neither may publish even a decline.
     for (int attempt = 0; attempt < 2; attempt++) {
       var counters = new GremlinShapeBuffer.Counters();
-      GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+      GremlinShapeBuffer.startCounting(counters);
       strategy.apply(traversal);
       assertThat(counters.emissions).isEqualTo(1);
       assertThat(counters.fallbacks).isEqualTo(1);
@@ -426,6 +426,179 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     }
   }
 
+  /** Normal, duplicate and exceptional scans release the same scratch without retaining labels. */
+  @Test
+  public void earlyLabelScratchIsExactClearedAndReentrant() throws Exception {
+    var scratch = LabelScanScratch.acquire();
+    scratch.close();
+    try {
+      var unique = graph.traversal().V().as("shared").asAdmin();
+      unique.getStartStep().addLabel(null);
+      assertThat(GremlinStepWalker.hasDuplicateStepLabels(unique)).isFalse();
+      assertReleasedScratch(scratch);
+      var duplicate = graph.traversal().V().filter(__.out().as("shared"))
+          .filter(__.in().as("shared")).asAdmin();
+      assertThat(GremlinStepWalker.hasDuplicateStepLabels(duplicate)).isTrue();
+      assertReleasedScratch(scratch);
+
+      var child = org.mockito.Mockito.spy(__.out().asAdmin());
+      var throwing = graph.traversal().V().as("retained-on-failure").filter(child).asAdmin();
+      var failure = new IllegalStateException("scan failure");
+      org.mockito.Mockito.doThrow(failure).when(child).getSteps();
+      assertThatThrownBy(() -> GremlinStepWalker.hasDuplicateStepLabels(throwing))
+          .isSameAs(failure);
+      assertReleasedScratch(scratch);
+
+      try (var outer = LabelScanScratch.acquire()) {
+        assertThat(outer).isSameAs(scratch);
+        assertThat(outer.add("shared")).isTrue();
+        assertThat(GremlinStepWalker.hasDuplicateStepLabels(unique)).isFalse();
+        assertThat(outer.add("shared")).isFalse();
+        for (int i = 0; i <= LabelScanScratch.LIMIT; i++) {
+          assertThat(outer.add("key" + i)).isTrue();
+        }
+        assertThat(outer.add("key64")).isFalse();
+        assertThat(outer.add("shared")).isFalse();
+      }
+      assertReleasedScratch(scratch);
+      var large = graph.traversal().V();
+      for (int i = 0; i <= LabelScanScratch.LIMIT; i++) {
+        large.out().as("label" + i);
+      }
+      assertThat(GremlinStepWalker.hasDuplicateStepLabels(large.asAdmin())).isFalse();
+      assertReleasedScratch(scratch);
+      large.filter(__.in().as("label64"));
+      assertThat(GremlinStepWalker.hasDuplicateStepLabels(large.asAdmin())).isTrue();
+      assertReleasedScratch(scratch);
+    } finally {
+      scratch.close();
+    }
+  }
+
+  private static void assertReleasedScratch(LabelScanScratch scratch) throws Exception {
+    // Inspect before acquire, which sets leased and can hide a failure by returning a fresh object.
+    for (var name : List.of("labels", "size", "overflow", "leased")) {
+      var field = LabelScanScratch.class.getDeclaredField(name);
+      field.setAccessible(true);
+      switch (name) {
+        case "labels" -> assertThat((Object[]) field.get(scratch)).containsOnlyNulls();
+        case "size" -> assertThat(field.getInt(scratch)).isZero();
+        case "overflow" -> assertThat(field.get(scratch)).isNull();
+        case "leased" -> assertThat(field.getBoolean(scratch)).isFalse();
+        default -> throw new AssertionError(name);
+      }
+    }
+    try (var reused = LabelScanScratch.acquire()) {
+      assertThat(reused).isSameAs(scratch);
+    }
+  }
+
+  /** Ordered synthetic union arms reuse one scanned list rather than repeat getStrategy lookups. */
+  @Test
+  public void orderedUnionForkReusesSharedStrategyReferences() {
+    var traversal = graph.traversal().V().union(
+        __.order().by(
+            new com.jetbrains.youtrackdb.internal.core.gremlin.traversal.lambda.RecordIdSortKeyTraversal<>())
+            .out("e").limit(1),
+        __.out("e")).asAdmin();
+    var analyses = new java.util.concurrent.atomic.AtomicInteger();
+    traversal.getStrategies().addStrategies(
+        new TraverserMergeFacts.AnalysisObserver(analyses::incrementAndGet));
+    var strategies = org.mockito.Mockito.spy(traversal.getStrategies());
+    traversal.setStrategies(strategies);
+    org.mockito.Mockito.clearInvocations(strategies);
+    GremlinToMatchStrategy.instance().apply(traversal);
+    assertThat(analyses.get()).isPositive();
+    org.mockito.Mockito.verify(strategies).iterator();
+    org.mockito.Mockito.verify(strategies, org.mockito.Mockito.never())
+        .getStrategy(org.mockito.ArgumentMatchers.any());
+  }
+
+  /** Disabled counting ignores even installed counters, while enabled counting stays thread-local. */
+  @Test
+  public void testCountersAreGatedBeforeThreadLocalAccess() {
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
+    GremlinShapeBuffer.count(c -> c.emissions++);
+    assertThat(counters.emissions).isEqualTo(1);
+    GremlinShapeBuffer.countingForTests = false;
+    GremlinShapeBuffer.count(c -> {
+      throw new AssertionError("disabled instrumentation ran");
+    });
+    GremlinShapeBuffer.countingForTests = true;
+    GremlinShapeBuffer.TEST_COUNTERS.remove();
+    GremlinShapeBuffer.count(c -> {
+      throw new AssertionError("missing thread counters ran");
+    });
+  }
+
+  /** Root calls scan once and warm native hits need no MATCH-only objects or value replay. */
+  @Test
+  public void warmNativeHitScansOnceAndAllocatesNoMatchBookkeeping() {
+    GremlinToMatchStrategy.instance().apply(graph.traversal().V().has("age", 1).asAdmin());
+    var warm = graph.traversal().V().has("age", 2).asAdmin();
+    var strategies = org.mockito.Mockito.spy(warm.getStrategies());
+    warm.setStrategies(strategies);
+    org.mockito.Mockito.clearInvocations(strategies);
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
+    var metrics = GremlinTranslationMetrics.of(graphSession());
+    var nativeBefore = metrics.getRuleNative();
+    GremlinToMatchStrategy.instance().apply(warm);
+    assertThat(metrics.getRuleNative()).isEqualTo(nativeBefore + 1);
+    org.mockito.Mockito.verify(strategies).iterator();
+    org.mockito.Mockito.verify(strategies, org.mockito.Mockito.never())
+        .getStrategy(org.mockito.ArgumentMatchers.any());
+    assertThat(counters.emissions).isEqualTo(1);
+    assertThat(counters.hits).isEqualTo(1);
+    assertThat(counters.extractions).isZero();
+    assertThat(counters.bindingMaps).isZero();
+    assertThat(counters.contributions).isZero();
+  }
+
+  /** A GraphStep child keeps root settings but uses its own environment, requirements and sack. */
+  @Test
+  public void separateChildStrategyListKeepsRootAndCurrentScopes() {
+    var child = __.V().barrier(2500).valueMap("name").asAdmin();
+    var root = graph.traversal().with("polymorphicQuery", false)
+        .withStrategies(
+            org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.StandardOrderSemanticsStrategy
+                .instance())
+        .V().filter(child).asAdmin();
+    var childList =
+        new org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies();
+    childList.addStrategies(
+        org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy
+            .build().create(),
+        org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.ProductiveByStrategy
+            .build().productiveKeys("name").create(),
+        org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.SackStrategy.build()
+            .initialValue(() -> 7).create());
+    org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.RequirementsStrategy
+        .addRequirements(childList);
+    var analyses = new java.util.concurrent.atomic.AtomicInteger();
+    childList.addStrategies(new TraverserMergeFacts.AnalysisObserver(analyses::incrementAndGet));
+    child.setStrategies(childList);
+    var env = TranslationEnvironment.resolve(child, graphSession());
+    var settings = YTDBStrategyUtil.translationSettings(
+        env.references().options, env.references().standard, graphSession());
+    assertThat(settings.polymorphic()).isFalse();
+    assertThat(settings.orderIncludesMissingKey()).isFalse();
+    assertThat(env.edgeLabelVerification()).isTrue();
+    assertThat(env.productiveKeys()).containsExactly("name");
+    assertThat(env.references().requirements).isNotNull();
+    assertThat(env.references().sack).isNotNull();
+    assertThat(PropertyMapBulkingAdmission.capacity(child, env)).isZero();
+    // SackStrategy.apply deliberately does not install a child-local sack on a non-root.
+    assertThat(TraverserMergeFacts.from(child, env).sackPresent()).isFalse();
+    assertThat(analyses).hasValue(1);
+    assertThat(root.getStrategies()).isNotSameAs(child.getStrategies());
+    child.setStrategies(
+        new org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies());
+    assertThat(TranslationEnvironment.resolve(child, graphSession()).edgeLabelVerification())
+        .isFalse();
+  }
+
   private Traversal.Admin<?, ?> nestedTraversal(int depth) {
     var child = __.has("age", 1);
     for (int i = 2; i < depth; i++) {
@@ -449,7 +622,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     // Publish once, then require a warm hit for admitted shapes or exactly one full fallback.
     strategy.apply(traversal.clone());
     var counters = new GremlinShapeBuffer.Counters();
-    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    GremlinShapeBuffer.startCounting(counters);
     strategy.apply(traversal);
     assertThat(counters.fallbacks).isEqualTo(fallback ? 1 : 0);
     assertThat(counters.hits).isEqualTo(fallback ? 0 : 1);
@@ -493,7 +666,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
           .asAdmin();
       GremlinToMatchStrategy.instance().apply(cold);
       var counters = new GremlinShapeBuffer.Counters();
-      GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+      GremlinShapeBuffer.startCounting(counters);
       var warmA = graph.traversal().V().hasLabel("FastVertex").has("age", 1).values("name")
           .asAdmin();
       var has = org.mockito.Mockito.spy((HasStep<?>) warmA.getSteps().get(1));
@@ -528,7 +701,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
   public void ineligibleSchemaTransactionDoesNotAcquireLeaseOrEmitFastTokens() {
     graphSession().getMetadata().getSchema().createClass("FastSchemaChange");
     var counters = new GremlinShapeBuffer.Counters();
-    GremlinShapeBuffer.TEST_COUNTERS.set(counters);
+    GremlinShapeBuffer.startCounting(counters);
     GremlinToMatchStrategy.instance().apply(graph.traversal().V().has("age", 1).asAdmin());
     assertThat(counters.leases).isZero();
     assertThat(counters.emissions).isZero();

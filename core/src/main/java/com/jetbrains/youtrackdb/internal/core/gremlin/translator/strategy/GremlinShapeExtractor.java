@@ -57,6 +57,7 @@ final class GremlinShapeExtractor {
     this.recognisers = recognisers;
     this.transparentSteps = transparentSteps;
     this.encoder = encoder;
+    nativeOperands = encoder.buffer == null ? new java.util.ArrayList<>() : List.of();
   }
 
   /**
@@ -86,17 +87,27 @@ final class GremlinShapeExtractor {
       ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic, TranslationEnvironment environment,
       GremlinShapeEncoder encoder) {
+    return emit(recognisers, transparentSteps, traversal, orderIncludesMissingKey,
+        orderByNullsPlacements, polymorphic, environment, encoder).extraction();
+  }
+
+  static GremlinShapeEncoder emit(Map<Class<?>, StepRecogniser> recognisers,
+      Set<Class<?>> transparentSteps, Traversal.Admin<?, ?> traversal,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic, TranslationEnvironment environment,
+      GremlinShapeEncoder encoder) {
     var extractor = new GremlinShapeExtractor(recognisers, transparentSteps, encoder);
     extractor.appendStrategyFlags(
         environment, orderIncludesMissingKey, polymorphic);
     extractor.visit(traversal, null);
-    int bulkingCapacity = PropertyMapBulkingAdmission.capacity(traversal);
+    int bulkingCapacity = PropertyMapBulkingAdmission.capacity(traversal, environment);
     if (bulkingCapacity > 0) {
       extractor.encoder.appendToken("pmb", Integer.toString(bulkingCapacity));
     }
     // The verdict reads only encoded step structure. Absent tokens cannot equal real facts.
     if (extractor.possibleOrderedExpand) {
-      var facts = TraverserMergeFacts.from(traversal);
+      var facts = TraverserMergeFacts.from(traversal, environment);
       extractor.encoder.appendToken("sk", facts.sackToken());
       extractor.encoder.appendToken("lp", "real:" + facts.pathToken());
     }
@@ -104,10 +115,10 @@ final class GremlinShapeExtractor {
       extractor.encoder.appendToken("onp", orderByNullsPlacements.ascending().name()
           + "/" + orderByNullsPlacements.descending().name());
     }
-    return new Extraction(encoder.buffer == null ? encoder.compactKey() : null, Map.of(),
-        extractor.encoder.complete(), List.of(),
-        extractor.nativeOperands, !extractor.possibleOrderedExpand, bulkingCapacity,
-        extractor.encoder);
+    encoder.nativeOperands = extractor.nativeOperands;
+    encoder.orderedExpandAbsent = !extractor.possibleOrderedExpand;
+    encoder.propertyMapBulkingCapacity = bulkingCapacity;
+    return encoder;
   }
 
   record Extraction(@Nullable GremlinShapeKey key, @Nonnull Map<Object, Object> bindings,
@@ -304,7 +315,7 @@ final class GremlinShapeExtractor {
     }
   }
 
-  private final java.util.List<NativeHasOperands> nativeOperands = new java.util.ArrayList<>();
+  private final java.util.List<NativeHasOperands> nativeOperands;
 
   private void appendStrategyFlags(
       TranslationEnvironment environment,
