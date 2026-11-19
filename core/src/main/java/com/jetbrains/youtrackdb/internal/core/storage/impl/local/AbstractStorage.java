@@ -1279,7 +1279,7 @@ public abstract class AbstractStorage
 
     final var wc = writeCache;
     if (wc != null) {
-      for (final var fileName : wc.files().keySet()) {
+      for (final var fileName : wc.registrationEvidence().positiveNames()) {
         if (layout28) {
           final var identity = PageFileNames.parseLayout28(fileName);
           if (identity.isPresent()) {
@@ -1302,7 +1302,7 @@ public abstract class AbstractStorage
     if (layout28 && wc != null) {
       // Negative registrations mix deletions and bookings. Both conservatively reserve ids.
       // Only logical names qualify. Old disk-name aliases and user tombstones are not evidence.
-      for (final var fileName : wc.deletedFiles()) {
+      for (final var fileName : wc.registrationEvidence().negativeNames()) {
         final var identity = PageFileNames.parseLayout28(fileName);
         if (identity.isPresent()) {
           final var file = identity.get();

@@ -966,14 +966,59 @@ public class CollectionNameIndexTest {
         }
         var backup = folder.newFolder().toPath();
         if (format == StorageFormat.LAYOUT_28) {
-          // Both backup selection and full-restore deletion must survive absent map mirrors.
+          // A fresh target and independent record bytes make a no-op restore observable.
+          int a = db.storage().getCollectionIdByName("persisteda");
+          int b = db.storage().getCollectionIdByName("persistedb");
+          byte[][] expected = new byte[2][];
+          db.operation(op -> {
+            expected[0] = db.storedBytes(a, op);
+            expected[1] = db.storedBytes(b, op);
+          });
           var cache = db.storage().getWriteCache();
-          for (var fieldName : java.util.List.of("nameIdMap", "idNameMap")) {
-            var field = cache.getClass().getDeclaredField(fieldName);
-            field.setAccessible(true);
-            ((java.util.Map<?, ?>) field.get(cache)).clear();
+          var names = new HashMap<>((Map<?, ?>) field(cache, "nameIdMap"));
+          var ids = new HashMap<>((Map<?, ?>) field(cache, "idNameMap"));
+          try {
+            ((Map<?, ?>) field(cache, "nameIdMap")).clear();
+            ((Map<?, ?>) field(cache, "idNameMap")).clear();
+            assertTrue(CollectionBasedStorageConfiguration.exists(cache));
+            db.storage().backup(backup);
+          } finally {
+            restoreMirrors(cache, names, ids);
           }
-          assertTrue(CollectionBasedStorageConfiguration.exists(cache));
+          try (var target = new Fixture(folder.newFolder().toPath(), DatabaseType.DISK,
+              format, true)) {
+            assertEquals(-1, target.storage().getCollectionIdByName("persisteda"));
+            var targetCache = target.storage().getWriteCache();
+            var extra =
+                new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+                    com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.RECORD_DATA,
+                    9200);
+            var extraName =
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+                    .layout28(extra);
+            long extraId = targetCache.externalFileId(extra.internalId());
+            targetCache.addFile(extraName, extraId);
+            var extraPath =
+                ((com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage) target.storage())
+                    .getStoragePath().resolve(targetCache.nativeFileNameById(extraId));
+            assertTrue(Files.exists(extraPath));
+            ((Map<?, ?>) field(targetCache, "nameIdMap")).clear();
+            ((Map<?, ?>) field(targetCache, "idNameMap")).clear();
+            target.storage().restoreFromBackup(backup, null);
+            assertFalse(Files.exists(extraPath));
+            assertFalse(targetCache.exists(extraId));
+            assertEquals(a, target.storage().getCollectionIdByName("persisteda"));
+            assertEquals(b, target.storage().getCollectionIdByName("persistedb"));
+            target.operation(op -> {
+              assertArrayEquals(expected[0], target.storedBytes(a, op));
+              assertArrayEquals(expected[1], target.storedBytes(b, op));
+            });
+            target.agreement();
+          }
+          db.storage().backup(backup);
+          db.storage().restoreFromBackup(backup, null);
+          db.agreement();
+          return;
         }
         db.storage().backup(backup);
         db.storage().restoreFromBackup(backup, null);
@@ -987,6 +1032,13 @@ public class CollectionNameIndexTest {
         }
       }
     }
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static void restoreMirrors(Object cache, Map<?, ?> names, Map<?, ?> ids)
+      throws Exception {
+    ((Map) field(cache, "nameIdMap")).putAll(names);
+    ((Map) field(cache, "idNameMap")).putAll(ids);
   }
 
   /** Real open rejects missing and malformed keys without changing database content files. */

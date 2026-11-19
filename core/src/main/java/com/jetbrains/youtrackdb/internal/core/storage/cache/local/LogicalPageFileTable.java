@@ -60,24 +60,31 @@ final class LogicalPageFileTable {
 
   // Lifecycle writers hold the existing exclusive filesLock. Background readers never take it.
   private volatile Map<String, Integer> inventory = Map.of();
+  private final Map<String, Integer> liveNames = new HashMap<>();
+  private boolean bulkUpdate;
+
+  void beginBulkUpdate() {
+    bulkUpdate = true;
+  }
+
+  void endBulkUpdate() {
+    bulkUpdate = false;
+    publishInventory();
+  }
 
   Map<String, Integer> inventory() {
     return inventory;
   }
 
   List<String> deletedFiles() {
-    return states.values().stream().filter(state -> state.kind() == Kind.DELETED)
+    return states.values().stream().filter(state -> state.kind() != Kind.LIVE)
         .map(state -> PageFileNames.layout28(state.identity())).toList();
   }
 
   private void publishInventory() {
-    var snapshot = new HashMap<String, Integer>();
-    states.forEach((id, state) -> {
-      if (state.kind() == Kind.LIVE) {
-        snapshot.put(PageFileNames.layout28(state.identity()), id);
-      }
-    });
-    inventory = Map.copyOf(snapshot);
+    if (!bulkUpdate) {
+      inventory = Map.copyOf(liveNames);
+    }
   }
 
   static PageFileIdentity resolve(String name, int expectedId) {
@@ -110,6 +117,7 @@ final class LogicalPageFileTable {
     var extents = previous == null ? new Extents(logicalExtent, diskExtent) : previous.extents();
     states.put(expectedId, new State(identity, extents, diskPresent, nonDurable, Kind.LIVE));
     if (previous == null) {
+      liveNames.put(name, expectedId);
       publishInventory();
     }
   }
@@ -118,13 +126,16 @@ final class LogicalPageFileTable {
     var identity = resolve(name, expectedId);
     var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind));
     if (previous != null && previous.kind() == Kind.LIVE) {
+      liveNames.remove(name);
       publishInventory();
     }
   }
 
   // A rename to an alias removes canonical membership, not the physical file.
   void forget(int internalId) {
-    if (states.remove(internalId) != null) {
+    var previous = states.remove(internalId);
+    if (previous != null) {
+      liveNames.remove(PageFileNames.layout28(previous.identity()));
       publishInventory();
     }
   }
@@ -151,6 +162,7 @@ final class LogicalPageFileTable {
 
   void clear() {
     states.clear();
-    inventory = Map.of();
+    liveNames.clear();
+    publishInventory();
   }
 }

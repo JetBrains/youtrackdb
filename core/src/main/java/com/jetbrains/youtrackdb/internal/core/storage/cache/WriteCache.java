@@ -468,10 +468,23 @@ public interface WriteCache {
   /**
    * Returns a snapshot of negative-registration names, separate from live {@link #files()}.
    * Implementations may return no names. The default, used by the memory cache, is empty.
-   * The disk cache returns every negative registration, including booked ids without a file.
+   * Layout 28 returns session logical deletions and reservations, not persisted registry evidence.
    */
   default List<String> deletedFiles() {
     return List.of();
+  }
+
+  /**
+   * Registration evidence for component-id seeding, separate from visible logical inventory.
+   * Positive names include aliases and malformed names so the allocator can validate them.
+   * Negative names include persisted bookings and deletions. Layout 28 may read its registry
+   * mirrors here until the allocator's evidence source is replaced by identity recovery.
+   */
+  record RegistrationEvidence(List<String> positiveNames, List<String> negativeNames) {
+  }
+
+  default RegistrationEvidence registrationEvidence() {
+    return new RegistrationEvidence(List.copyOf(files().keySet()), deletedFiles());
   }
 
   /**

@@ -630,9 +630,9 @@ public class ComponentIdAllocationTest {
         for (var role : roles) {
           var identity = new PageFileIdentity(role, 9000);
           var name = PageFileNames.layout28(identity);
-          assertEquals(Integer.valueOf(-identity.internalId()),
-              storage.getWriteCache().registeredFileId(name));
-          assertTrue(storage.getWriteCache().deletedFiles().contains(name));
+          // Cold negative registrations are allocator evidence, not session logical state.
+          assertEquals(null, storage.getWriteCache().registeredFileId(name));
+          assertTrue(storage.getWriteCache().registrationEvidence().negativeNames().contains(name));
           assertTrue(!storage.getWriteCache().files().containsKey(name));
           assertTrue(counters[role.kind().ordinal()] < 9000);
         }
@@ -676,11 +676,15 @@ public class ComponentIdAllocationTest {
     try (var session = open()) {
       var storage = session.getStorage();
       var wc = storage.getWriteCache();
-      assertEquals(Integer.valueOf(-123456), wc.registeredFileId(nonComputed));
-      assertEquals(Integer.valueOf(-123457), wc.registeredFileId(logical));
-      assertEquals(Integer.valueOf(-123457), wc.registeredFileId(alias));
+      var evidence = wc.registrationEvidence().negativeNames();
+      assertTrue(evidence.contains(nonComputed));
+      assertTrue(evidence.contains(logical));
+      assertTrue(evidence.contains(alias));
+      assertEquals(null, wc.registeredFileId(nonComputed));
+      assertEquals(null, wc.registeredFileId(logical));
+      assertEquals(null, wc.registeredFileId(alias));
       for (var name : ignored) {
-        assertTrue(wc.deletedFiles().contains(name));
+        assertTrue(evidence.contains(name));
         assertTrue(!wc.files().containsKey(name));
       }
       assertCounterBytes(storage, bytes);
