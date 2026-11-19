@@ -2,12 +2,14 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Layout 28 disk-cache shadow inventory. Callers supply existing file or lifecycle exclusion.
+ * Layout 28 disk-cache logical inventory. Callers supply existing file or lifecycle exclusion.
  * Lookups never probe disk. Reservations and deletions are distinct session-only states.
  */
 final class LogicalPageFileTable {
@@ -56,6 +58,28 @@ final class LogicalPageFileTable {
   // Background writes consult this table without acquiring filesLock.
   private final Map<Integer, State> states = new ConcurrentHashMap<>();
 
+  // Lifecycle writers hold the existing exclusive filesLock. Background readers never take it.
+  private volatile Map<String, Integer> inventory = Map.of();
+
+  Map<String, Integer> inventory() {
+    return inventory;
+  }
+
+  List<String> deletedFiles() {
+    return states.values().stream().filter(state -> state.kind() == Kind.DELETED)
+        .map(state -> PageFileNames.layout28(state.identity())).toList();
+  }
+
+  private void publishInventory() {
+    var snapshot = new HashMap<String, Integer>();
+    states.forEach((id, state) -> {
+      if (state.kind() == Kind.LIVE) {
+        snapshot.put(PageFileNames.layout28(state.identity()), id);
+      }
+    });
+    inventory = Map.copyOf(snapshot);
+  }
+
   static PageFileIdentity resolve(String name, int expectedId) {
     var identity = PageFileNames.parseLayout28(name).orElseThrow(
         () -> new IllegalArgumentException("Not a canonical layout 28 logical name: " + name));
@@ -85,16 +109,24 @@ final class LogicalPageFileTable {
     // Repeated registration can update durability without discarding concurrent growth.
     var extents = previous == null ? new Extents(logicalExtent, diskExtent) : previous.extents();
     states.put(expectedId, new State(identity, extents, diskPresent, nonDurable, Kind.LIVE));
+    if (previous == null) {
+      publishInventory();
+    }
   }
 
   private void put(String name, int expectedId, boolean nonDurable, Kind kind) {
     var identity = resolve(name, expectedId);
-    states.put(expectedId, new State(identity, null, false, nonDurable, kind));
+    var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind));
+    if (previous != null && previous.kind() == Kind.LIVE) {
+      publishInventory();
+    }
   }
 
   // A rename to an alias removes canonical membership, not the physical file.
   void forget(int internalId) {
-    states.remove(internalId);
+    if (states.remove(internalId) != null) {
+      publishInventory();
+    }
   }
 
   State live(String name, int expectedId) {
@@ -119,5 +151,6 @@ final class LogicalPageFileTable {
 
   void clear() {
     states.clear();
+    inventory = Map.of();
   }
 }

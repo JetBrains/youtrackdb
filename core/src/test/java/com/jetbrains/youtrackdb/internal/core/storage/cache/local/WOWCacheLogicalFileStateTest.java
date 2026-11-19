@@ -124,19 +124,22 @@ public class WOWCacheLogicalFileStateTest {
         cache.addFile(name);
         assertLive(cache, identity, false);
 
-        // A booked canonical id also survives the current load-from-disk registration path.
+        // A reservation does not authorize ordinary lookup to adopt an unknown disk file.
         var loadedName = PageFileNames.layout28(loaded);
         var loadedId = cache.externalFileId(loaded.internalId());
         cache.bookFileId(loadedName, loadedId, false);
         assertReserved(cache, loaded);
         Files.createFile(((DiskStorage) session.getStorage()).getStoragePath()
             .resolve(PageFileNames.layout28DiskName(loaded)));
-        assertEquals(loadedId, cache.loadFile(loadedName));
+        var lookupCache = cache;
+        assertThrows(StorageException.class, () -> lookupCache.loadFile(loadedName));
+        assertTrue(cache.resolveRecoveryFile(loadedName, loadedId,
+            com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.OPEN_ONLY));
         assertLive(cache, loaded, false);
         // A real rename to an alias keeps the physical file live but removes canonical membership.
         cache.renameFile(loadedId, "renamed.pcl");
-        assertEquals(loadedId, cache.fileIdByName("renamed.pcl"));
-        assertTrue(cache.exists(loadedId));
+        assertEquals(-1, cache.fileIdByName("renamed.pcl"));
+        assertFalse(cache.exists(loadedId));
         assertNull(cache.registeredFileId(loadedName));
         assertNull(cache.logicalFiles().live(loadedName, loaded.internalId()));
         assertAbsent(cache, loaded);
@@ -179,6 +182,175 @@ public class WOWCacheLogicalFileStateTest {
       manager.close();
       FileUtils.deleteDirectory(Path.of(directory).toFile());
     }
+  }
+
+  // Map corruption cannot change visible inventory, lookup, verification or force sets.
+  @Test
+  public void logicalReadersIgnoreMapsAndInventoryIsImmutable() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9040);
+      var name = PageFileNames.layout28(identity);
+      var id = cache.externalFileId(identity.internalId());
+      cache.addFile(name, id);
+      var reserved = new PageFileIdentity(PageFileRole.RECORD_DATA, 9041);
+      cache.bookFileId(PageFileNames.layout28(reserved),
+          cache.externalFileId(reserved.internalId()), false);
+      var pending = new PageFileIdentity(PageFileRole.RECORD_DATA, 9042);
+      cache.logicalFiles().register(PageFileNames.layout28(pending), pending.internalId(),
+          false, 0, 0, false);
+      var privateIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9043);
+      cache.addFile("private.pcl", cache.externalFileId(privateIdentity.internalId()));
+      var inventory = cache.files();
+      assertFalse(inventory.containsKey("private.pcl"));
+      assertFalse(cache.exists("private.pcl"));
+      assertFalse(cache.exists(cache.externalFileId(privateIdentity.internalId())));
+      assertEquals(2, inventory.size());
+      assertThrows(UnsupportedOperationException.class, inventory::clear);
+      assertFalse(cache.exists(PageFileNames.layout28(reserved)));
+      assertFalse(cache.exists(cache.externalFileId(reserved.internalId())));
+      assertEquals(-1, cache.fileIdByName(PageFileNames.layout28(reserved)));
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      var idsField = WOWCache.class.getDeclaredField("idNameMap");
+      namesField.setAccessible(true);
+      idsField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var names = (Map<String, Integer>) namesField.get(cache);
+      @SuppressWarnings("unchecked")
+      var ids = (Map<Integer, String>) idsField.get(cache);
+      var savedNames = new HashMap<>(names);
+      var savedIds = new HashMap<>(ids);
+      try {
+        names.clear();
+        ids.clear();
+        assertEquals(inventory, cache.files());
+        assertEquals(id, cache.fileIdByName(name));
+        assertEquals(Integer.valueOf(identity.internalId()), cache.registeredFileId(name));
+        assertTrue(cache.exists(name));
+        assertTrue(cache.exists(id));
+        assertEquals(id, cache.loadFile(name));
+        assertEquals(name, cache.fileNameById(id));
+        assertEquals(PageFileNames.layout28DiskName(identity), cache.nativeFileNameById(id));
+        assertEquals(cache.externalFileId(pending.internalId()),
+            cache.loadFile(PageFileNames.layout28(pending)));
+        assertTrue(cache.exists(PageFileNames.layout28(pending)));
+        assertTrue(cache.exists(cache.externalFileId(pending.internalId())));
+        var verification = new StringBuilder();
+        assertEquals(0, cache.checkStoredPages(verification::append).length);
+        assertTrue(verification.toString().contains(name));
+        cache.flush();
+        cache.syncDataFiles();
+        cache.shrinkFile(id, 0);
+        cache.deleteFile(id);
+        names.clear();
+        ids.clear();
+        assertEquals(2, inventory.size());
+        assertFalse(cache.exists(name));
+        assertFalse(cache.exists(id));
+        assertEquals(-1, cache.fileIdByName(name));
+        assertNull(cache.fileNameById(id));
+        assertNull(cache.nativeFileNameById(id));
+        assertEquals(List.of(name), cache.deletedFiles());
+        assertFalse(cache.files().containsKey(name));
+        assertThrows(StorageException.class, () -> cache.loadFile(name));
+      } finally {
+        names.putAll(savedNames);
+        ids.putAll(savedIds);
+        // Hydration and serialization still use the mirror in this staged track.
+        cache.logicalFiles().forget(pending.internalId());
+        names.remove(name);
+        ids.remove(identity.internalId());
+      }
+    });
+  }
+
+  // Every force path includes all materialized live files even without map mirrors.
+  @Test
+  public void forceSetsUseLogicalDiskPresenceWithoutMaps() throws Exception {
+    withStandaloneCache(cache -> {
+      var field = WOWCache.class.getDeclaredField("files");
+      field.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
+      var observed =
+          new java.util.ArrayList<com.jetbrains.youtrackdb.internal.core.storage.fs.File>();
+      for (int component = 9050; component < 9052; component++) {
+        var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
+        long id = cache.externalFileId(identity.internalId());
+        cache.addFile(PageFileNames.layout28(identity), id);
+        var handle = org.mockito.Mockito.spy(handles.remove(id));
+        handles.add(id, handle);
+        observed.add(handle);
+      }
+      var fsync = WOWCache.class.getDeclaredField("callFsync");
+      fsync.setAccessible(true);
+      fsync.set(cache, true);
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      var idsField = WOWCache.class.getDeclaredField("idNameMap");
+      namesField.setAccessible(true);
+      idsField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var names = (Map<String, Integer>) namesField.get(cache);
+      @SuppressWarnings("unchecked")
+      var ids = (Map<Integer, String>) idsField.get(cache);
+      var savedNames = new HashMap<>(names);
+      var savedIds = new HashMap<>(ids);
+      try {
+        names.clear();
+        ids.clear();
+        cache.flush();
+        for (var handle : observed) {
+          org.mockito.Mockito.verify(handle).synch();
+          org.mockito.Mockito.clearInvocations(handle);
+        }
+        cache.syncDataFiles();
+        for (var handle : observed) {
+          org.mockito.Mockito.verify(handle).synch();
+          org.mockito.Mockito.clearInvocations(handle);
+        }
+        var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
+        force.setAccessible(true);
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+          try {
+            force.invoke(cache);
+          } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+          }
+        }).get();
+        for (var handle : observed) {
+          org.mockito.Mockito.verify(handle).synch();
+        }
+        cache.close();
+        for (var handle : observed) {
+          assertFalse(handle.isOpen());
+        }
+        savedNames.clear();
+        savedIds.clear();
+      } finally {
+        names.putAll(savedNames);
+        ids.putAll(savedIds);
+      }
+    });
+  }
+
+  // Database deletion covers logical files whose legacy registration entries are absent.
+  @Test
+  public void databaseDeletionUsesLogicalInventoryWithoutMaps() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9053);
+      long id = cache.externalFileId(identity.internalId());
+      cache.addFile(PageFileNames.layout28(identity), id);
+      for (var fieldName : List.of("nameIdMap", "idNameMap")) {
+        var field = WOWCache.class.getDeclaredField(fieldName);
+        field.setAccessible(true);
+        ((Map<?, ?>) field.get(cache)).clear();
+      }
+      org.junit.Assert.assertArrayEquals(new long[] {id}, cache.delete());
+      assertFalse(cache.exists(id));
+      assertNull(cache.logicalFiles().live(identity.internalId()));
+      // Reinitialize the deleted registry so the shared fixture can close normally.
+      cache.loadRegisteredFiles();
+    });
   }
 
   // RG2: alias displacement must not erase the canonical session reservation for the same id.

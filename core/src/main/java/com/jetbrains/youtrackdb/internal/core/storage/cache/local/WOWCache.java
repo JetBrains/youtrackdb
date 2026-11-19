@@ -599,6 +599,15 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  private java.util.Collection<Integer> liveFileIds() {
+    return logicalFiles == null ? nameIdMap.values() : logicalFiles.inventory().values();
+  }
+
+  private boolean hasDiskFile(int internalId) {
+    var state = logicalState(internalId);
+    return logicalFiles == null || (state != null && state.diskPresent());
+  }
+
   private boolean isLogicalIdentity(String name, int internalId) {
     // Legacy aliases and non-computed tombstones remain map evidence, not logical identities.
     return logicalFiles != null && PageFileNames.parseLayout28(name)
@@ -1032,6 +1041,18 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
+      if (logicalFiles != null) {
+        var identity = PageFileNames.parseLayout28(fileName).orElse(null);
+        if (identity == null) {
+          return null;
+        }
+        int internalId = identity.internalId();
+        if (logicalFiles.live(internalId) != null) {
+          return internalId;
+        }
+        return logicalFiles.reserved(internalId) || logicalFiles.deleted(internalId)
+            ? -internalId : null;
+      }
       return nameIdMap.get(fileName);
     } finally {
       filesLock.releaseReadLock();
@@ -1052,6 +1073,19 @@ public final class WOWCache extends AbstractWriteCache
    */
   @Override
   public long loadFile(final String fileName) throws IOException {
+    if (logicalFiles != null) {
+      filesLock.acquireReadLock();
+      try {
+        checkForClose();
+        var internalId = logicalFiles.inventory().get(fileName);
+        if (internalId == null) {
+          throw new StorageException(storageName, "File does not exist: " + fileName);
+        }
+        return requireOpenRegisteredFile(fileName, internalId);
+      } finally {
+        filesLock.releaseReadLock();
+      }
+    }
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -1130,6 +1164,20 @@ public final class WOWCache extends AbstractWriteCache
 
   private long requireOpenRegisteredFile(String fileName, int fileId) {
     final var externalId = composeFileId(id, fileId);
+    if (logicalFiles != null) {
+      LogicalPageFileTable.resolve(fileName, fileId);
+      var state = logicalFiles.live(fileId);
+      if (state == null) {
+        throw new StorageException(storageName, "File does not exist: " + fileName);
+      }
+      if (state.diskPresent()) {
+        var file = files.get(externalId);
+        if (file == null || !file.exists()) {
+          throw new StorageException(storageName, "File is missing: " + fileName);
+        }
+      }
+      return externalId;
+    }
     if (files.get(externalId) == null) {
       throw new StorageException(storageName,
           "File with given name " + fileName + " only partially registered in storage");
@@ -1192,7 +1240,8 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long fileIdByName(final String fileName) {
-    final var intId = nameIdMap.get(fileName);
+    final var intId = logicalFiles == null ? nameIdMap.get(fileName)
+        : logicalFiles.inventory().get(fileName);
 
     if (intId == null || intId < 0) {
       return -1;
@@ -1451,8 +1500,8 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.startCheckpoint();
       try {
-        for (final var intId : nameIdMap.values()) {
-          if (intId < 0) {
+        for (final var intId : liveFileIds()) {
+          if (intId < 0 || !hasDiskFile(intId)) {
             continue;
           }
 
@@ -1504,6 +1553,9 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
+      if (logicalFiles != null) {
+        return logicalFiles.inventory().containsKey(fileName);
+      }
       final var intId = nameIdMap.get(fileName);
       if (intId != null && intId >= 0) {
         final var fileClassic = files.get(externalFileId(intId));
@@ -1526,6 +1578,9 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       final var intId = extractFileId(fileId);
+      if (logicalFiles != null) {
+        return logicalFiles.live(intId) != null;
+      }
       fileId = composeFileId(id, intId);
 
       final var file = files.get(fileId);
@@ -1659,6 +1714,9 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
+      if (logicalFiles != null) {
+        return logicalFiles.deletedFiles();
+      }
       final var result = new ArrayList<String>();
       for (final var entry : nameIdMap.entrySet()) {
         if (entry.getValue() < 0) {
@@ -1677,6 +1735,12 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
+      if (logicalFiles != null) {
+        final var snapshot = new HashMap<String, Long>();
+        logicalFiles.inventory()
+            .forEach((name, internalId) -> snapshot.put(name, composeFileId(id, internalId)));
+        return Map.copyOf(snapshot);
+      }
       final var result = new Object2LongOpenHashMap<String>(1_000);
       result.defaultReturnValue(-1);
 
@@ -2110,7 +2174,7 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public void flush() {
 
-    final var future = commitExecutor().submit(new FileFlushTask(this, nameIdMap.values()));
+    final var future = commitExecutor().submit(new FileFlushTask(this, liveFileIds()));
     try {
       future.get();
     } catch (final java.lang.InterruptedException e) {
@@ -2708,7 +2772,7 @@ public final class WOWCache extends AbstractWriteCache
         return new long[0];
       }
 
-      final var fileIds = nameIdMap.values();
+      final var fileIds = liveFileIds();
 
       final var closedIds = new LongArrayList(1_000);
       final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
@@ -2717,6 +2781,9 @@ public final class WOWCache extends AbstractWriteCache
         if (intId >= 0) {
           final var extId = composeFileId(id, intId);
           final var fileClassic = files.get(extId);
+          if (fileClassic == null && !hasDiskFile(intId)) {
+            continue;
+          }
 
           idFileNameMap.put(intId.intValue(), fileClassic.getName());
           // Transition the container entry as well as its channel. Closed entries remain
@@ -2725,6 +2792,23 @@ public final class WOWCache extends AbstractWriteCache
             throw new StorageException(storageName, "File is still in use: " + extId);
           }
           closedIds.add(extId);
+        }
+      }
+
+      // Transitional aliases are outside logical inventory but still own legacy handles.
+      if (logicalFiles != null) {
+        for (var entry : nameIdMap.entrySet()) {
+          if (entry.getValue() > 0 && !idFileNameMap.containsKey(entry.getValue().intValue())) {
+            long externalId = externalFileId(entry.getValue());
+            var handle = files.get(externalId);
+            if (handle != null) {
+              idFileNameMap.put(entry.getValue().intValue(), handle.getName());
+              if (!files.close(externalId)) {
+                throw new StorageException(storageName, "File is still in use: " + externalId);
+              }
+              closedIds.add(externalId);
+            }
+          }
         }
       }
 
@@ -2868,8 +2952,8 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
-      for (final var intId : nameIdMap.values()) {
-        if (intId < 0) {
+      for (final var intId : liveFileIds()) {
+        if (intId < 0 || !hasDiskFile(intId)) {
           continue;
         }
 
@@ -2895,7 +2979,7 @@ public final class WOWCache extends AbstractWriteCache
     final var externalId = composeFileId(id, intId);
     final var entry = files.acquire(externalId);
     final var fileClassic = entry.get();
-    final var fileName = idNameMap.get(intId);
+    final var fileName = fileNameById(externalId);
 
     try {
       if (commandOutputListener != null) {
@@ -3029,7 +3113,7 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
-      for (final int internalFileId : nameIdMap.values()) {
+      for (final int internalFileId : liveFileIds()) {
         if (internalFileId < 0) {
           continue;
         }
@@ -3080,11 +3164,19 @@ public final class WOWCache extends AbstractWriteCache
   public String fileNameById(final long fileId) {
     final var intId = extractFileId(fileId);
 
+    if (logicalFiles != null) {
+      var state = logicalFiles.live(intId);
+      return state == null ? null : PageFileNames.layout28(state.identity());
+    }
     return idNameMap.get(intId);
   }
 
   @Nullable @Override
   public String nativeFileNameById(final long fileId) {
+    if (logicalFiles != null) {
+      var state = logicalFiles.live(extractFileId(fileId));
+      return state == null ? null : PageFileNames.layout28DiskName(state.identity());
+    }
     final var fileClassic = files.get(fileId);
     if (fileClassic != null) {
       return fileClassic.getName();
@@ -4259,8 +4351,9 @@ public final class WOWCache extends AbstractWriteCache
 
   private void fsyncFiles() throws java.lang.InterruptedException, IOException {
     if (callFsync) {
-      for (int intFileId : idNameMap.keySet()) {
-        if (intFileId >= 0) {
+      for (int intFileId : logicalFiles == null ? idNameMap.keySet()
+          : logicalFiles.inventory().values()) {
+        if (intFileId >= 0 && hasDiskFile(intFileId)) {
           final var extFileId = externalFileId(intFileId);
 
           final var fileEntry = files.acquire(extFileId);
@@ -4976,7 +5069,7 @@ public final class WOWCache extends AbstractWriteCache
               "Storage : "
                   + storageName
                   + "Error during of writing initial blank page for file  "
-                  + idNameMap.get(internalFileId)),
+                  + fileNameById(externalFileId(internalFileId))),
           e, storageName);
     }
   }

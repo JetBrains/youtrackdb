@@ -366,6 +366,39 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
     });
   }
 
+  // Disk owner discovery and required access use logical membership without registry mirrors.
+  @Test
+  public void ownerLookupDoesNotNeedMapEntries() throws Exception {
+    withStorage(StorageFormat.LAYOUT_28, session -> {
+      var storage = session.getStorage();
+      int collectionId = session.addCollection("mapfreeowner");
+      var cache = storage.getWriteCache();
+      if (!cache.supportsIdentityRecovery()) {
+        return;
+      }
+      var manager =
+          (LinkCollectionsBTreeManagerShared) storage.getLinkCollectionsBtreeCollectionManager();
+      var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> storage.captureCollectionOwner(collectionId, op));
+      var name = PageFileNames.layout28(identity(owner.componentId()));
+      var field = cache.getClass().getDeclaredField("nameIdMap");
+      field.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var names = (Map<String, Integer>) field.get(cache);
+      var saved = names.remove(name);
+      try {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+          var captured = storage.captureCollectionOwner(collectionId, op);
+          assertSame(owner.tree(), manager.requireComponent(captured, op));
+          assertEquals(owner.tree().getFileId(), op.loadFile(name,
+              identity(owner.componentId()).internalId()));
+        });
+      } finally {
+        names.put(name, saved);
+      }
+    });
+  }
+
   // A registered name with another file id is rejected even when a cached owner still exists.
   @Test
   public void wrongRegistrationFailsRequiredAccessAndConfiguredDiscovery() throws Exception {

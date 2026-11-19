@@ -36,6 +36,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -1010,6 +1011,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       throw identityConflict(name, expectedId);
     }
     long deletedId = deletedFileNameIdMap.getLong(name);
+    if (writeCache.supportsIdentityRecovery()) {
+      var identity = PageFileNames.parseLayout28(name)
+          .orElseThrow(() -> identityConflict(name, expectedId));
+      if (identity.internalId() != internalId) {
+        throw identityConflict(name, expectedId);
+      }
+    }
     Integer registered = writeCache.registeredFileId(name);
     if ((localId != -1 && AbstractWriteCache.extractFileId(localId) != internalId)
         || (deletedId != -1 && AbstractWriteCache.extractFileId(deletedId) != internalId)
@@ -1033,7 +1041,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // This operation deleted the pending file. Its retained booking reserves only the name and ID.
       return false;
     }
-    return writeCache.registeredFileId(name) != null && writeCache.exists(name);
+    return (writeCache.supportsIdentityRecovery() || writeCache.registeredFileId(name) != null)
+        && writeCache.exists(name);
   }
 
   @Override

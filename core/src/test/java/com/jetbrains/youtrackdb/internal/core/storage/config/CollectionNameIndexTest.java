@@ -965,6 +965,16 @@ public class CollectionNameIndexTest {
           db.agreement();
         }
         var backup = folder.newFolder().toPath();
+        if (format == StorageFormat.LAYOUT_28) {
+          // Both backup selection and full-restore deletion must survive absent map mirrors.
+          var cache = db.storage().getWriteCache();
+          for (var fieldName : java.util.List.of("nameIdMap", "idNameMap")) {
+            var field = cache.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            ((java.util.Map<?, ?>) field.get(cache)).clear();
+          }
+          assertTrue(CollectionBasedStorageConfiguration.exists(cache));
+        }
         db.storage().backup(backup);
         db.storage().restoreFromBackup(backup, null);
         if (format == StorageFormat.LAYOUT_28) {
