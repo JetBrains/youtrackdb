@@ -41,7 +41,7 @@ public final class GremlinPlanCache
 
   private volatile long lastGlobalTimeout = GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
 
-  @Nullable private final Cache<GremlinShapeKey, StampedTranslation> translationCache;
+  @Nullable private final Cache<Object, StampedTranslation> translationCache;
 
   private final LongAdder translationHits = new LongAdder();
   private final LongAdder translationMisses = new LongAdder();
@@ -136,7 +136,7 @@ public final class GremlinPlanCache
   }
 
   @Nullable public static GremlinTranslationTemplate putTranslation(
-      GremlinShapeKey shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long walkGeneration) {
     if (db == null || shapeKey == null || template == null) {
       return null;
@@ -146,7 +146,7 @@ public final class GremlinPlanCache
 
   /** Replaces only the exact rejected publication, while preserving valid concurrent winners. */
   @Nullable static GremlinTranslationTemplate putTranslation(
-      GremlinShapeKey shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long walkGeneration, @Nullable StampedTranslation rejected) {
     return instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration, rejected);
   }
@@ -225,16 +225,22 @@ public final class GremlinPlanCache
     return null;
   }
 
-  @Nullable GremlinTranslationTemplate putTranslationInternal(GremlinShapeKey shapeKey,
+  @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
       GremlinTranslationTemplate template,
       DatabaseSessionEmbedded db, long walkGeneration) {
     return putTranslationInternal(shapeKey, template, db, walkGeneration, null);
   }
 
-  @Nullable GremlinTranslationTemplate putTranslationInternal(GremlinShapeKey shapeKey,
+  @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
       GremlinTranslationTemplate template, DatabaseSessionEmbedded db, long walkGeneration,
       @Nullable StampedTranslation rejected) {
-    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null
+    // Production shapes and private candidates are separate immutable key domains. A leased
+    // buffer is lookup-only and must never become a retained key, even during rejected repair.
+    if (!(shapeKey instanceof GremlinShapeKey)
+        && !(shapeKey instanceof PrivateCandidatePreparation.CandidateKey)) {
+      return null;
+    }
+    if (db.getTxSchemaState() != null || translationCache == null
         || walkGeneration != generation.get()) {
       return null;
     }

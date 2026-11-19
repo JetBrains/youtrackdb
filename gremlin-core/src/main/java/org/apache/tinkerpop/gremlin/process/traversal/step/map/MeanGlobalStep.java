@@ -45,6 +45,7 @@ public final class MeanGlobalStep<S extends Number, E extends Number> extends Re
     public MeanGlobalStep(final Traversal.Admin traversal) {
         super(traversal);
         this.setReducingBiOperator(MeanGlobalBiOperator.INSTANCE);
+        this.rememberBuiltInFunctions();
     }
 
     /**

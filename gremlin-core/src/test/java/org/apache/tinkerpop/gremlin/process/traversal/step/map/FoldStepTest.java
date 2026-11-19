@@ -30,6 +30,18 @@ import java.util.List;
  */
 public class FoldStepTest extends StepTest {
 
+    /** Only the built-in supplier and reducer prove a pure default fold. */
+    @org.junit.Test
+    public void shouldIdentifyOnlyUnmodifiedDefaultFold() {
+        FoldStep<?, ?> standard = (FoldStep<?, ?>) __.fold().asAdmin().getEndStep();
+        org.junit.Assert.assertTrue(standard.isDefaultFold());
+        FoldStep<?, ?> seeded = (FoldStep<?, ?>) __.fold(0, (a, b) -> a).asAdmin().getEndStep();
+        org.junit.Assert.assertFalse(seeded.isDefaultFold());
+        FoldStep<Object, Object> replaced = new FoldStep<>(__.identity().asAdmin());
+        replaced.setReducingBiOperator((a, b) -> a);
+        org.junit.Assert.assertFalse(replaced.isDefaultFold());
+    }
+
     @Override
     protected List<Traversal> getTraversals() {
         return Collections.singletonList(__.fold());

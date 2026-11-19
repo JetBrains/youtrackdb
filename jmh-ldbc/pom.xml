@@ -159,7 +159,7 @@
           <arguments>
             <argument>-c</argument>
             <!-- Shell word-splits ${jmh.args} so "-f 1 -wi 2" becomes separate args -->
-            <argument>exec java -Xms4g -Xmx4g --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.x509=ALL-UNNAMED --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED -classpath "${project.build.outputDirectory}:${bench.classpath}" org.openjdk.jmh.Main ${jmh.args} ${jmh.defaultExcludes}</argument>
+            <argument>exec java -Xms4g -Xmx4g --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.nio=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/sun.nio.cs=ALL-UNNAMED --add-opens=java.base/sun.security.x509=ALL-UNNAMED --add-opens=jdk.unsupported/sun.misc=ALL-UNNAMED -classpath "${project.build.outputDirectory}:${bench.classpath}" org.openjdk.jmh.Main ${jmh.args}</argument>
           </arguments>
         </configuration>
       </plugin>
@@ -234,8 +234,6 @@
   <properties>
     <!-- Select benchmarks with -Djmh.args="pattern". -->
     <jmh.args/>
-    <!-- Exclude bulking by default. Enable it with -Djmh.defaultExcludes= -->
-    <jmh.defaultExcludes>-e gremlin_bulking</jmh.defaultExcludes>
     <argLine>-ea
       -Xms${heapSize}
       -Xmx${heapSize}

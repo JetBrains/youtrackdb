@@ -55,6 +55,7 @@ public class GraphStep<S, E extends Element> extends AbstractStep<S, E> implemen
     protected final Class<E> returnClass;
     protected Object[] ids;
     protected transient Supplier<Iterator<E>> iteratorSupplier;
+    private transient Supplier<Iterator<E>> builtInIteratorSupplier;
     protected boolean isStart;
     protected boolean done = false;
     private Traverser.Admin<S> head = null;
@@ -75,6 +76,12 @@ public class GraphStep<S, E extends Element> extends AbstractStep<S, E> implemen
         this.iteratorSupplier = () -> (Iterator<E>) (Vertex.class.isAssignableFrom(this.returnClass) ?
                 this.getTraversal().getGraph().get().vertices(this.ids) :
                 this.getTraversal().getGraph().get().edges(this.ids));
+        this.builtInIteratorSupplier = this.iteratorSupplier;
+    }
+
+    /** Checks supplier identity without opening an iterator. */
+    public final boolean hasBuiltInIteratorSupplier() {
+        return this.iteratorSupplier == this.builtInIteratorSupplier;
     }
 
     public String toString() {

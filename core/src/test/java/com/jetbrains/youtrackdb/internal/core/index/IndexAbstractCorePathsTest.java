@@ -138,6 +138,31 @@ public class IndexAbstractCorePathsTest extends DbTestBase {
         ((AbstractStorage) session.getStorage()).getIndexLifecycle(oldDescriptorIdentity));
   }
 
+  /** Adding an existing collection and removing an absent one preserve persisted membership. */
+  @Test
+  public void repeatedDirectMembershipChangesPreserveConfiguration() {
+    var cls = session.createClass("DirectMembership");
+    cls.createProperty("value", PropertyType.INTEGER);
+    cls.createIndex("DirectMembership.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+    var manager = session.getSharedContext().getIndexManager();
+    var index = (IndexAbstract) manager.getIndex("DirectMembership.value");
+    var originalCollections = Set.copyOf(index.getCollections());
+    var existing = originalCollections.iterator().next();
+    var absent = "directMembershipAbsent";
+    session.addCollection(absent);
+
+    session.executeInTxInternal(transaction -> {
+      assertSame(index, index.addCollection(transaction, existing, true));
+      index.removeCollection(transaction, absent);
+      assertEquals("no-op changes must preserve live membership",
+          originalCollections, index.getCollections());
+    });
+
+    manager.reload(session);
+    assertEquals("no-op changes must preserve persisted membership",
+        originalCollections, manager.getIndex("DirectMembership.value").getCollections());
+  }
+
   // -----------------------------------------------------------------------
   //  Key normalization: enhanceToCompositeKeyBetweenAsc / Desc
   // -----------------------------------------------------------------------

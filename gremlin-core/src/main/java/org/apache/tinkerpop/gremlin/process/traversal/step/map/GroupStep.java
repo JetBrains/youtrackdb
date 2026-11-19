@@ -62,6 +62,7 @@ public final class GroupStep<S, K, V> extends ReducingBarrierStep<S, Map<K, V>>
         this.barrierStep = determineBarrierStep(this.valueTraversal);
         this.setReducingBiOperator(new GroupBiOperator<>(null == this.barrierStep ? Operator.assign : this.barrierStep.getMemoryComputeKey().getReducer()));
         this.setSeedSupplier(HashMapSupplier.instance());
+        this.rememberBuiltInFunctions();
     }
 
     @Override
@@ -78,12 +79,14 @@ public final class GroupStep<S, K, V> extends ReducingBarrierStep<S, Map<K, V>>
         this.valueTraversal = this.integrateChild(convertValueTraversal(kvTraversal));
         this.barrierStep = determineBarrierStep(this.valueTraversal);
         this.setReducingBiOperator(new GroupBiOperator<>(null == this.barrierStep ? Operator.assign : this.barrierStep.getMemoryComputeKey().getReducer()));
+        this.builtInReducingBiOperator = this.reducingBiOperator;
     }
 
     @Override
     public void resetBarrierFromValueTraversal() {
         this.barrierStep = determineBarrierStep(this.valueTraversal);
         this.setReducingBiOperator(new GroupBiOperator<>(null == this.barrierStep ? Operator.assign : this.barrierStep.getMemoryComputeKey().getReducer()));
+        this.builtInReducingBiOperator = this.reducingBiOperator;
     }
 
     @Override

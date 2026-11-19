@@ -198,7 +198,11 @@ public final class RepeatDeclineStrategy
    * reader added after {@code lock()} shows up there as a translation loss rather than as silence.
    */
   static boolean isVetoed(Admin<?, ?> traversal) {
-    return traversal.getStrategies() instanceof VetoedStrategies;
+    var strategies = traversal.getStrategies();
+    if (strategies instanceof QuerySafetyAdmission.Evidence evidence) {
+      strategies = evidence.delegate;
+    }
+    return strategies instanceof VetoedStrategies;
   }
 
   /**

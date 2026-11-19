@@ -1,0 +1,468 @@
+[
+  {
+    "identity": "gremlin_bulkingWhereDuplicate",
+    "builder": "BulkingForm.DUPLICATE",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": true
+  },
+  {
+    "identity": "gremlin_bulkingWhereOneRow",
+    "builder": "BulkingForm.ONE_ROW",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": true
+  },
+  {
+    "identity": "gremlin_bulkingWhereUnique",
+    "builder": "BulkingForm.UNIQUE",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": true
+  },
+  {
+    "identity": "gremlin_bulkingDuplicate",
+    "builder": "BulkingForm.DUPLICATE",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_bulkingOneRow",
+    "builder": "BulkingForm.ONE_ROW",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_bulkingUnique",
+    "builder": "BulkingForm.UNIQUE",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_bulkingMostlyUnique",
+    "builder": "BulkingForm.MOSTLY_UNIQUE",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsFirstNames",
+    "builder": "knowsFirstNames",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsFirstNameCount",
+    "builder": "knowsFirstNameCount",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsFirstNamesFolded",
+    "builder": "knowsFirstNamesFolded",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is1_personCityProfile",
+    "builder": "is1PersonCityProfile",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is2_personMessages",
+    "builder": "is2PersonMessages",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is3_friendsWithNames",
+    "builder": "is3FriendsWithNames",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is4_messageContent",
+    "builder": "is4MessageContent",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is5_messageCreator",
+    "builder": "is5MessageCreator",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is6_forumOfPost",
+    "builder": "is6ForumOfPost",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is7_repliesWithAuthors",
+    "builder": "is7RepliesWithAuthors",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic1_friendsWithName",
+    "builder": "ic1FriendsWithName",
+    "arguments": [
+      "state.ic1PersonId",
+      "state.ic1FirstName"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic2_friendsMessagesOrdered",
+    "builder": "ic2FriendsMessagesOrdered",
+    "arguments": [
+      "state.ic2PersonId",
+      "state.ic2MaxDate"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic2_friendsMessagesOrderedLimit",
+    "builder": "ic2FriendsMessagesOrderedLimit",
+    "arguments": [
+      "arm.ic2PersonId",
+      "arm.ic2MaxDate"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic3_friendsMessagesInCountry",
+    "builder": "ic3FriendsMessagesInCountry",
+    "arguments": [
+      "state.ic3PersonId",
+      "state.ic3CountryX",
+      "state.ic3StartDate",
+      "state.ic3StartDate+2592000000"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic4_friendPostTags",
+    "builder": "ic4FriendPostTags",
+    "arguments": [
+      "state.ic4PersonId",
+      "state.ic4StartDate",
+      "state.ic4StartDate+2592000000"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic5_friendPostForums",
+    "builder": "ic5FriendPostForums",
+    "arguments": [
+      "state.ic5PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic6_friendPostTagCounts",
+    "builder": "ic6FriendPostTagCounts",
+    "arguments": [
+      "state.ic6PersonId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic7_likers",
+    "builder": "ic7Likers",
+    "arguments": [
+      "state.ic7PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic8_recentRepliesOrdered",
+    "builder": "ic8RecentRepliesOrdered",
+    "arguments": [
+      "state.ic8PersonId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic9_friendsMessagesOrdered",
+    "builder": "ic9FriendsMessagesOrdered",
+    "arguments": [
+      "arm.ic9PersonId",
+      "arm.ic9MaxDate"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic10_friendsOfFriendsInCity",
+    "builder": "ic10FriendsOfFriendsInCity",
+    "arguments": [
+      "state.ic10PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic11_friendsCompaniesInCountry",
+    "builder": "ic11FriendsCompaniesInCountry",
+    "arguments": [
+      "state.ic11PersonId",
+      "state.ic11CountryName"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic12_friendCommentPostTags",
+    "builder": "ic12FriendCommentPostTags",
+    "arguments": [
+      "state.ic12PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic13_directKnowsCount",
+    "builder": "ic13DirectKnowsCount",
+    "arguments": [
+      "state.ic13Person1Id",
+      "state.ic13Person2Id"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_twoHopKnows",
+    "builder": "twoHopKnows",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsFilteredByFriendFirstName",
+    "builder": "knowsFilteredByFriendFirstName",
+    "arguments": [
+      "arm.personId",
+      "state.ic1FirstName"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_threeHopKnowsExcludingIntermediate",
+    "builder": "threeHopKnowsExcludingIntermediate",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsGroupCountByLastName",
+    "builder": "knowsGroupCountByLastName",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_friendsNotLocatedInPlace",
+    "builder": "friendsNotLocatedInPlace",
+    "arguments": [
+      "arm.personId",
+      "arm.placeName"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_mutualFriendTriangle",
+    "builder": "mutualFriendTriangle",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_knowsOrderedPage",
+    "builder": "knowsOrderedPage",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_vertexByRid",
+    "builder": "personByRid",
+    "arguments": [
+      "arm.personRid"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is3_friendsWithDates",
+    "builder": "is3FriendsWithDates",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is4_coalesceMessageContentDeclines",
+    "builder": "coalesceMessageContent",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_is7_optionalFriendOfCreatorDeclines",
+    "builder": "optionalFriendOfCreator",
+    "arguments": [
+      "arm.messageId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "gremlin_ic1_repeatKnowsToThreeHopsDeclines",
+    "builder": "repeatKnowsToThreeHops",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/recentFriendMessages",
+    "builder": "PartialTraversalShapes.recentFriendMessages",
+    "arguments": [
+      "arm.ic2PersonId",
+      "arm.ic2MaxDate"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/distinctForumsWithModerator",
+    "builder": "PartialTraversalShapes.distinctForumsWithModerator",
+    "arguments": [
+      "state.ic5PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/tagCounts",
+    "builder": "PartialTraversalShapes.tagCounts",
+    "arguments": [
+      "state.ic6PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/mutualFriendCycle",
+    "builder": "PartialTraversalShapes.mutualFriendCycle",
+    "arguments": [
+      "arm.personId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/fullIc5",
+    "builder": "PartialTraversalShapes.fullIc5",
+    "arguments": [
+      "state.ic5PersonId",
+      "state.ic5Date"
+    ],
+    "order": "SEQUENCE",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/distinctForumCount",
+    "builder": "PartialTraversalShapes.distinctForumCount",
+    "arguments": [
+      "state.ic5PersonId"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  },
+  {
+    "identity": "G7/knownEndVertex",
+    "builder": "PartialTraversalShapes.knownEndVertex",
+    "arguments": [
+      "state.ic13Person1Id",
+      "state.ic13Person2Id"
+    ],
+    "order": "MULTISET",
+    "crossLabel": false
+  }
+]
