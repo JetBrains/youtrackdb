@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilteredIndexValuesStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
@@ -86,6 +87,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /** Current SKIP + LIMIT, or -1 for an unbounded execution. Never copied. */
   private long rowTarget = -1;
+
+  /** Bind-independent lookup built from this edge item's own target filter. */
+  @Nullable private IndexSearchDescriptor targetIndexDescriptor;
+
+  /** Scheduled traversal metadata. Runtime caches are reset for every execution. */
+  @Nullable private EdgeTraversal plannedTraversal;
+  @Nullable private EdgeTraversal executionTraversal;
 
   /** Multi-source execution mode, or null for single-source. */
   @Nullable private final IndexOrderedPlanner.MultiSourceMode multiSourceMode;
@@ -204,6 +212,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     rowTarget = -1;
     lastScanBudget = -1;
     lastScanConsumedEntries = -1;
+    executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
 
   public IndexOrderedEdgeStep(
@@ -246,6 +255,27 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     this.edgeTraversal = edgeTraversal;
     this.downstreamEdgeCount = downstreamEdgeCount;
     this.ridTieBreakAccepted = ridTieBreakAccepted;
+  }
+
+  /** Keeps the scheduled forecast and root lineage for the ordinary MATCH prefilter policy. */
+  IndexOrderedEdgeStep withTraversal(EdgeTraversal traversal, CommandContext context) {
+    plannedTraversal = traversal.copy();
+    if (targetFilter != null) {
+      targetIndexDescriptor = TraversalPreFilterHelper.findIndexForFilter(
+          targetFilter, targetClassName, context);
+    }
+    // Only this target filter is safe. Scheduled intersections can constrain optional aliases.
+    plannedTraversal.setIntersectionDescriptor(
+        MatchExecutionPlanner.targetFilterDescriptor(targetFilter, targetClassName, context));
+    return this;
+  }
+
+  @Nullable IndexSearchDescriptor targetIndexDescriptor() {
+    return targetIndexDescriptor;
+  }
+
+  @Nullable EdgeTraversal executionTraversal() {
+    return executionTraversal;
   }
 
   /**
@@ -493,9 +523,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * passes through and LimitStep stops after K rows — only K records
    * traverse expensive downstream MATCH edges instead of all N.
    *
-   * <p>Iterates the LinkBag directly instead of going through an
-   * intermediate RidSet: the cost-model already decided we are not running
-   * an index scan, so the RidSet bitmap would be pure allocation overhead.
+   * <p>Iterates the LinkBag directly. An admitted target index prefilter can
+   * build a RID set first to skip record loads. No source-membership RID set is built.
    */
   @SuppressWarnings("unchecked")
   private ExecutionStream loadSortFromLinkBag(
@@ -505,13 +534,20 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var targetClass = resolveTargetClass(ctx);
 
     var records = new ArrayList<Result>();
-    for (RidPair pair : linkBag) {
-      var rid = ridFromPair(pair);
-      var record = loadRecord(rid, session);
-      if (record != null
-          && matchesTargetFilter(record, rid, ctx, targetClass)
-          && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
-        records.add(record);
+    try (var membership = new LoadMembership(resolveLoadPrefilter(linkBag, ctx))) {
+      for (RidPair pair : linkBag) {
+        var rid = ridFromPair(pair);
+        if (targetClass == null
+            || !targetClass.hasPolymorphicCollectionId(rid.getCollectionId())
+            || !membership.accepts(rid)) {
+          continue;
+        }
+        var record = loadRecord(rid, session);
+        if (record != null
+            && matchesTargetFilter(record, rid, ctx, targetClass)
+            && !isAlreadyBoundAndDifferent(upstreamRow, record, session)) {
+          records.add(record);
+        }
       }
     }
 
@@ -529,13 +565,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * source LinkBag without sorting. Downstream OrderByStep handles sorting
    * with its bounded heap (or unbounded collect when there is no LIMIT).
    *
-   * <p>Streams lazily from the LinkBag iterator — no intermediate RidSet
-   * and no up-front materialisation.
+   * <p>Streams lazily after resolving any target index prefilter. That prefilter
+   * can materialize a RID set before iteration.
    */
   private ExecutionStream loadFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
     var session = ctx.getDatabaseSession();
     var targetClass = resolveTargetClass(ctx);
+    var membership = new LoadMembership(resolveLoadPrefilter(linkBag, ctx));
     var iter = linkBag.iterator();
     return ExecutionStream.resultIterator(new Iterator<Result>() {
       private Result pending;
@@ -544,6 +581,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       public boolean hasNext() {
         while (pending == null && iter.hasNext()) {
           var rid = ridFromPair(iter.next());
+          if (targetClass == null
+              || !targetClass.hasPolymorphicCollectionId(rid.getCollectionId())
+              || !membership.accepts(rid)) {
+            continue;
+          }
           var record = loadRecord(rid, session);
           if (record != null
               && matchesTargetFilter(record, rid, ctx, targetClass)
@@ -563,7 +605,45 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         pending = null;
         return result;
       }
-    });
+    }).onClose(context -> membership.close());
+  }
+
+  /** Applies the same size, amortization and selectivity gates as ordinary MATCH. */
+  @Nullable private RidSet resolveLoadPrefilter(LinkBag bag, CommandContext context) {
+    return executionTraversal == null ? null
+        : executionTraversal.resolvePreFilter(context, bag.size());
+  }
+
+  /** Counts real membership probes without updating the global metric for each edge. */
+  private final class LoadMembership implements AutoCloseable {
+    @Nullable private final RidSet accepted;
+    private long probed;
+    private long filtered;
+
+    private LoadMembership(@Nullable RidSet accepted) {
+      this.accepted = accepted;
+    }
+
+    boolean accepts(RID rid) {
+      if (accepted == null) {
+        return true;
+      }
+      probed++;
+      if (accepted.contains(rid)) {
+        return true;
+      }
+      filtered++;
+      return false;
+    }
+
+    @Override
+    public void close() {
+      if (accepted != null && probed > 0) {
+        executionTraversal.resolveEffectivenessMetric().record(filtered, probed);
+        probed = 0;
+        filtered = 0;
+      }
+    }
   }
 
   // =====================================================================
@@ -1590,6 +1670,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         limitClause == null ? null : limitClause.copy(), multiSourceMode,
         reverseFieldName, sourceClassName, targetFilter == null ? null : targetFilter.copy(),
         targetClassName,
-        edgeTraversal, downstreamEdgeCount, ridTieBreakAccepted, profilingEnabled);
+        edgeTraversal, downstreamEdgeCount, ridTieBreakAccepted, profilingEnabled)
+        .copyLookupPlan(this);
+  }
+
+  private IndexOrderedEdgeStep copyLookupPlan(IndexOrderedEdgeStep template) {
+    targetIndexDescriptor = template.targetIndexDescriptor;
+    plannedTraversal = template.plannedTraversal == null ? null : template.plannedTraversal.copy();
+    return this;
   }
 }

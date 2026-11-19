@@ -5337,7 +5337,7 @@ public class MatchExecutionPlanner {
           // A singleton RID cannot benefit from further index intersection,
           // so skip the index detection below.
           edgeJ.addIntersectionDescriptor(
-              new RidFilterDescriptor.DirectRid(ridExpr));
+              targetFilterDescriptor(targetFilter, aliasClasses.get(targetAliasJ), ctx));
           logger.debug(
               "MATCH pre-filter: DirectRid on edge[{}] for alias '{}'",
               j, targetAliasJ);
@@ -5370,22 +5370,9 @@ public class MatchExecutionPlanner {
         continue;
       }
 
-      // Split the filter: only the non-$matched part can use an index.
-      SQLWhereClause indexableFilter = targetFilter;
-      var matchedSplit = targetFilter.splitByMatchedReference();
-      if (matchedSplit != null) {
-        indexableFilter = matchedSplit.nonMatchedReferencing();
-      }
-      if (indexableFilter == null) {
-        boundAliases.add(targetAliasJ);
-        continue;
-      }
-
-      var indexDesc = TraversalPreFilterHelper.findIndexForFilter(
-          indexableFilter, targetClass, ctx);
-      if (indexDesc != null) {
-        edgeJ.addIntersectionDescriptor(
-            new RidFilterDescriptor.IndexLookup(indexDesc));
+      var descriptor = targetFilterDescriptor(targetFilter, targetClass, ctx);
+      if (descriptor != null) {
+        edgeJ.addIntersectionDescriptor(descriptor);
         hasIndexLookup = true;
         logger.debug(
             "MATCH pre-filter: IndexLookup on edge[{}] "
@@ -5397,6 +5384,35 @@ public class MatchExecutionPlanner {
       boundAliases.add(targetAliasJ);
     }
     return hasIndexLookup;
+  }
+
+  /**
+   * Derives only the prefilter owned by this target filter. Descriptors from other aliases
+   * are attached separately by the schedule optimizer.
+   */
+  @Nullable static RidFilterDescriptor targetFilterDescriptor(
+      @Nullable SQLWhereClause filter, @Nullable String targetClass, CommandContext ctx) {
+    if (filter == null) {
+      return null;
+    }
+    var ridExpr = filter.findRidEquality();
+    if (ridExpr != null) {
+      var aliases = ridExpr.getMatchPatternInvolvedAliases();
+      if (aliases == null || aliases.isEmpty()) {
+        // A singleton cannot benefit from an additional index intersection.
+        return new RidFilterDescriptor.DirectRid(ridExpr);
+      }
+    }
+    if (targetClass == null) {
+      return null;
+    }
+    var split = filter.splitByMatchedReference();
+    var indexable = split == null ? filter : split.nonMatchedReferencing();
+    if (indexable == null) {
+      return null;
+    }
+    var indexDescriptor = TraversalPreFilterHelper.findIndexForFilter(indexable, targetClass, ctx);
+    return indexDescriptor == null ? null : new RidFilterDescriptor.IndexLookup(indexDescriptor);
   }
 
   /**
@@ -6510,7 +6526,7 @@ public class MatchExecutionPlanner {
           candidate.isEdgeTraversal(),
           candidate.downstreamEdgeCount(),
           candidate.ridTieBreakAccepted(),
-          profilingEnabled));
+          profilingEnabled).withTraversal(edge, context));
     } else {
       plan.chain(new MatchStep(context, edge, profilingEnabled));
     }

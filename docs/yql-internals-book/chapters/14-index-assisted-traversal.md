@@ -507,6 +507,25 @@ correctness), and emits the matching rows. Total disk loads: 12, down from 40 00
 
 ---
 
+## Index-ordered MATCH load paths
+
+The single-source `IndexOrderedEdgeStep` load paths use prefilters from the edge item's
+own target filter. They share the plain MATCH descriptor builder. A literal or parameter
+RID equality uses singleton admission, including when it has an indexed conjunct.
+Other filters use the SELECT index finder at plan time.
+Intersections from other aliases do not apply to these load paths.
+The target class check runs before membership probes, as in plain MATCH.
+
+Both the local-sort path and the unsorted path call `EdgeTraversal.resolvePreFilter`.
+Ordinary MATCH calls the same helper. It checks the minimum bag size, resolves the RID set,
+and applies the descriptor's admission rules. Index lookup resolution evaluates bound values
+and hit estimates in the current execution context. The ordered step retains the scheduled
+`rootSourceRows` and `forecastN` for amortization. Each execution has a fresh traversal cache.
+
+RID-set membership only skips record loads. Every surviving record still passes the full
+target filter, target class check and already-bound alias check. Repeated edges remain
+separate result rows. Applied, skipped and membership counters use the ordinary MATCH policy.
+
 ## When the planner can apply this optimisation
 
 The eligibility conditions reduce to three requirements:
