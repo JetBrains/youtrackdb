@@ -2,6 +2,8 @@
 """Focused regression tests for nightly LDBC storage installation and downloads."""
 
 import os
+import re
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
@@ -344,6 +346,25 @@ class DownloaderTests(unittest.TestCase):
 
 class WorkflowWiringTests(unittest.TestCase):
     """Verify actual nightly wiring and the focused test workflow execution path."""
+
+    def test_both_nightly_selections_exclude_only_the_page_lock_package(self):
+        """Warmup and measurement preserve existing LDBC exclusions and omit page locks."""
+        check = runpy.run_path(str(ROOT / ".github/scripts/mandatory-benchmark-test.py"))[
+            "assert_manual_only_selection"]
+        document = yaml.safe_load(WORKFLOW.read_text())
+        arguments = [
+            argument for step in document["jobs"]["benchmark"]["steps"]
+            for argument in re.findall(r'-Djmh.args=("[^"\n]*")', step.get("run", ""))
+            if "ic5_newGroups" not in argument
+        ]
+        self.assertEqual(2, len(arguments))
+        for argument in arguments:
+            with self.subTest(argument=argument):
+                baseline = ["LdbcSingleThreadBothEBenchmark",
+                            "LdbcGremlinTranslatorBenchmark"]
+                check(self, argument, {}, baseline)
+                with self.assertRaises(AssertionError):
+                    check(self, re.sub(r",\^com[^\']+", "", argument), {}, baseline)
 
     def test_nightly_workflow_wires_pinned_helpers_and_step_only_secrets(self):
         """The nightly job installs AWS CLI and passes secrets only to the download step."""

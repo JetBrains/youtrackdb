@@ -603,7 +603,7 @@ public class IndexAbstractHistogramDelegationTest {
         .when(btreeEngine).buildInitialHistogram(mockAtomicOp);
 
     // The failed build must complete and report the logical index name.
-    var records = new java.util.ArrayList<java.util.logging.LogRecord>();
+    var records = new java.util.concurrent.CopyOnWriteArrayList<java.util.logging.LogRecord>();
     var logger = java.util.logging.Logger.getLogger("");
     var handler = new java.util.logging.Handler() {
       @Override

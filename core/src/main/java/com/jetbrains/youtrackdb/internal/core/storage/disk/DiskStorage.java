@@ -56,6 +56,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.PageRetentionState;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -537,6 +538,9 @@ public class DiskStorage extends AbstractStorage {
       Files.createDirectories(storageFolder);
     }
 
+    // Failed-create cleanup must find this folder, not fall back to its parent. Validate before
+    // the base implementation writes the birth record or the initialization vector.
+    validateStorageConfiguration(contextConfiguration);
     super.doCreate(contextConfiguration, sourceFormat);
   }
 
@@ -1293,6 +1297,12 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
+  protected void validateStorageConfiguration(ContextConfiguration contextConfiguration) {
+    PageRetentionState.validateSynchronizationLimit(contextConfiguration.getValueAsInteger(
+        GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT));
+  }
+
+  @Override
   protected void initWalAndDiskCache(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
     buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
@@ -1525,7 +1535,9 @@ public class DiskStorage extends AbstractStorage {
             aesKey,
             callFsync,
             context.getIoExecutor(),
-            tracker);
+            tracker,
+            contextConfiguration.getValueAsInteger(
+                GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT));
 
     // Failure cleanup must see the constructed cache even when registry loading fails.
     writeCache = wowCache;

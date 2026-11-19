@@ -920,6 +920,7 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
+          validateStorageConfiguration(contextConfiguration);
           // Only acquisitions of this physical attempt belong to failure cleanup. Closed fields
           // from an earlier open are not resources of this attempt.
           prepareOpenResources();
@@ -1153,6 +1154,10 @@ public abstract class AbstractStorage
         // Cleanup and diagnostic failures must never replace the original open failure.
       }
     }
+  }
+
+  /** Validate engine-specific settings before physical startup changes state or acquires resources. */
+  protected void validateStorageConfiguration(ContextConfiguration contextConfiguration) {
   }
 
   /** Disk open starts new acquisitions. Memory open retains its existing in-memory image. */

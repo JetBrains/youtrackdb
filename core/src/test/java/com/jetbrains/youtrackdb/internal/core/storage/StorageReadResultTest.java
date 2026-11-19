@@ -19,6 +19,7 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
@@ -30,6 +31,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
 import java.nio.ByteBuffer;
 import org.junit.After;
 import org.junit.Before;
@@ -39,6 +42,7 @@ import org.junit.Test;
  * Tests for the StorageReadResult sealed interface hierarchy: RawBuffer,
  * RawPageBuffer, and their common contract.
  */
+@org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
 public class StorageReadResultTest {
 
   private DirectMemoryAllocator allocator;
@@ -78,6 +82,19 @@ public class StorageReadResultTest {
     assertEquals(99L, rawBuffer.version());
   }
 
+  /** Optimistic scopes and zero-copy objects must never silently omit cache identity. */
+  @Test
+  public void testOptimisticObjectsRejectMissingCacheEntry() {
+    long stamp = pageFrame.tryOptimisticRead();
+    var scope = new com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope();
+    assertThrows(NullPointerException.class, () -> scope.record(pageFrame, stamp, null));
+    assertThrows(NullPointerException.class,
+        () -> new com.jetbrains.youtrackdb.internal.core.storage.cache.PageView(
+            pageFrame.getBuffer(), pageFrame, stamp, null));
+    assertThrows(NullPointerException.class,
+        () -> new RawPageBuffer(pageFrame, stamp, 0, 0, 1, (byte) 'd', null));
+  }
+
   // --- RawPageBuffer satisfies StorageReadResult contract ---
 
   @Test
@@ -85,7 +102,8 @@ public class StorageReadResultTest {
     // Verifies that RawPageBuffer implements StorageReadResult with
     // correct version and type accessors.
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 100, 50, 7L, (byte) 'd');
+    var pageBuffer =
+        new RawPageBuffer(pageFrame, stamp, 100, 50, 7L, (byte) 'd', cacheEntry(pageFrame));
 
     StorageReadResult result = pageBuffer;
     assertEquals(7L, result.recordVersion());
@@ -108,7 +126,8 @@ public class StorageReadResultTest {
 
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer =
-        new RawPageBuffer(pageFrame, stamp, contentOffset, testData.length, 1L, (byte) 'd');
+        new RawPageBuffer(pageFrame, stamp, contentOffset, testData.length, 1L, (byte) 'd',
+            cacheEntry(pageFrame));
 
     ByteBuffer slice = pageBuffer.sliceContent();
     assertEquals(testData.length, slice.capacity());
@@ -124,7 +143,8 @@ public class StorageReadResultTest {
   public void testSliceContentWithZeroLength() {
     // Verifies that sliceContent works correctly for an empty record content.
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 0, 1L, (byte) 'd');
+    var pageBuffer =
+        new RawPageBuffer(pageFrame, stamp, 0, 0, 1L, (byte) 'd', cacheEntry(pageFrame));
 
     ByteBuffer slice = pageBuffer.sliceContent();
     assertEquals(0, slice.capacity());
@@ -141,7 +161,8 @@ public class StorageReadResultTest {
     buffer.put(contentOffset, (byte) 0xAA);
 
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, contentOffset, 1, 1L, (byte) 'd');
+    var pageBuffer = new RawPageBuffer(pageFrame, stamp, contentOffset, 1, 1L, (byte) 'd',
+        cacheEntry(pageFrame));
     ByteBuffer slice = pageBuffer.sliceContent();
     assertEquals((byte) 0xAA, slice.get(0));
 
@@ -164,7 +185,8 @@ public class StorageReadResultTest {
 
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer =
-        new RawPageBuffer(pageFrame, stamp, contentOffset, contentLength, 1L, (byte) 'd');
+        new RawPageBuffer(pageFrame, stamp, contentOffset, contentLength, 1L, (byte) 'd',
+            cacheEntry(pageFrame));
 
     ByteBuffer slice = pageBuffer.sliceContent();
     assertEquals(contentLength, slice.capacity());
@@ -181,7 +203,7 @@ public class StorageReadResultTest {
     StorageReadResult rawResult = new RawBuffer(new byte[] {1}, 1L, (byte) 'd');
     long stamp = pageFrame.tryOptimisticRead();
     StorageReadResult pageResult =
-        new RawPageBuffer(pageFrame, stamp, 0, 1, 2L, (byte) 'b');
+        new RawPageBuffer(pageFrame, stamp, 0, 1, 2L, (byte) 'b', cacheEntry(pageFrame));
 
     // Pattern match on RawBuffer
     String rawMatch = switch (rawResult) {
@@ -205,7 +227,8 @@ public class StorageReadResultTest {
     // Verifies all record component accessors return the values passed
     // to the constructor.
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 256, 128, 42L, (byte) 'v');
+    var pageBuffer =
+        new RawPageBuffer(pageFrame, stamp, 256, 128, 42L, (byte) 'v', cacheEntry(pageFrame));
 
     assertEquals(pageFrame, pageBuffer.pageFrame());
     assertEquals(stamp, pageBuffer.stamp());
@@ -252,7 +275,8 @@ public class StorageReadResultTest {
   public void testRawPageBufferWithZeroVersion() {
     // Version 0 boundary for PageFrame path.
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 10, 0L, (byte) 'd');
+    var pageBuffer =
+        new RawPageBuffer(pageFrame, stamp, 0, 10, 0L, (byte) 'd', cacheEntry(pageFrame));
     assertEquals(0L, pageBuffer.recordVersion());
   }
 
@@ -260,7 +284,8 @@ public class StorageReadResultTest {
   public void testRawPageBufferWithMaxVersion() {
     // Long.MAX_VALUE boundary for PageFrame path.
     long stamp = pageFrame.tryOptimisticRead();
-    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 10, Long.MAX_VALUE, (byte) 'd');
+    var pageBuffer = new RawPageBuffer(pageFrame, stamp, 0, 10, Long.MAX_VALUE, (byte) 'd',
+        cacheEntry(pageFrame));
     assertEquals(Long.MAX_VALUE, pageBuffer.recordVersion());
   }
 
@@ -271,7 +296,7 @@ public class StorageReadResultTest {
     // Validates that the constructor throws IllegalArgumentException
     // (not AssertionError) when pageFrame is null.
     var ex = assertThrows(IllegalArgumentException.class,
-        () -> new RawPageBuffer(null, 0L, 0, 0, 1L, (byte) 'd'));
+        () -> new RawPageBuffer(null, 0L, 0, 0, 1L, (byte) 'd', cacheEntry(null)));
     assertEquals("PageFrame must not be null", ex.getMessage());
   }
 
@@ -280,7 +305,7 @@ public class StorageReadResultTest {
     // Validates runtime rejection of negative contentOffset.
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
-        () -> new RawPageBuffer(pageFrame, stamp, -1, 10, 1L, (byte) 'd'));
+        () -> new RawPageBuffer(pageFrame, stamp, -1, 10, 1L, (byte) 'd', cacheEntry(pageFrame)));
     assertEquals("contentOffset must be non-negative: -1", ex.getMessage());
   }
 
@@ -289,7 +314,7 @@ public class StorageReadResultTest {
     // Validates runtime rejection of negative contentLength.
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
-        () -> new RawPageBuffer(pageFrame, stamp, 0, -1, 1L, (byte) 'd'));
+        () -> new RawPageBuffer(pageFrame, stamp, 0, -1, 1L, (byte) 'd', cacheEntry(pageFrame)));
     assertEquals("contentLength must be non-negative: -1", ex.getMessage());
   }
 
@@ -299,7 +324,8 @@ public class StorageReadResultTest {
     int capacity = pageFrame.getBuffer().capacity();
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
-        () -> new RawPageBuffer(pageFrame, stamp, capacity - 5, 10, 1L, (byte) 'd'));
+        () -> new RawPageBuffer(pageFrame, stamp, capacity - 5, 10, 1L, (byte) 'd',
+            cacheEntry(pageFrame)));
     int expectedEnd = capacity - 5 + 10;
     assertEquals(
         "content region [" + (capacity - 5) + ", " + expectedEnd
@@ -314,7 +340,7 @@ public class StorageReadResultTest {
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(ArithmeticException.class,
         () -> new RawPageBuffer(
-            pageFrame, stamp, Integer.MAX_VALUE, 1, 1L, (byte) 'd'));
+            pageFrame, stamp, Integer.MAX_VALUE, 1, 1L, (byte) 'd', cacheEntry(pageFrame)));
     assertEquals("integer overflow", ex.getMessage());
   }
 
@@ -325,7 +351,7 @@ public class StorageReadResultTest {
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(
-            pageFrame, stamp, Integer.MIN_VALUE, 0, 1L, (byte) 'd'));
+            pageFrame, stamp, Integer.MIN_VALUE, 0, 1L, (byte) 'd', cacheEntry(pageFrame)));
     assertEquals(
         "contentOffset must be non-negative: " + Integer.MIN_VALUE,
         ex.getMessage());
@@ -338,7 +364,7 @@ public class StorageReadResultTest {
     int capacity = pageFrame.getBuffer().capacity();
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer = new RawPageBuffer(
-        pageFrame, stamp, 0, capacity, 1L, (byte) 'd');
+        pageFrame, stamp, 0, capacity, 1L, (byte) 'd', cacheEntry(pageFrame));
     assertEquals(capacity, pageBuffer.contentLength());
     assertEquals(0, pageBuffer.contentOffset());
 
@@ -355,7 +381,7 @@ public class StorageReadResultTest {
     int capacity = pageFrame.getBuffer().capacity();
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer = new RawPageBuffer(
-        pageFrame, stamp, capacity, 0, 1L, (byte) 'd');
+        pageFrame, stamp, capacity, 0, 1L, (byte) 'd', cacheEntry(pageFrame));
     assertEquals(0, pageBuffer.contentLength());
     assertEquals(capacity, pageBuffer.contentOffset());
 
@@ -372,7 +398,7 @@ public class StorageReadResultTest {
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(
-            pageFrame, stamp, capacity + 1, 0, 1L, (byte) 'd'));
+            pageFrame, stamp, capacity + 1, 0, 1L, (byte) 'd', cacheEntry(pageFrame)));
     int end = capacity + 1;
     assertEquals(
         "content region [" + end + ", " + end
@@ -386,7 +412,7 @@ public class StorageReadResultTest {
     // representing an empty record.
     long stamp = pageFrame.tryOptimisticRead();
     var pageBuffer = new RawPageBuffer(
-        pageFrame, stamp, 0, 0, 1L, (byte) 'd');
+        pageFrame, stamp, 0, 0, 1L, (byte) 'd', cacheEntry(pageFrame));
     assertEquals(0, pageBuffer.contentOffset());
     assertEquals(0, pageBuffer.contentLength());
   }
@@ -398,13 +424,40 @@ public class StorageReadResultTest {
     long stamp = pageFrame.tryOptimisticRead();
     var ex = assertThrows(IllegalArgumentException.class,
         () -> new RawPageBuffer(
-            pageFrame, stamp, 0, Integer.MIN_VALUE, 1L, (byte) 'd'));
+            pageFrame, stamp, 0, Integer.MIN_VALUE, 1L, (byte) 'd', cacheEntry(pageFrame)));
     assertEquals(
         "contentLength must be non-negative: " + Integer.MIN_VALUE,
         ex.getMessage());
   }
 
   // --- toRawBuffer() ---
+
+  @Test
+  public void testResultExtractionCountsOnlyStampFailuresAndLeavesSuccessFree() {
+    // Successful extraction and an already-copied result leave all shared counters unchanged.
+    // A later extraction with an invalidated stamp increments only STAMP, exactly once.
+    var before = new long[Cause.values().length];
+    for (var cause : Cause.values()) {
+      before[cause.ordinal()] = OptimisticReadFailureCounters.count(cause);
+    }
+    var result = new RawPageBuffer(
+        pageFrame, pageFrame.tryOptimisticRead(), 0, 3, 1L, (byte) 'd', cacheEntry(pageFrame));
+    var copied = result.toRawBuffer();
+    assertSame(copied, copied.toRawBuffer());
+    for (var cause : Cause.values()) {
+      assertEquals(cause.name(), before[cause.ordinal()],
+          OptimisticReadFailureCounters.count(cause));
+    }
+
+    long stamp = pageFrame.acquireExclusiveLock();
+    pageFrame.releaseExclusiveLock(stamp);
+    assertSame(OptimisticReadFailedException.INSTANCE,
+        assertThrows(OptimisticReadFailedException.class, result::toRawBuffer));
+    for (var cause : Cause.values()) {
+      assertEquals(cause.name(), before[cause.ordinal()] + (cause == Cause.STAMP ? 1 : 0),
+          OptimisticReadFailureCounters.count(cause));
+    }
+  }
 
   @Test
   public void testToRawBufferExtractsCorrectBytes() {
@@ -415,7 +468,7 @@ public class StorageReadResultTest {
     buf.position(100);
     buf.put(expected);
     long stamp = pageFrame.tryOptimisticRead();
-    var rpb = new RawPageBuffer(pageFrame, stamp, 100, 5, 1L, (byte) 'd');
+    var rpb = new RawPageBuffer(pageFrame, stamp, 100, 5, 1L, (byte) 'd', cacheEntry(pageFrame));
     RawBuffer result = rpb.toRawBuffer();
     assertArrayEquals(expected, result.buffer());
     assertEquals(1L, result.version());
@@ -431,7 +484,7 @@ public class StorageReadResultTest {
     pageFrame.getBuffer().put(201, data[1]);
     pageFrame.getBuffer().put(202, data[2]);
     long stamp = pageFrame.tryOptimisticRead();
-    var rpb = new RawPageBuffer(pageFrame, stamp, 200, 3, 1L, (byte) 'd');
+    var rpb = new RawPageBuffer(pageFrame, stamp, 200, 3, 1L, (byte) 'd', cacheEntry(pageFrame));
     // Invalidate stamp via exclusive lock acquire/release
     long exStamp = pageFrame.acquireExclusiveLock();
     pageFrame.releaseExclusiveLock(exStamp);
@@ -449,7 +502,7 @@ public class StorageReadResultTest {
   public void testToRawBufferWithZeroLengthContent() {
     // toRawBuffer() on a zero-length RawPageBuffer produces an empty byte[].
     long stamp = pageFrame.tryOptimisticRead();
-    var rpb = new RawPageBuffer(pageFrame, stamp, 0, 0, 1L, (byte) 'd');
+    var rpb = new RawPageBuffer(pageFrame, stamp, 0, 0, 1L, (byte) 'd', cacheEntry(pageFrame));
     RawBuffer result = rpb.toRawBuffer();
     assertEquals(0, result.buffer().length);
     assertEquals(1L, result.version());
