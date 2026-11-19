@@ -13,12 +13,29 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 /** Private preparation seam. No strategy installs or executes these candidate plans. */
 final class PrivateCandidatePreparation {
 
-  /** A closed admission contract names every admitted prepared root position. */
+  /**
+   * Closed cut-admission evidence for unforced preparation. An applicable valid Declaration
+   * supplies exact private cut-admission evidence instead of this set's membership. It does not
+   * replace enablement, structural, safety or security checks. Unforced cache identity includes
+   * this policy, while declared preparation bypasses shared caches.
+   */
   record Policy(Set<Integer> cuts) {
     Policy {
       cuts = Set.copyOf(cuts);
     }
 
+  }
+
+  /**
+   * Caller-held invocation context, also suitable for delayed preparation. Root identity is
+   * intentional: clones, children and unrelated preparations must not inherit forcing.
+   * expectedShape is the complete length-prefixed structural extraction key, not its hash.
+   */
+  record Declaration(Traversal.Admin<?, ?> root, String expectedShape, int cut) {
+    Declaration {
+      java.util.Objects.requireNonNull(root);
+      java.util.Objects.requireNonNull(expectedShape);
+    }
   }
 
   record CandidateKey(String namespace, Policy policy, boolean oneBulk, boolean sourceState,
@@ -49,6 +66,13 @@ final class PrivateCandidatePreparation {
   }
 
   Prepared prepare(Traversal.Admin<?, ?> traversal, Policy policy) {
+    return prepare(traversal, policy, null);
+  }
+
+  Prepared prepare(Traversal.Admin<?, ?> traversal, Policy policy,
+      @Nullable Declaration declaration) {
+    var applicable = declaration != null && declaration.root() == traversal && traversal.isRoot()
+        ? declaration : null;
     var safety = QuerySafetyAdmission.prepare(traversal);
     if (safety == null || safety.reason() != QuerySafetyAdmission.Reason.SAFE) {
       return refusal(PrivatePrefixDiscovery.Reason.SAFETY_VETO, false);
@@ -60,7 +84,8 @@ final class PrivateCandidatePreparation {
     var cache = GremlinPlanCache.instance(session);
     long generation = cache.getGeneration();
     try (var scope = PrivatePreparationSchemaScope.open(session)) {
-      var prepared = prepareCaptured(traversal, policy, safety, session, cache, generation, scope);
+      var prepared = prepareCaptured(traversal, policy, safety, session, cache, generation, scope,
+          applicable);
       scope.onReleaseFailure(prepared::close);
       return prepared;
     } catch (PrivatePreparationSchemaScope.GuardFailure failure) {
@@ -82,7 +107,8 @@ final class PrivateCandidatePreparation {
 
   private Prepared prepareCaptured(Traversal.Admin<?, ?> traversal, Policy policy,
       QuerySafetyAdmission.Result safety, DatabaseSessionEmbedded session,
-      GremlinPlanCache cache, long generation, PrivatePreparationSchemaScope scope) {
+      GremlinPlanCache cache, long generation, PrivatePreparationSchemaScope scope,
+      @Nullable Declaration declaration) {
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     if (inputs.polymorphic() == null || inputs.nulls() == null) {
       scope.validate();
@@ -90,10 +116,28 @@ final class PrivateCandidatePreparation {
     }
     var extraction = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
         GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
+    if (declaration != null) {
+      if (PartialSourceState.repeat(traversal)) {
+        scope.validate();
+        return refusal(PrivatePrefixDiscovery.Reason.REPEAT, false);
+      }
+      var reason = !declaration.expectedShape().equals(extraction.key().toString())
+          ? PrivatePrefixDiscovery.Reason.DECLARED_SHAPE
+          : declaration.cut() < 1 || declaration.cut() >= traversal.getSteps().size()
+              ? PrivatePrefixDiscovery.Reason.DECLARED_DOMAIN
+              : new PartialCutRules(traversal.getSteps()).multiPlan(declaration.cut())
+                  ? PrivatePrefixDiscovery.Reason.MULTI_PLAN
+                  : !extraction.complete() ? PrivatePrefixDiscovery.Reason.DECLARED_SHAPE : null;
+      if (reason != null) {
+        scope.validate();
+        return refusal(reason, false);
+      }
+    }
     var key = new CandidateKey("private-candidate-v1", policy, safety.oneBulk(),
         PartialSourceState.configured(traversal), inputs.commandTimeout(), extraction.key());
-    boolean eligible = session.getTxSchemaState() == null && cache.isEnabled()
-        && extraction.complete();
+    boolean eligible =
+        declaration == null && session.getTxSchemaState() == null && cache.isEnabled()
+            && extraction.complete();
     GremlinPlanCache.StampedTranslation rejected = null;
     if (eligible) {
       var resident = cache.getTranslationEntry(key, session);
@@ -116,7 +160,8 @@ final class PrivateCandidatePreparation {
         rejected = resident;
       }
     }
-    var outcome = discovery.discover(traversal, policy.cuts()::contains, session, inputs, true);
+    var outcome = discovery.discover(traversal, policy.cuts()::contains, session, inputs, true,
+        declaration == null ? null : declaration.cut());
     if (outcome.plan() == null) {
       scope.validate();
       if (eligible && outcome.reason() != PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE) {

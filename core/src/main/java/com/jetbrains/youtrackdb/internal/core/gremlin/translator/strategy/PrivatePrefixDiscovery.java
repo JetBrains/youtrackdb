@@ -16,7 +16,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 final class PrivatePrefixDiscovery {
 
   enum Reason {
-    SELECTED, DISABLED, MISSING_SAFETY, SAFETY_VETO, FULL_SUPPORTED, COMPLETE_NATIVE, CAPABILITY_DECLINE, REPEAT, SOURCE_STATE, CUT_ADMISSION, FOLD_CUT, ORDER_CUT, MULTI_PLAN, RECORD_IDENTIFIERS, PLAIN, PLAN_BUILD_FAILURE
+    DECLARED_SHAPE, DECLARED_DOMAIN, DECLARED_COMPLETION, SELECTED, DISABLED, MISSING_SAFETY, SAFETY_VETO, FULL_SUPPORTED, COMPLETE_NATIVE, CAPABILITY_DECLINE, REPEAT, SOURCE_STATE, CUT_ADMISSION, FOLD_CUT, ORDER_CUT, MULTI_PLAN, RECORD_IDENTIFIERS, PLAIN, PLAN_BUILD_FAILURE
   }
 
   record Outcome(Reason reason, int cut,
@@ -99,6 +99,12 @@ final class PrivatePrefixDiscovery {
 
   Outcome discover(Traversal.Admin<?, ?> traversal, @Nullable IntPredicate admittedCut,
       DatabaseSessionEmbedded session, GremlinStepWalker.WalkInputs inputs, boolean prepareFull) {
+    return discover(traversal, admittedCut, session, inputs, prepareFull, null);
+  }
+
+  Outcome discover(Traversal.Admin<?, ?> traversal, @Nullable IntPredicate admittedCut,
+      DatabaseSessionEmbedded session, GremlinStepWalker.WalkInputs inputs, boolean prepareFull,
+      @Nullable Integer declaredCut) {
     if (PrivatePreparationSchemaScope.schemaFor(session) != inputs.schema()
         || !PrivatePreparationSchemaScope.isActive(session)) {
       throw new IllegalStateException("Captured inputs require their private schema scope");
@@ -112,6 +118,9 @@ final class PrivatePrefixDiscovery {
     var full = recognition.walk(traversal, inputs, completions::add);
     if (PartialSourceState.repeat(traversal)) {
       return refused(Reason.REPEAT);
+    }
+    if (declaredCut != null) {
+      return exact(traversal, session, inputs, completions, declaredCut);
     }
     if (full != null && traversal.getSteps().stream().allMatch(RootStepAdmission::admits)) {
       if (!prepareFull) {
@@ -180,9 +189,59 @@ final class PrivatePrefixDiscovery {
     return refused(reason);
   }
 
+  /**
+   * Exact selection uses the applicable declaration as cut-admission evidence, not admittedCut.
+   * Only unforced set membership and the plain choice are overridden. All independent protective
+   * checks remain mandatory. A refusal is terminal, with no alternate cut or full substitution.
+   */
+  private Outcome exact(Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session,
+      GremlinStepWalker.WalkInputs inputs, TreeSet<Integer> completions, int cut) {
+    if (cut < 1 || cut >= traversal.getSteps().size()) {
+      return refused(Reason.DECLARED_DOMAIN);
+    }
+    if (QuerySafetyAdmission.stored(traversal).oneBulk()
+        || PartialSourceState.configured(traversal)) {
+      return refused(Reason.SOURCE_STATE);
+    }
+    var rules = new PartialCutRules(traversal.getSteps());
+    if (rules.splitsFold(cut)) {
+      return refused(Reason.FOLD_CUT);
+    }
+    if (rules.splitsOrder(cut)) {
+      return refused(Reason.ORDER_CUT);
+    }
+    if (rules.multiPlan(cut)) {
+      return refused(Reason.MULTI_PLAN);
+    }
+    if (rules.hasIdentifiers(cut)) {
+      return refused(Reason.RECORD_IDENTIFIERS);
+    }
+    if (!completions.contains(cut)) {
+      return refused(Reason.DECLARED_COMPLETION);
+    }
+    var prefix = traversal.clone();
+    while (prefix.getSteps().size() > cut) {
+      prefix.removeStep(prefix.getSteps().size() - 1);
+    }
+    var candidate = recognition.walk(prefix, inputs, null);
+    if (candidate == null) {
+      return refused(Reason.CAPABILITY_DECLINE);
+    }
+    if (candidate.isMultiPlan()) {
+      return refused(Reason.MULTI_PLAN);
+    }
+    return build(session, candidate, cut, Reason.SELECTED, inputs, true);
+  }
+
   private Outcome build(DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult candidate, int cut, Reason selected,
       GremlinStepWalker.WalkInputs inputs) {
+    return build(session, candidate, cut, selected, inputs, false);
+  }
+
+  private Outcome build(DatabaseSessionEmbedded session,
+      GremlinToMatchTranslator.TranslationResult candidate, int cut, Reason selected,
+      GremlinStepWalker.WalkInputs inputs, boolean overridePlain) {
     InternalExecutionPlan plan;
     try {
       plan = builder.buildPlan(session, candidate,
@@ -201,7 +260,7 @@ final class PrivatePrefixDiscovery {
       }
       throw failure;
     }
-    if (decision.plain()) {
+    if (decision.plain() && !overridePlain) {
       plan.close();
       return refused(Reason.PLAIN);
     }

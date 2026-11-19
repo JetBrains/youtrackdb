@@ -38,6 +38,463 @@ import org.mockito.MockedStatic;
 /** Preparation-only cache tests never install a partial execution boundary. */
 public class PrivateCandidatePreparationTest extends GraphBaseTest {
 
+  // Frozen structural tokens include settings, root count, operands and labels. These constants
+  // are not computed with the resolver under test. Values used as bindings remain separate.
+  private static final String DECLARED_HEADER = "poly:1:1elv:1:0oim:1:1pb:1:-T:1:";
+  private static final String DECLARED_SOURCE =
+      "S:65:org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStepL:0:"
+          + "gv:1:1ids:1:0hc:1:0";
+  private static final String DECLARED_LABEL =
+      "S:66:org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStepL:0:"
+          + "H:1:13:labbi:56:org.apache.tinkerpop.gremlin.process.traversal.Compare$12:eq"
+          + "sc:16:java.lang.String15:CandidatePerson";
+  private static final String DECLARED_HOP =
+      "S:66:org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepL:0:"
+          + "dir:3:OUTre:1:0el:1:14:candidateKnows";
+  private static final String DECLARED_LIMIT =
+      "S:74:org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepL:0:"
+          + "lo:1:0hi:1:2";
+  private static final String DECLARED_FULL =
+      DECLARED_HEADER + "4" + DECLARED_SOURCE + DECLARED_LABEL + DECLARED_HOP + DECLARED_LIMIT;
+
+  private Traversal.Admin<?, ?> declaredRoot() {
+    return graph.traversal().V().hasLabel("CandidatePerson")
+        .out("candidateKnows").limit(2).asAdmin();
+  }
+
+  private PrivateCandidatePreparation.Declaration declaration(Traversal.Admin<?, ?> root,
+      String shape, int cut) {
+    return new PrivateCandidatePreparation.Declaration(root, shape, cut);
+  }
+
+  /** Exact forcing overrides a real plain decision, even on a fully supported longer root. */
+  @Test
+  public void declaredFullSupportedRootSelectsExactPlainPrefix() {
+    var root = declaredRoot();
+    assertThat(partialExtraction(root).key().toString()).isEqualTo(DECLARED_FULL);
+    var preparation = preparation(false);
+    try (var normal = preparation.prepare(root, policy)) {
+      assertThat(normal.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+      assertThat(normal.extent()).isEqualTo(4);
+    }
+    try (var plain = preparation.prepare(graph.traversal().V().hasLabel("CandidatePerson")
+        .optional(__.identity()).asAdmin(), policy)) {
+      assertThat(plain.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAIN);
+      assertThat(plain.plan()).isNull();
+    }
+    walks.set(0);
+    builds.set(0);
+    try (var selected = preparation.prepare(root, policy,
+        declaration(root, DECLARED_FULL, 2))) {
+      assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      assertThat(selected.extent()).isEqualTo(2);
+      assertThat(selected.cacheHit()).isFalse();
+      assertThat(selected.plan()).isNotNull();
+      assertThat(selected.bindings()).isEmpty();
+    }
+    assertThat(walks).hasValue(2);
+    assertThat(builds).hasValue(1);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(root)).isZero();
+  }
+
+  /**
+   * Empty and nonempty excluding policies refuse the same partial root unforced, but a matching
+   * declaration supplies admission for literal cut two. Removing it restores unforced refusal.
+   */
+  @Test
+  public void declaredAdmissionReplacesOnlyEmptyOrExcludingPolicyMembership() {
+    for (var cuts : List.of(Set.<Integer>of(), Set.of(3))) {
+      var excluding = new PrivateCandidatePreparation.Policy(cuts);
+      // The native optional suffix prevents full-query support from masking cut admission.
+      var root = graph.traversal().V().out("candidateKnows")
+          .optional(__.identity()).asAdmin();
+      assertThat(root.getSteps()).hasSize(3);
+      var declared = declaration(root, partialExtraction(root).key().toString(), 2);
+      try (var probe = new PublicationProbe()) {
+        var prepare = probe.prepare();
+        for (int invocation = 0; invocation < 2; invocation++) {
+          try (var refused = prepare.prepare(root, excluding)) {
+            assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.CUT_ADMISSION);
+            assertThat(refused.extent()).isEqualTo(-1);
+            assertThat(refused.plan()).isNull();
+            // Unforced refusals remain eligible for ordinary private cache reuse.
+            assertThat(refused.cacheHit()).isEqualTo(invocation != 0);
+          }
+          org.mockito.Mockito.clearInvocations(probe.cache);
+          try (var selected = prepare.prepare(root, excluding, declared)) {
+            assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+            assertThat(selected.extent()).isEqualTo(2);
+            assertThat(selected.plan()).isNotNull();
+            assertThat(selected.cacheHit()).isFalse();
+            assertThat(selected.bindings()).isEmpty();
+          }
+          verify(probe.cache, never()).getTranslationEntry(any(Object.class), any());
+          verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+              org.mockito.ArgumentMatchers.anyLong(), any());
+          verify(probe.cache, never()).getInternal(any(), any(), any());
+          verify(probe.cache, never()).templateInternal(any(), any());
+        }
+      }
+      try (var refused = preparation(false).prepare(root, excluding)) {
+        assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.CUT_ADMISSION);
+        assertThat(refused.plan()).isNull();
+      }
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(root)).isZero();
+    }
+  }
+
+  /**
+   * A valid matching declaration with either excluding policy still refuses one-bulk source state.
+   * The same root refuses unforced too, while the otherwise identical normal source selects two.
+   */
+  @Test
+  public void declaredAdmissionReplacementRetainsPairedSourceStateProtection() {
+    for (var cuts : List.of(Set.<Integer>of(), Set.of(3))) {
+      var excluding = new PrivateCandidatePreparation.Policy(cuts);
+      var root = graph.traversal().withBulk(false).V().out("candidateKnows")
+          .optional(__.identity()).asAdmin();
+      var declared = declaration(root, partialExtraction(root).key().toString(), 2);
+      var prepare = preparation(false);
+      for (boolean forced : List.of(false, true)) {
+        int before = builds.get();
+        try (var refused = prepare.prepare(root, excluding, forced ? declared : null)) {
+          assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+          assertThat(refused.extent()).isEqualTo(-1);
+          assertThat(refused.plan()).isNull();
+          assertThat(refused.cacheHit()).isFalse();
+        }
+        assertThat(builds).hasValue(before);
+      }
+      var normal = graph.traversal().V().out("candidateKnows")
+          .optional(__.identity()).asAdmin();
+      try (var selected = prepare.prepare(normal, excluding,
+          declaration(normal, partialExtraction(normal).key().toString(), 2))) {
+        assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(selected.extent()).isEqualTo(2);
+        assertThat(selected.plan()).isNotNull();
+      }
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(root)).isZero();
+    }
+  }
+
+  /** Invalid declarations never consult a resident or reinterpret a full-length cut. */
+  @Test
+  public void declaredInvalidShapeAndStrictDomainBypassCacheAndWalker() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      var root = declaredRoot();
+      org.mockito.Mockito.clearInvocations(probe.cache);
+      for (int cut : new int[] {Integer.MIN_VALUE, -1, 0, 4, 5, Integer.MAX_VALUE}) {
+        try (var refused = preparation.prepare(root, policy,
+            declaration(root, DECLARED_FULL, cut))) {
+          assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DECLARED_DOMAIN);
+          assertThat(refused.extent()).isEqualTo(-1);
+          assertThat(refused.plan()).isNull();
+          assertThat(refused.cacheHit()).isFalse();
+        }
+      }
+      try (var refused = preparation.prepare(root, policy,
+          declaration(root, DECLARED_FULL + "drift", 2))) {
+        assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DECLARED_SHAPE);
+      }
+      var single = graph.traversal().V().asAdmin();
+      try (var refused = preparation.prepare(single, policy,
+          declaration(single, DECLARED_HEADER + "1" + DECLARED_SOURCE, 1))) {
+        assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DECLARED_DOMAIN);
+      }
+      verify(probe.cache, never()).getTranslationEntry(any(Object.class), any());
+      verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+          org.mockito.ArgumentMatchers.anyLong(), any());
+      assertThat(probe.originals).isEmpty();
+    }
+    assertThat(walks).hasValue(0);
+  }
+
+  /** A folded source cut is terminal, even though cut two is safe and supported. */
+  @Test
+  public void declaredFoldedCutDoesNotTryAnotherCompletion() {
+    var root = declaredRoot();
+    var preparation = preparation(false);
+    try (var refused = preparation.prepare(root, policy, declaration(root, DECLARED_FULL, 1))) {
+      assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FOLD_CUT);
+      assertThat(refused.plan()).isNull();
+    }
+    assertThat(walks).hasValue(1);
+    assertThat(builds).hasValue(0);
+  }
+
+  /** Source-only forcing counts the source and still leaves one outer step. */
+  @Test
+  public void declaredSourceOnlyCutAndLostCompletionHaveDistinctOutcomes() {
+    var root = graph.traversal().V().out("candidateKnows").limit(2).asAdmin();
+    var shape = DECLARED_HEADER + "3" + DECLARED_SOURCE + DECLARED_HOP + DECLARED_LIMIT;
+    try (var result = preparation(false).prepare(root, policy, declaration(root, shape, 1))) {
+      assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      assertThat(result.extent()).isEqualTo(1);
+    }
+    // A native identity step is not a productive completed MATCH unit.
+    var nativeRoot = graph.traversal().V().identity().out("candidateKnows").asAdmin();
+    assertDeclaredRefusal(nativeRoot, 2, PrivatePrefixDiscovery.Reason.DECLARED_COMPLETION);
+  }
+
+  /** Root positions exclude children and include transparent and multi-step recogniser units. */
+  @Test
+  public void declaredTransparentAndMultiStepUnitsResolveLiteralRootPositions() {
+    var transparent = graph.traversal().V().hasLabel("CandidatePerson").barrier()
+        .out("candidateKnows").limit(2).asAdmin();
+    assertThat(transparent.getSteps()).hasSize(5);
+    var shape = DECLARED_HEADER + "4" + DECLARED_SOURCE + DECLARED_LABEL
+        + "TB:71:org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep"
+        + "TW:10:2147483647L:0:"
+        + DECLARED_HOP + DECLARED_LIMIT;
+    try (var selected = preparation(false).prepare(transparent, policy,
+        declaration(transparent, shape, 4))) {
+      assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      assertThat(selected.extent()).isEqualTo(4);
+    }
+    var multi = graph.traversal().V().hasLabel("CandidatePerson")
+        .outE("candidateKnows").inV().optional(__.has("age", 40)).asAdmin();
+    assertThat(multi.getSteps()).hasSize(5);
+    assertDeclaredRefusal(multi, 3, PrivatePrefixDiscovery.Reason.DECLARED_COMPLETION);
+    try (var selected = preparation(false).prepare(multi, policy,
+        declaration(multi, partialExtraction(multi).key().toString(), 4))) {
+      assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      assertThat(selected.extent()).isEqualTo(4);
+    }
+  }
+
+  private void assertDeclaredRefusal(Traversal.Admin<?, ?> root, int cut,
+      PrivatePrefixDiscovery.Reason expected) {
+    var prepare = preparation(false);
+    int before = builds.get();
+    try (var refused = prepare.prepare(root, policy,
+        declaration(root, partialExtraction(root).key().toString(), cut))) {
+      assertThat(refused.reason()).isEqualTo(expected);
+      assertThat(refused.plan()).isNull();
+      assertThat(refused.extent()).isEqualTo(-1);
+      assertThat(refused.cacheHit()).isFalse();
+    }
+    assertThat(builds).hasValue(before);
+  }
+
+  /** Exact forcing retains source, repeat, identifier, order, safety and multi-plan vetoes. */
+  @Test
+  public void declaredProtectiveChecksAreNotPlainOverrides() {
+    assertDeclaredRefusal(graph.traversal().withBulk(false).V().out("candidateKnows")
+        .limit(2).asAdmin(), 1, PrivatePrefixDiscovery.Reason.SOURCE_STATE);
+    assertDeclaredRefusal(graph.traversal().V().repeat(__.out("candidateKnows"))
+        .times(2).limit(2).asAdmin(), 1, PrivatePrefixDiscovery.Reason.REPEAT);
+    assertDeclaredRefusal(graph.traversal().V("#12:0").out("candidateKnows")
+        .limit(2).asAdmin(), 1, PrivatePrefixDiscovery.Reason.RECORD_IDENTIFIERS);
+    assertDeclaredRefusal(graph.traversal().V().hasLabel("CandidatePerson")
+        .out("candidateKnows").order().by("age").limit(2).asAdmin(), 3,
+        PrivatePrefixDiscovery.Reason.ORDER_CUT);
+    assertDeclaredRefusal(graph.traversal().V()
+        .union(__.out("candidateKnows"), __.out("candidateKnows")).limit(2).asAdmin(), 2,
+        PrivatePrefixDiscovery.Reason.MULTI_PLAN);
+    assertDeclaredRefusal(graph.traversal().V().out("candidateKnows").drop().asAdmin(), 1,
+        PrivatePrefixDiscovery.Reason.SAFETY_VETO);
+    var db = graphSession();
+    db.getConfiguration().setValue(
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+    try {
+      assertDeclaredRefusal(declaredRoot(), 2, PrivatePrefixDiscovery.Reason.DISABLED);
+    } finally {
+      db.getConfiguration().setValue(
+          GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
+    }
+  }
+
+  /** Forced work leaves both actual residents intact and preserves unforced warm work bounds. */
+  @Test
+  public void declaredPreparationDoesNotReadWriteOrReplaceOrdinaryAndPrivateResidents() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      GremlinToMatchStrategy.instance().apply(fullQuery(30));
+      var ordinaryKey = GremlinStepWalker.extractShape(fullQuery(30), probe.session).key();
+      var ordinary = probe.cache.getTranslationEntry(ordinaryKey, probe.session);
+      assertThat(ordinary).isNotNull();
+      try (var seed = preparation.prepare(query(30, 40), policy)) {
+        assertThat(seed.plan()).isNotNull();
+      }
+      var privateKey = probe.key;
+      var resident = probe.resident();
+      long hits = probe.cache.getTranslationHits();
+      long misses = probe.cache.getTranslationMisses();
+      org.mockito.Mockito.clearInvocations(probe.cache);
+      var root = declaredRoot();
+      try (var forced = preparation.prepare(root, policy, declaration(root, DECLARED_FULL, 2))) {
+        assertThat(forced.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+      }
+      verify(probe.cache, never()).getTranslationEntry(any(Object.class), any());
+      verify(probe.cache, never()).putTranslationInternal(any(Object.class), any(), any(),
+          org.mockito.ArgumentMatchers.anyLong(), any());
+      verify(probe.cache, never()).getInternal(any(), any(), any());
+      verify(probe.cache, never()).templateInternal(any(), any());
+      assertThat(probe.cache.getTranslationHits()).isEqualTo(hits);
+      assertThat(probe.cache.getTranslationMisses()).isEqualTo(misses);
+      assertThat(probe.cache.getTranslationEntry(ordinaryKey, probe.session)).isSameAs(ordinary);
+      assertThat(probe.cache.getTranslationEntry(privateKey, probe.session)).isSameAs(resident);
+      probe.duringWalk = () -> {
+        throw new AssertionError("warm private lookup must not recognise");
+      };
+      probe.duringBuild = () -> {
+        throw new AssertionError("warm paths must not plan");
+      };
+      try (var warm = preparation.prepare(query(40, 30), policy)) {
+        assertThat(warm.cacheHit()).isTrue();
+        assertThat(warm.bindings()).containsExactlyEntriesOf(Map.of(0, 40));
+      }
+      GremlinToMatchStrategy.instance().apply(fullQuery(40));
+      assertThat(probe.cache.getTranslationHits()).isEqualTo(hits + 4);
+    }
+  }
+
+  /** A caller-held delayed adapter survives nesting without affecting same-root unforced calls. */
+  @Test
+  public void declaredDelayedPreparationAndNestedExitsDoNotLeak() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      var root = declaredRoot();
+      var declaration = declaration(root, DECLARED_FULL, 2);
+      Supplier<PrivateCandidatePreparation.Prepared> delayed =
+          () -> preparation.prepare(root, policy, declaration);
+      probe.duringWalk = () -> {
+        try (var unrelated = preparation.prepare(query(40, 30), policy, declaration)) {
+          assertThat(unrelated.extent()).isEqualTo(3);
+        }
+        try (var same = preparation.prepare(root, policy)) {
+          assertThat(same.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        }
+        try (var invalid = preparation.prepare(root, policy,
+            declaration(root, DECLARED_FULL, 4))) {
+          assertThat(invalid.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.DECLARED_DOMAIN);
+        }
+      };
+      // Iterator creation does no preparation. The retained context is consumed on first next().
+      var lazy = java.util.stream.Stream.generate(delayed).limit(1).iterator();
+      try (var selected = lazy.next()) {
+        assertThat(selected.extent()).isEqualTo(2);
+      }
+      var failure = new IllegalStateException("nested recognition");
+      probe.duringWalk = () -> {
+        throw failure;
+      };
+      assertThatThrownBy(delayed::get).isSameAs(failure);
+      try (var selected = delayed.get()) {
+        assertThat(selected.extent()).isEqualTo(2);
+      }
+      var parent = graph.traversal().V().optional(__.V().out("candidateKnows")).asAdmin();
+      var child = ((org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent) parent
+          .getEndStep()).getLocalChildren().getFirst();
+      QuerySafetyAdmission.prepare(parent);
+      try (var ignored = preparation.prepare(child, policy, declaration)) {
+        assertThat(ignored.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE);
+      }
+    }
+  }
+
+  /** One deterministic overlap keeps separate sessions and bound values in both invocation arms. */
+  @Test
+  public void declaredOverlapWithOrdinaryWarmPreparationKeepsBindingsAndWork() throws Exception {
+    var entered = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var mainSession = graphSession();
+    var root = query(30, 40);
+    var declared = declaration(root, partialExtraction(root).key().toString(), 3);
+    var forced = new PrivateCandidatePreparation(new PrivatePrefixDiscovery(
+        (traversal, inputs, observer) -> {
+          if (observer != null) {
+            entered.countDown();
+            try {
+              assertThat(release.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            } catch (InterruptedException interrupted) {
+              Thread.currentThread().interrupt();
+              throw new AssertionError(interrupted);
+            }
+          }
+          return GremlinStepWalker.production().walkObserved(traversal, inputs, observer);
+        }, GremlinToMatchStrategy::buildPlan));
+    var other = new Thread(() -> {
+      try (var otherGraph =
+          youTrackDB.cachedPool(databaseName, readerUser, readerPassword).asGraph()) {
+        assertThat(entered.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        Supplier<Traversal.Admin<?, ?>> query = () -> otherGraph.traversal().V()
+            .hasLabel("CandidatePerson").has("age", 40).out("candidateKnows")
+            .optional(__.has("age", 30)).asAdmin();
+        assertThat(YTDBStrategyUtil.resolveYtdbSession(query.get())).isNotSameAs(mainSession);
+        var ordinary = preparation(false);
+        try (var cold = ordinary.prepare(query.get(), policy, declared)) {
+          assertThat(cold.cacheHit()).isFalse();
+          assertThat(cold.bindings()).containsExactlyEntriesOf(Map.of(0, 40));
+        }
+        try (var warm = ordinary.prepare(query.get(), policy, declared)) {
+          assertThat(warm.cacheHit()).isTrue();
+          assertThat(warm.bindings()).containsExactlyEntriesOf(Map.of(0, 40));
+        }
+        assertThat(walks).hasValue(2);
+        assertThat(builds).hasValue(1);
+      } catch (Throwable thrown) {
+        failure.set(thrown);
+      } finally {
+        release.countDown();
+      }
+    }, "declared-ordinary-overlap");
+    other.start();
+    try {
+      try (var selected = forced.prepare(root, policy, declared)) {
+        assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(selected.extent()).isEqualTo(3);
+        assertThat(selected.cacheHit()).isFalse();
+        assertThat(selected.bindings()).containsExactlyEntriesOf(Map.of(0, 30));
+        assertThat(selected.plan().getContext().getInputParameters())
+            .containsExactlyEntriesOf(Map.of(0, 30));
+      }
+    } finally {
+      release.countDown();
+      other.join(30000);
+    }
+    assertThat(other.isAlive()).isFalse();
+    assertThat(failure.get()).isNull();
+  }
+
+  /** Forced ownership uses one copy, closes its original and retains primary/suppressed failures. */
+  @Test
+  public void declaredPlanOwnershipAndFailures() {
+    try (var probe = new PublicationProbe()) {
+      var preparation = probe.prepare();
+      var root = declaredRoot();
+      var declaration = declaration(root, DECLARED_FULL, 2);
+      try (var first = preparation.prepare(root, policy, declaration);
+          var second = preparation.prepare(root, policy, declaration)) {
+        assertThat(first.plan()).isNotSameAs(second.plan());
+        assertThat(probe.originals).hasSize(2);
+        assertThat(probe.copies).hasSize(2);
+        for (var original : probe.originals) {
+          verify(original).close();
+        }
+        verify(first.plan(), never()).close();
+      }
+      for (var copy : probe.copies) {
+        verify(copy).close();
+      }
+      var primary = new IllegalStateException("copy");
+      var cleanup = new IllegalStateException("original close");
+      probe.onOriginal = original -> {
+        org.mockito.Mockito.doThrow(primary).when(original).copy(any(CommandContext.class));
+        org.mockito.Mockito.doThrow(cleanup).when(original).close();
+      };
+      assertThatThrownBy(() -> preparation.prepare(root, policy, declaration))
+          .isSameAs(primary)
+          .satisfies(failure -> assertThat(failure.getSuppressed()).containsExactly(cleanup));
+      try (var refused = preparation(true).prepare(root, policy, declaration)) {
+        assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
+        assertThat(refused.plan()).isNull();
+      }
+    }
+  }
+
   private final AtomicInteger walks = new AtomicInteger();
   private final AtomicInteger builds = new AtomicInteger();
   private final PrivateCandidatePreparation.Policy policy =
