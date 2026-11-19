@@ -3765,10 +3765,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       seedingTxSchemaState = true;
       final TxSchemaState state;
       try {
-        var manager = getSharedContext().getIndexManager();
-        long before = manager.readIndexChangeWord();
-        var copy = committed.copyForTx(this);
-        state = new TxSchemaState(copy, manager, manager.finishIndexStampCapture(before));
+        state = new TxSchemaState(committed.copyForTx(this));
       } finally {
         seedingTxSchemaState = false;
       }

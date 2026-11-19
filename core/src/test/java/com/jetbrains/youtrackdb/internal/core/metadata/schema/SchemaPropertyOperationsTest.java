@@ -70,106 +70,6 @@ import org.junit.Test;
  */
 public class SchemaPropertyOperationsTest extends DbTestBase {
 
-  @org.junit.After
-  public void compoundCounterHasNoActiveWriterAfterEveryTest() {
-    var manager = session.getSharedContext().getIndexManager();
-    assertEquals(0L, manager.readIndexChangeWord() & 0xffffL);
-    assertNull(manager.currentIndexWrite());
-  }
-
-  @Test
-  public void indexedCollationKeepsOneOwnerThroughEveryReplacementAndSavingRelease() {
-    // All drop/create gaps and the final schema save must remain non-idle, even after nested
-    // manager operations have returned. Successful publication leaves a changed idle stamp.
-    var schema = session.getMetadata().getSchema();
-    var cls = schema.createClass("CollationOwner");
-    var prop = cls.createProperty("text", PropertyType.STRING);
-    cls.createIndex("CollationOwner.one", INDEX_TYPE.NOTUNIQUE, "text");
-    cls.createIndex("CollationOwner.two", INDEX_TYPE.NOTUNIQUE, "text");
-    var shared = session.getSharedContext().getSchema();
-    var raw = (SchemaPropertyEmbedded) shared.getClass("CollationOwner").getProperty("text");
-    var manager = session.getSharedContext().getIndexManager();
-    var before = manager.readIndexChangeWord();
-    var stages = new java.util.ArrayList<String>();
-    raw.setCollationReplacementTestHook((stage, name) -> {
-      assertFalse(com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded
-          .isIdleIndexStamp(manager.readIndexChangeWord()));
-      stages.add(stage);
-    });
-    var saves = new java.util.concurrent.atomic.AtomicInteger();
-    shared.setSchemaSaveTestHook(() -> {
-      assertFalse(com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded
-          .isIdleIndexStamp(manager.readIndexChangeWord()));
-      saves.incrementAndGet();
-    });
-    try {
-      prop.setCollate("ci");
-    } finally {
-      raw.setCollationReplacementTestHook(null);
-      shared.setSchemaSaveTestHook(null);
-    }
-    assertEquals(6, stages.size());
-    assertEquals(1, saves.get());
-    assertTrue(manager.readIndexChangeWord() != before);
-    assertTrue(com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded
-        .isIdleIndexStamp(manager.readIndexChangeWord()));
-  }
-
-  @Test
-  public void collationFailureBeforeFirstDropRetainsMixedStateUncertainty() {
-    assertCollationFailurePoisons("beforeDrop", 1);
-  }
-
-  @Test
-  public void collationFailureBetweenDropAndCreateRetainsUncertainty() {
-    assertCollationFailurePoisons("afterDrop", 1);
-  }
-
-  @Test
-  public void collationFailureAfterEarlierReplacementRetainsUncertainty() {
-    assertCollationFailurePoisons("beforeDrop", 2);
-  }
-
-  private void assertCollationFailurePoisons(String failStage, int occurrence) {
-    // The collation assignment precedes every injected failure. A normal saving release cannot
-    // turn a partial mixed collation/index result into a verified complete operation.
-    var schema = session.getMetadata().getSchema();
-    var cls = schema.createClass("CollationFailure");
-    var prop = cls.createProperty("text", PropertyType.STRING);
-    cls.createIndex("CollationFailure.one", INDEX_TYPE.NOTUNIQUE, "text");
-    cls.createIndex("CollationFailure.two", INDEX_TYPE.NOTUNIQUE, "text");
-    var raw = (SchemaPropertyEmbedded) session.getSharedContext().getSchema()
-        .getClass("CollationFailure").getProperty("text");
-    var seen = new java.util.concurrent.atomic.AtomicInteger();
-    var failure = new RuntimeException("collation stage failure");
-    raw.setCollationReplacementTestHook((stage, name) -> {
-      if (stage.equals(failStage) && seen.incrementAndGet() == occurrence) {
-        throw failure;
-      }
-    });
-    try {
-      assertTrue(failure == assertThrows(RuntimeException.class, () -> prop.setCollate("ci")));
-    } finally {
-      raw.setCollationReplacementTestHook(null);
-    }
-    assertTrue(session.getSharedContext().getIndexManager().readIndexChangeWord() < 0);
-  }
-
-  @Test
-  public void noIndexAndUnchangedCollationDoNotMoveCounter() {
-    // Property-only collation edits and an identical indexed collation have no shared index work.
-    var cls = session.getMetadata().getSchema().createClass("CollationControl");
-    var prop = cls.createProperty("text", PropertyType.STRING);
-    var manager = session.getSharedContext().getIndexManager();
-    var before = manager.readIndexChangeWord();
-    prop.setCollate("ci");
-    assertEquals(before, manager.readIndexChangeWord());
-    cls.createIndex("CollationControl.text", INDEX_TYPE.NOTUNIQUE, "text");
-    before = manager.readIndexChangeWord();
-    prop.setCollate("ci");
-    assertEquals(before, manager.readIndexChangeWord());
-  }
-
   @Test
   public void booleanFlagsRoundTripThroughSetters() {
     // Pin every boolean flag's setter+getter pair on SchemaPropertyEmbedded —
@@ -270,6 +170,30 @@ public class SchemaPropertyOperationsTest extends DbTestBase {
     assertEquals("ci", prop.getCollate().getName());
     prop.setCollate((String) null);
     assertEquals(DefaultCollate.NAME, prop.getCollate().getName());
+  }
+
+  /** Setting the current collation again must retain the populated index and its descriptor. */
+  @Test
+  public void unchangedCollatePreservesIndexAndRows() {
+    var cls = session.getMetadata().getSchema().createClass("SameCollate");
+    var prop = cls.createProperty("text", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    session.executeInTx(tx -> session.newEntity("SameCollate").setProperty("text", "Mixed"));
+    var manager = session.getSharedContext().getIndexManager();
+    var identity = manager.getIndex("SameCollate.text").getIdentity();
+
+    prop.setCollate(DefaultCollate.NAME);
+
+    assertEquals("unchanged collation must not recreate the index", identity,
+        manager.getIndex("SameCollate.text").getIdentity());
+    session.executeInTx(tx -> {
+      try (var rows = session.query("select from SameCollate where text = 'Mixed'")) {
+        assertEquals(1, rows.stream().count());
+      }
+      try (var rows = session.query("select from SameCollate where text = 'mixed'")) {
+        assertFalse("default collation remains case-sensitive", rows.hasNext());
+      }
+    });
   }
 
   @Test

@@ -139,13 +139,6 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
     }
   }
 
-  // Test-only stage seam. Null during production use.
-  private java.util.function.BiConsumer<String, String> collationReplacementTestHook;
-
-  void setCollationReplacementTestHook(java.util.function.BiConsumer<String, String> hook) {
-    collationReplacementTestHook = hook;
-  }
-
   protected void setCollateInternal(DatabaseSessionEmbedded session, String iCollate) {
     acquireSchemaWriteLock(session);
     try {
@@ -157,10 +150,10 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
         iCollate = DefaultCollate.NAME;
       }
 
-      final var newCollate = SQLEngine.getCollate(iCollate);
+      collate = SQLEngine.getCollate(iCollate);
 
-      if ((newCollate != null && !newCollate.equals(oldCollate))
-          || (newCollate == null && oldCollate != null)) {
+      if ((this.collate != null && !this.collate.equals(oldCollate))
+          || (this.collate == null && oldCollate != null)) {
         final var indexes = owner.getClassIndexesInternal(session);
         final List<Index> indexesToRecreate = new ArrayList<>();
 
@@ -173,9 +166,6 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
           }
         }
 
-        final var operation = owner.owner.beginCommittedIndexWrite(session,
-            !indexesToRecreate.isEmpty());
-        collate = newCollate;
         if (!indexesToRecreate.isEmpty()) {
           LogManager.instance()
               .info(
@@ -186,33 +176,22 @@ public class SchemaPropertyEmbedded extends SchemaPropertyImpl {
           final var indexManager = session.getSharedContext()
               .getIndexManager();
           for (var indexToRecreate : indexesToRecreate) {
-            final var indexMetadata = session.computeInTxInternal(transaction -> indexToRecreate
-                .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
+            final var indexMetadata = session.computeInTxInternal(transaction ->
+                indexToRecreate
+                    .loadMetadata(transaction, indexToRecreate.getConfiguration(session)));
 
             final var fields = indexMetadata.getIndexDefinition().getProperties();
             final var fieldsToIndex = fields.toArray(new String[0]);
 
-            if (collationReplacementTestHook != null) {
-              collationReplacementTestHook.accept("beforeDrop", indexMetadata.getName());
-            }
             indexManager.dropIndex(session, indexMetadata.getName());
-            if (collationReplacementTestHook != null) {
-              collationReplacementTestHook.accept("afterDrop", indexMetadata.getName());
-            }
             owner.createIndex(session,
                 indexMetadata.getName(),
                 indexMetadata.getType(),
                 null,
                 indexToRecreate.getMetadata(),
                 indexMetadata.getAlgorithm(), fieldsToIndex);
-            if (collationReplacementTestHook != null) {
-              collationReplacementTestHook.accept("afterCreate", indexMetadata.getName());
-            }
           }
         }
-        SchemaShared.resolveCommittedIndexWrite(operation);
-      } else {
-        collate = newCollate;
       }
     } finally {
       releaseSchemaWriteLock(session);

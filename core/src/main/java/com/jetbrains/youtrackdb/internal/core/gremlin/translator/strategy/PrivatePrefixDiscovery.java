@@ -21,18 +21,12 @@ final class PrivatePrefixDiscovery {
 
   record Outcome(Reason reason, int cut,
       @Nullable GremlinToMatchTranslator.TranslationResult translation,
-      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure,
+      @Nullable InternalExecutionPlan plan,
       @Nullable PlainPlanDecision decision) implements AutoCloseable {
     Outcome(Reason reason, int cut,
         @Nullable GremlinToMatchTranslator.TranslationResult translation,
-        @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) {
-      this(reason, cut, translation, plan, indexGuardFailure, null);
-    }
-
-    Outcome(Reason reason, int cut,
-        @Nullable GremlinToMatchTranslator.TranslationResult translation,
         @Nullable InternalExecutionPlan plan) {
-      this(reason, cut, translation, plan, false);
+      this(reason, cut, translation, plan, null);
     }
 
     @Override
@@ -77,23 +71,8 @@ final class PrivatePrefixDiscovery {
     try (var scope = PrivatePreparationSchemaScope.open(session)) {
       var outcome = discover(traversal, admittedCut, session,
           GremlinStepWalker.WalkInputs.capture(traversal), false);
-      try {
-        scope.validate();
-        scope.onReleaseFailure(outcome::close);
-        return outcome;
-      } catch (RuntimeException | Error failure) {
-        try {
-          outcome.close();
-        } catch (RuntimeException | Error closeFailure) {
-          failure.addSuppressed(closeFailure);
-        }
-        throw failure;
-      }
-    } catch (PrivatePreparationSchemaScope.GuardFailure failure) {
-      if (failure.getSuppressed().length != 0) {
-        throw failure;
-      }
-      return new Outcome(Reason.PLAN_BUILD_FAILURE, -1, null, null, true);
+      scope.onReleaseFailure(outcome::close);
+      return outcome;
     }
   }
 
@@ -264,7 +243,7 @@ final class PrivatePrefixDiscovery {
       plan.close();
       return refused(Reason.PLAIN);
     }
-    return new Outcome(selected, cut, candidate, plan, false, decision);
+    return new Outcome(selected, cut, candidate, plan, decision);
   }
 
   private static Outcome refused(Reason reason) {

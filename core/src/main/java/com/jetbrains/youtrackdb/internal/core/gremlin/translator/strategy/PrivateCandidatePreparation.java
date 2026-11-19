@@ -44,13 +44,7 @@ final class PrivateCandidatePreparation {
 
   record Prepared(PrivatePrefixDiscovery.Reason reason, int extent, boolean cacheHit,
       Map<Object, Object> bindings, @Nullable ResultShaping shaping,
-      @Nullable InternalExecutionPlan plan, boolean indexGuardFailure) implements AutoCloseable {
-    Prepared(PrivatePrefixDiscovery.Reason reason, int extent, boolean cacheHit,
-        Map<Object, Object> bindings, @Nullable ResultShaping shaping,
-        @Nullable InternalExecutionPlan plan) {
-      this(reason, extent, cacheHit, bindings, shaping, plan, false);
-    }
-
+      @Nullable InternalExecutionPlan plan) implements AutoCloseable {
     @Override
     public void close() {
       if (plan != null) {
@@ -84,16 +78,10 @@ final class PrivateCandidatePreparation {
     var cache = GremlinPlanCache.instance(session);
     long generation = cache.getGeneration();
     try (var scope = PrivatePreparationSchemaScope.open(session)) {
-      var prepared = prepareCaptured(traversal, policy, safety, session, cache, generation, scope,
+      var prepared = prepareCaptured(traversal, policy, safety, session, cache, generation,
           applicable);
       scope.onReleaseFailure(prepared::close);
       return prepared;
-    } catch (PrivatePreparationSchemaScope.GuardFailure failure) {
-      if (failure.getSuppressed().length != 0) {
-        throw failure;
-      }
-      return new Prepared(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE, -1, false,
-          Map.of(), null, null, true);
     }
   }
 
@@ -107,18 +95,16 @@ final class PrivateCandidatePreparation {
 
   private Prepared prepareCaptured(Traversal.Admin<?, ?> traversal, Policy policy,
       QuerySafetyAdmission.Result safety, DatabaseSessionEmbedded session,
-      GremlinPlanCache cache, long generation, PrivatePreparationSchemaScope scope,
+      GremlinPlanCache cache, long generation,
       @Nullable Declaration declaration) {
     var inputs = GremlinStepWalker.WalkInputs.capture(traversal);
     if (inputs.polymorphic() == null || inputs.nulls() == null) {
-      scope.validate();
       return refusal(PrivatePrefixDiscovery.Reason.COMPLETE_NATIVE, false);
     }
     var extraction = GremlinShapeExtractor.extractPartial(GremlinStepWalker.PRODUCTION_RECOGNISERS,
         GremlinStepWalker.TRANSPARENT_STEPS, traversal, session, inputs);
     if (declaration != null) {
       if (PartialSourceState.repeat(traversal)) {
-        scope.validate();
         return refusal(PrivatePrefixDiscovery.Reason.REPEAT, false);
       }
       var reason = !declaration.expectedShape().equals(extraction.key().toString())
@@ -129,7 +115,6 @@ final class PrivateCandidatePreparation {
                   ? PrivatePrefixDiscovery.Reason.MULTI_PLAN
                   : !extraction.complete() ? PrivatePrefixDiscovery.Reason.DECLARED_SHAPE : null;
       if (reason != null) {
-        scope.validate();
         return refusal(reason, false);
       }
     }
@@ -143,17 +128,10 @@ final class PrivateCandidatePreparation {
       var resident = cache.getTranslationEntry(key, session);
       if (resident != null && cache.getGeneration() == generation
           && resident.template() instanceof GremlinTranslationTemplate.Candidate candidate) {
-        var reused = scope.matches(candidate.indexManager(), candidate.indexWord())
-            ? reuse(traversal, session, extraction, candidate, inputs) : null;
+        var reused = reuse(traversal, session, extraction, candidate, inputs);
         if (reused != null) {
           if (cache.getGeneration() == generation) {
-            try {
-              scope.validate();
-              return reused;
-            } catch (RuntimeException | Error failure) {
-              closeAfterFailure(reused, failure);
-              throw failure;
-            }
+            return reused;
           }
           reused.close();
         }
@@ -163,11 +141,9 @@ final class PrivateCandidatePreparation {
     var outcome = discovery.discover(traversal, policy.cuts()::contains, session, inputs, true,
         declaration == null ? null : declaration.cut());
     if (outcome.plan() == null) {
-      scope.validate();
       if (eligible && outcome.reason() != PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE) {
         GremlinPlanCache.putTranslation(key,
-            new GremlinTranslationTemplate.Candidate(-1, outcome.reason(), null,
-                scope.manager(), scope.word()),
+            new GremlinTranslationTemplate.Candidate(-1, outcome.reason(), null),
             session, generation, rejected);
       }
       return refusal(outcome.reason(), false);
@@ -195,7 +171,7 @@ final class PrivateCandidatePreparation {
                 translation.inputParameters().size(), translation.hasContributions(),
                 outcome.decision());
             publication = new GremlinTranslationTemplate.Candidate(
-                outcome.cut(), outcome.reason(), translate, scope.manager(), scope.word());
+                outcome.cut(), outcome.reason(), translate);
           }
         }
         // A publication loser uses its own complete outcome. It never mixes winner fields.
@@ -205,8 +181,7 @@ final class PrivateCandidatePreparation {
             new Prepared(outcome.reason(), outcome.cut(), false, translation.inputParameters(),
                 OrderedFilterBinding.fresh(translation.shaping()), outcome.plan().copy(context));
       }
-      // Original cleanup and every initialized copy precede validation and cold publication.
-      scope.validate();
+      // Original cleanup and every initialized copy precede cold publication.
       if (publication != null) {
         GremlinPlanCache.putTranslation(key, publication, session, generation, rejected);
       }

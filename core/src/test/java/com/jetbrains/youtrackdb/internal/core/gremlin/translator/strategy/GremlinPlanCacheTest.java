@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.MultiPlanMatchStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
-import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep;
@@ -28,7 +27,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -47,15 +45,6 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::graphSession);
-
-  /** Every candidate/cache path balances writers and leaves this non-fault fixture healthy. */
-  @After
-  public void assertIndexWritersFinished() {
-    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var word = session.getSharedContext().getIndexManager().readIndexChangeWord();
-    assertThat(word & 0xffffL).as("active index writers before graph close").isZero();
-    assertThat(word).as("unexpected poison, checked separately from active count").isNotNegative();
-  }
 
   @Before
   public void enableTranslator() {

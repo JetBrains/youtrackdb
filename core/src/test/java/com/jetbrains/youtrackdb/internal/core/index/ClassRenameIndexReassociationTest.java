@@ -477,14 +477,8 @@ public class ClassRenameIndexReassociationTest extends DbTestBase {
     cls.createProperty("val", PropertyType.STRING);
     cls.createIndex("RenEagerOld.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
 
-    // No transaction: the legacy top-level path must cover reassociation and return idle.
-    var manager = session.getSharedContext().getIndexManager();
-    var before = manager.readIndexChangeWord();
+    // No transaction: the legacy top-level path.
     session.getMetadata().getSchema().getClass("RenEagerOld").setName("RenEagerNew");
-    assertTrue(before != manager.readIndexChangeWord());
-    assertTrue(IndexManagerEmbedded.isIdleIndexStamp(manager.readIndexChangeWord()));
-    assertEquals(0, manager.readIndexChangeWord() & IndexManagerEmbedded.ACTIVE_MASK);
-    org.junit.Assert.assertNull(manager.currentIndexWrite());
 
     var indexManager = session.getSharedContext().getIndexManager();
     assertEquals("a top-level rename must re-key classPropertyIndex eagerly",

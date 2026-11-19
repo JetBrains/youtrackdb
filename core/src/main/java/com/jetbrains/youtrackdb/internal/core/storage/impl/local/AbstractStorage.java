@@ -79,7 +79,6 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
-import com.jetbrains.youtrackdb.internal.core.index.IndexOverlay;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
@@ -3155,34 +3154,12 @@ public abstract class AbstractStorage
    * schema-carrying commit; the pure-data commit passes {@code null} and the apply body runs exactly
    * its legacy sequence. Carries the committed shared schema (the promotion target), the tx-local
    * schema (the serialization source), the tx-schema state (the provisional-id carrier and the index
-   * overlay), the index manager (the target for the commit-time index publication), and the fixed
-   * overlay decision and owning operation outcome captured under the manager lock.
+   * overlay), and the index manager (the target for the commit-time index publication).
    */
   private record SchemaCommitContext(
       SchemaShared committedSchema, SchemaShared txLocalSchema, TxSchemaState txSchemaState,
-      IndexManagerEmbedded indexManager, @Nullable IndexOverlay indexOverlay,
-      SchemaCommitOutcome outcome) {
+      IndexManagerEmbedded indexManager) {
 
-  }
-
-  /** Carries only this commit's obligation across durability and contained undo failures. */
-  private static final class SchemaCommitOutcome {
-    @Nullable private IndexManagerEmbedded.IndexWriteOperation indexWrite;
-    private boolean raised;
-
-    private void raise() {
-      if (indexWrite != null) {
-        indexWrite.raise();
-        raised = true;
-      }
-    }
-
-    private void resolve() {
-      if (raised) {
-        indexWrite.resolve();
-        raised = false;
-      }
-    }
   }
 
   /**
@@ -3449,7 +3426,7 @@ public abstract class AbstractStorage
             // applies eager membership mutations to shared committed indexes as it goes, so a
             // throw mid-enrollment must still leave the failure path a non-null plan whose
             // recorded mutations it can revert.
-            final var indexOverlay = schemaContext.indexOverlay();
+            final var indexOverlay = schemaContext.txSchemaState().getIndexOverlay();
             indexPlan = schemaContext.indexManager().newReconciledIndexPlan(indexOverlay);
             if (indexPlan != null) {
               // Same fresh-committed-read reasoning as the toStream scope above: enrollment loads
@@ -3459,7 +3436,6 @@ public abstract class AbstractStorage
               // assigned BEFORE enrollment runs, so a throw mid-enrollment still leaves the
               // failure path a non-null plan whose recorded eager membership mutations it reverts.
               final var plan = indexPlan;
-              schemaContext.outcome().raise();
               session.computeWithFreshCommittedReads(() -> {
                 schemaContext.indexManager()
                     .enrollReconciledIndexRecords(
@@ -3653,9 +3629,8 @@ public abstract class AbstractStorage
       } finally {
         if (error != null) {
           rollback(error, atomicOperation);
-          if (schemaContext != null && structurePublished
-              && undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections)) {
-            schemaContext.outcome().resolve();
+          if (schemaContext != null && structurePublished) {
+            undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
           }
         } else {
           // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
@@ -3709,10 +3684,8 @@ public abstract class AbstractStorage
             endTxCommit(atomicOperation);
           } catch (final IOException | RuntimeException | AssertionError e) {
             if (atomicOperation.isRollbackInProgress()) {
-              if (schemaContext != null && structurePublished
-                  && undoSchemaCarryRegistryPublication(schemaContext, indexPlan,
-                      droppedCollections)) {
-                schemaContext.outcome().resolve();
+              if (schemaContext != null && structurePublished) {
+                undoSchemaCarryRegistryPublication(schemaContext, indexPlan, droppedCollections);
               }
             } else {
               setInError(e instanceof AssertionError
@@ -3728,9 +3701,6 @@ public abstract class AbstractStorage
                           + " storage is moved to error state. Re-open the storage to restore"
                           + " consistency from the durable state.",
                       e);
-              if (schemaContext != null && schemaContext.outcome().indexWrite != null) {
-                schemaContext.indexManager().poisonIndexChangeCounter();
-              }
             }
             throw e;
           }
@@ -3773,7 +3743,6 @@ public abstract class AbstractStorage
                 return null;
               });
               schemaContext.committedSchema().forceSnapshot();
-              schemaContext.outcome().resolve();
             } catch (final RuntimeException | AssertionError e) {
               LogManager.instance()
                   .error(this,
@@ -3792,9 +3761,6 @@ public abstract class AbstractStorage
                           "Post-durability metadata publication failed"),
                       e, name)
                   : e);
-              if (schemaContext.outcome().indexWrite != null) {
-                schemaContext.indexManager().poisonIndexChangeCounter();
-              }
             }
           }
         }
@@ -3831,7 +3797,9 @@ public abstract class AbstractStorage
       final List<RecordOperation> result) throws IOException {
     final var committedSchema = session.getSharedContext().getSchema();
     final var indexManager = session.getSharedContext().getIndexManager();
-    final var outcome = new SchemaCommitOutcome();
+    final var schemaContext =
+        new SchemaCommitContext(committedSchema, txSchemaState.getTxLocalSchema(), txSchemaState,
+            indexManager);
 
     // Four-lock order: the mutex is already engaged (first schema write). Take the two shared
     // metadata write locks before stateLock so the order stays acyclic, then the storage write lock.
@@ -3839,15 +3807,6 @@ public abstract class AbstractStorage
     try {
       indexManager.acquireExclusiveLockForCommit();
       try {
-        // Fix the overlay decision under the manager lock, before taking the storage lock.
-        final var indexOverlay = txSchemaState.getIndexOverlay();
-        final var schemaContext =
-            new SchemaCommitContext(committedSchema, txSchemaState.getTxLocalSchema(),
-                txSchemaState,
-                indexManager, indexOverlay, outcome);
-        if (indexManager.hasSharedIndexChanges(session, indexOverlay)) {
-          outcome.indexWrite = indexManager.beginIndexWrite();
-        }
         // Freezer-gate checkpoint (2): acquire the storage write lock through the
         // abort-predicate single-acquisition primitive. A plain lock() here could block
         // indefinitely behind readers while an operator freeze engages — with the two metadata
@@ -3878,13 +3837,7 @@ public abstract class AbstractStorage
           stateLock.writeLock().unlock();
         }
       } finally {
-        try {
-          if (outcome.indexWrite != null) {
-            indexManager.endIndexWrite(outcome.indexWrite);
-          }
-        } finally {
-          indexManager.releaseExclusiveLockForCommit();
-        }
+        indexManager.releaseExclusiveLockForCommit();
       }
     } finally {
       committedSchema.releaseSchemaWriteLock(session, false);
@@ -4032,26 +3985,18 @@ public abstract class AbstractStorage
    * and finally the eager in-memory membership mutations the enroll phase applied are reverted (the
    * record writes revert with the atomic operation, but the in-memory collectionsToIndex sets were
    * mutated synchronously).
-   *
-   * @return whether every required index undo completed, including contained engine cleanup.
    */
-  private boolean undoSchemaCarryRegistryPublication(
+  private void undoSchemaCarryRegistryPublication(
       final SchemaCommitContext schemaContext,
       @Nullable final IndexManagerEmbedded.ReconciledIndexPlan indexPlan,
       final List<DroppedCollection> droppedCollections) {
     undoReconciledCollections(schemaContext.committedSchema(),
         schemaContext.txSchemaState(), droppedCollections);
-    boolean complete = true;
     if (indexPlan != null) {
-      complete = undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
-      // Do not short-circuit: every existing undo arm must run after a contained failure.
-      complete &= restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
+      undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
+      restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
       schemaContext.indexManager().undoAppliedMembership(indexPlan);
     }
-    if (!complete) {
-      schemaContext.indexManager().poisonIndexChangeCounter();
-    }
-    return complete;
   }
 
   /**
@@ -4459,8 +4404,7 @@ public abstract class AbstractStorage
    *
    * @param createdEngineExternalIds the external ids of the engines the failed commit created.
    */
-  private boolean undoReconciledIndexEngines(final List<Integer> createdEngineExternalIds) {
-    boolean complete = true;
+  private void undoReconciledIndexEngines(final List<Integer> createdEngineExternalIds) {
     for (final var externalId : createdEngineExternalIds) {
       final var internalId = extractInternalId(externalId);
       final var engine =
@@ -4473,9 +4417,8 @@ public abstract class AbstractStorage
       detachHistogramManager(engine);
       indexEngines.set(internalId, null);
       indexEngineNameMap.remove(engine.getName());
-      complete &= revertCreatedIndexEngineStructure(engine);
+      revertCreatedIndexEngineStructure(engine);
     }
-    return complete;
   }
 
   void bindOwnerAndPublishRestoredIndexEngine(
@@ -4524,11 +4467,8 @@ public abstract class AbstractStorage
    * forced reopen is the healer. Runs under the held write lock.
    *
    * @param droppedEngines the engines the failed commit dropped (slot + captured durable data).
-   * @return false when captured data is missing or any reconstruction failure is contained.
    */
-  private boolean
-      restoreReconciledDroppedIndexEngines(final List<DroppedIndexEngine> droppedEngines) {
-    boolean complete = true;
+  private void restoreReconciledDroppedIndexEngines(final List<DroppedIndexEngine> droppedEngines) {
     // Enters the freezer UNARMED while holding the metadata-write mutex, both metadata write
     // locks, and stateLock.writeLock; safe from an operator-freeze park because a freeze arms
     // only under stateLock.readLock (see freeze()), excluded here by the held write lock.
@@ -4537,8 +4477,8 @@ public abstract class AbstractStorage
       final var engineData = dropped.data();
       if (engineData == null) {
         // No captured durable data means there was nothing to reconstruct (a drop whose config read
-        // returned null before the delete). The index outcome remains unknown until reopen, so
-        // report incomplete undo. Logged, NOT assert-thrown: this loop runs while the
+        // returned null before the delete). Nothing to restore; the divergence self-corrects on the
+        // next reopen if it ever occurs. Logged, NOT assert-thrown: this loop runs while the
         // primary commit exception propagates, and an -ea AssertionError here would replace that
         // primary failure and skip the remaining restore arms plus the membership undo.
         LogManager.instance()
@@ -4546,7 +4486,6 @@ public abstract class AbstractStorage
                 "Dropped index engine at slot %d had no captured durable data during"
                     + " failed-commit undo; nothing to reconstruct",
                 null, internalId);
-        complete = false;
         continue;
       }
       // Idempotent against a slot a later create-undo already left null-and-reusable: only reconstruct
@@ -4556,10 +4495,6 @@ public abstract class AbstractStorage
         continue;
       }
       try {
-        final var restoreHook = droppedIndexRestoreTestHook;
-        if (restoreHook != null) {
-          restoreHook.run();
-        }
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
               final var engine = Indexes.createIndexEngine(this, engineData);
@@ -4591,10 +4526,8 @@ public abstract class AbstractStorage
                         ? " (storage already in error state; the forced reopen will heal it)"
                         : ""),
                 e);
-        complete = false;
       }
     }
-    return complete;
   }
 
   /**
@@ -4607,11 +4540,10 @@ public abstract class AbstractStorage
    * original commit exception propagating through the failure-path finally.
    *
    * @param engine the captured engine removed from the registry, used to delete its files.
-   * @return false when cleanup is skipped as unsupported or a cleanup failure is contained.
    */
   // Package-private for tests: the guarded config-delete and the non-B-tree skip are
   // failure-path arms that production only reaches through an injected commit fault.
-  boolean revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
+  void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
     // Enters the freezer UNARMED while holding the metadata-write mutex, both metadata write
     // locks, and stateLock.writeLock; safe from an operator-freeze park because a freeze arms
     // only under stateLock.readLock (see freeze()), excluded here by the held write lock.
@@ -4627,13 +4559,9 @@ public abstract class AbstractStorage
               "Failed-commit engine cleanup reached a non-B-tree engine '" + engine.getName()
                   + "'; its surviving files (if any) cannot be swept and may leak",
               null);
-      return false;
+      return;
     }
     try {
-      final var revertHook = createdIndexRevertTestHook;
-      if (revertHook != null) {
-        revertHook.run();
-      }
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
             // The surviving engine data file is the in-memory-vs-disk discriminator, mirroring the
@@ -4678,9 +4606,7 @@ public abstract class AbstractStorage
               "Failed to revert orphaned files of index engine '" + engine.getName()
                   + "' after a failed schema commit; a bounded single-engine leak may remain",
               e);
-      return false;
     }
-    return true;
   }
 
   /**
@@ -4772,14 +4698,6 @@ public abstract class AbstractStorage
    * installing and committing threads may differ in a concurrent test.
    */
   private volatile Runnable postEngineBuildTestHook;
-
-  /** Test-only fault boundary after engine teardown and before configuration deletion. */
-  private volatile Runnable indexEngineDeletedTestHook;
-
-  /** Installs or clears the engine teardown fault seam. */
-  public void setIndexEngineDeletedTestHook(Runnable hook) {
-    indexEngineDeletedTestHook = hook;
-  }
 
   /**
    * Installs (or clears, with {@code null}) the test-only post-engine-build commit hook. Test-only
@@ -5918,10 +5836,6 @@ public abstract class AbstractStorage
   private void doDeleteIndexEngine(
       final AtomicOperation atomicOperation, final BaseIndexEngine engine) throws IOException {
     engine.delete(atomicOperation);
-    final var deleteHook = indexEngineDeletedTestHook;
-    if (deleteHook != null) {
-      deleteHook.run();
-    }
     ((CollectionBasedStorageConfiguration) configuration)
         .deleteIndexEngine(atomicOperation, engine.getName());
   }
@@ -7114,33 +7028,6 @@ public abstract class AbstractStorage
   private void rollback(final Throwable error, @Nonnull AtomicOperation atomicOperation)
       throws IOException {
     atomicOperationsManager.endAtomicOperation(atomicOperation, error);
-    final var hook = rollbackCompletionTestHook;
-    if (hook != null) {
-      hook.run();
-    }
-  }
-
-  // Test-only seams at contained undo boundaries. Null in production.
-  private volatile Runnable droppedIndexRestoreTestHook;
-  private volatile Runnable createdIndexRevertTestHook;
-  private volatile IOCompletionTestHook rollbackCompletionTestHook;
-
-  public void setDroppedIndexRestoreTestHook(Runnable hook) {
-    droppedIndexRestoreTestHook = hook;
-  }
-
-  public void setCreatedIndexRevertTestHook(Runnable hook) {
-    createdIndexRevertTestHook = hook;
-  }
-
-  /** Injects an IOException after rollback teardown, before registry undo can run. */
-  public void setRollbackCompletionTestHook(IOCompletionTestHook hook) {
-    rollbackCompletionTestHook = hook;
-  }
-
-  @FunctionalInterface
-  public interface IOCompletionTestHook {
-    void run() throws IOException;
   }
 
   public void moveToErrorStateIfNeeded(final Throwable error) {

@@ -21,7 +21,6 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.RequirementsStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.RepeatUnrollStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.TraverserRequirement;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -31,15 +30,6 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
   private final List<Integer> recognitions = new ArrayList<>();
   private final AtomicInteger builds = new AtomicInteger();
   private InternalExecutionPlan plan;
-
-  /** Every candidate/cache path balances writers and leaves this non-fault fixture healthy. */
-  @After
-  public void assertIndexWritersFinished() {
-    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var word = session.getSharedContext().getIndexManager().readIndexChangeWord();
-    assertThat(word & 0xffffL).as("active index writers before graph close").isZero();
-    assertThat(word).as("unexpected poison, checked separately from active count").isNotNegative();
-  }
 
   @Before
   public void enableTranslator() {
@@ -82,104 +72,6 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     return result;
   }
 
-  /** Real create and rebuild refuse standalone reads during their unlocked fill intervals. */
-  @Test
-  public void standaloneDiscoveryRefusesRealCreateWindowsAndSucceedsAfterQuiescence()
-      throws Exception {
-    var setup = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var clazz = setup.createVertexClass("StandaloneIndexed");
-    clazz.createProperty("key",
-        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
-    graph.tx().commit();
-    var db = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var manager = db.getSharedContext().getIndexManager();
-    var field = manager.getClass().getDeclaredField("creationFillHandoffTestHook");
-    field.setAccessible(true);
-    for (int window = 0; window < 3; window++) {
-      boolean fill = window != 0;
-      boolean rebuild = window == 2;
-      var entered = new java.util.concurrent.CountDownLatch(1);
-      var release = new java.util.concurrent.CountDownLatch(1);
-      var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
-      Runnable pause = () -> {
-        entered.countDown();
-        try {
-          assertThat(release.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
-        } catch (InterruptedException interrupted) {
-          Thread.currentThread().interrupt();
-          throw new AssertionError(interrupted);
-        }
-      };
-      if (!fill) {
-        field.set(manager, pause);
-      }
-      var listener = new com.jetbrains.youtrackdb.internal.common.listener.ProgressListener() {
-        @Override
-        public void onBegin(Object task, long total, Object metadata) {
-          assertThat(manager.readIndexChangeWord() & 0xffffL)
-              .as("outer create/rebuild interval remains active inside fill").isPositive();
-          if (fill) {
-            pause.run();
-          }
-        }
-
-        @Override
-        public boolean onProgress(Object task, long count, float percent) {
-          return true;
-        }
-
-        @Override
-        public void onCompletition(
-            com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded session,
-            Object task, boolean success) {
-          assertThat(success).isTrue();
-        }
-      };
-      var writer = new Thread(() -> {
-        try (var other = youTrackDB.open(databaseName, adminUser, adminPassword)) {
-          if (rebuild) {
-            manager.getIndex("standalonetrue").rebuild(other, listener);
-          } else {
-            manager.createIndex(other, "standalone" + fill, "NOTUNIQUE",
-                new com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition(
-                    "StandaloneIndexed", "key",
-                    com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal.INTEGER),
-                other.getMetadata().getSchema().getClass("StandaloneIndexed").getCollectionIds(),
-                listener, java.util.Map.of());
-          }
-        } catch (Throwable thrown) {
-          failure.set(thrown);
-        }
-      }, "standalone-real-index-create");
-      writer.start();
-      try {
-        assertThat(entered.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
-        // Force an active-interval shared memo. The first independent read must retire it.
-        db.getSharedContext().getSchema().forceSnapshot();
-        assertThat(db.getMetadata().getImmutableSchemaSnapshot().getIndexStamp()).isNegative();
-        try (var refused = run(discovery(), graph.traversal().V().out("knows")
-            .optional(__.identity()).asAdmin(), cut -> true)) {
-          assertThat(refused.indexGuardFailure()).isTrue();
-          assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
-          assertThat(refused.plan()).isNull();
-          assertThat(db.getMetadata().getThreadLocalSchemaSnapshotPinCount()).isZero();
-        }
-      } finally {
-        release.countDown();
-        writer.join(30000);
-        field.set(manager, null);
-      }
-      assertThat(writer.isAlive()).isFalse();
-      assertThat(failure.get()).isNull();
-      try (var fresh = run(discovery(), graph.traversal().V().out("knows")
-          .optional(__.identity()).asAdmin(), cut -> true)) {
-        assertThat(fresh.indexGuardFailure()).isFalse();
-        assertThat(fresh.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
-        assertThat(fresh.plan()).isNotNull();
-      }
-    }
-  }
-
   /** A selected standalone plan is discarded under its marker if pin release fails. */
   @Test
   public void standaloneReleaseFailureClosesSelectedPlanAndPreservesCleanupEvidence() {
@@ -209,72 +101,6 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
       assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isZero();
       assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
           .isActive(db)).isFalse();
-    }
-  }
-
-  /** Standalone discovery validates even a metadata-dependent refusal before returning it. */
-  @Test
-  public void standaloneRefusalCarriesIndexGuardEvidence() {
-    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var discovery = new PrivatePrefixDiscovery((traversal, inputs, observer) -> {
-      var manager = session.getSharedContext().getIndexManager();
-      var operation = manager.beginIndexWrite();
-      manager.endIndexWrite(operation);
-      return null;
-    }, (db, translation, scope) -> {
-      throw new AssertionError("A declined walk must not build");
-    });
-    try (var result = run(discovery, graph.traversal().V().out("knows")
-        .optional(__.identity()).asAdmin(), cut -> true)) {
-      assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
-      assertThat(result.indexGuardFailure()).isTrue();
-      assertThat(result.plan()).isNull();
-    }
-    assertThat(session.getMetadata().getThreadLocalSchemaSnapshotPinCount()).isZero();
-  }
-
-  /** Final validation discards a selected standalone plan after builder-time index movement. */
-  @Test
-  public void standaloneSelectedPlanClosesOnFinalIndexValidationFailure() {
-    var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
-    var metadata = session.getMetadata();
-    for (int depth = 0; depth <= 1; depth++) {
-      try (var fresh =
-          com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
-              .open(session)) {
-        fresh.validate();
-      }
-      var outer = metadata.getImmutableSchemaSnapshot();
-      if (depth == 1) {
-        metadata.makeThreadLocalSchemaSnapshot();
-      }
-      org.mockito.Mockito.clearInvocations(plan);
-      var discovery = new PrivatePrefixDiscovery(GremlinStepWalker.production()::walkObserved,
-          (db, translation, scope) -> {
-            var manager = session.getSharedContext().getIndexManager();
-            var operation = manager.beginIndexWrite();
-            manager.endIndexWrite(operation);
-            return plan;
-          });
-      try {
-        try (var result = run(discovery, graph.traversal().V().out("knows").values("name")
-            .optional(__.identity()).asAdmin(), cut -> true)) {
-          assertThat(result.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.PLAN_BUILD_FAILURE);
-          assertThat(result.indexGuardFailure()).isTrue();
-          assertThat(result.plan()).isNull();
-        }
-        verify(plan).close();
-        assertThat(metadata.getThreadLocalSchemaSnapshotPinCount()).isEqualTo(depth);
-        if (depth == 1) {
-          assertThat(metadata.getImmutableSchemaSnapshot()).isSameAs(outer);
-        }
-        assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
-            .isActive(session)).isFalse();
-      } finally {
-        if (depth == 1) {
-          metadata.clearThreadLocalSchemaSnapshot();
-        }
-      }
     }
   }
 
