@@ -441,6 +441,34 @@ public class WOWCacheLogicalFileStateTest {
     }
   }
 
+  // A handle cannot override an explicit disk-absent logical state during force or verification.
+  @Test
+  public void diskAbsentLogicalStateWithHandleIsNotForcedOrVerified() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9062);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      cache.addFile(name, id);
+      var field = WOWCache.class.getDeclaredField("files");
+      field.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
+      var handle = org.mockito.Mockito.spy(handles.remove(id));
+      handles.add(id, handle);
+      cache.logicalFiles().register(name, identity.internalId(), false, 0, 0, false);
+      var fsync = WOWCache.class.getDeclaredField("callFsync");
+      fsync.setAccessible(true);
+      fsync.set(cache, true);
+      cache.syncDataFiles();
+      org.mockito.Mockito.verify(handle, org.mockito.Mockito.never()).synch();
+      var verification = new StringBuilder();
+      assertEquals(0, cache.checkStoredPages(verification::append).length);
+      assertFalse(verification.toString().contains(name));
+      cache.logicalFiles().register(name, identity.internalId(), false);
+    });
+  }
+
   // A stale disk-present state with no owned handle must not crash terminal close.
   @Test
   public void closeToleratesDiskPresentLogicalStateWithoutHandle() throws Exception {
@@ -452,9 +480,31 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // Bulk membership changes publish one immutable snapshot without changing older snapshots.
+  // Membership updates invalidate the snapshot without rebuilding it, even over many mutations.
   @Test
-  public void bulkInventoryPublicationRetainsReservationsAndStableSnapshots() {
+  public void individualMutationsDeferInventoryCopyUntilRead() throws Exception {
+    var table = new LogicalPageFileTable();
+    var snapshot = LogicalPageFileTable.class.getDeclaredField("inventory");
+    snapshot.setAccessible(true);
+    for (int component = 9100; component < 10100; component++) {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
+      table.register(PageFileNames.layout28(identity), identity.internalId(), false);
+      assertNull(snapshot.get(table));
+    }
+    var before = table.inventory();
+    assertEquals(1000, before.size());
+    for (int component = 9100; component < 10100; component++) {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
+      table.forget(identity.internalId());
+      assertNull(snapshot.get(table));
+    }
+    assertTrue(table.inventory().isEmpty());
+    assertEquals(1000, before.size());
+  }
+
+  // Lazy snapshots reflect each mutation, reuse unchanged results and preserve older snapshots.
+  @Test
+  public void lazyInventoryRetainsReservationsAndStableSnapshots() {
     var table = new LogicalPageFileTable();
     var first = new PageFileIdentity(PageFileRole.RECORD_DATA, 9060);
     var second = new PageFileIdentity(PageFileRole.RECORD_DATA, 9061);
@@ -462,12 +512,14 @@ public class WOWCacheLogicalFileStateTest {
     var secondName = PageFileNames.layout28(second);
     table.register(firstName, first.internalId(), false);
     var before = table.inventory();
-    table.beginBulkUpdate();
+    org.junit.Assert.assertSame(before, table.inventory());
     table.delete(firstName, first.internalId());
     table.reserve(secondName, second.internalId());
-    assertEquals(before, table.inventory());
-    table.endBulkUpdate();
     assertTrue(table.inventory().isEmpty());
+    table.register(secondName, second.internalId(), false);
+    assertEquals(Map.of(secondName, second.internalId()), table.inventory());
+    assertEquals(Integer.valueOf(second.internalId()), table.fileId(secondName));
+    table.delete(secondName, second.internalId());
     assertEquals(Map.of(firstName, first.internalId()), before);
     assertEquals(java.util.Set.of(firstName, secondName), new HashSet<>(table.deletedFiles()));
     assertThrows(UnsupportedOperationException.class, () -> before.clear());
@@ -696,12 +748,11 @@ public class WOWCacheLogicalFileStateTest {
             0, 10000, 128L * 4096, path, "logical", new ClosableLinkedContainer<>(128),
             1, ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
             ChecksumMode.StoreAndVerify, null, null, false, io);
-        try {
+        // Preserve the assertion failure if terminal cleanup also fails.
+        try (AutoCloseable ignored = cache::close) {
           cache.setStorageFormat(StorageFormat.LAYOUT_28);
           cache.loadRegisteredFiles();
           action.run(cache);
-        } finally {
-          cache.close();
         }
       } finally {
         wal.delete();

@@ -2,7 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
-import java.util.HashMap;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -58,22 +58,23 @@ final class LogicalPageFileTable {
   // Background writes consult this table without acquiring filesLock.
   private final Map<Integer, State> states = new ConcurrentHashMap<>();
 
-  // Lifecycle writers hold the existing exclusive filesLock. Background readers never take it.
+  // Writers hold filesLock. Name lookups and background enumeration need no lock or copy.
+  private final Map<String, Integer> liveNames = new ConcurrentHashMap<>();
   private volatile Map<String, Integer> inventory = Map.of();
-  private final Map<String, Integer> liveNames = new HashMap<>();
-  private boolean bulkUpdate;
 
-  void beginBulkUpdate() {
-    bulkUpdate = true;
-  }
-
-  void endBulkUpdate() {
-    bulkUpdate = false;
-    publishInventory();
-  }
-
-  Map<String, Integer> inventory() {
+  synchronized Map<String, Integer> inventory() {
+    if (inventory == null) {
+      inventory = Map.copyOf(liveNames);
+    }
     return inventory;
+  }
+
+  Integer fileId(String name) {
+    return liveNames.get(name);
+  }
+
+  Collection<Integer> liveIds() {
+    return liveNames.values();
   }
 
   List<String> deletedFiles() {
@@ -81,10 +82,9 @@ final class LogicalPageFileTable {
         .map(state -> PageFileNames.layout28(state.identity())).toList();
   }
 
-  private void publishInventory() {
-    if (!bulkUpdate) {
-      inventory = Map.copyOf(liveNames);
-    }
+  private void invalidateInventory() {
+    // Mutations are constant time. Only cold inventory readers pay for an immutable copy.
+    inventory = null;
   }
 
   static PageFileIdentity resolve(String name, int expectedId) {
@@ -109,7 +109,7 @@ final class LogicalPageFileTable {
     register(name, expectedId, nonDurable, 0, 0, true);
   }
 
-  void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
+  synchronized void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
       long diskExtent, boolean diskPresent) {
     var identity = resolve(name, expectedId);
     var previous = live(expectedId);
@@ -118,25 +118,25 @@ final class LogicalPageFileTable {
     states.put(expectedId, new State(identity, extents, diskPresent, nonDurable, Kind.LIVE));
     if (previous == null) {
       liveNames.put(name, expectedId);
-      publishInventory();
+      invalidateInventory();
     }
   }
 
-  private void put(String name, int expectedId, boolean nonDurable, Kind kind) {
+  private synchronized void put(String name, int expectedId, boolean nonDurable, Kind kind) {
     var identity = resolve(name, expectedId);
     var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind));
     if (previous != null && previous.kind() == Kind.LIVE) {
       liveNames.remove(name);
-      publishInventory();
+      invalidateInventory();
     }
   }
 
   // A rename to an alias removes canonical membership, not the physical file.
-  void forget(int internalId) {
+  synchronized void forget(int internalId) {
     var previous = states.remove(internalId);
     if (previous != null) {
       liveNames.remove(PageFileNames.layout28(previous.identity()));
-      publishInventory();
+      invalidateInventory();
     }
   }
 
@@ -160,9 +160,9 @@ final class LogicalPageFileTable {
     return state != null && state.kind() == Kind.DELETED;
   }
 
-  void clear() {
+  synchronized void clear() {
     states.clear();
     liveNames.clear();
-    publishInventory();
+    invalidateInventory();
   }
 }

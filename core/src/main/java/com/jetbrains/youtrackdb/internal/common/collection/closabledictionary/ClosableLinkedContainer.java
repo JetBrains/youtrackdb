@@ -479,11 +479,6 @@ public class ClosableLinkedContainer<K, V extends ClosableItem> {
     }
   }
 
-  /** Returns a detached snapshot of all registered keys, including evicted handles. */
-  public java.util.Set<K> keys() {
-    return java.util.Set.copyOf(data.keySet());
-  }
-
   /**
    * Returns item without acquiring it. State of item is not guarantied in such case.
    *
