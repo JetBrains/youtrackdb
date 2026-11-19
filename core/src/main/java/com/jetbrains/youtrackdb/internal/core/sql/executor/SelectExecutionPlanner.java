@@ -4507,7 +4507,7 @@ public class SelectExecutionPlanner {
               edgeExtraction.edgeClassName(),
               edgeExtraction.traversalDirection(),
               edgeExtraction.targetRidExpression(),
-              false);
+              false, true);
           remainingWhere = edgeExtraction.remainingWhere();
         }
       }

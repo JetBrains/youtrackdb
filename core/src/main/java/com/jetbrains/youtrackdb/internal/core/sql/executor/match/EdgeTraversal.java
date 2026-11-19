@@ -832,6 +832,16 @@ public class EdgeTraversal {
    *         {@code false} if the descriptor was rejected/deferred (and the
    *         appropriate skip reason already recorded).
    */
+  private static boolean hasMultiFieldLookup(RidFilterDescriptor desc, CommandContext ctx) {
+    if (desc instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
+      return lookup.hasMultipleFields(ctx);
+    }
+    if (desc instanceof RidFilterDescriptor.Composite composite) {
+      return composite.descriptors().stream().anyMatch(child -> hasMultiFieldLookup(child, ctx));
+    }
+    return false;
+  }
+
   private boolean evaluateDescriptorSelectivity(
       RidFilterDescriptor desc, int estimatedSize, int linkBagSize,
       @Nullable Object key, CommandContext ctx) {
@@ -851,7 +861,7 @@ public class EdgeTraversal {
         // Composite rescue: the IndexLookup child failed, but a sibling
         // (e.g. EdgeRidLookup back-reference) may still justify the build.
         var composite = (RidFilterDescriptor.Composite) desc;
-        if (estimatedSize >= 0
+        if (estimatedSize >= 0 && !hasMultiFieldLookup(desc, ctx)
             && !composite.anyChildPassesExcluding(
                 RidFilterDescriptor.IndexLookup.class,
                 estimatedSize, linkBagSize, ctx)) {
@@ -864,6 +874,9 @@ public class EdgeTraversal {
       return decision == AmortizationDecision.PROCEED;
     }
 
+    if (hasMultiFieldLookup(desc, ctx)) {
+      return true;
+    }
     if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
@@ -1264,7 +1277,19 @@ public class EdgeTraversal {
     return edge.toString();
   }
 
-  /** Returns a shallow copy with deep-copied mutable fields (filter, RID). */
+  @Nullable private static RidFilterDescriptor copyDescriptor(
+      @Nullable RidFilterDescriptor descriptor) {
+    if (descriptor instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
+      return lookup.copyForExecution();
+    }
+    if (descriptor instanceof RidFilterDescriptor.Composite composite) {
+      return new RidFilterDescriptor.Composite(
+          composite.descriptors().stream().map(EdgeTraversal::copyDescriptor).toList());
+    }
+    return descriptor;
+  }
+
+  /** Returns a shallow copy with deep-copied mutable fields (filter, RID, lookup cache). */
   public EdgeTraversal copy() {
     var copy = new EdgeTraversal(edge, out);
 
@@ -1277,7 +1302,7 @@ public class EdgeTraversal {
     if (leftRid != null) {
       copy.leftRid = leftRid.copy();
     }
-    copy.intersectionDescriptor = intersectionDescriptor;
+    copy.intersectionDescriptor = copyDescriptor(intersectionDescriptor);
     copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;

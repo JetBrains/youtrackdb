@@ -146,13 +146,18 @@ can never be counter-productive.
 **`EdgeRidLookup`** (`RidFilterDescriptor.java:181`) covers back-reference intersection.
 When the target alias's WHERE clause contains `@rid = $matched.X.@rid`, the set of matching
 vertices is exactly the set of neighbours that alias `X` is connected to via the reverse
-edge. `resolve` loads the target vertex (the already-bound `X`), reads its reverse link bag
-for the given edge class — for `out('HAS_CREATOR')`, that is the `in_HAS_CREATOR` field on
-the target — and collects vertex RIDs into a `RidSet`. A fourth record component,
-`collectEdgeRids`, switches the collector between vertex RIDs (for `out()`/`in()`) and edge
-RIDs (for `outE()`/`inE()`, where the adjacency iterator filters on the edge record itself).
-`estimatedSize` reads the reverse link-bag size via
-`TraversalPreFilterHelper.reverseLinkBagSize`, which is an O(1) stored-field read. `cacheKey`
+edge. `resolve` loads the target vertex (the already-bound `X`) and reads the reverse
+link fields selected by the traversal's schema rule. These include the edge class and its
+subclasses. For `E`, they include the bare direction prefix and the fields of the current
+schema subclasses. A `both()` lookup reads both directions. The field list uses the
+session schema snapshot at execution time. A non-LinkBag field disables the lookup so that
+MATCH checks the original condition. The `collectEdgeRids` flag switches the collector
+between vertex RIDs (for `out()`/`in()`) and edge RIDs (for `outE()`/`inE()`).
+The size estimate and cap count entries across all selected fields with saturating arithmetic.
+Only a one-field lookup uses the estimated overlap ratio before building. Multi-field
+lookups use the distinct RID count after building. A plain MATCH step clears stored RID
+sets when the plan restarts. SELECT with `expand()` uses a separate single-field mode.
+`cacheKey`
 returns the resolved target RID, so the cache entry is reused across all source vertices that
 share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:195`)
 is an *overlap ratio* test — the first of the two admission paths — described in detail later.
@@ -177,7 +182,7 @@ intersection is bounded by its most selective child, so one selective input is e
 justify the work.
 
 The following code snippet shows the exact shape of the interface as implemented, including
-the `record` syntax used for each variant:
+the descriptor variants:
 
 ```java
 // RidFilterDescriptor.java:29
@@ -190,10 +195,7 @@ public sealed interface RidFilterDescriptor {
   record DirectRid(SQLExpression ridExpression)
       implements RidFilterDescriptor { ... }
 
-  record EdgeRidLookup(
-      String edgeClassName, String traversalDirection,
-      SQLExpression targetRidExpression, boolean collectEdgeRids)
-      implements RidFilterDescriptor { ... }
+  final class EdgeRidLookup implements RidFilterDescriptor { ... }
 
   record IndexLookup(IndexSearchDescriptor indexDescriptor)
       implements RidFilterDescriptor { ... }

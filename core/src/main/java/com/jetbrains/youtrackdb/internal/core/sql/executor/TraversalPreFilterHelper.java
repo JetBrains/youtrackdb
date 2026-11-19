@@ -4,11 +4,14 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.VertexEntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -158,7 +161,7 @@ public final class TraversalPreFilterHelper {
 
   /**
    * Loads the vertex identified by {@code targetRid}, reads the reverse
-   * link bag for the given edge class, and collects the secondary RIDs
+   * link fields for the edge class and its subclasses, and collects the secondary RIDs
    * (the vertices on the other side of each edge) into a {@link RidSet}.
    *
    * <p>For example, if {@code traversalDirection} is {@code "out"} and
@@ -176,7 +179,7 @@ public final class TraversalPreFilterHelper {
    * @param targetRid          RID of the vertex whose reverse edges to read
    * @param edgeClassName      the edge class name (e.g. {@code "HAS_CREATOR"})
    * @param traversalDirection the direction of the original edge
-   *                           ({@code "out"} or {@code "in"})
+   *                           ({@code "out"}, {@code "in"} or {@code "both"})
    * @param ctx                command context for transaction access
    * @return the set of opposite-side vertex RIDs, or {@code null} if
    *     resolution fails or the absolute cap is exceeded
@@ -212,6 +215,25 @@ public final class TraversalPreFilterHelper {
       String traversalDirection,
       boolean collectEdgeRids,
       CommandContext ctx) {
+    return resolveReverseEdgeLookup(targetRid,
+        reverseLinkFields(ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot(),
+            edgeClassName, traversalDirection),
+        collectEdgeRids, ctx);
+  }
+
+  /** Uses exactly the traversal's schema-based field rule, in the reverse direction. */
+  static List<String> reverseLinkFields(
+      Schema schema, String edgeClassName, String traversalDirection) {
+    var direction = switch (traversalDirection) {
+      case "out" -> Direction.IN;
+      case "both" -> Direction.BOTH;
+      default -> Direction.OUT;
+    };
+    return VertexEntityImpl.getAllPossibleEdgePropertyNames(schema, direction, edgeClassName);
+  }
+
+  @Nullable static RidSet resolveReverseEdgeLookup(
+      RID targetRid, List<String> fields, boolean collectEdgeRids, CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     EntityImpl targetEntity;
     try {
@@ -224,36 +246,31 @@ public final class TraversalPreFilterHelper {
       return null;
     }
 
-    var reversePrefix = "out".equals(traversalDirection) ? "in_" : "out_";
-    var fieldName = reversePrefix + edgeClassName;
-    var fieldValue = targetEntity.getPropertyInternal(fieldName);
-    if (!(fieldValue instanceof LinkBag linkBag)) {
+    // Validate every field before building. Skipping a non-bag would give an incomplete set.
+    int total = linkBagTotal(targetEntity, fields);
+    if (total < 0 || total > maxRidSetSize()) {
       return null;
     }
-
-    // O(1) up-front guard: skip iteration if the reverse link bag
-    // already exceeds the absolute cap.
-    if (linkBag.size() > maxRidSetSize()) {
-      return null;
-    }
-
     var ridSet = new RidSet();
-    var count = 0;
-    for (RidPair pair : linkBag) {
-      ridSet.add(collectEdgeRids ? pair.primaryRid() : pair.secondaryRid());
-      count++;
-      if ((count & CHECKPOINT_INTERVAL_MASK) == 0
-          && shouldAbort(count)) {
-        return null;
+    long count = 0;
+    for (var field : fields) {
+      var value = targetEntity.getPropertyInternal(field);
+      if (value instanceof LinkBag linkBag) {
+        for (RidPair pair : linkBag) {
+          ridSet.add(collectEdgeRids ? pair.primaryRid() : pair.secondaryRid());
+          count++;
+          if ((count & CHECKPOINT_INTERVAL_MASK) == 0 && count > maxRidSetSize()) {
+            return null;
+          }
+        }
       }
     }
     return ridSet;
   }
 
   /**
-   * Returns the size of the reverse link bag for the given target vertex
-   * and edge class, without iterating its entries. O(1) — the size is a
-   * stored field on the link bag.
+   * Returns the saturating total of reverse link bag sizes for the target vertex
+   * and edge class hierarchy, without iterating entries.
    *
    * <p>Used by {@link RidFilterDescriptor.EdgeRidLookup#estimatedSize}
    * for pre-resolution ratio checks.
@@ -264,6 +281,16 @@ public final class TraversalPreFilterHelper {
   public static int reverseLinkBagSize(
       RID targetRid, String edgeClassName,
       String traversalDirection, CommandContext ctx) {
+    if (ctx.getDatabaseSession() == null) {
+      return -1;
+    }
+    return reverseLinkBagSize(targetRid,
+        reverseLinkFields(ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot(),
+            edgeClassName, traversalDirection),
+        ctx);
+  }
+
+  static int reverseLinkBagSize(RID targetRid, List<String> fields, CommandContext ctx) {
     var db = ctx.getDatabaseSession();
     if (db == null) {
       return -1;
@@ -279,13 +306,24 @@ public final class TraversalPreFilterHelper {
       return -1;
     }
 
-    var reversePrefix = "out".equals(traversalDirection) ? "in_" : "out_";
-    var fieldName = reversePrefix + edgeClassName;
-    var fieldValue = targetEntity.getPropertyInternal(fieldName);
-    if (!(fieldValue instanceof LinkBag linkBag)) {
-      return -1;
+    return linkBagTotal(targetEntity, fields);
+  }
+
+  private static int linkBagTotal(EntityImpl vertex, List<String> fields) {
+    long total = 0;
+    boolean found = false;
+    for (var field : fields) {
+      var value = vertex.getPropertyInternal(field);
+      if (value == null) {
+        continue;
+      }
+      if (!(value instanceof LinkBag bag)) {
+        return -1;
+      }
+      found = true;
+      total = Math.min(Integer.MAX_VALUE, total + bag.size());
     }
-    return linkBag.size();
+    return found ? (int) total : -1;
   }
 
   /**

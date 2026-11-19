@@ -67,7 +67,13 @@ import java.util.Locale;
 public class MatchStep extends AbstractExecutionStep {
 
   /** The scheduled edge traversal this step will execute. */
-  protected final EdgeTraversal edge;
+  protected EdgeTraversal edge;
+
+  /** A rewind must not retain RID sets from an earlier graph or schema snapshot. */
+  @Override
+  public void reset() {
+    edge = edge.copy();
+  }
 
   /**
    * @param context          the command execution context

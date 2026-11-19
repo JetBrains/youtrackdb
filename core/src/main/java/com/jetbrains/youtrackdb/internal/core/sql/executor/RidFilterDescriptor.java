@@ -38,8 +38,8 @@ public sealed interface RidFilterDescriptor {
    * <p>Accuracy varies by descriptor type:
    * <ul>
    *   <li>{@link DirectRid} — always 1 (exact)
-   *   <li>{@link EdgeRidLookup} — reverse link bag size (exact, O(1)
-   *       stored field; requires loading the target vertex)
+   *   <li>{@link EdgeRidLookup} — total reverse bag entries across the selected fields
+   *       (requires loading the target vertex)
    *   <li>{@link IndexLookup} — histogram-based estimate (approximate)
    *   <li>{@link Composite} — minimum of child estimates
    * </ul>
@@ -164,8 +164,8 @@ public sealed interface RidFilterDescriptor {
    * Reverse edge lookup: {@code WHERE out/in('EdgeClass').@rid = <expr>}.
    *
    * <p>Resolves the target RID from the expression, loads the target vertex,
-   * reads the reverse link bag (e.g. for {@code out('X').@rid = Y}, reads
-   * the {@code in_X} field on vertex Y), and collects the secondary RIDs
+   * reads the traversal's reverse link fields for the class and its subclasses,
+   * and collects the secondary RIDs
    * (the vertices on the other side of each edge) into a {@link RidSet}.
    *
    * <p>Also used by the MATCH engine for back-reference intersection:
@@ -178,11 +178,63 @@ public sealed interface RidFilterDescriptor {
    * for {@code .outE()}/{@code .inE()} traversals where the link bag
    * iterator filters on edge RIDs, not vertex RIDs.
    */
-  record EdgeRidLookup(
-      String edgeClassName,
-      String traversalDirection,
-      SQLExpression targetRidExpression,
-      boolean collectEdgeRids) implements RidFilterDescriptor {
+  final class EdgeRidLookup implements RidFilterDescriptor {
+
+    private final String edgeClassName;
+    private final String traversalDirection;
+    private final SQLExpression targetRidExpression;
+    private final boolean collectEdgeRids;
+    private final boolean singleField;
+    private volatile Fields cachedFields;
+
+    private record Fields(Object snapshot, List<String> names) {
+    }
+
+    public EdgeRidLookup(String edgeClassName, String traversalDirection,
+        SQLExpression targetRidExpression, boolean collectEdgeRids) {
+      this(edgeClassName, traversalDirection, targetRidExpression, collectEdgeRids, false);
+    }
+
+    public EdgeRidLookup(String edgeClassName, String traversalDirection,
+        SQLExpression targetRidExpression, boolean collectEdgeRids, boolean singleField) {
+      this.edgeClassName = edgeClassName;
+      this.traversalDirection = traversalDirection;
+      this.targetRidExpression = targetRidExpression;
+      this.collectEdgeRids = collectEdgeRids;
+      this.singleField = singleField;
+    }
+
+    public String edgeClassName() {
+      return edgeClassName;
+    }
+
+    public String traversalDirection() {
+      return traversalDirection;
+    }
+
+    public SQLExpression targetRidExpression() {
+      return targetRidExpression;
+    }
+
+    public boolean collectEdgeRids() {
+      return collectEdgeRids;
+    }
+
+    private List<String> fields(CommandContext ctx) {
+      if (singleField) {
+        return List.of(("out".equals(traversalDirection) ? "in_" : "out_") + edgeClassName);
+      }
+      var snapshot = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot();
+      var cached = cachedFields;
+      if (cached != null && cached.snapshot() == snapshot) {
+        return cached.names();
+      }
+      var names = TraversalPreFilterHelper.reverseLinkFields(
+          snapshot, edgeClassName, traversalDirection);
+      // Keep the snapshot and its derived names in one cache entry.
+      cachedFields = new Fields(snapshot, names);
+      return names;
+    }
 
     /**
      * Overlap-based ratio check: {@code resolvedSize / linkBagSize <=
@@ -202,7 +254,7 @@ public sealed interface RidFilterDescriptor {
     }
 
     /**
-     * Returns the reverse link bag size — exact, O(1) stored field.
+     * Returns the saturating total of the selected reverse link bag sizes.
      * Uses the pre-computed target RID from {@code cacheKey} to avoid
      * re-evaluating the expression.
      */
@@ -212,8 +264,7 @@ public sealed interface RidFilterDescriptor {
       if (targetRid == null) {
         return -1;
       }
-      return TraversalPreFilterHelper.reverseLinkBagSize(
-          targetRid, edgeClassName, traversalDirection, ctx);
+      return TraversalPreFilterHelper.reverseLinkBagSize(targetRid, fields(ctx), ctx);
     }
 
     /**
@@ -227,7 +278,18 @@ public sealed interface RidFilterDescriptor {
         return null;
       }
       return TraversalPreFilterHelper.resolveReverseEdgeLookup(
-          targetRid, edgeClassName, traversalDirection, collectEdgeRids, ctx);
+          targetRid, fields(ctx), collectEdgeRids, ctx);
+    }
+
+    /** Gives each execution step its own snapshot-keyed field-list cache. */
+    public EdgeRidLookup copyForExecution() {
+      return new EdgeRidLookup(
+          edgeClassName, traversalDirection, targetRidExpression, collectEdgeRids, singleField);
+    }
+
+    /** Multiple fields can overlap, so only the distinct post-build size is selective. */
+    public boolean hasMultipleFields(CommandContext ctx) {
+      return fields(ctx).size() > 1;
     }
 
     /** Resolves the target RID from the expression. */

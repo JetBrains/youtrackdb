@@ -210,6 +210,8 @@ public class EdgeTraversalCacheTest {
   public void copy_resetsCachedRidSet() {
     var et = createEdgeTraversal();
     var desc = mock(EdgeRidLookup.class);
+    // The database-backed restart test checks that real descriptors get separate field caches.
+    when(desc.copyForExecution()).thenReturn(desc);
     var key = new RecordId(5, 1);
     var ridSet1 = singletonRidSet(10, 1);
     var ridSet2 = singletonRidSet(10, 2);
