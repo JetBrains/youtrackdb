@@ -630,7 +630,7 @@ public final class WOWCache extends AbstractWriteCache
 
   private boolean hasDiskFile(int internalId) {
     var state = logicalState(internalId);
-    return logicalFiles == null || (state != null ? state.diskPresent()
+    return logicalFiles == null || closed || (state != null ? state.diskPresent()
         : files.get(composeFileId(id, internalId)) != null);
   }
 
@@ -2829,7 +2829,7 @@ public final class WOWCache extends AbstractWriteCache
         if (intId >= 0) {
           final var extId = composeFileId(id, intId);
           final var fileClassic = files.get(extId);
-          if (fileClassic == null) {
+          if (logicalFiles != null && fileClassic == null) {
             continue;
           }
 
@@ -4383,7 +4383,8 @@ public final class WOWCache extends AbstractWriteCache
 
   private void fsyncFiles() throws java.lang.InterruptedException, IOException {
     if (callFsync) {
-      for (int intFileId : liveFileIds()) {
+      for (int intFileId : logicalFiles == null || closed
+          ? idNameMap.keySet() : liveFileIds()) {
         if (intFileId >= 0 && hasDiskFile(intFileId)) {
           final var extFileId = externalFileId(intFileId);
 
