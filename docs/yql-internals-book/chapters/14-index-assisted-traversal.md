@@ -567,6 +567,7 @@ elide an in-memory sort.
 |---|---|---|
 | `youtrackdb.query.orderBy.nullsPlacementAsc` | `FIRST` | Requested ascending null placement when the planner tests whether index order can elide an in-memory sort |
 | `youtrackdb.query.orderBy.nullsPlacementDesc` | `LAST` | Requested descending null placement when the planner tests whether index order can elide an in-memory sort |
+| `youtrackdb.query.indexOrdered.maxEqualityCandidates` | heap-adaptive: 0.5 % of max heap, clamped to [100 000, 10 000 000] | Candidate RID memory cap for index-ordered MATCH equality fetch |
 | `youtrackdb.query.prefilter.maxRidSetSize` | heap-adaptive: 0.5 % of max heap, clamped to [100 000, 10 000 000] | Absolute cap on RidSet entries; exceeding it (up front or mid-build) aborts materialisation |
 | `youtrackdb.query.prefilter.minLinkBagSize` | 50 | Minimum adjacency-list size below which the RID-set filter is skipped entirely |
 | `youtrackdb.query.prefilter.edgeLookupMaxRatio` | 0.8 | Path A: maximum `resolvedSize / linkBagSize` for an `EdgeRidLookup`; above this the overlap is too high to help |
