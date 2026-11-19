@@ -139,10 +139,14 @@ build the uber-jar and launch Java separately. Run the commands below from the r
 ### Single command (recommended): `verify -P bench`
 
 The `bench` Maven profile binds `exec:exec` to the `verify` phase in `jmh-ldbc`, so
-packaging and launch happen automatically:
+packaging and launch happen automatically.
+The Maven launcher excludes the seven `gremlin_bulking` benchmarks by default.
+This exclusion also applies to benchmark lists and LDBC JMH compare runs.
+Clear it with `-Djmh.defaultExcludes=` to include these benchmarks.
+Direct `java -jar` runs do not use this Maven default.
 
 ```bash
-# Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
+# Run the default benchmarks (compiles core + jmh-ldbc, then launches JMH)
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
 
 # Run only single-threaded benchmarks (~22 min)
@@ -155,8 +159,12 @@ packaging and launch happen automatically:
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Djmh.args=".*is1_personProfile -f 1 -wi 1 -i 1 -r 1s"
 
-# List all available benchmarks without running them
+# List the default benchmarks without running them
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
+
+# Run the bulking benchmarks
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Djmh.args="gremlin_bulking" -Djmh.defaultExcludes=
 ```
 
 ### Two steps: `package -DskipTests`, then `java -jar`
