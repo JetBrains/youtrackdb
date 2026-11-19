@@ -2190,6 +2190,72 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Private extraction uses captured grouping permission in both disagreement directions.
+   * The same eligible map boundary must also retain capacity 2500 when capture permits it.
+   */
+  @Test
+  public void capturedGroupingControlsExtractionDespiteLivePermission() {
+    for (boolean livePermitsGrouping : List.of(true, false)) {
+      for (boolean capturedPermitsGrouping : List.of(false, true)) {
+        var source = livePermitsGrouping ? graph.traversal() : graph.traversal().withBulk(false);
+        var traversal = source.V().barrier(2500).valueMap("name").asAdmin();
+        assertThat(PropertyMapBulkingAdmission.permitsGrouping(traversal))
+            .isEqualTo(livePermitsGrouping);
+        assertThat(PropertyMapBulkingAdmission.capacity(traversal))
+            .isEqualTo(livePermitsGrouping ? 2500 : 0);
+        var inputs = groupingInputs(traversal, capturedPermitsGrouping);
+        var extraction = GremlinShapeExtractor.extractPartial(
+            GremlinStepWalker.PRODUCTION_RECOGNISERS, GremlinStepWalker.TRANSPARENT_STEPS,
+            traversal, graphSession(), inputs);
+        assertThat(extraction.complete()).isTrue();
+        assertThat(extraction.propertyMapBulkingCapacity())
+            .as("extraction capacity with captured=%s, live=%s",
+                capturedPermitsGrouping, livePermitsGrouping)
+            .isEqualTo(capturedPermitsGrouping ? 2500 : 0);
+        assertThat(extraction.key()).isNotNull();
+        if (capturedPermitsGrouping) {
+          assertThat(extraction.key().toString()).contains("pmb:4:2500");
+        } else {
+          assertThat(extraction.key().toString()).doesNotContain("pmb");
+        }
+      }
+    }
+  }
+
+  /**
+   * Walking independently preserves captured grouping, not a live admission reread.
+   * Positive captured permission must enable the eligible boundary even when live state refuses.
+   */
+  @Test
+  public void capturedGroupingControlsWalkingDespiteLivePermission() {
+    for (boolean livePermitsGrouping : List.of(true, false)) {
+      for (boolean capturedPermitsGrouping : List.of(false, true)) {
+        var source = livePermitsGrouping ? graph.traversal() : graph.traversal().withBulk(false);
+        var traversal = source.V().barrier(2500).valueMap("name").asAdmin();
+        assertThat(PropertyMapBulkingAdmission.permitsGrouping(traversal))
+            .isEqualTo(livePermitsGrouping);
+        assertThat(PropertyMapBulkingAdmission.capacity(traversal))
+            .isEqualTo(livePermitsGrouping ? 2500 : 0);
+        var inputs = groupingInputs(traversal, capturedPermitsGrouping);
+        var result = GremlinStepWalker.production().walkObserved(traversal, inputs, null);
+        assertThat(result).isNotNull();
+        assertThat(result.shaping().propertyMapBulkingCapacity())
+            .as("walker capacity with captured=%s, live=%s",
+                capturedPermitsGrouping, livePermitsGrouping)
+            .isEqualTo(capturedPermitsGrouping ? 2500 : 0);
+      }
+    }
+  }
+
+  private GremlinStepWalker.WalkInputs groupingInputs(Traversal.Admin<?, ?> traversal,
+      boolean permitsGrouping) {
+    var captured = GremlinStepWalker.WalkInputs.capture(traversal);
+    return new GremlinStepWalker.WalkInputs(captured.polymorphic(), captured.edgeVerification(),
+        captured.schema(), captured.productiveKeys(), captured.includesMissing(), captured.nulls(),
+        permitsGrouping, captured.commandTimeout());
+  }
+
   /** Incomplete private native identity must not disable a reusable production native decline. */
   @Test
   public void strictPrivateIdentityDoesNotRestrictProductionNativeDeclines() {
