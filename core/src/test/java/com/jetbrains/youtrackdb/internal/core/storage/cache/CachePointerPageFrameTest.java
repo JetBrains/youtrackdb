@@ -55,6 +55,61 @@ public class CachePointerPageFrameTest {
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(savedTrackMode);
   }
 
+  /** A stale reader spanning a refill must fail, even if the frame returns to the same page. */
+  @Test
+  public void testSamePageRefillPublicationInvalidatesReader() throws Exception {
+    assertRefillPublicationInvalidatesReader(5);
+  }
+
+  /** A stale reader cannot accept coordinates published for a different page after its copy. */
+  @Test
+  public void testDifferentPageRefillPublicationInvalidatesReader() throws Exception {
+    assertRefillPublicationInvalidatesReader(6);
+  }
+
+  private void assertRefillPublicationInvalidatesReader(int pageIndex) throws Exception {
+    var allocator = new DirectMemoryAllocator();
+    var pool = new PageFramePool(4096, allocator, 1);
+    var frame = pool.acquire(true, Intention.TEST);
+    new CachePointer(frame, pool, 10, 5);
+    pool.release(frame);
+    var reused = pool.acquire(true, Intention.TEST);
+    assertSame(frame, reused);
+    var sampled = new java.util.concurrent.CountDownLatch(1);
+    var published = new java.util.concurrent.CountDownLatch(1);
+    var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+    try {
+      // Model a stale cache lookup that retained the frame before it was pooled.
+      var reader = executor.submit(() -> {
+        long stamp = frame.tryOptimisticRead();
+        long partialContent = frame.getBuffer().getLong(0);
+        sampled.countDown();
+        assertTrue(published.await(10, TimeUnit.SECONDS));
+        boolean matches = frame.getFileId() == 10 && frame.getPageIndex() == pageIndex;
+        boolean valid = frame.validate(stamp);
+        return matches && valid && partialContent != 42;
+      });
+      assertTrue(sampled.await(10, TimeUnit.SECONDS));
+      reused.getBuffer().putLong(0, 42);
+      // The window between content fill and coordinate publication is forced by the latches.
+      new CachePointer(reused, pool, 10, pageIndex);
+      published.countDown();
+      assertFalse("Reader must reject content copied before publication",
+          reader.get(10, TimeUnit.SECONDS));
+      long stamp = reused.tryOptimisticRead();
+      assertEquals(42, reused.getBuffer().getLong(0));
+      assertEquals(pageIndex, reused.getPageIndex());
+      assertTrue(reused.validate(stamp));
+    } finally {
+      published.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      pool.release(reused);
+      pool.clear();
+      allocator.checkMemoryLeaks();
+    }
+  }
+
   @Test
   public void testPageFrameConstructorDerivesPointerAndBuffer() {
     // Verifies that the PageFrame-based constructor correctly derives the Pointer and
