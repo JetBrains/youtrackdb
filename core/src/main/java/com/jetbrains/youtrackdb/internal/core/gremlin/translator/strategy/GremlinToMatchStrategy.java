@@ -395,7 +395,9 @@ public final class GremlinToMatchStrategy
     // further down both read these values. Two independent reads could straddle a runtime flip
     // and file a plan built under one setting under the other setting's key, in a cache that is
     // storage-wide and outlives the session.
-    var settings = YTDBStrategyUtil.translationSettings(traversal, session);
+    var environment = TranslationEnvironment.resolve(traversal, session);
+    var settings = YTDBStrategyUtil.translationSettings(
+        environment.references().options, environment.references().standard, session);
     if (settings == null) {
       return;
     }
@@ -414,65 +416,93 @@ public final class GremlinToMatchStrategy
     var orderIncludesMissingKey = settings.orderIncludesMissingKey();
     var orderByNullsPlacements = settings.nullPlacements();
     var polymorphic = settings.polymorphic();
-    var environment = TranslationEnvironment.resolve(traversal, session);
-    var extraction =
-        GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
-            environment);
-    var metrics = GremlinTranslationMetrics.of(session);
-    if (extractionObserver != null) {
-      extractionObserver.accept(extraction);
-    }
-    GremlinPlanCache.StampedTranslation rejected = null;
-    if (populateTranslationCache && eligible && extraction.complete()) {
-      var resident = cache.getTranslationEntry(extraction.key(), session);
-      var cached = resident == null ? null : resident.template();
-      if (cache.getGeneration() != generation) {
-        cached = null;
+    var lease = populateTranslationCache && eligible ? GremlinShapeBuffer.acquire() : null;
+    try {
+      GremlinShapeExtractor.Extraction extraction = null;
+      GremlinShapeEncoder emitted = null;
+      if (lease == null) {
+        extraction = GremlinStepWalker.extractShape(traversal, session, orderIncludesMissingKey,
+            orderByNullsPlacements, polymorphic, environment);
+      } else {
+        try {
+          GremlinShapeBuffer.count(counters -> counters.emissions++);
+          emitted = GremlinShapeExtractor.emit(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+              GremlinStepWalker.TRANSPARENT_STEPS, traversal, orderIncludesMissingKey,
+              orderByNullsPlacements, polymorphic, environment,
+              new GremlinShapeEncoder(session.getSchema(), lease));
+        } catch (GremlinShapeBuffer.Unsupported unsupported) {
+          GremlinShapeBuffer.count(counters -> counters.fallbacks++);
+          extraction = GremlinStepWalker.extractShape(traversal, session, orderIncludesMissingKey,
+              orderByNullsPlacements, polymorphic, environment);
+        }
       }
-      if (cached instanceof GremlinTranslationTemplate.Decline) {
+      var metrics = GremlinTranslationMetrics.of(session);
+      if (extractionObserver != null) {
+        extraction = extraction == null ? emitted.extraction() : extraction;
+        extractionObserver.accept(extraction);
+      }
+      GremlinPlanCache.StampedTranslation rejected = null;
+      if (populateTranslationCache && eligible
+          && (emitted == null ? extraction.complete() : emitted.complete())) {
+        var lookupKey = emitted == null ? extraction.lookupKey() : emitted.lookupKey();
+        var resident = cache.getTranslationEntry(lookupKey, session);
+        var cached = resident == null ? null : resident.template();
+        if (cached != null && lookupKey instanceof GremlinShapeBuffer) {
+          GremlinShapeBuffer.count(counters -> counters.hits++);
+        }
+        if (cache.getGeneration() != generation) {
+          cached = null;
+        }
+        if (cached instanceof GremlinTranslationTemplate.Decline) {
+          metrics.recordDeclineTraversal(traversal);
+          return;
+        }
+        if (cached instanceof GremlinTranslationTemplate.Translate translate) {
+          // Complete structural identity needs no MATCH bindings for a resident native decision.
+          if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())
+              && cache.getGeneration() == generation) {
+            metrics.recordRuleNative();
+            return;
+          }
+          extraction = extraction == null ? emitted.extraction() : extraction;
+          var boundShaping = extraction.bindings().size() == translate.bindingCount()
+              && matchingLayout(extraction.hasContributions(), translate.hasContributions())
+              && extraction.propertyMapBulkingCapacity()
+                  == translate.shaping().propertyMapBulkingCapacity()
+                      ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
+          if (boundShaping != null && cache.getGeneration() == generation) {
+            spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
+            metrics.recordSuccess();
+            return;
+          }
+          rejected = resident;
+          agreementFailure.accept("Translation cache binding agreement failed");
+        }
+      }
+      extraction = extraction == null ? emitted.extraction() : extraction;
+      var translation =
+          translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
+              polymorphic, environment);
+      if (translation == null) {
+        if (populateTranslationCache && eligible && extraction.complete()) {
+          GremlinPlanCache.putTranslation(
+              extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
+              rejected);
+        }
         metrics.recordDeclineTraversal(traversal);
         return;
       }
-      if (cached instanceof GremlinTranslationTemplate.Translate translate) {
-        // Complete structural identity needs no MATCH bindings for a resident native decision.
-        if (translate.decision().plain() && !Boolean.TRUE.equals(FORCE_MATCH_FOR_TESTS.get())
-            && cache.getGeneration() == generation) {
-          metrics.recordRuleNative();
-          return;
-        }
-        var boundShaping = extraction.bindings().size() == translate.bindingCount()
-            && matchingLayout(extraction.hasContributions(), translate.hasContributions())
-            && extraction.propertyMapBulkingCapacity()
-                == translate.shaping().propertyMapBulkingCapacity()
-                    ? OrderedFilterBinding.fromExtraction(translate.shaping(), extraction) : null;
-        if (boundShaping != null && cache.getGeneration() == generation) {
-          spliceFromTranslationCache(traversal, translate, extraction.bindings(), boundShaping);
-          metrics.recordSuccess();
-          return;
-        }
-        rejected = resident;
-        agreementFailure.accept("Translation cache binding agreement failed");
+      var cacheScope = new CacheScope(generation, eligible, commandTimeout);
+      if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
+          rejected)) {
+        metrics.recordSuccess();
+      } else {
+        metrics.recordRuleNative();
       }
-    }
-    var translation =
-        translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
-            polymorphic, environment);
-    if (translation == null) {
-      if (populateTranslationCache && eligible && extraction.complete()) {
-        GremlinPlanCache.putTranslation(
-            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation,
-            rejected);
+    } finally {
+      if (lease != null) {
+        lease.close();
       }
-      metrics.recordDeclineTraversal(traversal);
-      return;
-    }
-    var cacheScope = new CacheScope(generation, eligible, commandTimeout);
-    if (applyTranslation(traversal, session, translation, cacheScope, extraction, polymorphic,
-        rejected)) {
-      metrics.recordSuccess();
-    } else {
-      metrics.recordRuleNative();
     }
   }
 

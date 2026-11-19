@@ -193,7 +193,9 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
           var caches = org.mockito.Mockito.mockStatic(GremlinPlanCache.class,
               org.mockito.Mockito.CALLS_REAL_METHODS)) {
         util.when(() -> YTDBStrategyUtil.resolveYtdbSession(traversal)).thenReturn(session);
-        util.when(() -> YTDBStrategyUtil.translationSettings(traversal, session))
+        util.when(() -> YTDBStrategyUtil.translationSettings(
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+            org.mockito.ArgumentMatchers.same(session)))
             .thenAnswer(invocation -> {
               events.add("settings");
               return invocation.callRealMethod();
@@ -205,7 +207,9 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
         assertThat(events.indexOf("generation")).isZero();
         assertThat(events.indexOf("timeout")).isGreaterThan(events.indexOf("generation"));
         assertThat(events.indexOf("settings")).isGreaterThan(events.indexOf("timeout"));
-        util.verify(() -> YTDBStrategyUtil.translationSettings(traversal, session),
+        util.verify(() -> YTDBStrategyUtil.translationSettings(
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+            org.mockito.ArgumentMatchers.same(session)),
             org.mockito.Mockito.times(1));
         // Cache freshness checks have their own timeout reads, outside invocation capture.
         assertThat(events.stream().filter("timeout"::equals).count()).isEqualTo(1);
@@ -254,6 +258,121 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
       assertThat(metrics.getAttempts()).isEqualTo(attempts + children + 1);
       assertThat(metrics.getDeclines()).isEqualTo(declines);
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(root)).isZero();
+    }
+  }
+
+  /** Root settings reject contradictory order modes before duplicate-label safety admission. */
+  @Test
+  public void contradictoryOrderPrecedesDuplicateLabels() {
+    var traversal = graph.traversal().with("orderIncludesMissingKey", true)
+        .withStrategies(StandardOrderSemanticsStrategy.instance())
+        .V().as("same").out().as("same").asAdmin();
+    assertSettingsRefusalWithoutLookup(traversal, true, false);
+  }
+
+  /** Invalid root null-placement settings record an error before duplicate-label admission. */
+  @Test
+  public void invalidNullPlacementPrecedesDuplicateLabels() {
+    assertSettingsRefusalWithoutLookup(
+        graph.traversal().with("orderByNullsPlacementAsc", "invalid")
+            .V().as("same").out().as("same").asAdmin(),
+        false, false);
+  }
+
+  /** Duplicate reserved labels decline before the refused root can reject those labels. */
+  @Test
+  public void duplicateReservedLabelsBeforeRefusedRoot() {
+    assertEarlyDeclineWithoutLookup(
+        graph.traversal().V().as("$same").path().as("$same").asAdmin());
+  }
+
+  /** Missing settings configuration returns before safety, after kill-switch and timeout reads. */
+  @Test
+  public void missingSettingsConfigurationPrecedesDuplicateLabels() {
+    var traversal = graph.traversal().V().as("same").out().as("same").asAdmin();
+    var session = spy(db);
+    var reads = new AtomicInteger();
+    org.mockito.Mockito.doAnswer(invocation -> reads.incrementAndGet() <= 2
+        ? db.getConfiguration() : null).when(session).getConfiguration();
+    try (var util = org.mockito.Mockito.mockStatic(YTDBStrategyUtil.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      util.when(() -> YTDBStrategyUtil.resolveYtdbSession(traversal)).thenReturn(session);
+      assertSettingsRefusalWithoutLookup(traversal, false, true);
+      assertThat(reads).hasValue(3);
+    }
+  }
+
+  /** Invalid settings precede both root name scans without a lookup or timeout invalidation. */
+  @Test
+  public void validationPrecedesRootNameScansAndLookupTimeoutInvalidation() {
+    var source = graph.traversal().with("orderByNullsPlacementAsc", "invalid");
+    var duplicate = source.V().as("$same").path().as("$same").asAdmin();
+    var collision = source.V().as("$reserved").path().select("side").asAdmin();
+    collision.getSideEffects().register("side", () -> "live", (a, b) -> b);
+    var cache = GremlinPlanCache.instance(db);
+    cache.getTranslationEntry(new GremlinShapeKey(new Object[] {"timeout-baseline"}), db);
+    var timeout = db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
+    db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, timeout + 1);
+    try {
+      assertSettingsRefusalWithoutLookup(duplicate, false, false);
+      assertSettingsRefusalWithoutLookup(collision, false, false);
+    } finally {
+      db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, timeout);
+    }
+  }
+
+  private void assertSettingsRefusalWithoutLookup(Traversal.Admin<?, ?> traversal,
+      boolean contradictory, boolean missingConfiguration) {
+    var cache = GremlinPlanCache.instance(db);
+    long hits = cache.getTranslationHits(), misses = cache.getTranslationMisses();
+    long generation = cache.getGeneration();
+    var steps = List.copyOf(traversal.getSteps());
+    var metrics = GremlinTranslationMetrics.of(db);
+    long errors = metrics.getErrors(), declines = metrics.getDeclines();
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
+    try {
+      if (contradictory) {
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> GremlinToMatchStrategy.instance().apply(traversal))
+            .isInstanceOf(ContradictoryOrderSemanticsException.class);
+      } else {
+        GremlinToMatchStrategy.instance().apply(traversal);
+      }
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+      assertThat(QuerySafetyAdmission.stored(traversal)).isNull();
+      assertThat(metrics.getErrors()).isEqualTo(
+          errors + (contradictory || missingConfiguration ? 0 : 1));
+      assertThat(metrics.getDeclines()).isEqualTo(declines);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses);
+      assertThat(cache.getGeneration()).isEqualTo(generation);
+      assertThat(counters.leases).isZero();
+    } finally {
+      GremlinShapeBuffer.stopCounting();
+    }
+  }
+
+  private void assertEarlyDeclineWithoutLookup(Traversal.Admin<?, ?> traversal) {
+    var cache = GremlinPlanCache.instance(db);
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    var generation = cache.getGeneration();
+    var steps = List.copyOf(traversal.getSteps());
+    var metrics = GremlinTranslationMetrics.of(db);
+    var declines = metrics.getDeclines();
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
+    try {
+      GremlinToMatchStrategy.instance().apply(traversal);
+      assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+      assertThat(metrics.getDeclines()).isEqualTo(declines + 1);
+      assertThat(cache.getTranslationHits()).isEqualTo(hits);
+      assertThat(cache.getTranslationMisses()).isEqualTo(misses);
+      assertThat(cache.getGeneration()).isEqualTo(generation);
+      assertThat(counters.leases).isZero();
+    } finally {
+      GremlinShapeBuffer.stopCounting();
     }
   }
 
@@ -435,10 +554,18 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     var union = graph.traversal().V().union(__.out("RouteEdge"), __.in("RouteEdge"))
         .order().by("name").asAdmin();
     for (var traversal : List.of(unchanged, unchanged, sorted, child, union)) {
-      var strategies = spy(traversal.getStrategies().clone());
+      var current = traversal.getStrategies().clone();
+      while (current instanceof QuerySafetyAdmission.Evidence evidence) {
+        current = evidence.delegate;
+      }
+      var strategies = spy(current);
       traversal.setStrategies(strategies);
       var root = YTDBStrategyUtil.rootTraversal(traversal);
-      var rootStrategies = root == traversal ? strategies : spy(root.getStrategies().clone());
+      var rootState = root.getStrategies().clone();
+      while (rootState instanceof QuerySafetyAdmission.Evidence evidence) {
+        rootState = evidence.delegate;
+      }
+      var rootStrategies = root == traversal ? strategies : spy(rootState);
       root.setStrategies(rootStrategies);
       var options = spy(OptionsStrategy.build().create());
       rootStrategies.addStrategies(options);
@@ -456,7 +583,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
             rootStrategies, options);
         util.clearInvocations();
         GremlinToMatchStrategy.instance().apply(traversal);
-        util.verify(() -> YTDBStrategyUtil.translationSettings(traversal, session),
+        util.verify(() -> YTDBStrategyUtil.translationSettings(options, false, session),
             org.mockito.Mockito.times(1));
         util.verify(() -> YTDBStrategyUtil.resolveYtdbSession(
             org.mockito.ArgumentMatchers.any()), org.mockito.Mockito.times(1));
@@ -474,19 +601,21 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
             org.mockito.Mockito.times(1));
         verify(configuration, org.mockito.Mockito.times(2)).getContextKeys();
         verify(options, org.mockito.Mockito.times(4)).getOptions();
-        verify(rootStrategies, org.mockito.Mockito.times(1)).getStrategy(OptionsStrategy.class);
-        verify(rootStrategies, org.mockito.Mockito.times(1))
-            .getStrategy(StandardOrderSemanticsStrategy.class);
-        verify(strategies, org.mockito.Mockito.times(1))
-            .getStrategy(EdgeLabelVerificationStrategy.class);
-        verify(strategies, org.mockito.Mockito.times(1)).getStrategy(ProductiveByStrategy.class);
+        verify(rootStrategies, org.mockito.Mockito.times(1)).iterator();
+        if (rootStrategies != strategies) {
+          verify(strategies, org.mockito.Mockito.times(1)).iterator();
+        }
+        verify(rootStrategies, never()).getStrategy(OptionsStrategy.class);
+        verify(rootStrategies, never()).getStrategy(StandardOrderSemanticsStrategy.class);
+        verify(strategies, never()).getStrategy(EdgeLabelVerificationStrategy.class);
+        verify(strategies, never()).getStrategy(ProductiveByStrategy.class);
       }
     }
   }
 
-  /** Explicit true order mode still performs one standard-order lookup, with no such strategy. */
+  /** Explicit true order mode uses one strategy scan and no separate standard-order lookup. */
   @Test
-  public void explicitTrueOrderModeLooksUpStandardStrategyOnce() {
+  public void explicitTrueOrderModeUsesScannedStandardStrategy() {
     var traversal = graph.traversal().with("orderIncludesMissingKey", true).V()
         .hasLabel("RouteVertex").asAdmin();
     var strategies = spy(traversal.getStrategies().clone());
@@ -494,8 +623,8 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     assertThat(strategies.getStrategy(StandardOrderSemanticsStrategy.class)).isEmpty();
     org.mockito.Mockito.clearInvocations(strategies);
     GremlinToMatchStrategy.instance().apply(traversal);
-    verify(strategies, org.mockito.Mockito.times(1))
-        .getStrategy(StandardOrderSemanticsStrategy.class);
+    verify(strategies, org.mockito.Mockito.times(1)).iterator();
+    verify(strategies, never()).getStrategy(StandardOrderSemanticsStrategy.class);
   }
 
   /** Warm production entries are keyed by this application, not the first shared snapshot. */

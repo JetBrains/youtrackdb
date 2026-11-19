@@ -383,7 +383,12 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     encoder.appendToken("ord", Integer.toString(comparators == null ? 0 : comparators.size()));
     if (comparators != null) {
       for (var pair : comparators) {
-        encoder.appendToken(String.valueOf(pair.getValue1()));
+        Object comparator = pair.getValue1();
+        if (encoder.buffer != null
+            && !(comparator instanceof org.apache.tinkerpop.gremlin.process.traversal.Order)) {
+          throw GremlinShapeBuffer.UNSUPPORTED;
+        }
+        encoder.appendToken(String.valueOf(comparator));
       }
     }
     return true;

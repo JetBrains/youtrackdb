@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -702,7 +701,7 @@ final class GremlinStepWalker {
     }
     if (childScopeBoundary == NO_CHILD_SCOPE) {
       ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
-          inputs == null ? PropertyMapBulkingAdmission.capacity(traversal)
+          inputs == null ? PropertyMapBulkingAdmission.capacity(traversal, environment)
               : PropertyMapBulkingAdmission.capacity(traversal, inputs.permitsGrouping()));
     }
     return buildResult(ctx);
@@ -1421,14 +1420,16 @@ final class GremlinStepWalker {
    * the traversal tree, including separate branches and detached filter children.
    */
   static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal) {
-    return hasDuplicateStepLabels(traversal, new HashSet<>());
+    try (var labels = LabelScanScratch.acquire()) {
+      return hasDuplicateStepLabels(traversal, labels);
+    }
   }
 
   private static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal,
-      Set<String> labels) {
+      LabelScanScratch labels) {
     for (Step<?, ?> step : traversal.getSteps()) {
-      for (var label : GremlinStepLabels.userLabels(step)) {
-        if (!labels.add(label)) {
+      for (var label : step.getLabels()) {
+        if (label != null && !labels.add(label)) {
           return true;
         }
       }
@@ -1466,14 +1467,20 @@ final class GremlinStepWalker {
       java.util.Set<String> keys) {
     for (Step<?, ?> step : traversal.getSteps()) {
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep<?,
-          ?> one
-          && one.getScopeKeys().stream().anyMatch(keys::contains)) {
-        return true;
+          ?> one) {
+        for (var key : one.getScopeKeys()) {
+          if (keys.contains(key)) {
+            return true;
+          }
+        }
       }
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep<?,
-          ?> many
-          && many.getSelectKeys().stream().anyMatch(keys::contains)) {
-        return true;
+          ?> many) {
+        for (var key : many.getSelectKeys()) {
+          if (keys.contains(key)) {
+            return true;
+          }
+        }
       }
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent parent) {
         for (var child : parent.getLocalChildren()) {

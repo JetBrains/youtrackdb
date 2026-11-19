@@ -197,12 +197,16 @@ public final class YTDBStrategyUtil {
   public static @Nullable TranslationSettings translationSettings(
       Admin<?, ?> traversal, DatabaseSessionEmbedded session) {
     var root = rootTraversal(traversal);
-    var options = rootOptions(root);
+    return translationSettings(rootOptions(root), hasStandardOrderSemanticsStrategy(root), session);
+  }
+
+  /** Uses references resolved for this invocation, without another strategy-list scan. */
+  public static @Nullable TranslationSettings translationSettings(
+      @Nullable OptionsStrategy options, boolean standard, DatabaseSessionEmbedded session) {
     var configuration = session.getConfiguration();
     if (configuration == null) {
       return null;
     }
-    boolean standard = hasStandardOrderSemanticsStrategy(root);
     boolean includeMissing = resolveOrder(explicitOrderIncludesMissingKey(options, standard),
         standard, () -> configuration.getValueAsBoolean(
             GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY));

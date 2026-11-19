@@ -139,10 +139,16 @@ build the uber-jar and launch Java separately. Run the commands below from the r
 ### Single command (recommended): `verify -P bench`
 
 The `bench` Maven profile binds `exec:exec` to the `verify` phase in `jmh-ldbc`, so
-packaging and launch happen automatically:
+packaging and launch happen automatically.
+Ordinary Maven and direct `java -jar` launches have no blanket bulking exclusion.
+The comparison workflow excludes `LdbcSingleThreadBothEBenchmark`.
+The nightly workflow excludes that class and the whole `LdbcGremlinTranslatorBenchmark`
+class. Both workflows also exclude the `com.jetbrains.youtrackdb.benchmarks.pagelock`
+package when it is present. These exclusions apply to each workflow's warmup, inventory
+listing when used, and measured run.
 
 ```bash
-# Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
+# Run the default benchmarks (compiles core + jmh-ldbc, then launches JMH)
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
 
 # Run only single-threaded benchmarks (~22 min)
@@ -155,8 +161,12 @@ packaging and launch happen automatically:
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Djmh.args=".*is1_personProfile -f 1 -wi 1 -i 1 -r 1s"
 
-# List all available benchmarks without running them
+# List the default benchmarks without running them
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
+
+# Run the bulking benchmarks
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Djmh.args="gremlin_bulking"
 ```
 
 ### Two steps: `package -DskipTests`, then `java -jar`

@@ -232,7 +232,7 @@
   </profiles>
 
   <properties>
-    <!-- Default: run all benchmarks. Override with -Djmh.args="pattern" -->
+    <!-- Select benchmarks with -Djmh.args="pattern". -->
     <jmh.args/>
     <argLine>-ea
       -Xms${heapSize}

@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import java.util.List;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
-
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.WherePredicateStep;
@@ -27,13 +26,25 @@ final class PropertyMapBulkingAdmission {
 
   /** Zero preserves the ungrouped boundary. A final vertex map needs an empty labelled path. */
   static int capacity(Traversal.Admin<?, ?> traversal) {
-    return capacity(traversal, permitsGrouping(traversal));
+    return capacity(traversal, (TranslationEnvironment) null);
+  }
+
+  static int capacity(Traversal.Admin<?, ?> traversal, TranslationEnvironment environment) {
+    return capacity(traversal, permitsGrouping(traversal, environment));
   }
 
   static boolean permitsGrouping(Traversal.Admin<?, ?> traversal) {
-    return traversal.getStrategies().getStrategy(RequirementsStrategy.class).isEmpty()
-        && traversal.getStrategies().getStrategy(SackStrategy.class).isEmpty()
-        && traversal.getSideEffects().getSackInitialValue() == null;
+    return permitsGrouping(traversal, null);
+  }
+
+  private static boolean permitsGrouping(Traversal.Admin<?, ?> traversal,
+      TranslationEnvironment environment) {
+    var refs = TranslationEnvironment.references(traversal, environment);
+    boolean strategiesGate = refs == null
+        ? traversal.getStrategies().getStrategy(RequirementsStrategy.class).isPresent()
+            || traversal.getStrategies().getStrategy(SackStrategy.class).isPresent()
+        : refs.requirements != null || refs.sack != null;
+    return !strategiesGate && traversal.getSideEffects().getSackInitialValue() == null;
   }
 
   static int capacity(Traversal.Admin<?, ?> traversal, boolean permitsGrouping) {

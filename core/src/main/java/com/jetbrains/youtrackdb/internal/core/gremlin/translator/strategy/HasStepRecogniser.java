@@ -665,6 +665,7 @@ final class HasStepRecogniser implements StepRecogniser {
     encoder.appendToken("H", Integer.toString(containers.size()));
     for (int index = 0; index < containers.size(); index++) {
       HasContainer container = containers.get(index);
+      encoder.recordContainer(container, index);
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
         encoder.appendToken("lab");
@@ -701,12 +702,19 @@ final class HasStepRecogniser implements StepRecogniser {
       // Harvest ignores the returned parameter. The native layout uses roles, not SQL indexes.
       ParamSink sink = context.destination() == HasBindingContext.Destination.ORDERED_FILTER
           ? value -> null : encoder.paramSink();
-      GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
-          GremlinPredicateAdapter.withRoles(sink,
-              role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
-          !context.folded());
+      harvestContainer(container, context, typeGate, sink, encoder, containerIndex);
     }
     encoder.recordHasContribution(context, fromSlot);
+  }
+
+  /** Shared slot roles and range guards for full harvesting and recorded fast replay. */
+  static void harvestContainer(HasContainer container, HasBindingContext context,
+      GremlinPredicateAdapter.PropertyTypeGate typeGate, ParamSink sink,
+      GremlinShapeEncoder encoder, int containerIndex) {
+    GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
+        GremlinPredicateAdapter.withRoles(sink,
+            role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
+        !context.folded());
   }
 
   /**

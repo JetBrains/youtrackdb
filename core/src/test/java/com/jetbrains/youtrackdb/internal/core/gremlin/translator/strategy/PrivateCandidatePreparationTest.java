@@ -1103,6 +1103,26 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     assertThat(walks.get()).isEqualTo(3);
   }
 
+  /** An actual Policy{3} resident must not admit the same partial root under Policy{}. */
+  @Test
+  public void selectedCutThreeAndEmptyPolicyKeepIndependentWarmResidents() {
+    var prepare = preparation(false);
+    var three = new PrivateCandidatePreparation.Policy(Set.of(3));
+    var none = new PrivateCandidatePreparation.Policy(Set.of());
+    for (int invocation = 0; invocation < 2; invocation++) {
+      try (var selected = prepare.prepare(query(30 + invocation, 40), three);
+          var refused = prepare.prepare(query(30 + invocation, 40), none)) {
+        assertThat(selected.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.SELECTED);
+        assertThat(selected.extent()).isEqualTo(3);
+        assertThat(selected.bindings()).containsEntry(0, 30 + invocation);
+        assertThat(selected.cacheHit()).isEqualTo(invocation == 1);
+        assertThat(refused.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FOLD_CUT);
+        assertThat(refused.plan()).isNull();
+        assertThat(refused.cacheHit()).isEqualTo(invocation == 1);
+      }
+    }
+  }
+
   /** A transient planner exception has an observable reason and is never a cached refusal. */
   @Test
   public void failedPlanIsRetried() {
@@ -1290,6 +1310,30 @@ public class PrivateCandidatePreparationTest extends GraphBaseTest {
     assertThat(partial.encoder().harvested()).isTrue();
     assertThatThrownBy(() -> partial.rootEnds().clear())
         .isInstanceOf(UnsupportedOperationException.class);
+  }
+
+  /** No-HasStep roots keep empty deferred evidence on both cold and warm private preparation. */
+  @Test
+  public void noHasStepColdAndWarmPreparationKeepsEmptyPrefixEvidence() {
+    var prepare = preparation(false);
+    for (int invocation = 0; invocation < 2; invocation++) {
+      var traversal = graph.traversal().V().out("candidateKnows").values("name").asAdmin();
+      var extraction = partialExtraction(traversal);
+      assertThat(extraction.encoder().harvested()).isFalse();
+      assertThat(extraction.rootEnds()).hasSize(3)
+          .containsOnly(new GremlinShapeExtractor.BindingEnd(0, 0, 0));
+      for (int extent = 1; extent <= 3; extent++) {
+        var prefix = extraction.prefix(extent, true, 0);
+        assertThat(prefix.bindings()).isEmpty();
+        assertThat(prefix.hasContributions()).isEmpty();
+        assertThat(prefix.nativeOperands()).isEmpty();
+        assertThat(prefix.rootEnds()).hasSize(extent);
+      }
+      try (var candidate = prepare.prepare(traversal, policy)) {
+        assertThat(candidate.reason()).isEqualTo(PrivatePrefixDiscovery.Reason.FULL_SUPPORTED);
+        assertThat(candidate.cacheHit()).isEqualTo(invocation == 1);
+      }
+    }
   }
 
   /** Every root boundary freezes the completed slots, independently of prefix access order. */

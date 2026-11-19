@@ -285,7 +285,7 @@ final class WalkerContext implements RecognitionContext {
       // Production demands derive from the walked traversal, never an extraction verdict.
       mergeFacts = walkedTraversal == null
           ? new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(), Map.of())
-          : TraverserMergeFacts.from(walkedTraversal);
+          : TraverserMergeFacts.from(walkedTraversal, environment);
     }
     return mergeFacts;
   }

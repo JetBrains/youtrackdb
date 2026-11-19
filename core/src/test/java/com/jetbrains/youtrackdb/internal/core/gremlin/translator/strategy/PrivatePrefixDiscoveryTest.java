@@ -290,7 +290,7 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
         .isNotNegative().isLessThan(classes.indexOf(GremlinToMatchStrategy.class));
   }
 
-  /** A production warm call performs exactly one extraction, lookup and shared safety check. */
+  /** A production warm call performs one token emission, lookup and safety check without extraction. */
   @Test
   public void productionWarmCallKeepsExactPreparationCounts() {
     var session = YTDBStrategyUtil.resolveYtdbSession(graph.traversal().V().asAdmin());
@@ -301,6 +301,8 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
     GremlinToMatchStrategy.instance().apply(graph.traversal().V().has("age", 29).asAdmin());
     var warm = graph.traversal().V().has("age", 32).asAdmin();
     var extractions = new AtomicInteger();
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
     var cacheSpy = spy(cache);
     var safetyChecks = new AtomicInteger();
     long hits = cache.getTranslationHits();
@@ -321,9 +323,15 @@ public class PrivatePrefixDiscoveryTest extends GraphBaseTest {
       return invocation.callRealMethod();
     })) {
       GremlinToMatchStrategy.instance().apply(warm);
+    } finally {
+      GremlinShapeBuffer.stopCounting();
     }
+    assertThat(counters.emissions).isEqualTo(1);
+    assertThat(counters.extractions).isZero();
+    assertThat(counters.bindingMaps).isZero();
+    assertThat(counters.contributions).isZero();
     assertThat(cacheSpy.getTranslationHits()).isEqualTo(hits + 1);
-    assertThat(extractions.get()).isEqualTo(1);
+    assertThat(extractions.get()).isZero();
     verify(cacheSpy).getTranslationEntry(
         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     assertThat(safetyChecks.get()).isEqualTo(1);

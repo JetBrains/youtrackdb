@@ -52,11 +52,12 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
   public void rootDeclinesResolveSettingsOnceWithoutExtractionWalkPlanOrEntryLookup() {
     var support = new TranslatorEquivalenceSupport(this::graphSession);
     support.setTranslatorEnabled(true);
-    var sharedCache = GremlinPlanCache.instance(graphSession());
+    var session = graphSession();
+    var sharedCache = GremlinPlanCache.instance(session);
     var callbacks = new AtomicInteger();
     var strategy = new GremlinToMatchStrategy(t -> {
       throw new AssertionError("type decline must not walk");
-    }, (inputs, shaping, session) -> {
+    }, (inputs, shaping, planningSession) -> {
       throw new AssertionError("type decline must not plan");
     }, true);
     for (int call = 0; call < 3; call++) {
@@ -81,7 +82,9 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
             })) {
           caches.when(() -> GremlinPlanCache.instance(graphSession())).thenReturn(cache);
           strategy.apply(admin);
-          settings.verify(() -> YTDBStrategyUtil.translationSettings(admin, graphSession()),
+          settings.verify(() -> YTDBStrategyUtil.translationSettings(
+              org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+              org.mockito.ArgumentMatchers.same(session)),
               org.mockito.Mockito.times(1));
         }
         assertThat(admin.getSteps()).containsExactlyElementsOf(steps);
@@ -114,7 +117,9 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
         var walker = mockStatic(GremlinStepWalker.class, CALLS_REAL_METHODS)) {
       util.when(() -> YTDBStrategyUtil.resolveYtdbSession(child)).thenReturn(session);
       GremlinToMatchStrategy.instance().apply(child);
-      util.verify(() -> YTDBStrategyUtil.translationSettings(child, session),
+      util.verify(() -> YTDBStrategyUtil.translationSettings(
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+          org.mockito.ArgumentMatchers.same(session)),
           org.mockito.Mockito.never());
       caches.verifyNoInteractions();
       walker.verifyNoInteractions();
@@ -160,7 +165,9 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
           var caches = mockStatic(GremlinPlanCache.class, CALLS_REAL_METHODS)) {
         util.when(() -> YTDBStrategyUtil.resolveYtdbSession(child)).thenReturn(session);
         GremlinToMatchStrategy.instance().apply(child);
-        util.verify(() -> YTDBStrategyUtil.translationSettings(child, session),
+        util.verify(() -> YTDBStrategyUtil.translationSettings(
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+            org.mockito.ArgumentMatchers.same(session)),
             org.mockito.Mockito.never());
         caches.verifyNoInteractions();
         org.mockito.Mockito.verify(configuration, org.mockito.Mockito.never()).getValueAsLong(
@@ -185,7 +192,9 @@ public class GremlinTypeDeclineTest extends GraphBaseTest {
         var walker = mockStatic(GremlinStepWalker.class, CALLS_REAL_METHODS)) {
       caches.when(() -> GremlinPlanCache.instance(session)).thenReturn(cache);
       GremlinToMatchStrategy.instance().apply(child);
-      util.verify(() -> YTDBStrategyUtil.translationSettings(child, session),
+      util.verify(() -> YTDBStrategyUtil.translationSettings(
+          org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean(),
+          org.mockito.ArgumentMatchers.same(session)),
           org.mockito.Mockito.times(1));
       walker.verifyNoInteractions();
       assertThat(cache.getTranslationHits()).isEqualTo(hits);

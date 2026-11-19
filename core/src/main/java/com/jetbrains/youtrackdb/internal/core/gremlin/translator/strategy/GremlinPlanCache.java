@@ -234,7 +234,13 @@ public final class GremlinPlanCache
   @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
       GremlinTranslationTemplate template, DatabaseSessionEmbedded db, long walkGeneration,
       @Nullable StampedTranslation rejected) {
-    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null
+    // Production shapes and private candidates are separate immutable key domains. A leased
+    // buffer is lookup-only and must never become a retained key, even during rejected repair.
+    if (!(shapeKey instanceof GremlinShapeKey)
+        && !(shapeKey instanceof PrivateCandidatePreparation.CandidateKey)) {
+      return null;
+    }
+    if (db.getTxSchemaState() != null || translationCache == null
         || walkGeneration != generation.get()) {
       return null;
     }

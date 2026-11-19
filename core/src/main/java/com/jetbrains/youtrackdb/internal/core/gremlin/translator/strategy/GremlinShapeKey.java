@@ -1,25 +1,42 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import java.util.Arrays;
 import java.util.List;
 
 /**
  * Immutable token sequence. Equality compares every token, not just its hash. Token boundaries
  * refine the length-prefixed text encoding, so equal keys always imply equal text keys.
  */
-final class GremlinShapeKey {
+final class GremlinShapeKey implements GremlinShapeTokens {
 
   private final Object[] tokens;
-  private final int hash;
+  private final long hash;
 
   GremlinShapeKey(List<Object> tokens) {
-    this.tokens = tokens.toArray();
-    hash = Arrays.hashCode(this.tokens);
+    this(tokens.toArray());
   }
 
   GremlinShapeKey(Object[] tokens) {
     this.tokens = tokens.clone();
-    hash = Arrays.hashCode(this.tokens);
+    long running = GremlinShapeBuffer.SEED;
+    for (var token : this.tokens) {
+      running = GremlinShapeTokens.mix(running, token);
+    }
+    hash = GremlinShapeBuffer.finishHash(running);
+  }
+
+  @Override
+  public int size() {
+    return tokens.length;
+  }
+
+  @Override
+  public Object token(int index) {
+    return tokens[index];
+  }
+
+  @Override
+  public long hash64() {
+    return hash;
   }
 
   /** Shared text renderer for diagnostics and GremlinShapeEncoder predicate fingerprints. */
@@ -37,11 +54,11 @@ final class GremlinShapeKey {
 
   @Override
   public int hashCode() {
-    return hash;
+    return GremlinShapeTokens.fold(hash);
   }
 
   @Override
   public boolean equals(Object other) {
-    return other instanceof GremlinShapeKey key && Arrays.equals(tokens, key.tokens);
+    return GremlinShapeTokens.equal(this, other);
   }
 }
