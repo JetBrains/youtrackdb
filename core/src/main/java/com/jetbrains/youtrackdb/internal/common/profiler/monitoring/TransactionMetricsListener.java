@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.monitoring;
 
+import java.util.Optional;
+
 /// Transaction-level listener that gets notified when a write transaction finishes (either
 /// successfully or with a failure). It won't get called if the transaction was idempotent.
 ///
@@ -43,10 +45,22 @@ public interface TransactionMetricsListener {
   TransactionMetricsListener NO_OP = new TransactionMetricsListener() {
   };
 
-  /// Details about the current transaction.
+  /// Callback-scoped transaction view. Owned strings may be copied and retained.
+  /// The failure callback's exception, message and cause chain are callback-scoped.
+  /// Retain failure only as [CompletionOutcome], never as an exception.
   interface TransactionDetails {
 
     /// Get transaction tracking id
     String getTransactionTrackingId();
+
+    /// Database name captured for the commit, absent when unavailable.
+    default Optional<String> getDatabaseName() {
+      return Optional.empty();
+    }
+
+    /// Explicit caller tracking identifier, absent when unset.
+    default Optional<String> getExplicitTrackingId() {
+      return Optional.empty();
+    }
   }
 }

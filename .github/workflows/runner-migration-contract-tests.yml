@@ -12,6 +12,7 @@ on:
       - '.github/scripts/mandatory-benchmark-test.py'
       - '.github/workflows/*.yml'
       - '.github/workflows/*.yaml'
+      - 'jmh-telemetry/**'
   pull_request:
     paths:
       - '.github/scripts/runner-migration-contract-test.py'
@@ -19,6 +20,7 @@ on:
       - '.github/scripts/mandatory-benchmark-test.py'
       - '.github/workflows/*.yml'
       - '.github/workflows/*.yaml'
+      - 'jmh-telemetry/**'
   workflow_dispatch: {}
 
 permissions:
