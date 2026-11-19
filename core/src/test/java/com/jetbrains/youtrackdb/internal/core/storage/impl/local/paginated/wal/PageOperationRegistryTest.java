@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache.WOWCacheTestIT;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddAllOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddNonLeafEntryOp;
@@ -96,8 +97,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagB
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketUpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetRidBagIdCounterOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -109,6 +113,66 @@ import org.junit.Test;
  * deserialized by the factory during recovery.
  */
 public class PageOperationRegistryTest {
+
+  /**
+   * The WOW test record must coexist with every production page operation in a fresh factory.
+   * Keep this inventory explicit: the older shared array alone is not exhaustive.
+   * Register in both orders to expose accidental last-write-wins collisions.
+   */
+  @Test
+  public void wowRecordCoexistsWithFullProductionInventory() {
+    var ops = new ArrayList<PageOperation>(List.of(buildAllOps()));
+    ops.addAll(List.of(
+        new BTreeMVBucketV2AddAllLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2AddAllNonLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2ShrinkLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2ShrinkNonLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new RidbagEntryPointSetRidBagIdCounterOp(7, 13, 99, INITIAL_LSN, 123)));
+    var ids = new HashSet<Integer>();
+    for (var op : ops) {
+      Assert.assertTrue("Duplicate inventory ID " + op.getId(), ids.add(op.getId()));
+    }
+    Assert.assertEquals(97, ids.size());
+    for (int id = 201; id <= 297; id++) {
+      Assert.assertTrue("Missing production ID " + id, ids.contains(id));
+    }
+    Assert.assertFalse(ids.contains(CoverageTestWALRecordIds.WOW_CACHE_TEST_RECORD_ID));
+    var wow = new WOWCacheTestIT.TestRecord(new byte[] {1, 2, 3});
+    Assert.assertEquals(CoverageTestWALRecordIds.WOW_CACHE_TEST_RECORD_ID, wow.getId());
+    for (boolean testFirst : new boolean[] {false, true}) {
+      var factory = new WALRecordsFactory();
+      if (testFirst) {
+        factory.registerNewRecord(wow.getId(), WOWCacheTestIT.TestRecord.class);
+      }
+      PageOperationRegistry.registerAll(factory);
+      if (!testFirst) {
+        factory.registerNewRecord(wow.getId(), WOWCacheTestIT.TestRecord.class);
+      }
+      for (var op : ops) {
+        var decoded = isolatedRoundtrip(factory, op);
+        Assert.assertEquals("Decoder ID " + op.getId(), op.getClass(), decoded.getClass());
+        Assert.assertEquals(op, decoded);
+        if (op.getId() == 250) {
+          Assert.assertEquals(BTreeMVBucketV2SetLeftSiblingOp.class, decoded.getClass());
+        }
+      }
+      var decodedWow = isolatedRoundtrip(factory, wow);
+      Assert.assertEquals(WOWCacheTestIT.TestRecord.class, decodedWow.getClass());
+      Assert.assertArrayEquals(recordBytes(wow), recordBytes(decodedWow));
+    }
+  }
+
+  private static WriteableWALRecord isolatedRoundtrip(
+      WALRecordsFactory factory, WriteableWALRecord record) {
+    return factory.fromStream(recordBytes(record));
+  }
+
+  private static byte[] recordBytes(WriteableWALRecord record) {
+    ByteBuffer buffer = WALRecordsFactory.toStream(record);
+    byte[] bytes = new byte[buffer.limit()];
+    buffer.get(0, bytes);
+    return bytes;
+  }
 
   private static final LogSequenceNumber INITIAL_LSN = new LogSequenceNumber(1, 100);
   private static final long PAGE_INDEX = 7;

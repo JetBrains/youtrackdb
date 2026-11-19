@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.CoverageTestWALRecordIds.WOW_CACHE_TEST_RECORD_ID;
+
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -77,7 +79,7 @@ public class WOWCacheTestIT {
     storageName = "WOWCacheTest";
     storagePath = Paths.get(buildDirectory).resolve(storageName);
 
-    WALRecordsFactory.INSTANCE.registerNewRecord(250, TestRecord.class);
+    WALRecordsFactory.INSTANCE.registerNewRecord(WOW_CACHE_TEST_RECORD_ID, TestRecord.class);
   }
 
   @Before
@@ -1108,7 +1110,7 @@ public class WOWCacheTestIT {
 
     @Override
     public int getId() {
-      return 250;
+      return WOW_CACHE_TEST_RECORD_ID;
     }
   }
 }

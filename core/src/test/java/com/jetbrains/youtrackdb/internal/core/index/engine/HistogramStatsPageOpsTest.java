@@ -1,15 +1,22 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperationRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordTypes;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -23,6 +30,117 @@ public class HistogramStatsPageOpsTest {
   @Before
   public void setUp() {
     PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
+  }
+
+  /**
+   * Independent predecessor bytes cover empty, inline and sketch-spill WAL records.
+   * Expected legacy page bytes are built without today's page or operation encoders.
+   * Decode through the startup registry and verify raw replay and interpreted values.
+   */
+  @Test
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  public void predecessorBytesReplayExactlyAndRemainReadable() {
+    var factory = new WALRecordsFactory();
+    PageOperationRegistry.registerAll(factory);
+    var serializers = BinarySerializerFactory.create(
+        BinarySerializerFactory.currentBinaryFormatVersion());
+    // Zero capacity frees each page in the finally block even when a replay assertion fails.
+    var pool = new ByteBufferPool(DurablePage.MAX_PAGE_SIZE_BYTES, new DirectMemoryAllocator(), 0);
+    // One bucket: nonNull=10, MCV=5 at frequency 3, boundaries 1..9, frequency=10, NDV=4.
+    byte[] histogram = ByteBuffer.allocate(60).order(ByteOrder.nativeOrder())
+        .putInt(1).putLong(10).putLong(3).putInt(4).putInt(5)
+        .putInt(4).putInt(1).putInt(4).putInt(9).putLong(10).putLong(4).array();
+    byte[] sketch = new byte[1024];
+    Arrays.fill(sketch, (byte) 2);
+    for (int kind = 0; kind < 4; kind++) {
+      boolean empty = kind == 0;
+      boolean spill = kind == 2;
+      boolean sketchOnly = kind == 3;
+      byte[] payload;
+      byte[] expected;
+      if (empty) {
+        payload = new byte[] {8};
+        expected = ByteBuffer.allocate(53).order(ByteOrder.nativeOrder())
+            .putInt(1).put((byte) 8).array();
+      } else if (sketchOnly) {
+        payload = ByteBuffer.allocate(1028).order(ByteOrder.nativeOrder())
+            .putInt(1024).put(sketch).array();
+        expected = sketch;
+      } else {
+        int count = spill ? 0x80000400 : 1024;
+        payload = ByteBuffer.allocate(53 + histogram.length + (spill ? 0 : 1024))
+            .order(ByteOrder.nativeOrder()).put((byte) 8)
+            .putLong(12).putLong(4).putLong(2).putLong(7).putLong(11).putInt(count)
+            .putInt(histogram.length).put(histogram).putInt(spill ? 0 : 1024).array();
+        if (!spill) {
+          System.arraycopy(sketch, 0, payload, payload.length - 1024, 1024);
+        }
+        expected = ByteBuffer.allocate(53 + histogram.length + (spill ? 0 : 1024))
+            .order(ByteOrder.nativeOrder()).putInt(1).put((byte) 8)
+            .putLong(12).putLong(4).putLong(2).putLong(7).putLong(11)
+            .putInt(histogram.length).putInt(count).put(histogram).array();
+        if (!spill) {
+          System.arraycopy(sketch, 0, expected, expected.length - 1024, 1024);
+        }
+      }
+      int id = empty ? 279 : sketchOnly ? 281 : 280;
+      byte[] fixture = ByteBuffer.allocate(42 + payload.length).order(ByteOrder.nativeOrder())
+          .putShort((short) id).putInt(0).putLong(99).putLong(sketchOnly ? 1 : 0)
+          .putLong(13).putLong(1).putInt(100).put(payload).array();
+      var op = (PageOperation) factory.fromStream(fixture);
+      Assert.assertEquals(empty ? HistogramStatsPageWriteEmptyOp.class
+          : sketchOnly ? HistogramStatsPageWriteHllToPage1Op.class
+              : HistogramStatsPageWriteSnapshotOp.class,
+          op.getClass());
+      Assert.assertEquals(99, op.getOperationUnitId());
+      var pointer = pool.acquireDirect(true, Intention.TEST);
+      var cp = new CachePointer(pointer, pool, 13, (int) op.getPageIndex());
+      cp.incrementReferrer();
+      var entry = new CacheEntryImpl(13, (int) op.getPageIndex(), cp, false, null);
+      entry.acquireExclusiveLock();
+      try {
+        byte[] before = new byte[DurablePage.MAX_PAGE_SIZE_BYTES];
+        Arrays.fill(before, (byte) 0x5a);
+        cp.getBuffer().put(0, before);
+        op.redo(page2(entry));
+        System.arraycopy(expected, 0, before, 28, expected.length);
+        byte[] actual = new byte[before.length];
+        cp.getBuffer().get(0, actual);
+        Assert.assertArrayEquals(before, actual);
+        if (sketchOnly) {
+          byte[] read = new byte[1024];
+          HistogramStatsPage.readHllFromPage1(entry).writeTo(read, 0);
+          Assert.assertArrayEquals(sketch, read);
+        } else {
+          var read = page2(entry).readSnapshot(
+              (com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer) IntegerSerializer.INSTANCE,
+              serializers);
+          Assert.assertEquals(empty ? 0 : 12, read.stats().totalCount());
+          Assert.assertEquals(empty ? 0 : 4, read.stats().distinctCount());
+          Assert.assertEquals(empty ? 0 : 2, read.stats().nullCount());
+          Assert.assertEquals(empty ? 0 : 7, read.mutationsSinceRebalance());
+          Assert.assertEquals(empty ? 0 : 11, read.totalCountAtLastBuild());
+          Assert.assertEquals(spill, read.hllOnPage1());
+          if (!empty) {
+            Assert.assertArrayEquals(new Comparable<?>[] {1, 9}, read.histogram().boundaries());
+            Assert.assertArrayEquals(new long[] {10}, read.histogram().frequencies());
+            Assert.assertArrayEquals(new long[] {4}, read.histogram().distinctCounts());
+            Assert.assertEquals(10, read.histogram().nonNullCount());
+            Assert.assertEquals(5, read.histogram().mcvValue());
+            Assert.assertEquals(3, read.histogram().mcvFrequency());
+          }
+          if (!empty && !spill) {
+            byte[] registers = new byte[1024];
+            read.hllSketch().writeTo(registers, 0);
+            Assert.assertArrayEquals(sketch, registers);
+          }
+        }
+      } finally {
+        entry.releaseExclusiveLock();
+        cp.decrementReferrer();
+      }
+    }
+    pool.clear();
   }
 
   // ---- Record ID verification ----

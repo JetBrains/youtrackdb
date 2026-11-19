@@ -36,6 +36,112 @@ import org.junit.Test;
  */
 public class HistogramStatsPageHllSpillTest {
 
+  /**
+   * Empty, inline, boundary and full two-page images roundtrip without aliasing their inputs.
+   * The maximum includes sketch bytes in the same complete-image budget.
+   */
+  @Test
+  public void continuationContainerRoundtripsBoundariesAndSketch() {
+    int capacity = HistogramStatsPageContinuationCodec.PART_CAPACITY;
+    for (int length : new int[] {0, 1, capacity, capacity + 1, 2 * capacity}) {
+      byte[] image = new byte[length];
+      new java.util.Random(51).nextBytes(image);
+      byte[] original = image.clone();
+      byte[][] parts = HistogramStatsPageContinuationCodec.encode(image);
+      assertEquals(length > capacity ? 2 : 1, parts.length);
+      for (byte[] part : parts) {
+        assertTrue(part.length + DurablePage.NEXT_FREE_POSITION <= 4096);
+        HistogramStatsPageContinuationCodec.validatePart(part);
+      }
+      byte[] second = parts.length == 2 ? parts[1] : new byte[] {99};
+      org.junit.Assert.assertArrayEquals(original,
+          HistogramStatsPageContinuationCodec.assemble(parts[0], second));
+      if (length > 0) {
+        image[0] ^= 1;
+        org.junit.Assert.assertArrayEquals(original,
+            HistogramStatsPageContinuationCodec.assemble(parts[0], second));
+      }
+    }
+    byte[] imageWithSketch = new byte[capacity + HyperLogLogSketch.serializedSize()];
+    var sketch = new HyperLogLogSketch();
+    sketch.writeTo(imageWithSketch, capacity);
+    byte[][] parts = HistogramStatsPageContinuationCodec.encode(imageWithSketch);
+    org.junit.Assert.assertArrayEquals(imageWithSketch,
+        HistogramStatsPageContinuationCodec.assemble(parts[0], parts[1]));
+  }
+
+  /**
+   * Independent native-order bytes pin the new container header and complete-image digest.
+   * The known SHA-256 of "abc" is not produced by the codec under test.
+   */
+  @Test
+  public void continuationContainerReadsIndependentBytes() {
+    byte[] digest = java.util.HexFormat.of().parseHex(
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    byte[] fixture = ByteBuffer.allocate(47).order(java.nio.ByteOrder.nativeOrder())
+        .putInt(2).putInt(3).putInt(0).put(digest).put(new byte[] {97, 98, 99}).array();
+    org.junit.Assert.assertArrayEquals(new byte[] {97, 98, 99},
+        HistogramStatsPageContinuationCodec.assemble(fixture, null));
+    org.junit.Assert.assertArrayEquals(fixture,
+        HistogramStatsPageContinuationCodec.encode(new byte[] {97, 98, 99})[0]);
+  }
+
+  /** Invalid metadata and exact extents are rejected without modifying input bytes. */
+  @Test
+  public void continuationContainerRejectsMalformedParts() {
+    int capacity = HistogramStatsPageContinuationCodec.PART_CAPACITY;
+    byte[][] valid = HistogramStatsPageContinuationCodec.encode(new byte[capacity + 1]);
+    for (int[] mutation : new int[][] {
+        {0, 1}, {4, -1}, {4, Integer.MAX_VALUE}, {4, 2 * capacity + 1},
+        {4, capacity - 1}, {8, -1}, {8, 2}, {8, 1}}) {
+      byte[] part = valid[0].clone();
+      ByteBuffer.wrap(part).order(java.nio.ByteOrder.nativeOrder())
+          .putInt(mutation[0], mutation[1]);
+      byte[] before = part.clone();
+      org.junit.Assert.assertThrows(IllegalArgumentException.class,
+          () -> HistogramStatsPageContinuationCodec.validatePart(part));
+      org.junit.Assert.assertArrayEquals(before, part);
+    }
+    for (int length : new int[] {0, 43, valid[0].length - 1, valid[0].length + 1}) {
+      byte[] part = java.util.Arrays.copyOf(valid[0], length);
+      org.junit.Assert.assertThrows(IllegalArgumentException.class,
+          () -> HistogramStatsPageContinuationCodec.validatePart(part));
+    }
+    byte[] invalidContinuation = valid[1].clone();
+    ByteBuffer.wrap(invalidContinuation).order(java.nio.ByteOrder.nativeOrder())
+        .putInt(4, capacity);
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.validatePart(invalidContinuation));
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.encode(new byte[2 * capacity + 1]));
+  }
+
+  /** Missing, reversed, inconsistent and same-length mixed images must never assemble. */
+  @Test
+  public void continuationContainerRequiresCompleteImageAgreement() {
+    int capacity = HistogramStatsPageContinuationCodec.PART_CAPACITY;
+    byte[][] first = HistogramStatsPageContinuationCodec.encode(new byte[capacity + 2]);
+    byte[] other = new byte[capacity + 2];
+    other[capacity] = 1;
+    byte[][] second = HistogramStatsPageContinuationCodec.encode(other);
+    byte[][] longer = HistogramStatsPageContinuationCodec.encode(new byte[capacity + 3]);
+    for (byte[] continuation : new byte[][] {
+        null, first[0], second[1], longer[1], new byte[0]}) {
+      org.junit.Assert.assertThrows(IllegalArgumentException.class,
+          () -> HistogramStatsPageContinuationCodec.assemble(first[0], continuation));
+    }
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.assemble(first[1], first[0]));
+    // Matching headers cannot conceal changed payload bytes.
+    first[1][HistogramStatsPageContinuationCodec.HEADER_SIZE] ^= 1;
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.assemble(first[0], first[1]));
+    byte[] inline = HistogramStatsPageContinuationCodec.encode(new byte[] {1})[0];
+    inline[HistogramStatsPageContinuationCodec.HEADER_SIZE] ^= 1;
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.assemble(inline, null));
+  }
+
   private static final int PAGE_SIZE = DurablePage.MAX_PAGE_SIZE_BYTES;
 
   /**
