@@ -26,9 +26,288 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class BackReferenceLinkFieldsTest extends DbTestBase {
 
+  private final Object savedCap = GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValue();
+
   @After
   public void restoreLimits() {
-    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+    GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.setValue(savedCap);
+  }
+
+  /** Required-target MATCH queries must retain every subclass neighbor and apply the filter. */
+  @Test
+  public void realMatchSubclassOut() {
+    checkQuery("out", "L", "L2", "L3");
+  }
+
+  @Test
+  public void realMatchMixedOut() {
+    checkQuery("out", "L", "L", "L3");
+  }
+
+  @Test
+  public void realMatchSubclassIn() {
+    checkQuery("in", "L", "L2", "L3");
+  }
+
+  @Test
+  public void realMatchBothOneSideAbsent() {
+    checkQuery("both", "L", "L2", "L3");
+  }
+
+  @Test
+  public void realMatchBaseE() {
+    checkQuery("out", "E", "L2", "L3");
+  }
+
+  private void checkQuery(String direction, String label, String... classes) {
+    var savedThreshold = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+    try {
+      schema();
+      session.execute("create class F extends E").close();
+      session.begin();
+      var anchor = session.newVertex("V");
+      var source = session.newVertex("V");
+      session.newRegularEdge("F", anchor, source);
+      session.newRegularEdge("L3", session.newVertex("V"), anchor).delete();
+      var expected = new java.util.HashSet<RID>();
+      for (int i = 0; i < 100; i++) {
+        var candidate = session.newVertex("V");
+        session.newRegularEdge("H", source, candidate);
+        if (i < 60) {
+          expected.add(candidate.getIdentity());
+          if (direction.equals("in")) {
+            session.newRegularEdge(classes[i % classes.length], anchor, candidate);
+          } else {
+            session.newRegularEdge(classes[i % classes.length], candidate, anchor);
+          }
+        }
+      }
+      String query = "match {rid: " + anchor.getIdentity()
+          + ", as:a}.out('F'){as:s}.out('H'){as:c}."
+          + direction + "('" + label + "'){as:z, where:(@rid = $matched.a.@rid)} return c";
+      try (var result = session.query(query)) {
+        var actual = new java.util.HashSet<RID>();
+        for (var row : result.toList()) {
+          actual.add(com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper
+              .toRid(row.getProperty("c")));
+        }
+        assertEquals(expected, actual);
+        var plan = result.getExecutionPlan();
+        assertTrue(plan.prettyPrint(0, 2), plan.getSteps().stream()
+            .filter(MatchStep.class::isInstance).map(MatchStep.class::cast)
+            .anyMatch(step -> step.edge.getPreFilterAppliedCount() > 0));
+      }
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(savedThreshold);
+    }
+  }
+
+  /** Wide directional estimates reject before iteration, but a larger forward bag builds. */
+  @Test
+  public void wideEstimateRejectsBeforeBuild() {
+    schema();
+    for (int i = 0; i < 50; i++) {
+      session.execute("create class Wide" + i + " extends L").close();
+    }
+    session.begin();
+    var anchor = session.newVertex("V");
+    for (int i = 0; i < 100; i++) {
+      session.newRegularEdge("Wide" + i % 50, session.newVertex("V"), anchor);
+    }
+    var ctx = context();
+    var descriptor = org.mockito.Mockito.spy(lookup("L", "both", anchor.getIdentity(), ctx, false));
+    var edge = traversal(descriptor);
+    assertNull(edge.resolvePreFilter(ctx, 60));
+    org.mockito.Mockito.verify(descriptor, org.mockito.Mockito.never())
+        .resolve(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    assertEquals(100, edge.resolvePreFilter(ctx, 200).size());
+    org.mockito.Mockito.verify(descriptor).resolve(ctx, anchor.getIdentity());
+    session.rollback();
+  }
+
+  /** The planner's edge-RID reader must retain all sixty subclass edge identities. */
+  @Test
+  public void realMatchEdgeRids() {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+    try {
+      schema();
+      session.execute("create class F extends E").close();
+      session.begin();
+      var anchor = session.newVertex("V");
+      var source = session.newVertex("V");
+      session.newRegularEdge("F", anchor, source);
+      var expected = new java.util.HashSet<RID>();
+      for (int i = 0; i < 100; i++) {
+        var edge = session.newRegularEdge("L3", source,
+            i < 60 ? anchor : session.newVertex("V"));
+        if (i < 60) {
+          expected.add(edge.getIdentity());
+        }
+      }
+      String query = "match {rid:" + anchor.getIdentity()
+          + ",as:a}.out('F'){as:s}.outE('L'){as:c}.inV()"
+          + "{as:z,where:(@rid=$matched.a.@rid)} return c";
+      try (var result = session.query(query)) {
+        var actual = new java.util.HashSet<RID>();
+        result.toList().forEach(row -> actual.add(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper
+                .toRid(row.getProperty("c"))));
+        assertEquals(expected, actual);
+        assertTrue(result.getExecutionPlan().prettyPrint(0, 2),
+            result.getExecutionPlan().getSteps().stream()
+                .filter(MatchStep.class::isInstance).map(MatchStep.class::cast)
+                .anyMatch(step -> step.edge.getPreFilterAppliedCount() > 0));
+      }
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  /** A cached plan built before a schema change must resolve the new hierarchy on first use. */
+  @Test
+  public void realCachedPlanAfterSchemaChange() {
+    checkPlanLifecycle(false, false);
+  }
+
+  /** Restart must refresh a used MATCH reader after a schema change. */
+  @Test
+  public void realPlanResetAfterSchemaChange() {
+    checkPlanLifecycle(true, false);
+  }
+
+  /** Restart must reach MATCH readers nested inside a Cartesian component. */
+  @Test
+  public void realCartesianResetAfterCommittedEdge() {
+    checkPlanLifecycle(true, true);
+  }
+
+  private void checkPlanLifecycle(boolean runBefore, boolean cartesian) {
+    var saved = GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.getValue();
+    GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(0L);
+    try {
+      schema();
+      session.execute("create class F extends E").close();
+      session.execute("create class Other extends E").close();
+      session.begin();
+      var anchor = session.newVertex("V");
+      var source = session.newVertex("V");
+      session.newRegularEdge("F", anchor, source);
+      var expected = new ArrayList<RID>();
+      for (int i = 0; i < 100; i++) {
+        var candidate = session.newVertex("V");
+        session.newRegularEdge("H", source, candidate);
+        if (i < 60) {
+          expected.add(candidate.getIdentity());
+          session.newRegularEdge(i < 30 || cartesian ? "L2" : "Other", candidate, anchor);
+        }
+      }
+      session.commit();
+      session.begin();
+      String query = "match {rid:" + anchor.getIdentity()
+          + ",as:a}.out('F'){as:s}.out('H'){as:c}.out('L')"
+          + "{as:z,where:(@rid=$matched.a.@rid)}"
+          + (cartesian ? ", {rid:" + source.getIdentity() + ",as:ind}" : "")
+          + " return c";
+      var ctx = context();
+      var statement =
+          (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
+              .parse(query, session);
+      var plan = statement.createExecutionPlan(ctx, false);
+      if (runBefore) {
+        assertPlanRows(plan, ctx, expected.subList(0, cartesian ? 60 : 30));
+      }
+      session.commit();
+      if (cartesian) {
+        session.begin();
+        var candidate = session.newVertex("V");
+        session.newRegularEdge("H", session.load(source.getIdentity()), candidate);
+        session.newRegularEdge("L3", candidate, session.load(anchor.getIdentity()));
+        expected.add(candidate.getIdentity());
+        session.commit();
+      } else {
+        var schema = session.getMetadata().getSchema();
+        schema.getClass("Other").addSuperClass(schema.getClass("L"));
+      }
+      session.begin();
+      if (runBefore) {
+        plan.reset(ctx);
+      }
+      assertPlanRows(plan, ctx, expected);
+      assertTrue(plan.prettyPrint(0, 2), hasAppliedFilter(plan));
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_MATCH_HASH_JOIN_THRESHOLD.setValue(saved);
+    }
+  }
+
+  private boolean hasAppliedFilter(
+      com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan plan) {
+    for (var step : plan.getSteps()) {
+      if (step instanceof MatchStep match && match.edge.getPreFilterAppliedCount() > 0) {
+        return true;
+      }
+      if (step instanceof com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep) {
+        try {
+          var field = step.getClass().getDeclaredField("subPlans");
+          field.setAccessible(true);
+          for (var nested : (java.util.List<?>) field.get(step)) {
+            if (hasAppliedFilter(
+                (com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan) nested)) {
+              return true;
+            }
+          }
+        } catch (ReflectiveOperationException e) {
+          throw new AssertionError(e);
+        }
+      }
+    }
+    return false;
+  }
+
+  private void assertPlanRows(
+      com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan plan,
+      BasicCommandContext ctx, java.util.List<RID> expected) {
+    var actual = new java.util.HashSet<RID>();
+    var stream = plan.start();
+    try {
+      while (stream.hasNext(ctx)) {
+        actual.add(com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper
+            .toRid(stream.next(ctx).getProperty("c")));
+      }
+    } finally {
+      stream.close(ctx);
+    }
+    assertEquals(new java.util.HashSet<>(expected), actual);
+  }
+
+  /** Every reusable SELECT container forwards reset to the MATCH sub-plan it owns. */
+  @Test
+  public void containersForwardReset() throws ReflectiveOperationException {
+    var ctx = context();
+    var nested =
+        mock(com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan.class);
+    var product = new com.jetbrains.youtrackdb.internal.core.sql.executor.CartesianProductStep(
+        ctx, false);
+    product.addSubPlan(nested);
+    product.reset();
+    new com.jetbrains.youtrackdb.internal.core.sql.executor.SubQueryStep(
+        nested, ctx, ctx, false).reset();
+    new com.jetbrains.youtrackdb.internal.core.sql.executor.ParallelExecStep(
+        java.util.List.of(nested), ctx, false).reset();
+    var constructor = com.jetbrains.youtrackdb.internal.core.sql.executor.GlobalLetQueryStep.class
+        .getDeclaredConstructor(
+            com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier.class,
+            com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan.class,
+            com.jetbrains.youtrackdb.internal.core.command.CommandContext.class, boolean.class);
+    constructor.setAccessible(true);
+    constructor.newInstance(
+        new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier("nested"),
+        nested, ctx, false).reset();
+    org.mockito.Mockito.verify(nested, org.mockito.Mockito.times(4)).reset(ctx);
   }
 
   private void schema() {

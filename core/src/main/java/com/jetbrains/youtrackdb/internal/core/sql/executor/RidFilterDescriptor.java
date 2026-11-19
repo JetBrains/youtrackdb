@@ -254,7 +254,7 @@ public sealed interface RidFilterDescriptor {
     }
 
     /**
-     * Returns the saturating total of the selected reverse link bag sizes.
+     * Returns the directional total, or the larger directional total for both().
      * Uses the pre-computed target RID from {@code cacheKey} to avoid
      * re-evaluating the expression.
      */
@@ -264,7 +264,8 @@ public sealed interface RidFilterDescriptor {
       if (targetRid == null) {
         return -1;
       }
-      return TraversalPreFilterHelper.reverseLinkBagSize(targetRid, fields(ctx), ctx);
+      return TraversalPreFilterHelper.reverseLinkBagEstimate(
+          targetRid, fields(ctx), !singleField && "both".equals(traversalDirection), ctx);
     }
 
     /**
@@ -287,9 +288,11 @@ public sealed interface RidFilterDescriptor {
           edgeClassName, traversalDirection, targetRidExpression, collectEdgeRids, singleField);
     }
 
-    /** Multiple fields can overlap, so only the distinct post-build size is selective. */
-    public boolean hasMultipleFields(CommandContext ctx) {
-      return fields(ctx).size() > 1;
+    /** The absolute cap counts both directions, including duplicate entries. */
+    public int totalSize(CommandContext ctx, @Nullable Object cacheKey) {
+      RID targetRid = cacheKey instanceof RID rid ? rid : resolveTargetRid(ctx);
+      return targetRid == null ? -1
+          : TraversalPreFilterHelper.reverseLinkBagSize(targetRid, fields(ctx), ctx);
     }
 
     /** Resolves the target RID from the expression. */

@@ -46,6 +46,12 @@ public class CartesianProductStep extends AbstractExecutionStep {
     super(ctx, profilingEnabled);
   }
 
+  /** Clear execution-local state in nested MATCH steps when the parent plan restarts. */
+  @Override
+  public void reset() {
+    subPlans.forEach(plan -> plan.reset(ctx));
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     // Drain predecessor for side effects before computing the Cartesian product.

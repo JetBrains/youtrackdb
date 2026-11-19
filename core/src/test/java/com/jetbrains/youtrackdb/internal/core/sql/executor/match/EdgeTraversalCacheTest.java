@@ -2647,6 +2647,38 @@ public class EdgeTraversalCacheTest {
     assertThat(et.resolveWithCache(ctx, LARGE_LINKBAG)).isNull();
   }
 
+  /** A rejected index cannot waive the distinct-count check, including on a cache hit. */
+  @Test
+  public void compositeRejectedIndexChecksDistinctCountOnCacheHit() {
+    var et = createEdgeTraversal();
+    var ctx = new BasicCommandContext();
+    var set = new RidSet();
+    for (int i = 0; i < 80; i++) {
+      set.add(new RecordId(10, i));
+    }
+    var index = stubIndexLookup(0.98, 70, "Post.date", set);
+    when(index.passesSelectivityCheck(anyInt(), anyInt(), any())).thenReturn(true);
+    var edge = mock(RidFilterDescriptor.EdgeRidLookup.class);
+    when(edge.estimatedSize(any(), any())).thenReturn(70);
+    when(edge.cacheKey(any())).thenReturn(new RecordId(20, 1));
+    when(edge.resolve(any(), any())).thenReturn(set);
+    when(edge.passesSelectivityCheck(anyInt(), anyInt(), any())).thenAnswer(
+        invocation -> (double) (int) invocation.getArgument(0) / (int) invocation.getArgument(1)
+            <= 0.8);
+    et.setIntersectionDescriptor(new RidFilterDescriptor.Composite(List.of(index, edge)));
+    assertThat(et.resolvePreFilter(ctx, 99)).isNull();
+    assertThat(et.resolvePreFilter(ctx, 101)).hasSize(80);
+    assertThat(et.resolvePreFilter(ctx, 99)).isNull();
+    verify(edge, times(1)).resolve(any(), any());
+
+    // A small rejected-index estimate must not hide a large reverse-field estimate.
+    var other = createEdgeTraversal();
+    other.setIntersectionDescriptor(new RidFilterDescriptor.Composite(List.of(index, edge)));
+    when(edge.estimatedSize(any(), any())).thenReturn(1000);
+    assertThat(other.resolvePreFilter(ctx, 60)).isNull();
+    verify(edge, times(1)).resolve(any(), any());
+  }
+
   /**
    * Standalone IndexLookup with selectivity above threshold is still
    * rejected (no Composite fallback applies).

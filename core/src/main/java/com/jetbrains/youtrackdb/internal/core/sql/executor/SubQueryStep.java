@@ -50,6 +50,12 @@ public class SubQueryStep extends AbstractExecutionStep {
     this.sameContextAsParent = (ctx == subCtx);
   }
 
+  /** Clear execution-local state in nested MATCH steps when the parent plan restarts. */
+  @Override
+  public void reset() {
+    subExecutionPlan.reset(ctx);
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     // Drain predecessor for side effects before executing subquery.

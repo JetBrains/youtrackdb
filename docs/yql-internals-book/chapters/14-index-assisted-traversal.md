@@ -153,26 +153,30 @@ schema subclasses. A `both()` lookup reads both directions. The field list uses 
 session schema snapshot at execution time. A non-LinkBag field disables the lookup so that
 MATCH checks the original condition. The `collectEdgeRids` flag switches the collector
 between vertex RIDs (for `out()`/`in()`) and edge RIDs (for `outE()`/`inE()`).
-The size estimate and cap count entries across all selected fields with saturating arithmetic.
-Only a one-field lookup uses the estimated overlap ratio before building. Multi-field
-lookups use the distinct RID count after building. A plain MATCH step clears stored RID
-sets when the plan restarts. SELECT with `expand()` uses a separate single-field mode.
+
+The cap counts entries across all selected fields with saturating arithmetic. Before building,
+the lookup rejects estimates above the overlap ratio limit. For `in` and `out`, the estimate
+is the directional total. For `both`, it is the larger directional total. After building,
+the check uses the distinct RID count. A plain MATCH step clears stored RID sets when the
+plan restarts, including inside container sub-plans. SELECT with `expand()` uses a separate
+single-field mode.
+
 `cacheKey`
 returns the resolved target RID, so the cache entry is reused across all source vertices that
-share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:195`)
+share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:247`)
 is an *overlap ratio* test — the first of the two admission paths — described in detail later.
 
-**`IndexLookup`** (`RidFilterDescriptor.java:257`) covers field conditions that can be
+**`IndexLookup`** (`RidFilterDescriptor.java:322`) covers field conditions that can be
 served by an index — equality, range, membership. `resolve` calls
 `TraversalPreFilterHelper.resolveIndexToRidSet`, which runs the index scan and accumulates
 results. `estimatedSize` returns a histogram-based estimate from the index descriptor.
 `cacheKey` returns a fingerprint of the index and its condition: because the query parameters
 are literals or named parameters (never `$matched` references), the index result is the same
 for every source vertex in the query, and a single resolve suffices for the entire execution.
-Its `passesSelectivityCheck` (`RidFilterDescriptor.java:278`) is a *class-level selectivity*
+Its `passesSelectivityCheck` (`RidFilterDescriptor.java:343`) is a *class-level selectivity*
 test — the second admission path — which ignores the per-vertex link-bag size entirely.
 
-**`Composite`** (`RidFilterDescriptor.java:335`) combines two or more descriptors by
+**`Composite`** (`RidFilterDescriptor.java:400`) combines two or more descriptors by
 intersecting their results. `resolve` resolves each child and intersects the resulting
 `RidSet`s at the bitmap level via `TraversalPreFilterHelper.intersect`. `estimatedSize`
 returns the minimum of child estimates, since an intersection is bounded by its smallest
@@ -377,7 +381,7 @@ reverse edge. Its value depends entirely on how much of the *current* adjacency 
 covers: if the reverse set already contains four out of every five forward neighbours,
 intersecting the two barely narrows anything, and the membership tests are pure overhead.
 
-So `EdgeRidLookup.passesSelectivityCheck` (`RidFilterDescriptor.java:195`) is an overlap
+So `EdgeRidLookup.passesSelectivityCheck` (`RidFilterDescriptor.java:247`) is an overlap
 ratio. It keeps the filter only when
 
 ```

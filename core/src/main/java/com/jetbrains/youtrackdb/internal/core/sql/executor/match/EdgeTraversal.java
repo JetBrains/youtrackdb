@@ -235,6 +235,9 @@ public class EdgeTraversal {
    */
   private double indexLookupSelectivity = Double.NaN;
 
+  // True only when the index child, rather than a sibling lookup, justified the build.
+  private boolean indexLookupVerified;
+
   /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
    * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
@@ -549,9 +552,12 @@ public class EdgeTraversal {
     }
     // Index selectivity was already checked during resolution. Reverse-edge overlap
     // needs a second check against the actual set size for this source vertex.
-    boolean indexLookupVerified = desc instanceof RidFilterDescriptor.IndexLookup
-        || (desc instanceof RidFilterDescriptor.Composite c && c.findIndexLookup() != null);
-    if (!indexLookupVerified && !desc.passesSelectivityCheck(ridSet.size(), linkBagSize, ctx)) {
+    boolean passes = (desc instanceof RidFilterDescriptor.Composite composite
+        && composite.findIndexLookup() != null)
+            ? composite.anyChildPassesExcluding(
+                RidFilterDescriptor.IndexLookup.class, ridSet.size(), linkBagSize, ctx)
+            : desc.passesSelectivityCheck(ridSet.size(), linkBagSize, ctx);
+    if (!indexLookupVerified && !passes) {
       recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
       return null;
     }
@@ -730,7 +736,10 @@ public class EdgeTraversal {
     int estimatedSize = desc.estimatedSize(ctx, key);
 
     // 3. Absolute cap exceeded — safe to cache null permanently.
-    if (rejectIfCapExceeded(estimatedSize, key)) {
+    int capSize = desc instanceof RidFilterDescriptor.EdgeRidLookup lookup
+        && "both".equals(lookup.traversalDirection())
+            ? lookup.totalSize(ctx, key) : estimatedSize;
+    if (rejectIfCapExceeded(capSize, key)) {
       return null;
     }
 
@@ -832,16 +841,6 @@ public class EdgeTraversal {
    *         {@code false} if the descriptor was rejected/deferred (and the
    *         appropriate skip reason already recorded).
    */
-  private static boolean hasMultiFieldLookup(RidFilterDescriptor desc, CommandContext ctx) {
-    if (desc instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
-      return lookup.hasMultipleFields(ctx);
-    }
-    if (desc instanceof RidFilterDescriptor.Composite composite) {
-      return composite.descriptors().stream().anyMatch(child -> hasMultiFieldLookup(child, ctx));
-    }
-    return false;
-  }
-
   private boolean evaluateDescriptorSelectivity(
       RidFilterDescriptor desc, int estimatedSize, int linkBagSize,
       @Nullable Object key, CommandContext ctx) {
@@ -861,22 +860,28 @@ public class EdgeTraversal {
         // Composite rescue: the IndexLookup child failed, but a sibling
         // (e.g. EdgeRidLookup back-reference) may still justify the build.
         var composite = (RidFilterDescriptor.Composite) desc;
-        if (estimatedSize >= 0 && !hasMultiFieldLookup(desc, ctx)
-            && !composite.anyChildPassesExcluding(
-                RidFilterDescriptor.IndexLookup.class,
-                estimatedSize, linkBagSize, ctx)) {
+        boolean siblingPasses = false;
+        for (var child : composite.descriptors()) {
+          if (!(child instanceof RidFilterDescriptor.IndexLookup)) {
+            int childEstimate = child.estimatedSize(ctx, null);
+            if (childEstimate < 0
+                || child.passesSelectivityCheck(childEstimate, linkBagSize, ctx)) {
+              siblingPasses = true;
+              break;
+            }
+          }
+        }
+        if (!siblingPasses) {
           recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
           return false;
         }
         // Non-IndexLookup child passes → fall through to materialise.
         return true;
       }
-      return decision == AmortizationDecision.PROCEED;
+      indexLookupVerified = decision == AmortizationDecision.PROCEED;
+      return indexLookupVerified;
     }
 
-    if (hasMultiFieldLookup(desc, ctx)) {
-      return true;
-    }
     if (estimatedSize >= 0
         && !desc.passesSelectivityCheck(estimatedSize, linkBagSize, ctx)) {
       recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);

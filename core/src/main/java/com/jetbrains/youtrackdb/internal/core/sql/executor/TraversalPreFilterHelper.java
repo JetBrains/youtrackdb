@@ -309,7 +309,22 @@ public final class TraversalPreFilterHelper {
     return linkBagTotal(targetEntity, fields);
   }
 
+  /** For both directions, use the larger directional total, not their overlapping sum. */
+  static int reverseLinkBagEstimate(
+      RID targetRid, List<String> fields, boolean both, CommandContext ctx) {
+    if (!both) {
+      return reverseLinkBagSize(targetRid, fields, ctx);
+    }
+    int incoming = reverseLinkBagSize(targetRid,
+        fields.stream().filter(name -> name.startsWith("in_")).toList(), ctx);
+    int outgoing = reverseLinkBagSize(targetRid,
+        fields.stream().filter(name -> name.startsWith("out_")).toList(), ctx);
+    return Math.max(incoming, outgoing);
+  }
+
   private static int linkBagTotal(EntityImpl vertex, List<String> fields) {
+    // Fully load once so absent hierarchy fields do not trigger repeated partial parses.
+    vertex.deserializeProperties();
     long total = 0;
     boolean found = false;
     for (var field : fields) {
