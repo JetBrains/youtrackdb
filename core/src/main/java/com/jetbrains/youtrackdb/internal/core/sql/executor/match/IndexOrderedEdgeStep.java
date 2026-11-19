@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.RidFilteredIndexValuesStep;
@@ -28,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.RidPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -642,6 +644,154 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         executionTraversal.resolveEffectivenessMetric().record(filtered, probed);
         probed = 0;
         filtered = 0;
+      }
+    }
+  }
+
+  /**
+   * One equality-index candidate and its edge multiplicity. Keeping the count separate avoids
+   * allocating a result row for every parallel edge before a runtime path has been fixed.
+   */
+  record EqualityCandidate(Result record, int links) {
+  }
+
+  /**
+   * A completed attempt contains every matching candidate. An incomplete attempt must be
+   * discarded before another path runs. Observed entries include repeated index RIDs so the
+   * runtime dispatcher can raise an underestimated cardinality before repricing.
+   */
+  record EqualityAttempt(
+      List<EqualityCandidate> candidates, long observedEntries, boolean complete,
+      boolean requiresLinkBagLoad) {
+  }
+
+  /**
+   * Reads candidates without emitting rows or changing the ordering signal. The caller owns the
+   * execution-local account and must choose EQUALITY before calling this method. The caller owns
+   * the source record load and supplies its already loaded LinkBag.
+   *
+   * <p>Only vertex traversals can use candidate-side membership. The reverse field is derived
+   * from the literal source field, not from polymorphic edge classes. Every index entry, record
+   * load and reverse edge visit is charged before the corresponding read.
+   */
+  EqualityAttempt readEqualityCandidates(
+      Result upstreamRow, RID sourceRid, LinkBag sourceBag, CommandContext context,
+      IndexOrderedCostModel.WorkAccount account, IndexOrderedCostModel.EqualityCosts costs,
+      long memoryLimit) {
+    return readEqualityCandidates(upstreamRow, sourceRid, sourceBag, context, account, costs,
+        memoryLimit, new EqualityReads());
+  }
+
+  /** Per-call read boundaries allow tests to observe storage work without shared mutable state. */
+  class EqualityReads {
+    IndexSearchDescriptor descriptor() {
+      return targetIndexDescriptor;
+    }
+
+    ExecutionStream open(CommandContext context, Runnable beforeRangeLookup) {
+      return new FetchFromIndexStep(
+          descriptor(), true, context, profilingEnabled, beforeRangeLookup)
+          .internalStart(context);
+    }
+
+    boolean advance(ExecutionStream cursor, CommandContext context) {
+      return cursor.hasNext(context);
+    }
+
+    Result record(RID rid, CommandContext context) {
+      return loadRecord(rid, context.getDatabaseSession());
+    }
+
+    Iterator<RidPair> edges(LinkBag bag) {
+      return bag.iterator();
+    }
+
+    RidPair next(Iterator<RidPair> edges) {
+      return edges.next();
+    }
+  }
+
+  private static final class EqualityWorkExhausted extends RuntimeException {
+  }
+
+  EqualityAttempt readEqualityCandidates(
+      Result upstreamRow, RID sourceRid, LinkBag sourceBag, CommandContext context,
+      IndexOrderedCostModel.WorkAccount account, IndexOrderedCostModel.EqualityCosts costs,
+      long memoryLimit, EqualityReads reads) {
+    var candidates = new ArrayList<EqualityCandidate>();
+    long observed = 0;
+    if (edgeTraversal || targetIndexDescriptor == null
+        || sourceBag == null) {
+      return new EqualityAttempt(List.of(), observed, false, true);
+    }
+    var candidateLimit = account.candidateReadLimit(costs, memoryLimit);
+    var seen = new HashSet<RID>();
+    var targetClass = resolveTargetClass(context);
+    var reverseField = linkBagFieldName.startsWith("out_")
+        ? "in_" + linkBagFieldName.substring(4)
+        : "out_" + linkBagFieldName.substring(3);
+    ExecutionStream cursor = null;
+    try {
+      cursor = reads.open(context, () -> {
+        if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
+          throw new EqualityWorkExhausted();
+        }
+      });
+      while (true) {
+        // hasNext may advance the storage cursor. Reserve that read before asking it.
+        if (!account.spend(1)) {
+          return new EqualityAttempt(List.of(), observed, false, false);
+        }
+        if (!reads.advance(cursor, context)) {
+          return new EqualityAttempt(List.copyOf(candidates), observed, true, false);
+        }
+        observed++;
+        var rid = (RID) cursor.next(context).getProperty("rid");
+        if (seen.contains(rid)) {
+          continue;
+        }
+        if (seen.size() >= candidateLimit) {
+          return new EqualityAttempt(List.of(), observed, false, false);
+        }
+        seen.add(rid);
+        if (!account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
+          return new EqualityAttempt(List.of(), observed, false, false);
+        }
+        var record = reads.record(rid, context);
+        if (record == null
+            || !matchesTargetFilter(record, rid, context, targetClass)
+            || isAlreadyBoundAndDifferent(upstreamRow, record, context.getDatabaseSession())) {
+          continue;
+        }
+        var entity = record.asEntityOrNull();
+        if (!(entity instanceof EntityImpl impl)
+            || !(impl.getPropertyInternal(reverseField) instanceof LinkBag reverseBag)) {
+          return new EqualityAttempt(List.of(), observed, false, true);
+        }
+        int links = 0;
+        // Iterator construction prefetches a pair. next also reads ahead, so reserve each
+        // operation before calling it, including the final advance past the last edge.
+        if (!account.spend(IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+          return new EqualityAttempt(List.of(), observed, false, false);
+        }
+        var edges = reads.edges(reverseBag);
+        while (edges.hasNext()) {
+          if (!account.spend(IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+            return new EqualityAttempt(List.of(), observed, false, false);
+          }
+          if (sourceRid.equals(reads.next(edges).secondaryRid())) {
+            links++;
+          }
+        }
+        if (links > 0) {
+          candidates.add(new EqualityCandidate(record, links));
+        }
+      }
+    } catch (EqualityWorkExhausted exhausted) {
+      return new EqualityAttempt(List.of(), observed, false, false);
+    } finally {
+      if (cursor != null) {
+        cursor.close(context);
       }
     }
   }

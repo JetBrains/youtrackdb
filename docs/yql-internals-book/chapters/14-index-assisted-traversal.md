@@ -526,6 +526,26 @@ RID-set membership only skips record loads. Every surviving record still passes 
 target filter, target class check and already-bound alias check. Repeated edges remain
 separate result rows. Applied, skipped and membership counters use the ordinary MATCH policy.
 
+### Bounded equality candidate reader
+
+`IndexOrderedEdgeStep.readEqualityCandidates` reads the target index descriptor with the
+current parameter bindings. It returns candidates and link counts, not result rows.
+It does not select a runtime path or change the pre-sorted signal.
+
+The reader accepts only vertex traversal with a source LinkBag. It removes repeated
+index RIDs and checks the full target filter, target class and existing alias binding.
+For each surviving candidate, it walks the reverse LinkBag for the same literal edge
+field. Each link back to the source contributes one to the candidate's count.
+It does not copy the reverse bag.
+
+The caller owns the source record load and supplies its already loaded LinkBag,
+an execution-local work account and a candidate memory limit. Each range lookup,
+including each IN key, consumes the account before the lookup. Index advances,
+record loads and reverse-bag iterator operations also consume the account before the read.
+Iterator construction and advances reserve work for their read-ahead.
+An incomplete attempt contains no candidates. It reports the observed index entry count
+for repricing. An unsupported field representation requires the LinkBag load path.
+
 ## When the planner can apply this optimisation
 
 The eligibility conditions reduce to three requirements:
