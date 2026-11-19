@@ -3405,10 +3405,10 @@ public final class WOWCache extends AbstractWriteCache
         // Layout 28 registry evidence is independent of the legacy map.
         if (logicalFiles != null) {
           PageFileIdentity.decode(fileId);
-          result.add(fileId);
-        } else if (idNameMap.containsKey(fileId)) {
-          result.add(fileId);
+        } else if (!idNameMap.containsKey(fileId)) {
+          continue;
         }
+        result.add(fileId);
       }
 
       return result;
