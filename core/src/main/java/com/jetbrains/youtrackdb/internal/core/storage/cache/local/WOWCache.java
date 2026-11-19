@@ -565,7 +565,8 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
       final var externalId = composeFileId(id, identity.internalId());
       var file = files.get(externalId);
-      if (file == null) {
+      final var firstAdmission = file == null;
+      if (firstAdmission) {
         file = createFileInstance(canonicalName, identity.internalId());
       }
       if (!file.exists()) {
@@ -574,10 +575,10 @@ public final class WOWCache extends AbstractWriteCache
         }
         // Only a complete creating WAL unit authorizes an empty physical file here.
         createFile(file, callFsync);
-      } else if (files.get(externalId) == null) {
+      } else if (firstAdmission) {
         openFile(storageName, file);
       }
-      if (files.get(externalId) == null) {
+      if (firstAdmission) {
         files.add(externalId, file);
         // Publish the lifecycle mirror only on first physical admission, never as recovery
         // evidence. Repeated page replay must not append and force another registry record.
