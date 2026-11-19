@@ -506,23 +506,6 @@ public final class WOWCache extends AbstractWriteCache
   // Canonical layout 28 files keep allocation and written extents independent of the maps.
   private LogicalPageFileTable logicalFiles;
 
-  // Only this storage's non-canonical handles. Lifecycle writers hold exclusive filesLock.
-  // Concurrent iteration is needed by background fsync, which must not scan shared handles.
-  private final Set<Integer> aliasFileIds = ConcurrentHashMap.newKeySet();
-
-  private final java.util.Collection<Integer> ownedFileIds = new java.util.AbstractCollection<>() {
-    @Override
-    public java.util.Iterator<Integer> iterator() {
-      return java.util.stream.Stream.concat(
-          logicalFiles.liveIds().stream(), aliasFileIds.stream()).iterator();
-    }
-
-    @Override
-    public int size() {
-      return logicalFiles.liveIds().size() + aliasFileIds.size();
-    }
-  };
-
   /** Select the disk layout under storage lifecycle exclusion, before loading registrations. */
   public void setStorageFormat(StorageFormat format) {
     logicalFiles = format == StorageFormat.LAYOUT_28 ? new LogicalPageFileTable() : null;
@@ -534,8 +517,10 @@ public final class WOWCache extends AbstractWriteCache
 
   private void mirrorRegistration(String name, int internalId, boolean nonDurable)
       throws IOException {
-    if (isLogicalIdentity(name, internalId)) {
-      aliasFileIds.remove(internalId);
+    // Hydration validates surviving positive records. Readers turn missing files into negative
+    // registration evidence, which is retained for seeding and never becomes logical membership.
+    validateLogicalRegistration(name, internalId);
+    if (logicalFiles != null) {
       if (logicalFiles.live(internalId) == null) {
         final var file = files.get(composeFileId(id, internalId));
         final var allocated = file == null ? 0 : file.getFileSize() / pageSize;
@@ -546,8 +531,6 @@ public final class WOWCache extends AbstractWriteCache
       } else {
         logicalFiles.register(name, internalId, nonDurable);
       }
-    } else if (logicalFiles != null && files.get(composeFileId(id, internalId)) != null) {
-      aliasFileIds.add(internalId);
     }
   }
 
@@ -558,7 +541,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void validateLogicalRegistration(String name, int internalId) {
-    if (logicalFiles != null && PageFileNames.parseLayout28(name).isPresent()) {
+    if (logicalFiles != null) {
       try {
         LogicalPageFileTable.resolve(name, internalId);
       } catch (IllegalArgumentException e) {
@@ -619,13 +602,13 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  // Handle ownership is wider than canonical visibility: aliases still need flush and cleanup.
+  // Open layout 28 caches enumerate logical membership, not registry evidence.
   private java.util.Collection<Integer> liveFileIds() {
     if (logicalFiles == null || closed) {
       // Failed registry loading can own handles before the logical mirror is hydrated.
       return nameIdMap.values();
     }
-    return ownedFileIds;
+    return logicalFiles.liveIds();
   }
 
   private boolean hasDiskFile(int internalId) {
@@ -857,7 +840,6 @@ public final class WOWCache extends AbstractWriteCache
       initNameIdMapping();
       if (logicalFiles != null) {
         logicalFiles.clear();
-        aliasFileIds.clear();
         for (var entry : nameIdMap.entrySet()) {
           if (entry.getValue() > 0) {
             mirrorRegistration(entry.getKey(), entry.getValue(),
@@ -2652,6 +2634,10 @@ public final class WOWCache extends AbstractWriteCache
   public void renameFile(long fileId, final String newFileName) throws IOException {
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
+    if (logicalFiles != null) {
+      throw new StorageException(storageName, "Layout 28 page files cannot be renamed: "
+          + newFileName);
+    }
 
     filesLock.acquireWriteLock();
     try {
@@ -2682,10 +2668,6 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.put(newFileName, intId);
 
       idNameMap.put(intId, newFileName);
-      if (isLogicalIdentity(oldFileName, intId)) {
-        logicalFiles.forget(intId);
-      }
-      mirrorRegistration(newFileName, intId, nonDurableFileIds.contains(intId));
 
       writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
       writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
@@ -2812,7 +2794,6 @@ public final class WOWCache extends AbstractWriteCache
         if (logicalFiles != null) {
           logicalFiles.clear();
         }
-        aliasFileIds.clear();
         if (doubleWriteLogOpenAttempted) {
           doubleWriteLog.closeAfterFailedOpen();
           doubleWriteLogOpenAttempted = false;
@@ -2906,7 +2887,6 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.clear();
       idNameMap.clear();
-      aliasFileIds.clear();
       if (logicalFiles != null) {
         logicalFiles.clear();
       }
@@ -6077,7 +6057,6 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     final var fileClassic = files.remove(fileId);
-    aliasFileIds.remove(internalFileId);
 
     if (fileClassic != null) {
       if (fileClassic.exists()) {

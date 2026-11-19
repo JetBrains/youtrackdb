@@ -164,7 +164,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
     });
   }
 
-  // Configured membership ignores both identity leftovers and legacy-looking registrations.
+  // Configured membership ignores identity leftovers. Disk caches reject legacy-looking names.
   // Empty configured trees still restore the maximum stored bag counter.
   @Test
   public void configuredDiscoveryIgnoresLeftoversAndRestoresEmptyTreeCounter() throws Exception {
@@ -180,7 +180,10 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
             var owner = storage.captureCollectionOwner(id, op);
             serving.requireComponent(owner, op).updateRidBagIdCounter(op, 71);
             tree(storage, 100000).create(op);
-            new SharedLinkBagBTree(storage, "global_collection_99999", ".grb").create(op);
+            if (!(storage
+                .getWriteCache() instanceof com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache)) {
+              new SharedLinkBagBTree(storage, "global_collection_99999", ".grb").create(op);
+            }
           });
         } catch (java.io.IOException failure) {
           throw new AssertionError(failure);
@@ -399,7 +402,7 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
     });
   }
 
-  // A registered name with another file id is rejected even when a cached owner still exists.
+  // A non-canonical registration is rejected and cannot replace a configured tree.
   @Test
   public void wrongRegistrationFailsRequiredAccessAndConfiguredDiscovery() throws Exception {
     withStorage(StorageFormat.LAYOUT_28, session -> {
@@ -411,10 +414,16 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
           op -> storage.captureCollectionOwner(id, op));
       storage.getAtomicOperationsManager()
           .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
-      var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
-          op -> op.addFile("unconfigured.grb"));
-      storage.getWriteCache().renameFile(other,
-          PageFileNames.layout28(identity(owner.componentId())));
+      if (storage
+          .getWriteCache() instanceof com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) {
+        assertThrows(StorageException.class,
+            () -> storage.getWriteCache().addFile("unconfigured.grb"));
+      } else {
+        var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+            op -> op.addFile("unconfigured.grb"));
+        storage.getWriteCache().renameFile(other,
+            PageFileNames.layout28(identity(owner.componentId())));
+      }
       storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
         assertThrows(StorageException.class, () -> manager.requireComponent(owner, op));
         assertThrows(StorageException.class, () -> manager.createBTree(id, op, session));
@@ -655,9 +664,14 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
           storage.getAtomicOperationsManager()
               .executeInsideAtomicOperation(op -> op.deleteFile(owner.tree().getFileId()));
           if (fault.equals("wrong")) {
-            var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
-                op -> op.addFile("wrong.grb"));
-            cache.renameFile(other, name);
+            if (cache instanceof com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) {
+              var writeCache = cache;
+              assertThrows(StorageException.class, () -> writeCache.addFile("wrong.grb"));
+            } else {
+              var other = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+                  op -> op.addFile("wrong.grb"));
+              cache.renameFile(other, name);
+            }
           }
         }
         var files = new java.util.HashMap<>(storage.getWriteCache().files());

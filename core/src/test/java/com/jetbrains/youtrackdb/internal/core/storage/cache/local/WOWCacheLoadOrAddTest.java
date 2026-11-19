@@ -225,7 +225,7 @@ public class WOWCacheLoadOrAddTest {
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9123);
     final var name = PageFileNames.layout28(identity);
     final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
-    wowCache.renameFile(fileId, "registration-alias.pcl");
+    wowCache.logicalFiles().forget(identity.internalId());
     final var original = files.remove(fileId);
     final var wrapper = mock(File.class, Mockito.withSettings()
         .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
@@ -237,7 +237,10 @@ public class WOWCacheLoadOrAddTest {
     }).when(wrapper).getUnderlyingFileSize();
     files.add(fileId, wrapper);
     try {
-      wowCache.renameFile(fileId, name);
+      var mirror = WOWCache.class.getDeclaredMethod("mirrorRegistration",
+          String.class, int.class, boolean.class);
+      mirror.setAccessible(true);
+      mirror.invoke(wowCache, name, identity.internalId(), false);
       assertEquals(7, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
     } finally {
       files.remove(fileId);
@@ -374,7 +377,7 @@ public class WOWCacheLoadOrAddTest {
     assertEquals(1, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
   }
 
-  // Alias writes and cold opens initialize current written length, not an old open snapshot.
+  // Further writes and cold opens initialize current written length, not an old open snapshot.
   @Test
   public void canonicalReregistrationAndColdOpenUseCurrentWrittenExtent() throws Exception {
     wowCache.setStorageFormat(
@@ -384,10 +387,9 @@ public class WOWCacheLoadOrAddTest {
     final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
     wowCache.loadOrAdd(fileId, 1, false).decrementReadersReferrer();
     wowCache.flush(fileId);
-    wowCache.renameFile(fileId, "extent-alias.pcl");
+
     wowCache.loadOrAdd(fileId, 4, false).decrementReadersReferrer();
     wowCache.flush(fileId);
-    wowCache.renameFile(fileId, name);
     assertEquals(5, wowCache.getFilledUpTo(fileId));
     assertEquals(5, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
     wowCache.close();

@@ -136,14 +136,9 @@ public class WOWCacheLogicalFileStateTest {
         assertTrue(cache.resolveRecoveryFile(loadedName, loadedId,
             com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.OPEN_ONLY));
         assertLive(cache, loaded, false);
-        // A real rename to an alias keeps the physical file live but removes canonical membership.
-        cache.renameFile(loadedId, "renamed.pcl");
-        assertEquals(-1, cache.fileIdByName("renamed.pcl"));
-        assertFalse(cache.exists(loadedId));
-        assertNull(cache.registeredFileId(loadedName));
-        assertNull(cache.logicalFiles().live(loadedName, loaded.internalId()));
-        assertAbsent(cache, loaded);
-        cache.renameFile(loadedId, loadedName);
+        // Rejected aliases cannot displace canonical membership.
+        assertThrows(StorageException.class,
+            () -> lookupCache.renameFile(loadedId, "renamed.pcl"));
         assertLive(cache, loaded, false);
         cache.deleteFile(loadedId);
         assertDeleted(cache, loaded);
@@ -197,7 +192,8 @@ public class WOWCacheLogicalFileStateTest {
       cache.logicalFiles().register(PageFileNames.layout28(pending), pending.internalId(),
           false, 0, 0, false);
       var privateIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9043);
-      cache.addFile("private.pcl", cache.externalFileId(privateIdentity.internalId()));
+      assertThrows(StorageException.class,
+          () -> cache.addFile("private.pcl", cache.externalFileId(privateIdentity.internalId())));
       var inventory = cache.files();
       assertFalse(inventory.containsKey("private.pcl"));
       assertFalse(cache.exists("private.pcl"));
@@ -281,19 +277,6 @@ public class WOWCacheLogicalFileStateTest {
         handles.add(id, handle);
         observed.add(handle);
       }
-      // Both direct private registrations and renamed aliases own handles outside files().
-      var privateIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9054);
-      long privateId = cache.externalFileId(privateIdentity.internalId());
-      cache.addFile("private.pcl", privateId);
-      var aliasIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9055);
-      long aliasId = cache.externalFileId(aliasIdentity.internalId());
-      cache.addFile(PageFileNames.layout28(aliasIdentity), aliasId);
-      cache.renameFile(aliasId, "renamed.pcl");
-      for (long extraId : new long[] {privateId, aliasId}) {
-        var handle = org.mockito.Mockito.spy(handles.remove(extraId));
-        handles.add(extraId, handle);
-        observed.add(handle);
-      }
       assertEquals(2, cache.files().size());
       var fsync = WOWCache.class.getDeclaredField("callFsync");
       fsync.setAccessible(true);
@@ -362,35 +345,6 @@ public class WOWCacheLogicalFileStateTest {
       assertFalse(cache.exists(id));
       assertNull(cache.logicalFiles().live(identity.internalId()));
       // Reinitialize the deleted registry so the shared fixture can close normally.
-      cache.loadRegisteredFiles();
-    });
-  }
-
-  // Whole-cache deletion releases private and renamed handles and removes their physical files.
-  @Test
-  public void databaseDeletionIncludesPrivateAndRenamedAliasHandles() throws Exception {
-    withStandaloneCache(cache -> {
-      var privateIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9056);
-      var renamedIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9057);
-      long privateId = cache.externalFileId(privateIdentity.internalId());
-      long renamedId = cache.externalFileId(renamedIdentity.internalId());
-      cache.addFile("private.pcl", privateId);
-      cache.addFile(PageFileNames.layout28(renamedIdentity), renamedId);
-      cache.renameFile(renamedId, "renamed.pcl");
-      var field = WOWCache.class.getDeclaredField("files");
-      field.setAccessible(true);
-      @SuppressWarnings("unchecked")
-      var handles = (ClosableLinkedContainer<Long,
-          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
-      var first = handles.get(privateId);
-      var second = handles.get(renamedId);
-      assertTrue(cache.files().isEmpty());
-      var deleted = cache.delete();
-      assertEquals(2, deleted.length);
-      assertNull(handles.get(privateId));
-      assertNull(handles.get(renamedId));
-      assertFalse(first.exists());
-      assertFalse(second.exists());
       cache.loadRegisteredFiles();
     });
   }
@@ -527,41 +481,9 @@ public class WOWCacheLogicalFileStateTest {
     assertTrue(table.deletedFiles().isEmpty());
   }
 
-  // RG2: alias displacement must not erase the canonical session reservation for the same id.
+  // All registration overloads reject aliases and mismatched identities without mutation.
   @Test
-  public void renameOntoAliasPreservesCanonicalReservation() throws Exception {
-    withCache(cache -> {
-      var a = new PageFileIdentity(PageFileRole.RECORD_DATA, 9004);
-      var b = new PageFileIdentity(PageFileRole.RECORD_DATA, 9005);
-      var name = PageFileNames.layout28(a);
-      var id = cache.externalFileId(a.internalId());
-      var otherId = cache.externalFileId(b.internalId());
-      cache.addFile("alias.pcl", id);
-      assertAbsent(cache, a);
-      cache.deleteFile(id);
-      assertAbsent(cache, a);
-      cache.addFile(name, id);
-      assertLive(cache, a, false);
-      cache.deleteFile(id);
-      assertDeleted(cache, a);
-      cache.bookFileId(name);
-      assertReserved(cache, a);
-      cache.addFile(PageFileNames.layout28(b), otherId);
-      assertLive(cache, b, false);
-      cache.renameFile(otherId, "alias.pcl");
-      assertReserved(cache, a);
-      assertAbsent(cache, b);
-      cache.deleteFile(otherId);
-      assertReserved(cache, a);
-      assertAbsent(cache, b);
-    });
-  }
-
-  // RG3 and option A reject each canonical mismatched registration without touching inventory.
-  // The same overloads keep accepting aliases. Rename supplies deliberately malformed evidence.
-  @Test
-  public void mismatchedRegistrationsFailBeforeMutationButAliasesRemainSupported()
-      throws Exception {
+  public void nonCanonicalRegistrationsFailBeforeMutation() throws Exception {
     withCache(cache -> {
       var a = new PageFileIdentity(PageFileRole.RECORD_DATA, 9010);
       var b = new PageFileIdentity(PageFileRole.RECORD_DATA, 9011);
@@ -569,55 +491,76 @@ public class WOWCacheLogicalFileStateTest {
       var id = cache.externalFileId(a.internalId());
       var wrongId = cache.externalFileId(b.internalId());
       cache.bookFileId(name, id, false);
-      assertReserved(cache, a);
       for (ThrowingRunnable registration : List.<ThrowingRunnable>of(
           () -> cache.addFile(name, wrongId),
           () -> cache.addFile(name, wrongId, true),
           () -> cache.bookFileId(name, wrongId, false),
-          () -> cache.bookFileId(name, wrongId, true))) {
+          () -> cache.bookFileId(name, wrongId, true),
+          () -> cache.addFile("alias.pcl"),
+          () -> cache.addFile("alias.pcl", wrongId),
+          () -> cache.addFile("alias.pcl", wrongId, true),
+          () -> cache.bookFileId("alias.pcl"),
+          () -> cache.bookFileId("alias.pcl", wrongId, false),
+          () -> cache.bookFileId("alias.pcl", wrongId, true),
+          () -> cache.addFile(PageFileNames.layout28(b)),
+          () -> cache.bookFileId(PageFileNames.layout28(b)))) {
         assertRejectedUnchanged(cache, registration);
         assertReserved(cache, a);
       }
-      var unbookedName = PageFileNames.layout28(b);
-      assertRejectedUnchanged(cache, () -> cache.addFile(unbookedName));
-      assertRejectedUnchanged(cache, () -> cache.bookFileId(unbookedName));
-
-      cache.addFile("wrong.pcl", wrongId);
-      assertAbsent(cache, b);
-      cache.renameFile(wrongId, unbookedName);
-      assertLive(cache, b, false);
-      cache.renameFile(wrongId, name);
-      assertAbsent(cache, b);
-      // A wrong-id canonical rename is an alias event, so the existing reservation survives.
-      assertTrue(cache.logicalFiles().reserved(a.internalId()));
-      cache.deleteFile(wrongId);
-      assertAbsent(cache, b);
-      for (ThrowingRunnable registration : List.<ThrowingRunnable>of(
-          () -> cache.addFile(name),
-          () -> cache.bookFileId(name))) {
-        assertRejectedUnchanged(cache, registration);
-      }
-
-      // Identity recovery refuses tombstones with null, without mutating any staged state.
       assertRejectedUnchanged(cache,
           () -> org.junit.Assert.assertNull(cache.restoreFileById(wrongId)), false);
+    });
+  }
 
-      var aliasId = cache.bookFileId("booked.pcl");
-      assertOracle(cache);
-      cache.addFile("booked.pcl");
-      assertOracle(cache);
+  // A rejected rename preserves canonical membership and the background force set.
+  @Test
+  public void rejectedRenamePreservesLogicalStateAndFsyncSet() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9063);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      cache.addFile(name, id);
+      var field = WOWCache.class.getDeclaredField("files");
+      field.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
+      var handle = org.mockito.Mockito.spy(handles.remove(id));
+      handles.add(id, handle);
+      assertRejectedUnchanged(cache, () -> cache.renameFile(id, "alias.pcl"));
+      assertRejectedUnchanged(cache, () -> cache.renameFile(id, name));
+      assertLive(cache, identity, false);
+      var fsync = WOWCache.class.getDeclaredField("callFsync");
+      fsync.setAccessible(true);
+      fsync.set(cache, true);
+      var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
+      force.setAccessible(true);
+      force.invoke(cache);
+      org.mockito.Mockito.verify(handle).synch();
+    });
+  }
+
+  // A positive alias with a present backing file fails open. Deleted aliases remain evidence.
+  @Test
+  public void openRejectsPositiveAliasesButRetainsNegativeEvidence() throws Exception {
+    withStandaloneCache(cache -> {
+      cache.close();
+      cache.setStorageFormat(StorageFormat.LAYOUT_27);
+      cache.loadRegisteredFiles();
+      long aliasId = cache.addFile("alias.pcl");
+      cache.close();
+      cache.setStorageFormat(StorageFormat.LAYOUT_28);
+      var failure = assertThrows(StorageException.class, cache::loadRegisteredFiles);
+      assertTrue(failure.getMessage().contains("Invalid layout 28 registration"));
+      cache.close();
+      cache.setStorageFormat(StorageFormat.LAYOUT_27);
+      cache.loadRegisteredFiles();
       cache.deleteFile(aliasId);
-      assertOracle(cache);
-      var suppliedId = cache.externalFileId(
-          new PageFileIdentity(PageFileRole.RECORD_DATA, 9012).internalId());
-      cache.bookFileId("supplied.pcl", suppliedId, false);
-      assertOracle(cache);
-      cache.addFile("supplied.pcl", suppliedId);
-      assertOracle(cache);
-      cache.deleteFile(suppliedId);
-      assertOracle(cache);
-      cache.addFile("durable.pcl", suppliedId, true);
-      assertOracle(cache);
+      cache.close();
+      cache.setStorageFormat(StorageFormat.LAYOUT_28);
+      cache.loadRegisteredFiles();
+      assertTrue(cache.registrationEvidence().negativeNames().contains("alias.pcl"));
+      assertTrue(cache.files().isEmpty());
     });
   }
 
@@ -694,6 +637,38 @@ public class WOWCacheLogicalFileStateTest {
     } finally {
       FileUtils.deleteDirectory(Path.of(directory).toFile());
     }
+  }
+
+  // Readers demote a positive alias with a missing backing file to seeding evidence only.
+  @Test
+  public void missingAliasBackingFileOpensAsNegativeEvidenceOnly() throws Exception {
+    withStandaloneCache(cache -> {
+      cache.close();
+      cache.setStorageFormat(StorageFormat.LAYOUT_27);
+      cache.loadRegisteredFiles();
+      long aliasId = cache.addFile("missing-alias.pcl");
+      var field = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      field.setAccessible(true);
+      var directory = ((Path) field.get(cache)).getParent();
+      var backingFile = directory.resolve(cache.nativeFileNameById(aliasId));
+      cache.close();
+      Files.delete(backingFile);
+      cache.setStorageFormat(StorageFormat.LAYOUT_28);
+      cache.loadRegisteredFiles();
+      assertTrue(cache.registrationEvidence().negativeNames().contains("missing-alias.pcl"));
+      assertTrue(cache.registrationEvidence().positiveNames().isEmpty());
+      assertTrue(cache.files().isEmpty());
+      assertFalse(cache.exists("missing-alias.pcl"));
+      assertFalse(cache.exists(aliasId));
+      assertEquals(-1, cache.fileIdByName("missing-alias.pcl"));
+      assertTrue(snapshot(cache.logicalFiles(), "states").isEmpty());
+      var handlesField = WOWCache.class.getDeclaredField("files");
+      handlesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) handlesField.get(cache);
+      assertNull(handles.get(aliasId));
+    });
   }
 
   // Registry loading rebuilds live state before the log opens. Failed-open close must clear it.
