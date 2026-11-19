@@ -33,7 +33,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSeriali
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -53,6 +52,11 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerStartup;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.PageRetentionState;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogGL;
@@ -67,6 +71,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Featu
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageStartupMetadata;
@@ -116,6 +121,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -179,9 +185,11 @@ public class DiskStorage extends AbstractStorage {
   static final String IBU_EXTENSION = ".ibu";
   /// The v3 tail is a 74-byte block at the end of the unit. The v4 tail prefixes this block
   /// with an 8-byte metadata checksum and a 4-byte force-barrier flag. The shared block stores
-  /// version 4 or 5 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
+  /// version 4, 5 or 6 at EOF-74. The metadata checksum covers the flag and the 66 shared bytes before
   /// the full hash. The full hash covers every preceding byte, including ZIP, padding, checksum
   /// and flag. Zero padding places the 86-byte v4 tail inside one aligned 512-byte file sector.
+  /// V6 adds a presence marker and two MSB-first UUIDs between the barrier and shared suffix.
+  /// Its 122-byte tail keeps the discriminator at EOF-74. Both hashes cover the continuity block.
   /// The shared block has the following format:
   ///
   /// 1. Version of the backup metadata format is stored as a short value.
@@ -206,6 +214,10 @@ public class DiskStorage extends AbstractStorage {
           + Long.BYTES + 3 * Integer.BYTES + Long.BYTES;
 
   static final int IBU_V4_METADATA_SIZE = IBU_METADATA_SIZE + Long.BYTES + Integer.BYTES;
+  static final int IBU_V6_METADATA_SIZE = 122;
+  static final int IBU_MAX_METADATA_SIZE = IBU_V6_METADATA_SIZE;
+  static final int CONTINUITY_PRESENT = 0x434F4E54;
+  static final int CONTINUITY_ABSENT = 0;
   static final int IBU_SECTOR_SIZE = 512;
   static final long METADATA_HASH_SEED = 0x4D45544144415441L;
   static final int BARRIER_PRESENT = 0x42415252;
@@ -213,15 +225,15 @@ public class DiskStorage extends AbstractStorage {
 
   /** Only the exact marker claims that the payload force completed. */
   static boolean hasBackupBarrier(byte[] tail) {
-    return tail.length == IBU_V4_METADATA_SIZE
+    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE)
         && IntegerSerializer.deserializeLiteral(tail, Long.BYTES) == BARRIER_PRESENT;
   }
 
   private static boolean metadataChecksumMatches(byte[] tail) {
-    return tail.length == IBU_V4_METADATA_SIZE
+    return (tail.length == IBU_V4_METADATA_SIZE || tail.length == IBU_V6_METADATA_SIZE)
         && LongSerializer.deserializeLiteral(tail, 0)
             == XX_HASH_64.hash(tail, Long.BYTES,
-                Integer.BYTES + IBU_METADATA_HASH_CODE_OFFSET, METADATA_HASH_SEED);
+                tail.length - 2 * Long.BYTES, METADATA_HASH_SEED);
   }
 
   private static final int IBU_METADATA_VERSION_OFFSET = 0;
@@ -256,10 +268,10 @@ public class DiskStorage extends AbstractStorage {
   /**
    * The backup metadata format version of this build.
    *
-   * <p>This build writes version 5 with the version 4 layout. It reads versions 3, 4, and 5.
+   * <p>This build writes version 6 with optional tracker continuity. It reads versions 3, 4, 5, and 6.
    * Versions 1 and 2 are unsupported.
    */
-  static final int CURRENT_BACKUP_FORMAT_VERSION = 5;
+  static final int CURRENT_BACKUP_FORMAT_VERSION = 6;
   static final int PREVIOUS_BACKUP_FORMAT_VERSION = 4;
   static final int SUPPORTED_OLD_BACKUP_FORMAT_VERSION = 3;
   // Legacy headers have shorter tails, with the database UUID immediately after the version.
@@ -269,8 +281,20 @@ public class DiskStorage extends AbstractStorage {
   private static final int LEGACY_UUID_HIGH_OFFSET = LEGACY_UUID_LOW_OFFSET + Long.BYTES;
 
   private static boolean hasBackupMetadataChecksum(int version) {
-    return version == PREVIOUS_BACKUP_FORMAT_VERSION
-        || version == CURRENT_BACKUP_FORMAT_VERSION;
+    return version == 4 || version == 5 || version == 6;
+  }
+
+  private static boolean isSupportedBackupVersion(int version) {
+    return version == 3 || version == 4 || version == 5 || version == 6;
+  }
+
+  /** Unknown versions keep only the shared suffix for refusal diagnostics. */
+  private static int backupMetadataSize(int version) {
+    return switch (version) {
+      case 4, 5 -> IBU_V4_METADATA_SIZE;
+      case 6 -> IBU_V6_METADATA_SIZE;
+      default -> IBU_METADATA_SIZE;
+    };
   }
 
   /**
@@ -344,6 +368,56 @@ public class DiskStorage extends AbstractStorage {
 
   private final Path storagePath;
   private final ClosableLinkedContainer<Long, File> files;
+  // Replaced under lifecycle exclusion. Checkpoint callers retain storage state exclusion.
+  private volatile ChangedPageTracker changedPageTracker;
+
+  /**
+   * Backup completion bridge. The caller holds storage state exclusion across completion, samples
+   * outside tracker save order, and preflights inside it. Sibling sampling places in AbstractStorage
+   * are fuzzy checkpoint, full flush and WAL vacuum. Fuzzy checkpoint syncs data files before
+   * checkpointChangedPages. Full flush flushes WAL, appends a new segment and flushes the cache.
+   * WAL vacuum runs a flushTillSegment loop. A shared helper would couple these distinct protocols.
+   */
+  class DiskBackupCoverageSource implements ChangedPageTrackerBackup.CoverageSource {
+
+    @Override
+    public long sampleBoundary() throws IOException {
+      final long anchor = writeAheadLog.activeSegment();
+      atomicOperationsTable.compactTable();
+      final long operation = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
+      // WOWCache waits on its executor. An inherited cancellation must not abort that wait.
+      boolean restoreInterrupt = Thread.interrupted();
+      final Long cache;
+      try {
+        cache = writeCache.getMinimalNotFlushedSegment();
+      } catch (IllegalStateException failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+          if (cause instanceof InterruptedException) {
+            restoreInterrupt = true;
+            break;
+          }
+        }
+        throw failure;
+      } finally {
+        if (restoreInterrupt) {
+          Thread.currentThread().interrupt();
+        }
+      }
+      long fixed = anchor;
+      if (operation >= 0) {
+        fixed = Math.min(fixed, operation);
+      }
+      if (cache != null) {
+        fixed = Math.min(fixed, cache);
+      }
+      return fixed;
+    }
+
+    @Override
+    public WriteAheadLog.CutPreflight preflightCut(long fixedBoundary) throws IOException {
+      return writeAheadLog.preflightCut(fixedBoundary);
+    }
+  }
 
   private Future<?> fuzzyCheckpointTask;
   private Future<?> recordsGcTask;
@@ -406,10 +480,19 @@ public class DiskStorage extends AbstractStorage {
   @SuppressWarnings("CanBeFinal")
   @Override
   public void create(final ContextConfiguration contextConfiguration) {
+    create(contextConfiguration, null);
+  }
+
+  /** Births a restore target from the admitted source without ordinary birth selection. */
+  public void createForRestore(ContextConfiguration configuration, StorageFormat sourceFormat) {
+    create(configuration, java.util.Objects.requireNonNull(sourceFormat, "sourceFormat"));
+  }
+
+  private void create(ContextConfiguration contextConfiguration, StorageFormat sourceFormat) {
     try {
       stateLock.writeLock().lock();
       try {
-        doCreate(contextConfiguration);
+        doCreate(contextConfiguration, sourceFormat);
       } finally {
         stateLock.writeLock().unlock();
       }
@@ -436,19 +519,28 @@ public class DiskStorage extends AbstractStorage {
   @Override
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    doCreate(contextConfiguration, null);
+  }
+
+  @Override
+  protected void doCreate(ContextConfiguration contextConfiguration, StorageFormat sourceFormat)
+      throws IOException, java.lang.InterruptedException {
     final var storageFolder = storagePath;
     if (!Files.exists(storageFolder)) {
       Files.createDirectories(storageFolder);
     }
 
-    super.doCreate(contextConfiguration);
+    // Failed-create cleanup must find this folder, not fall back to its parent. Validate before
+    // the base implementation writes the birth record or the initialization vector.
+    validateStorageConfiguration(contextConfiguration);
+    super.doCreate(contextConfiguration, sourceFormat);
   }
 
   @Override
   protected void prepareStorageBirth() {
     try {
       var birth = bootstrapMetadata().createBirth(StorageIdentity.random(),
-          StorageLineageIdentity.random());
+          StorageLineageIdentity.random(), getStorageFormat());
       bootstrapSnapshot = birth;
       updateStorageIdentity(birth.storageIdentity(), birth.lineageIdentity());
     } catch (IOException exception) {
@@ -652,6 +744,7 @@ public class DiskStorage extends AbstractStorage {
       requireUsableOperationIdFloor(
           active.sequenceFloor().highestIssued(), "bootstrap authority admission");
       bootstrapSnapshot = active;
+      selectStorageFormat(active.storageFormat());
       updateStorageIdentity(active.storageIdentity(), active.lineageIdentity());
     } catch (StorageAdmissionException rejection) {
       // The cause already names the admission reason and the storage path. This message therefore
@@ -659,7 +752,10 @@ public class DiskStorage extends AbstractStorage {
       throw BaseException.wrapException(
           new StorageException(
               name,
-              "Cannot open database '" + name + "'. " + rejection.reason().description()),
+              "Cannot open database '" + name + "'. "
+                  + (rejection.reason()
+                      == StorageAdmissionException.Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION
+                          ? rejection.detail() : rejection.reason().description())),
           rejection,
           name);
     } catch (IOException exception) {
@@ -900,6 +996,9 @@ public class DiskStorage extends AbstractStorage {
   protected StartupMetadata checkIfStorageDirty() throws IOException {
     // open also handles a missing main with a valid backup under the main-file lock.
     startupMetadata.open(YouTrackDBConstants.getRawVersion());
+    startupShutdown = startupMetadata.isDirty()
+        ? ChangedPageTrackerStartup.ShutdownState.UNCLEAN
+        : ChangedPageTrackerStartup.ShutdownState.CLEAN;
 
     return new StartupMetadata(startupMetadata.getLastTxId());
   }
@@ -911,6 +1010,7 @@ public class DiskStorage extends AbstractStorage {
     configuration = new CollectionBasedStorageConfiguration(this);
     ((CollectionBasedStorageConfiguration) configuration)
         .load(contextConfiguration, atomicOperation);
+    refreshRecordedMaxIndexKeySize(atomicOperation);
   }
 
   @Override
@@ -929,7 +1029,19 @@ public class DiskStorage extends AbstractStorage {
 
   @Override
   protected void preCreateSteps() throws IOException {
+    removeStaleChangedPageFiles(storagePath);
     startupMetadata.create(YouTrackDBConstants.getRawVersion());
+  }
+
+  /** A newly created database image must not keep side-file authority from another image. */
+  static void removeStaleChangedPageFiles(Path directory) throws IOException {
+    try {
+      ChangedPageTrackerFile.cleanupForCreation(directory);
+    } catch (IOException | SecurityException failure) {
+      LogManager.instance().error(DiskStorage.class,
+          "Cannot durably clear stale changed-page tracker files in " + directory, failure);
+      throw failure;
+    }
   }
 
   @Override
@@ -976,6 +1088,15 @@ public class DiskStorage extends AbstractStorage {
 
         // TRY TO DELETE ALL THE FILES
         for (final var f : storageFiles) {
+          // Tracker cleanup uses exact names so unrelated .cpt and .tmp files stay untouched.
+          if (ChangedPageTrackerFile.isTrackerFile(f.getName())) {
+            if (!f.delete()) {
+              notDeletedFiles++;
+              LogManager.instance().warn(DiskStorage.class,
+                  "Cannot delete changed-page tracker file " + f.getAbsolutePath());
+            }
+            continue;
+          }
           // DELETE ONLY THE SUPPORTED FILES
           for (final var ext : ALL_FILE_EXTENSIONS) {
             if (f.getPath().endsWith(ext)) {
@@ -1162,8 +1283,144 @@ public class DiskStorage extends AbstractStorage {
   }
 
   @Override
+  protected ChangedPageTracker.CheckpointResult checkpointChangedPages(long fixedBoundary)
+      throws IOException {
+    startupHistoryBarrier();
+    return changedPageTracker.checkpoint(
+        storagePath.resolve(ChangedPageTrackerFile.FILE_NAME), writeAheadLog, fixedBoundary);
+  }
+
+  @Override
+  protected void validateStorageConfiguration(ContextConfiguration contextConfiguration) {
+    PageRetentionState.validateSynchronizationLimit(contextConfiguration.getValueAsInteger(
+        GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT));
+  }
+
+  @Override
   protected void initWalAndDiskCache(final ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    buildWalAndDiskCache(contextConfiguration, new ChangedPageTracker());
+  }
+
+  @Override
+  protected void prepareOpenResources() {
+    writeCache = null;
+    writeAheadLog = null;
+  }
+
+  @Override
+  protected void initWalAndDiskCacheOnOpen(final ContextConfiguration contextConfiguration)
+      throws IOException, java.lang.InterruptedException {
+    startupOwner = new StartupOwner();
+    startupOwner.history = ChangedPageTrackerStartup.load(changedPageSideFile());
+    buildWalAndDiskCache(contextConfiguration, startupOwner.history.tracker());
+  }
+
+  // Access is confined to physical-open state write exclusion. Resource cleanup outlives this owner.
+  private StartupOwner startupOwner;
+  private ChangedPageTrackerStartup.ShutdownState startupShutdown;
+
+  private static final class StartupOwner {
+    private ChangedPageTrackerStartup.PendingHistory history;
+    private WOWCache cache;
+    private boolean replay;
+  }
+
+  private Path changedPageSideFile() {
+    return storagePath.resolve(ChangedPageTrackerFile.FILE_NAME);
+  }
+
+  @Override
+  protected void verifyStartupHistory() throws IOException {
+    var owner = startupOwner;
+    if (owner != null) {
+      ChangedPageTrackerStartup.verify(owner.history, writeAheadLog, startupShutdown,
+          new ChangedPageTrackerStartup.FileIds() {
+            @Override
+            public int internalFileId(long externalId) {
+              return owner.cache.internalFileId(externalId);
+            }
+
+            @Override
+            public String currentName(int internalId) {
+              return owner.cache.fileNameById(owner.cache.externalFileId(internalId));
+            }
+          });
+      startupHistoryBarrier();
+    }
+  }
+
+  @Override
+  protected void startupHistoryBarrier() throws IOException {
+    var owner = startupOwner;
+    if (owner != null && owner.history != null && !owner.history.tracker().isTrusted()) {
+      ChangedPageTrackerStartup.durableDistrust(changedPageSideFile(), owner.history);
+    }
+  }
+
+  @Override
+  protected void beginStartupReplay() {
+    if (startupOwner != null) {
+      startupOwner.cache.beginStartupReplayPreservation();
+      startupOwner.replay = true;
+    }
+  }
+
+  @Override
+  protected void endStartupReplay() {
+    if (startupOwner != null && startupOwner.replay) {
+      startupOwner.cache.endStartupReplayPreservation();
+      startupOwner.replay = false;
+    }
+  }
+
+  @Override
+  protected void startupReplayFailed() {
+    if (startupOwner != null && startupOwner.history != null) {
+      ChangedPageTrackerStartup.replayFailed(startupOwner.history);
+    }
+  }
+
+  @Override
+  protected void finishStartupHistory() throws IOException {
+    startupHistoryBarrier();
+    startupOwner = null;
+    startupShutdown = null;
+  }
+
+  @Override
+  protected void abortStartupHistory(Throwable primary) {
+    if (startupOwner == null) {
+      startupShutdown = null;
+      return;
+    }
+    try {
+      try {
+        endStartupReplay();
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+      try {
+        startupReplayFailed();
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+      try {
+        if (startupOwner != null && startupOwner.history != null) {
+          // This independent barrier still runs if PendingHistory resolution itself failed.
+          startupOwner.history.tracker().durableDistrust(changedPageSideFile());
+        }
+      } catch (Throwable secondary) {
+        suppressOpenFailure(primary, secondary);
+      }
+    } finally {
+      startupOwner = null;
+      startupShutdown = null;
+    }
+  }
+
+  private void buildWalAndDiskCache(final ContextConfiguration contextConfiguration,
+      final ChangedPageTracker tracker) throws IOException, java.lang.InterruptedException {
     final var callFsync =
         contextConfiguration.getValueAsBoolean(GlobalConfiguration.STORAGE_CALL_FSYNC);
     warnIfFsyncDisabled(callFsync);
@@ -1246,6 +1503,9 @@ public class DiskStorage extends AbstractStorage {
       doubleWriteLog = new DoubleWriteLogNoOP();
     }
 
+    // Lifecycle exclusion keeps the storage coordinator and cache on the same selected tracker.
+    // Existing-disk open selects loaded history. Creation is fresh and memory has no tracker.
+    changedPageTracker = tracker;
     final var wowCache =
         new WOWCache(
             pageSize,
@@ -1268,13 +1528,19 @@ public class DiskStorage extends AbstractStorage {
             iv,
             aesKey,
             callFsync,
-            context.getIoExecutor());
+            context.getIoExecutor(),
+            tracker,
+            contextConfiguration.getValueAsInteger(
+                GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT));
 
+    // Failure cleanup must see the constructed cache even when registry loading fails.
+    writeCache = wowCache;
+    if (startupOwner != null) {
+      startupOwner.cache = wowCache;
+    }
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
-
-    writeCache = wowCache;
   }
 
   static boolean warnIfFsyncDisabled(final boolean callFsync) {
@@ -1429,6 +1695,7 @@ public class DiskStorage extends AbstractStorage {
     try {
       checkOpennessAndMigration();
 
+      var owner = new BackupRequestOwner(changedPageTracker);
       if (backupLock.tryLock()) {
         try {
           var uuid = getUuid();
@@ -1467,9 +1734,12 @@ public class DiskStorage extends AbstractStorage {
           // The semantic identity comes from this open source database, and the read precedes
           // the content copy. The new unit therefore carries the identity of its own database.
           var semanticIdentity = currentBackupSemanticIdentity();
-          try (var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile)) {
+          var fileStream = ibuOutputStreamSupplier.apply(ibuNextFile);
+          try {
             var xxHashStream = new XXHashOutputStream(fileStream);
-            var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn);
+            var lastLsn = storeBackupDataToStream(xxHashStream, fromLsn, owner,
+                backupMetadata == null ? null : backupMetadata.continuity(),
+                fileStream instanceof BackupForceCapability);
             writeBackupPadding(xxHashStream);
             xxHashStream.flush();
             var barrierPresent = false;
@@ -1482,15 +1752,45 @@ public class DiskStorage extends AbstractStorage {
                   ibuNextFile);
             }
             writeBackupMetadata(xxHashStream, uuid, nextFileIndex, fromLsn, lastLsn,
-                getIdGen().getLastId(), semanticIdentity, barrierPresent);
+                getIdGen().getLastId(), semanticIdentity, barrierPresent, pairFor(owner.context));
             // A custom supplier may publish writes only when flushed, rather than on close.
             xxHashStream.flush();
+            // The barrier flag covers only the payload. Force the complete unit after its tail
+            // is flushed. Successful close is still required before reporting backup success.
+            if (fileStream instanceof BackupForceCapability forceCapability) {
+              forceCapability.forceBackupData();
+            }
+          } catch (IOException | RuntimeException | Error failure) {
+            // A caller-supplied stream can reuse its primary failure from close. Suppress only
+            // distinct failures so cleanup cannot replace the primary with self-suppression.
+            if (fileStream != null) {
+              try {
+                fileStream.close();
+              } catch (IOException | RuntimeException | Error closeFailure) {
+                if (failure != closeFailure) {
+                  failure.addSuppressed(closeFailure);
+                }
+              }
+            }
+            throw failure;
+          }
+          if (fileStream != null) {
+            fileStream.close();
           }
 
+          // Explicit close succeeded, as did both forces when the output supports them.
+          // The owner abandons non-capable output through the Context capability check.
+          // Keep state and backup exclusion through completion publication or merge-back.
+          owner.finish(changedPageSideFile(),
+              new ChangedPageTrackerBackup.CompletionFacts(!owner.selectedRead, true),
+              new DiskBackupCoverageSource(), message -> LogManager.instance().warn(this, message));
           LogManager.instance()
               .info(this,
                   "Backup of database '%s' is completed. Backup unit file %s was created.",
                   name, ibuNextFile);
+        } catch (IOException | RuntimeException | Error primary) {
+          owner.abort(primary);
+          throw primary;
         } finally {
           backupLock.unlock();
         }
@@ -1516,9 +1816,10 @@ public class DiskStorage extends AbstractStorage {
    * its own incomplete output joins the removable set. The walk then continues below the head,
    * because one unsupported older unit refuses the extension of the whole chain.
    *
-   * <p>With a tail read capability, a v4 or v5 head candidate with a valid metadata checksum and
-   * a present barrier needs only header admission. A v3 head candidate, a v4 or v5 candidate without a
-   * barrier, and a candidate with a failed metadata checksum need full inspection. Units below
+   * <p>With a tail read capability, a v4, v5 or v6 head candidate with a valid metadata checksum
+   * and a present barrier needs only header admission. A v3 head candidate needs full inspection.
+   * A v4, v5 or v6 candidate without a barrier also needs full inspection.
+   * A candidate with a failed metadata checksum needs full inspection. Units below
    * the head use header admission from the tail, except when a failed checksum needs full
    * inspection. Without the capability, head candidates receive full inspection and older
    * units receive {@link #inspectBackupUnitHeader} through a complete read.
@@ -1553,13 +1854,13 @@ public class DiskStorage extends AbstractStorage {
       if (tailReader == null) {
         try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
           inspection = headFound
-              ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream)
+              ? inspectBackupUnitHeader(ibuLastFile, getName(), uuid, ibuStream, getStorageFormat())
               : inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null,
-                  header -> signalHeadInspectionFallback(ibuLastFile, header));
+                  header -> signalHeadInspectionFallback(ibuLastFile, header), getStorageFormat());
         }
       } else {
         // Read the tail before opening any stream. A failed tail read propagates before removal.
-        var tail = tailReader.readBackupTail(ibuLastFile, IBU_V4_METADATA_SIZE);
+        var tail = tailReader.readBackupTail(ibuLastFile, IBU_MAX_METADATA_SIZE);
         var needsFullInspection = tail.length < IBU_METADATA_SIZE || isZeroTail(tail);
         if (needsFullInspection) {
           LogManager.instance().warn(this,
@@ -1568,7 +1869,11 @@ public class DiskStorage extends AbstractStorage {
         }
         if (!needsFullInspection) {
           var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
-          if (hasBackupMetadataChecksum(version)) {
+          var size = backupMetadataSize(version);
+          if (tail.length < size) {
+            needsFullInspection = true;
+          } else if (hasBackupMetadataChecksum(version)) {
+            tail = Arrays.copyOfRange(tail, tail.length - size, tail.length);
             if (!metadataChecksumMatches(tail)) {
               needsFullInspection = true;
             } else if (!headFound && !hasBackupBarrier(tail)) {
@@ -1582,10 +1887,12 @@ public class DiskStorage extends AbstractStorage {
         }
         if (needsFullInspection) {
           try (var ibuStream = ibuInputStreamSupplier.apply(ibuLastFile)) {
-            inspection = inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null);
+            inspection = inspectBackupUnit(ibuLastFile, getName(), uuid, ibuStream, null,
+                null, getStorageFormat());
           }
         } else {
-          inspection = inspectBackupUnitTail(ibuLastFile, getName(), uuid, tail);
+          inspection =
+              inspectBackupUnitTail(ibuLastFile, getName(), uuid, tail, getStorageFormat());
         }
       }
 
@@ -1650,8 +1957,7 @@ public class DiskStorage extends AbstractStorage {
    * Reads the semantic identity of this open source database for one new backup unit.
    *
    * <p>The feature format comes from this build, and the storage open of this database accepted
-   * that same feature format. The storage layout version comes from this build as well, because a
-   * storage open accepts one layout version only.
+   * that same feature format. The storage layout comes from the selected source descriptor.
    *
    * <p>The creation completion evidence comes from the durable genesis completion marker of this
    * database. A database without that marker therefore produces a backup unit without accepted
@@ -1662,25 +1968,25 @@ public class DiskStorage extends AbstractStorage {
         Boolean.parseBoolean(configuration.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY));
     return new BackupSemanticIdentity(
         FEATURE_FORMAT.version(),
-        StorageConfiguration.CURRENT_VERSION,
+        getStorageFormat().layoutVersion(),
         genesisCompleted ? CREATION_COMPLETED_EVIDENCE : CREATION_EVIDENCE_ABSENT);
   }
 
-  /** Returns the semantic identity that this build accepts in one backup header. */
-  static BackupSemanticIdentity supportedBackupSemanticIdentity() {
+  /** Returns the completed semantic identity for one supported source layout. */
+  static BackupSemanticIdentity supportedBackupSemanticIdentity(StorageFormat format) {
     return new BackupSemanticIdentity(
         FEATURE_FORMAT.version(),
-        StorageConfiguration.CURRENT_VERSION,
+        format.layoutVersion(),
         CREATION_COMPLETED_EVIDENCE);
   }
 
   /** Returns the minimum zero padding that places the complete tail in one aligned sector. */
   static int backupPadding(long payloadLength) {
-    if (IBU_V4_METADATA_SIZE > IBU_SECTOR_SIZE) {
+    if (IBU_V6_METADATA_SIZE > IBU_SECTOR_SIZE) {
       throw new IllegalStateException("Backup tail exceeds one sector");
     }
     var sectorOffset = (int) (payloadLength % IBU_SECTOR_SIZE);
-    return sectorOffset + IBU_V4_METADATA_SIZE <= IBU_SECTOR_SIZE
+    return sectorOffset + IBU_V6_METADATA_SIZE <= IBU_SECTOR_SIZE
         ? 0 : IBU_SECTOR_SIZE - sectorOffset;
   }
 
@@ -1691,12 +1997,22 @@ public class DiskStorage extends AbstractStorage {
 
   private static void writeBackupMetadata(XXHashOutputStream xxHashStream, UUID uuid,
       int nextFileIndex, LogSequenceNumber fromLsn, LogSequenceNumber lastLsn,
-      long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent)
-      throws IOException {
-    var tailBytes = new ByteArrayOutputStream(IBU_V4_METADATA_SIZE);
+      long lastTxId, BackupSemanticIdentity semanticIdentity, boolean barrierPresent,
+      @Nullable BackupContinuity continuity) throws IOException {
+    var tailBytes = new ByteArrayOutputStream(IBU_V6_METADATA_SIZE);
     var dataOutputStream = new DataOutputStream(tailBytes);
     dataOutputStream.writeLong(0); // Filled after the fields covered by the metadata checksum.
     dataOutputStream.writeInt(barrierPresent ? BARRIER_PRESENT : BARRIER_ABSENT);
+    // Present continuity is tracker-first and MSB-first. Absent slots are canonical zeros.
+    dataOutputStream.writeInt(continuity == null ? CONTINUITY_ABSENT : CONTINUITY_PRESENT);
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.trackerId().getMostSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.trackerId().getLeastSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.generationId().getMostSignificantBits());
+    dataOutputStream
+        .writeLong(continuity == null ? 0 : continuity.generationId().getLeastSignificantBits());
     dataOutputStream.writeShort(CURRENT_BACKUP_FORMAT_VERSION);
 
     dataOutputStream.writeLong(uuid.getLeastSignificantBits());
@@ -1722,10 +2038,10 @@ public class DiskStorage extends AbstractStorage {
     dataOutputStream.flush();
     var tail = tailBytes.toByteArray();
     var metadataChecksum = XX_HASH_64.hash(tail, Long.BYTES,
-        Integer.BYTES + IBU_METADATA_HASH_CODE_OFFSET, METADATA_HASH_SEED);
+        IBU_V6_METADATA_SIZE - 2 * Long.BYTES, METADATA_HASH_SEED);
     ByteBuffer.wrap(tail).putLong(metadataChecksum);
     xxHashStream.xxHash64.update(tail, 0, tail.length);
-    var completeTail = ByteBuffer.allocate(IBU_V4_METADATA_SIZE)
+    var completeTail = ByteBuffer.allocate(IBU_V6_METADATA_SIZE)
         .put(tail).putLong(xxHashStream.xxHash64.getValue()).array();
     // Exactly one downstream write publishes the entire sector-local tail.
     xxHashStream.write(completeTail);
@@ -1756,7 +2072,7 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The classification separates three cases. A supported unit passes every header check and
    * every content check. A recognized incomplete unit carries the supported identity of this
-   * database and fails its full hash. A version 4 or 5 metadata checksum mismatch with a valid full
+   * database and fails its full hash. A version 4, 5, or 6 metadata checksum mismatch with a valid full
    * hash is unclassifiable and never removable.
    *
    * <p>The unclassifiable outcome covers an old header and a header of another build. It also
@@ -1777,12 +2093,13 @@ public class DiskStorage extends AbstractStorage {
       @Nullable UUID dbUUID,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream)
       throws IOException {
-    return inspectBackupUnit(ibuFileName, storageName, dbUUID, inputStream, copyStream, null);
+    return inspectBackupUnit(ibuFileName, storageName, dbUUID, inputStream, copyStream, null, null);
   }
 
   private static BackupUnitInspection inspectBackupUnit(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, InputStream inputStream, @Nullable OutputStream copyStream,
-      @Nullable Consumer<byte[]> tailObserver) throws IOException {
+      @Nullable Consumer<byte[]> tailObserver, @Nullable StorageFormat sourceFormat)
+      throws IOException {
     try (var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       var trailer =
           readBackupUnitTrailer(ibuFileName, storageName, inputStream, copyStream, xxHash64);
@@ -1793,10 +2110,10 @@ public class DiskStorage extends AbstractStorage {
         return unclassifiableUnit(trailer.failureDetail());
       }
 
-      // The stored hash stays outside its own calculation for both tail sizes.
+      // The stored hash stays outside its own calculation for every tail size.
       xxHash64.update(trailer.header(), 0, trailer.header().length - Long.BYTES);
       return classifyBackupUnit(ibuFileName, storageName, dbUUID, trailer.header(),
-          xxHash64.getValue());
+          xxHash64.getValue(), sourceFormat);
     }
   }
 
@@ -1810,7 +2127,7 @@ public class DiskStorage extends AbstractStorage {
    *
    * <p>The admission checks the backup format version, the database feature format, the storage
    * layout version, the creation completion evidence, and the database identifier (UUID). A
-   * failed version 4 or 5 metadata checksum triggers the full hash check. Only that fallback can
+   * failed version 4, 5, or 6 metadata checksum triggers the full hash check. Only that fallback can
    * classify recognized incomplete output here.
    *
    * @param ibuFileName the name of the inspected unit
@@ -1820,6 +2137,13 @@ public class DiskStorage extends AbstractStorage {
    */
   static BackupUnitInspection inspectBackupUnitHeader(String ibuFileName, String storageName,
       @Nullable UUID dbUUID, @Nonnull InputStream inputStream) throws IOException {
+    return inspectBackupUnitHeader(ibuFileName, storageName, dbUUID, inputStream, null);
+  }
+
+  private static BackupUnitInspection inspectBackupUnitHeader(String ibuFileName,
+      String storageName,
+      @Nullable UUID dbUUID, InputStream inputStream, @Nullable StorageFormat sourceFormat)
+      throws IOException {
     try (var hash = XXHashFactory.fastestInstance().newStreamingHash64(XX_HASH_SEED)) {
       var trailer = readBackupUnitTrailer(ibuFileName, storageName, inputStream, null, hash);
       if (trailer.header() == null) {
@@ -1830,20 +2154,21 @@ public class DiskStorage extends AbstractStorage {
       if (hasBackupMetadataChecksum(ShortSerializer.deserializeLiteral(header,
           header.length - IBU_METADATA_SIZE)) && !metadataChecksumMatches(header)) {
         hash.update(header, 0, header.length - Long.BYTES);
-        return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue());
+        return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, hash.getValue(),
+            sourceFormat);
       }
-      return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, null);
+      return classifyBackupUnit(ibuFileName, storageName, dbUUID, header, null, sourceFormat);
     }
   }
 
   /** Admits a tail without reading the payload or checking the full hash. */
   private static BackupUnitInspection inspectBackupUnitTail(String unit, String storageName,
-      UUID uuid, byte[] tail) {
+      UUID uuid, byte[] tail, StorageFormat sourceFormat) {
     var version = ShortSerializer.deserializeLiteral(tail, tail.length - IBU_METADATA_SIZE);
-    var size = hasBackupMetadataChecksum(version) ? IBU_V4_METADATA_SIZE : IBU_METADATA_SIZE;
-    // The caller sends short or damaged v4/v5 tails to the full inspection instead.
+    var size = backupMetadataSize(version);
+    // The caller sends short or damaged checksummed tails to full inspection instead.
     return classifyBackupUnit(unit, storageName, uuid,
-        Arrays.copyOfRange(tail, tail.length - size, tail.length), null);
+        Arrays.copyOfRange(tail, tail.length - size, tail.length), null, sourceFormat);
   }
 
   /**
@@ -1855,7 +2180,7 @@ public class DiskStorage extends AbstractStorage {
   private static BackupUnitTrailer readBackupUnitTrailer(String ibuFileName, String storageName,
       @Nonnull InputStream inputStream, @Nullable OutputStream copyStream,
       @Nullable StreamingXXHash64 xxHash64) throws IOException {
-    var tail = new byte[IBU_V4_METADATA_SIZE];
+    var tail = new byte[IBU_MAX_METADATA_SIZE];
     var tailLength = 0;
     var buffer = new byte[64 << 10];
     int read;
@@ -1863,7 +2188,7 @@ public class DiskStorage extends AbstractStorage {
       if (read == 0) {
         continue;
       }
-      // Keep the last 86 bytes. For v3, the extra 12 bytes return to the hash below.
+      // Keep at most 122 bytes. Bytes before the selected layout return to the hash below.
       if (tailLength + read >= tail.length) {
         var displaced = tailLength + read - tail.length;
         var fromTail = Math.min(displaced, tailLength);
@@ -1893,11 +2218,14 @@ public class DiskStorage extends AbstractStorage {
 
     var sharedOffset = tailLength - IBU_METADATA_SIZE;
     var version = ShortSerializer.deserializeLiteral(tail, sharedOffset);
-    if (hasBackupMetadataChecksum(version) && tailLength == IBU_V4_METADATA_SIZE) {
-      return new BackupUnitTrailer(tail, null);
+    var size = backupMetadataSize(version);
+    if (tailLength < size) {
+      return new BackupUnitTrailer(null,
+          "The file holds fewer bytes than one backup header needs.");
     }
-    updateHash(xxHash64, tail, 0, sharedOffset);
-    return new BackupUnitTrailer(Arrays.copyOfRange(tail, sharedOffset, tailLength), null);
+    var selectedOffset = tailLength - size;
+    updateHash(xxHash64, tail, 0, selectedOffset);
+    return new BackupUnitTrailer(Arrays.copyOfRange(tail, selectedOffset, tailLength), null);
   }
 
   /** Updates one optional hash, so a header-only read skips every hash update. */
@@ -1919,11 +2247,12 @@ public class DiskStorage extends AbstractStorage {
    * @param calculatedHashCode the hash of the read content, or null for a header-only admission
    */
   private static BackupUnitInspection classifyBackupUnit(String ibuFileName, String storageName,
-      @Nullable UUID dbUUID, byte[] metaDataCandidate, @Nullable Long calculatedHashCode) {
+      @Nullable UUID dbUUID, byte[] metaDataCandidate, @Nullable Long calculatedHashCode,
+      @Nullable StorageFormat sourceFormat) {
     var sharedOffset = metaDataCandidate.length - IBU_METADATA_SIZE;
     var shared = Arrays.copyOfRange(metaDataCandidate, sharedOffset, metaDataCandidate.length);
     var metadataVersion = ShortSerializer.deserializeLiteral(shared, IBU_METADATA_VERSION_OFFSET);
-    // The v4/v5 checksum protects the barrier and every shared field except the full hash.
+    // The v4/v5/v6 checksum protects every metadata field except itself and the full hash.
     var checksumMatches = !hasBackupMetadataChecksum(metadataVersion)
         || metadataChecksumMatches(metaDataCandidate);
     var metadataUUIDLowerBits = LongSerializer.deserializeLiteral(shared,
@@ -1953,12 +2282,25 @@ public class DiskStorage extends AbstractStorage {
 
     var semanticIdentity = new BackupSemanticIdentity(metadataFeatureFormat,
         metadataLayoutVersion, metadataCreationEvidence);
-    // Develop recognizes versions 3 and 4 as removable after a failed full hash check.
-    // Extend that rule to version 5 without removing any unknown or foreign unit.
-    var recognized = (metadataVersion == CURRENT_BACKUP_FORMAT_VERSION
-        || metadataVersion == PREVIOUS_BACKUP_FORMAT_VERSION
-        || metadataVersion == SUPPORTED_OLD_BACKUP_FORMAT_VERSION)
-        && semanticIdentity.equals(supportedBackupSemanticIdentity())
+    StorageFormat headerFormat;
+    String layoutRefusal = null;
+    try {
+      headerFormat = StorageFormat.resolve(metadataLayoutVersion);
+    } catch (IllegalArgumentException unsupportedLayout) {
+      headerFormat = null;
+      layoutRefusal = sourceFormat == null ? unsupportedLayout.getMessage()
+          : StorageFormat.layoutVersionDisagreement("backup unit", metadataLayoutVersion,
+              "open database", sourceFormat.layoutVersion());
+    }
+    // Malformed continuity is not recognized output and can never authorize removal.
+    var marker = metadataVersion == 6
+        ? IntegerSerializer.deserializeLiteral(metaDataCandidate, 12) : CONTINUITY_ABSENT;
+    var markerValid = marker == CONTINUITY_ABSENT || marker == CONTINUITY_PRESENT;
+    // Generic admission has no source descriptor, but extension must not remove another layout.
+    var recognized = isSupportedBackupVersion(metadataVersion) && markerValid
+        && headerFormat != null
+        && semanticIdentity.equals(supportedBackupSemanticIdentity(headerFormat))
+        && (sourceFormat == null || sourceFormat == headerFormat)
         && dbUUID != null
         && dbUUID.getLeastSignificantBits() == metadataUUIDLowerBits
         && dbUUID.getMostSignificantBits() == metadataUUIDHigherBits;
@@ -1971,9 +2313,7 @@ public class DiskStorage extends AbstractStorage {
 
     // A shorter legacy tail may look like a current header when read at the shared offset.
     // Check the actual legacy version and its UUID against the file name before the hash check.
-    if (metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION
-        && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
-        && metadataVersion != CURRENT_BACKUP_FORMAT_VERSION) {
+    if (!isSupportedBackupVersion(metadataVersion)) {
       var version2Start = IBU_METADATA_SIZE - VERSION_2_BACKUP_TAIL_SIZE;
       if (ShortSerializer.deserializeLiteral(metaDataCandidate, version2Start) == 2
           && ibuFileName.startsWith(new UUID(
@@ -2015,7 +2355,7 @@ public class DiskStorage extends AbstractStorage {
     if (dbUUID != null) {
       if (dbUUID.getLeastSignificantBits() != metadataUUIDLowerBits
           || dbUUID.getMostSignificantBits() != metadataUUIDHigherBits) {
-        var storedUUID = new UUID(metadataUUIDLowerBits, metadataUUIDHigherBits);
+        var storedUUID = new UUID(metadataUUIDHigherBits, metadataUUIDLowerBits);
         LogManager.instance()
             .warn(DiskStorage.class, storageName,
                 "Database identifier (UUID) of the file %s stored in metadata %s does not match "
@@ -2031,10 +2371,11 @@ public class DiskStorage extends AbstractStorage {
       return unclassifiableUnit("The file name carries no database identifier (UUID).");
     }
 
-    if (metadataVersion != CURRENT_BACKUP_FORMAT_VERSION
-        && metadataVersion != PREVIOUS_BACKUP_FORMAT_VERSION
-        && metadataVersion != SUPPORTED_OLD_BACKUP_FORMAT_VERSION) {
+    if (!isSupportedBackupVersion(metadataVersion)) {
       return unsupportedBackupVersion(ibuFileName, storageName, metadataVersion);
+    }
+    if (!markerValid) {
+      return unclassifiableUnit("The header carries a malformed continuity presence marker.");
     }
 
     if (metadataFeatureFormat != FEATURE_FORMAT.version()) {
@@ -2047,14 +2388,17 @@ public class DiskStorage extends AbstractStorage {
           + FEATURE_FORMAT.version() + " only.");
     }
 
-    if (metadataLayoutVersion != StorageConfiguration.CURRENT_VERSION) {
+    if (headerFormat == null) {
       LogManager.instance()
           .warn(DiskStorage.class, storageName,
-              "Storage layout version %d of the file %s does not match supported version %d.",
-              metadataLayoutVersion, ibuFileName, StorageConfiguration.CURRENT_VERSION);
-      return unclassifiableUnit("The header carries storage layout version "
-          + metadataLayoutVersion + ", and this build supports storage layout version "
-          + StorageConfiguration.CURRENT_VERSION + " only.");
+              "Storage layout version %d of the file %s is unsupported.",
+              metadataLayoutVersion, ibuFileName);
+      return unclassifiableUnit(layoutRefusal);
+    }
+    if (sourceFormat != null && sourceFormat != headerFormat) {
+      return unclassifiableUnit(
+          StorageFormat.layoutVersionDisagreement("backup unit", metadataLayoutVersion,
+              "open database", sourceFormat.layoutVersion()));
     }
 
     if (metadataCreationEvidence != CREATION_COMPLETED_EVIDENCE) {
@@ -2131,24 +2475,32 @@ public class DiskStorage extends AbstractStorage {
 
     var lastLsn = new LogSequenceNumber(metadataLastLsnSegment, metadataEndLsnPosition);
 
+    BackupContinuity continuity = null;
+    if (metadataVersion == 6 && marker == CONTINUITY_PRESENT) {
+      continuity = new BackupContinuity(
+          new UUID(LongSerializer.deserializeLiteral(metaDataCandidate, 16),
+              LongSerializer.deserializeLiteral(metaDataCandidate, 24)),
+          new UUID(LongSerializer.deserializeLiteral(metaDataCandidate, 32),
+              LongSerializer.deserializeLiteral(metaDataCandidate, 40)));
+    }
     return new BackupUnitInspection(
         BackupUnitClassification.SUPPORTED,
         new BackupMetadata(metadataVersion, fileNameUUID, sequenceNumber, startLsn, lastLsn,
-            metadataLastTxId, semanticIdentity),
+            metadataLastTxId, semanticIdentity, continuity),
         false,
         calculatedHashCode == null
             ? "The unit passes every header check."
             : "The unit passes every header check and every content check.");
   }
 
-  /** Names the detected unsupported version and all three accepted versions. */
+  /** Names the detected unsupported version and all four accepted versions. */
   private static BackupUnitInspection unsupportedBackupVersion(String ibuFileName,
       String storageName, int version) {
     LogManager.instance().warn(DiskStorage.class, storageName,
-        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, and 5.",
+        "Version of the file %s stored in metadata %d is unsupported; supported versions are 3, 4, 5, and 6.",
         ibuFileName, version);
     return unclassifiableUnit("The header carries backup format version "
-        + version + ", and this build supports backup format versions 3, 4, and 5 only.");
+        + version + ", and this build supports backup format versions 3, 4, 5, and 6 only.");
   }
 
   /** Builds the inspection of one unit that this build cannot classify. */
@@ -2159,7 +2511,7 @@ public class DiskStorage extends AbstractStorage {
   /**
    * Builds the inspection of one unit that failed its full hash.
    *
-   * @param recognized true when a version 3, 4, or 5 unit carries this database's header
+   * @param recognized true when a version 3, 4, 5, or 6 unit carries this database's header
    */
   private static BackupUnitInspection incompleteOrUnclassifiableUnit(boolean recognized,
       String detail) {
@@ -2173,35 +2525,41 @@ public class DiskStorage extends AbstractStorage {
   }
 
   private LogSequenceNumber storeBackupDataToStream(OutputStream stream,
-      LogSequenceNumber fromLsn)
+      LogSequenceNumber fromLsn, BackupRequestOwner owner, @Nullable BackupContinuity head,
+      boolean capable)
       throws IOException {
     final var zipOutputStream = new ZipOutputStream(stream,
         Charset.forName(configuration.getCharset()));
     LogSequenceNumber backupLastLsn;
     try {
       final long startSegment;
-      final LogSequenceNumber freezeLsn;
-      // A TRANSIENT self-quiesce (the backup segment cut): bounded by the cut body, so schema
-      // commits may park behind it exactly like data commits.
-      final var newSegmentFreezeId =
-          atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+      LogSequenceNumber freezeLsn = null;
+      boolean retentionAdded = false;
+      // Retention cleanup covers WAL setup and begin as well as copying. Begin may throw
+      // after retention registration, before the request can publish a Context.
       try {
-        final var startLsn = writeAheadLog.end();
-        if (startLsn != null) {
-          freezeLsn = startLsn;
-        } else {
-          freezeLsn = new LogSequenceNumber(0, 0);
+        // A TRANSIENT self-quiesce (the backup segment cut): bounded by the cut body, so schema
+        // commits may park behind it exactly like data commits.
+        final var newSegmentFreezeId =
+            atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null);
+        try {
+          final var startLsn = writeAheadLog.end();
+          if (startLsn != null) {
+            freezeLsn = startLsn;
+          } else {
+            freezeLsn = new LogSequenceNumber(0, 0);
+          }
+
+          writeAheadLog.addCutTillLimit(freezeLsn);
+          retentionAdded = true;
+
+          writeAheadLog.appendNewSegment();
+          startSegment = writeAheadLog.activeSegment();
+          owner.begin(head, capable);
+        } finally {
+          atomicOperationsManager.unfreezeWriteOperations(newSegmentFreezeId);
         }
 
-        writeAheadLog.addCutTillLimit(freezeLsn);
-
-        writeAheadLog.appendNewSegment();
-        startSegment = writeAheadLog.activeSegment();
-      } finally {
-        atomicOperationsManager.unfreezeWriteOperations(newSegmentFreezeId);
-      }
-
-      try {
         backupIv(zipOutputStream);
 
         final var encryptionIv = new byte[16];
@@ -2225,7 +2583,13 @@ public class DiskStorage extends AbstractStorage {
               "Invalid length of the encryption key, provided size is " + aesKey.length);
         }
 
-        var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey);
+        var lastLsn = backupPagesWithChanges(fromLsn, zipOutputStream, encryptionIv, aesKey, owner);
+        // Page copying has finished at this check. Later trust loss cannot change the pages copied.
+        // Completion rechecks live trust and the failure version, so lost history makes the next
+        // unit read all pages.
+        if (owner.selectedRead && !owner.context.isOwnedBoundaryTrusted()) {
+          throw new IOException("Changed-page tracker trust lost during selected backup");
+        }
         final var lastWALLsn =
             copyWALToBackup(zipOutputStream, startSegment);
 
@@ -2235,7 +2599,9 @@ public class DiskStorage extends AbstractStorage {
 
         backupLastLsn = lastLsn;
       } finally {
-        writeAheadLog.removeCutTillLimit(freezeLsn);
+        if (retentionAdded) {
+          writeAheadLog.removeCutTillLimit(freezeLsn);
+        }
       }
     } catch (IOException | RuntimeException | Error failure) {
       try {
@@ -2337,12 +2703,15 @@ public class DiskStorage extends AbstractStorage {
       final LogSequenceNumber changeLsn,
       final ZipOutputStream stream,
       final byte[] encryptionIv,
-      final byte[] aesKey)
+      final byte[] aesKey, BackupRequestOwner owner)
       throws IOException {
-    var lastLsn = changeLsn;
-
     final var files = writeCache.files();
-    final var pageSize = writeCache.pageSize();
+    final var context = owner.context;
+    // Inventory precedes the fixed mode choice. An empty candidate stream cannot prove trust.
+    owner.selectedRead = context.selectionEligible() && context.sealHandle() != null
+        && context.isOwnedBoundaryTrusted();
+    final var lastLsn = new LogSequenceNumber[] {changeLsn};
+    final var data = new byte[writeCache.pageSize() + LongSerializer.LONG_SIZE];
 
     for (var entry : files.entrySet()) {
       final var fileName = entry.getKey();
@@ -2359,48 +2728,60 @@ public class DiskStorage extends AbstractStorage {
       LongSerializer.serializeLiteral(fileId, binaryFileId, 0);
       stream.write(binaryFileId, 0, binaryFileId.length);
 
-      for (var pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
-        final var cacheEntry =
-            readCache.silentLoadForRead(fileId, pageIndex, writeCache, true);
-        long sharedStamp = cacheEntry.acquireSharedLock();
-        try {
-          var cachePointer = cacheEntry.getCachePointer();
-          assert cachePointer != null;
-
-          var cachePointerBuffer = cachePointer.getBuffer();
-          assert cachePointerBuffer != null;
-
-          final var pageLsn =
-              DurablePage.getLogSequenceNumberFromPage(cachePointerBuffer);
-
-          if (changeLsn == null || pageLsn.compareTo(changeLsn) > 0) {
-
-            final var data = new byte[pageSize + LongSerializer.LONG_SIZE];
-            LongSerializer.serializeNative(pageIndex, data, 0);
-            DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
-                pageSize);
-
-            if (aesKey != null) {
-              doEncryptionDecryption(
-                  Cipher.ENCRYPT_MODE, aesKey, fileId, pageIndex, data, encryptionIv);
-            }
-
-            stream.write(data);
-
-            if (lastLsn == null || pageLsn.compareTo(lastLsn) > 0) {
-              lastLsn = pageLsn;
-            }
-          }
-        } finally {
-          cacheEntry.releaseSharedLock(sharedStamp);
-          readCache.releaseFromRead(cacheEntry);
+      if (owner.selectedRead && !writeCache.isNonDurable(fileId)) {
+        final long compositeId = fileId;
+        context.forEachCandidate(context.sealHandle(), writeCache.internalFileId(fileId),
+            filledUpTo, pageIndex -> copyBackupPage(compositeId, pageIndex, changeLsn, stream,
+                encryptionIv, aesKey, data, lastLsn));
+      } else {
+        for (long pageIndex = 0; pageIndex < filledUpTo; pageIndex++) {
+          copyBackupPage(fileId, pageIndex, changeLsn, stream, encryptionIv, aesKey, data, lastLsn);
         }
       }
 
       stream.closeEntry();
     }
 
-    return lastLsn;
+    return lastLsn[0];
+  }
+
+  /** The read cache has an int address boundary. Never let a long backup counter wrap there. */
+  static int backupPageIndex(long pageIndex) throws IOException {
+    if (pageIndex < 0 || pageIndex > Integer.MAX_VALUE) {
+      throw new IOException("Backup page index outside read-cache range: " + pageIndex);
+    }
+    return (int) pageIndex;
+  }
+
+  private void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
+      ZipOutputStream stream, byte[] encryptionIv, byte[] aesKey, byte[] data,
+      LogSequenceNumber[] lastLsn) throws IOException {
+    final var cacheEntry =
+        readCache.silentLoadForRead(fileId, backupPageIndex(pageIndex), writeCache, true);
+    long sharedStamp = cacheEntry.acquireSharedLock();
+    try {
+      var cachePointer = cacheEntry.getCachePointer();
+      assert cachePointer != null;
+      var cachePointerBuffer = cachePointer.getBuffer();
+      assert cachePointerBuffer != null;
+      final var pageLsn = DurablePage.getLogSequenceNumberFromPage(cachePointerBuffer);
+      if (changeLsn == null || pageLsn.compareTo(changeLsn) > 0) {
+        LongSerializer.serializeNative(pageIndex, data, 0);
+        DurablePage.getPageData(cachePointerBuffer, data, LongSerializer.LONG_SIZE,
+            writeCache.pageSize());
+        if (aesKey != null) {
+          doEncryptionDecryption(
+              Cipher.ENCRYPT_MODE, aesKey, fileId, pageIndex, data, encryptionIv);
+        }
+        stream.write(data);
+        if (lastLsn[0] == null || pageLsn.compareTo(lastLsn[0]) > 0) {
+          lastLsn[0] = pageLsn;
+        }
+      }
+    } finally {
+      cacheEntry.releaseSharedLock(sharedStamp);
+      readCache.releaseFromRead(cacheEntry);
+    }
   }
 
   @Override
@@ -2640,6 +3021,7 @@ public class DiskStorage extends AbstractStorage {
       @Nullable UnaryOperator<OutputStream> outputDecorator) throws IOException {
     var storageName = chain.storageName();
     UUID metadataUUID = null;
+    Integer chainLayout = null;
     LogSequenceNumber lastLsn = null;
     long backupLastTxId = -1;
 
@@ -2673,6 +3055,13 @@ public class DiskStorage extends AbstractStorage {
                 + inspection.detail());
           }
           var backupMetadata = inspection.metadata();
+          var unitLayout = backupMetadata.semanticIdentity().storageLayoutVersion();
+          if (chainLayout == null) {
+            chainLayout = unitLayout;
+          } else if (chainLayout != unitLayout) {
+            throw new UnsupportedBackupException(storageName,
+                "Backup units carry different storage layout versions, restore is impossible.");
+          }
           if (metadataUUID == null) {
             metadataUUID = backupMetadata.databaseId;
           } else if (!metadataUUID.equals(backupMetadata.databaseId)) {
@@ -2712,7 +3101,7 @@ public class DiskStorage extends AbstractStorage {
           "Full backup file is absent in the backup, restore is "
               + "impossible.");
     }
-    chain.completePreparation(backupLastTxId);
+    chain.completePreparation(backupLastTxId, StorageFormat.resolve(chainLayout));
   }
 
   /**
@@ -2741,6 +3130,12 @@ public class DiskStorage extends AbstractStorage {
       if (aesKey != null && aesKey.length != 16 && aesKey.length != 24 && aesKey.length != 32) {
         throw new InvalidStorageEncryptionKeyException(name,
             "Invalid length of the encryption key, provided size is " + aesKey.length);
+      }
+
+      if (chain.sourceFormat() != getStorageFormat()) {
+        throw new UnsupportedBackupException(name,
+            "Cannot restore storage layout version " + chain.sourceFormat().layoutVersion()
+                + " in place into target layout version " + getStorageFormat().layoutVersion());
       }
 
       // A restored image never shares its storage lineage with the backup source. A storage
@@ -2780,7 +3175,7 @@ public class DiskStorage extends AbstractStorage {
       // after the validation of the restored content and after the durability barrier over
       // that content. A failed validation therefore leaves the restore-in-progress state, and
       // the destructive restart entry accepts that state.
-      validateRestoredContent();
+      validateRestoredContent(chain.sourceFormat());
       barrierWhileCallerOwnsStateLock();
       // Capture after the barrier because histogram and index flushing can issue operations.
       activateRestoredBootstrapSnapshot();
@@ -2851,39 +3246,35 @@ public class DiskStorage extends AbstractStorage {
    * <p>A failed validation leaves this target in the restore-in-progress lifecycle state, because
    * the activation follows this method.
    */
-  private void validateRestoredContent() throws IOException {
+  private void validateRestoredContent(StorageFormat sourceFormat) throws IOException {
     final var restoredConfiguration = (CollectionBasedStorageConfiguration) configuration;
     final var restoredLayoutVersion =
         atomicOperationsManager.calculateInsideAtomicOperation(restoredConfiguration::getVersion);
-    validateRestoredStorageLayoutVersion(name, restoredLayoutVersion);
+    validateRestoredStorageLayoutVersion(name, restoredLayoutVersion, sourceFormat);
     validateRestoredGenesisMarker(
         name, restoredConfiguration.getProperty(SharedContext.GENESIS_COMPLETED_PROPERTY));
   }
 
   /**
-   * Rejects a restored storage layout version that this build does not support.
+   * Rejects a restored configuration layout that differs from the admitted source.
    *
-   * <p>A backup of an older or a newer build carries such a version. The refusal keeps the target
+   * <p>The refusal keeps the target
    * in the restore-in-progress lifecycle state. A drop discards that target and reports success.
    *
    * <p>This check is defense in depth. The configuration load of the restore reads the same value
    * earlier. That load reports the named inconsistent-metadata result for a disagreement. A real
-   * backup of another build therefore never reaches this check today. This check still guards the
+   * backup with conflicting configuration therefore never reaches this check. This still guards the
    * case of a configuration load that stops comparing that value.
    */
-  static void validateRestoredStorageLayoutVersion(String storageName, int restoredLayoutVersion) {
-    if (restoredLayoutVersion != StorageConfiguration.CURRENT_VERSION) {
+  static void validateRestoredStorageLayoutVersion(String storageName, int restoredLayoutVersion,
+      StorageFormat sourceFormat) {
+    if (restoredLayoutVersion != sourceFormat.layoutVersion()) {
       throw new StorageException(
           storageName,
-          "The restore of database '"
-              + storageName
-              + "' failed. The backup content carries storage layout version "
-              + restoredLayoutVersion
-              + ". This build supports storage layout version "
-              + StorageConfiguration.CURRENT_VERSION
-              + " only. Drop database '"
-              + storageName
-              + "' to remove the unusable restore target.");
+          "The restore of database '" + storageName + "' failed. "
+              + StorageFormat.layoutVersionDisagreement("restored configuration",
+                  restoredLayoutVersion, "admitted source", sourceFormat.layoutVersion())
+              + " Drop database '" + storageName + "' to remove the unusable restore target.");
     }
   }
 
@@ -2920,6 +3311,8 @@ public class DiskStorage extends AbstractStorage {
           atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
               .load(contextConfiguration, atomicOperation));
     }
+
+    refreshRecordedMaxIndexKeySize(null);
 
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
@@ -3223,8 +3616,145 @@ public class DiskStorage extends AbstractStorage {
       LogSequenceNumber startLsn,
       LogSequenceNumber endLsn,
       long lastTxId,
-      BackupSemanticIdentity semanticIdentity) {
+      BackupSemanticIdentity semanticIdentity,
+      @Nullable BackupContinuity continuity) {
 
+  }
+
+  /** Converts the admitted head without changing tracker-then-generation ordering. */
+  static ChangedPageTrackerBackup.Continuity toFacadeContinuity(BackupContinuity head) {
+    return new ChangedPageTrackerBackup.Continuity(head.trackerId(), head.generationId());
+  }
+
+  @Nullable static BackupContinuity pairFor(ChangedPageTrackerBackup.Context context) {
+    Objects.requireNonNull(context);
+    if (context.outcome() == ChangedPageTrackerBackup.BeginOutcome.PENDING_SEAL) {
+      return null;
+    }
+    var generation = context.durabilityCapable()
+        ? context.consumedIdentifier() : context.lastCompletedIdentifier();
+    return generation == null ? null
+        : new BackupContinuity(context.trackerIdentifier(), generation);
+  }
+
+  /** Single-threaded request authority. The caller owns output, writer pause and exclusion. */
+  static final class BackupRequestOwner {
+    enum State {
+      CREATED, BEGUN_NEW, BEGUN_PENDING, COMPLETED, ABANDONED, CLEANUP_FAILED
+    }
+
+    private final ChangedPageTracker tracker;
+    @Nullable private ChangedPageTrackerBackup.Context context;
+    private State state = State.CREATED;
+    private boolean cleanupAttempted;
+    private boolean selectedRead;
+
+    BackupRequestOwner(ChangedPageTracker tracker) {
+      this.tracker = Objects.requireNonNull(tracker);
+    }
+
+    State state() {
+      return state;
+    }
+
+    ChangedPageTrackerBackup.Context begin(@Nullable BackupContinuity head, boolean capable) {
+      require(state == State.CREATED);
+      context = ChangedPageTrackerBackup.begin(tracker,
+          head == null ? null : toFacadeContinuity(head), capable);
+      state = context.outcome() == ChangedPageTrackerBackup.BeginOutcome.NEW_BOUNDARY
+          ? State.BEGUN_NEW : State.BEGUN_PENDING;
+      return context;
+    }
+
+    ChangedPageTrackerBackup.Status finish(Path path,
+        ChangedPageTrackerBackup.CompletionFacts facts,
+        ChangedPageTrackerBackup.CoverageSource source, Consumer<String> warningSink) {
+      require(state == State.BEGUN_NEW || state == State.BEGUN_PENDING);
+      ChangedPageTrackerBackup.Status status;
+      if (context.sealHandle() == null) {
+        status = ChangedPageTrackerBackup.Status.NO_BOUNDARY;
+        state = State.ABANDONED;
+      } else if (!context.durabilityCapable() || !facts.completeUnitDurable()) {
+        // Keep this abandon condition aligned with ChangedPageTrackerBackup.complete.
+        // Unconfirmed output merges its seal and cannot publish a new completion.
+        // Selected durable output needs no fullRead gating. The facade checks eligible live
+        // history at completion before it can publish trusted continuity.
+        status = abandonOnce(null);
+      } else {
+        try {
+          status = ChangedPageTrackerBackup.complete(tracker, context, path, facts, source);
+        } catch (RuntimeException | Error primary) {
+          abandonOnce(primary);
+          throw primary;
+        }
+        state = State.COMPLETED;
+      }
+      // A returned facade outcome is terminal before any diagnostic can reenter this owner.
+      try {
+        String warning = switch (status) {
+          case SAVED_CONTINUITY, MERGED_NOT_CONSUMED -> null;
+          case NO_BOUNDARY -> "Backup has a pending seal. Continuity is absent.";
+          case SAVED_UNTRUSTED -> "Backup completion saved untrusted history.";
+          case SAVE_FAILED_INVALIDATED -> "Backup completion save failed. History invalidated.";
+          case SAVE_FAILED_INVALIDATION_FAILED -> "Backup completion save and invalidation failed.";
+          case COVERAGE_UNAVAILABLE ->
+              "Backup completion coverage unavailable. History invalidated.";
+          case COVERAGE_UNAVAILABLE_INVALIDATION_FAILED ->
+              "Backup completion coverage and invalidation unavailable.";
+        };
+        if (warning != null) {
+          warningSink.accept(warning);
+        }
+      } catch (RuntimeException | Error diagnosticFailure) {
+        // Diagnostics cannot revoke a returned result or acquire cleanup authority again.
+      }
+      return status;
+    }
+
+    void abort(@Nullable Throwable primary) {
+      if (context == null || cleanupAttempted || state == State.COMPLETED
+          || state == State.ABANDONED || state == State.CLEANUP_FAILED) {
+        return;
+      }
+      abandonOnce(primary);
+    }
+
+    private ChangedPageTrackerBackup.Status abandonOnce(@Nullable Throwable primary) {
+      cleanupAttempted = true;
+      try {
+        var status = ChangedPageTrackerBackup.abandon(tracker, context);
+        state = State.ABANDONED;
+        return status;
+      } catch (RuntimeException | Error cleanup) {
+        state = State.CLEANUP_FAILED;
+        if (primary == null) {
+          throw cleanup;
+        }
+        if (primary != cleanup) {
+          try {
+            primary.addSuppressed(cleanup);
+          } catch (RuntimeException | Error suppressionFailure) {
+            // Preserve the original failure even when suppression is unavailable.
+          }
+        }
+        return null;
+      }
+    }
+
+    private void require(boolean allowed) {
+      if (!allowed) {
+        throw new IllegalStateException("Backup request is " + state);
+      }
+    }
+  }
+
+  /** The optional immutable pair from an admitted unit, not live tracker authority. */
+  protected record BackupContinuity(UUID trackerId, UUID generationId) {
+
+    protected BackupContinuity {
+      java.util.Objects.requireNonNull(trackerId);
+      java.util.Objects.requireNonNull(generationId);
+    }
   }
 
   /**
@@ -3245,7 +3775,8 @@ public class DiskStorage extends AbstractStorage {
     /** The unit passes every header check and every content check. */
     SUPPORTED,
     /**
-     * The unit carries the supported identity of this database and fails the full hash check.
+     * A version 3, 4, 5, or 6 unit carries this database's supported identity and fails its full hash.
+     * Version 6 also requires a valid continuity marker.
      *
      * <p>Such a unit is incomplete output of an interrupted backup of this build. An incremental
      * backup removes such trailing output before the backup extends the chain.
@@ -3256,7 +3787,7 @@ public class DiskStorage extends AbstractStorage {
      *
      * <p>An unsupported header, a header of another build, and a header without accepted creation
      * completion evidence reach this outcome. A file name that disagrees with the header,
-     * unreadable output, and a version 4 or 5 metadata checksum mismatch reach it as well. Such a
+     * unreadable output, and a version 4, 5, or 6 metadata checksum mismatch reach it as well. Such a
      * unit stays in place forever, because it can hold a valuable backup of another build.
      */
     UNCLASSIFIABLE

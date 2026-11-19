@@ -62,7 +62,8 @@ public class BTreeTombstoneGCStressTest {
   // bucket overflows and GC attempts.
   private static final int OPS_PER_THREAD = 300;
 
-  private static final int STUB_ENGINE_ID = 99;
+  private static final int STUB_ENGINE_SLOT = 7;
+  private static final int STUB_FILE_BASE_ID = 99;
   private static final String ENGINE_NAME = "tombstoneGCStressIdx";
 
   private static YouTrackDBImpl youTrackDB;
@@ -105,7 +106,7 @@ public class BTreeTombstoneGCStressTest {
   @Before
   public void beforeMethod() throws Exception {
     bTree = new BTree<>(ENGINE_NAME, ".cbt", ".nbt", storage);
-    bTree.setEngineId(STUB_ENGINE_ID);
+    bTree.setHistoryFileBaseId(STUB_FILE_BASE_ID);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.create(
             atomicOperation,
@@ -115,7 +116,8 @@ public class BTreeTombstoneGCStressTest {
                 PropertyTypeInternal.LONG},
             2));
 
-    BTreeGCTestSupport.registerStubEngine(storage, ENGINE_NAME, STUB_ENGINE_ID);
+    BTreeGCTestSupport.registerStubEngine(
+        storage, ENGINE_NAME, STUB_ENGINE_SLOT, STUB_FILE_BASE_ID);
   }
 
   @After

@@ -53,6 +53,40 @@ public final class BootstrapMetadataTestSupport {
     return new FailedActivationPublication(activationMoveObserved, candidateObserved, cause, scope);
   }
 
+  /**
+   * Observes all three fresh-restore publications and fails only activation, not begin-restore.
+   * Each candidate must carry the admitted source layout, starting with the birth authority.
+   */
+  public static FailedActivationPublication failRestoreActivationPublication(
+      Path storageDirectory, StorageFormat sourceFormat, Runnable inspectInitialConfiguration) {
+    var candidateObserved = new AtomicBoolean();
+    var activationMoveObserved = new AtomicBoolean();
+    var publications = new java.util.concurrent.atomic.AtomicInteger();
+    var cause = new IOException("injected restore activation move failure");
+    var scope = StorageBootstrapMetadata.useMoveStrategyForCurrentThread(
+        (source, target, requester) -> {
+          if (!target.getParent().toRealPath().equals(storageDirectory.toRealPath())) {
+            FileUtils.durableAtomicMove(source, target, requester);
+            return;
+          }
+          var bytes = Files.readAllBytes(source);
+          org.junit.Assert.assertEquals(sourceFormat.layoutVersion(),
+              java.nio.ByteBuffer.wrap(bytes).getInt(28));
+          var publication = publications.incrementAndGet();
+          if (publication == 2) {
+            // Begin-restore follows initial configuration creation and precedes all replay.
+            inspectInitialConfiguration.run();
+          }
+          if (publication == 3) {
+            candidateObserved.set(Files.isRegularFile(source));
+            activationMoveObserved.set(true);
+            throw cause;
+          }
+          FileUtils.durableAtomicMove(source, target, requester);
+        });
+    return new FailedActivationPublication(activationMoveObserved, candidateObserved, cause, scope);
+  }
+
   /** The observed activation candidate and injected error for one current-thread move scope. */
   public record FailedActivationPublication(
       AtomicBoolean activationMoveObserved, AtomicBoolean candidateObserved,

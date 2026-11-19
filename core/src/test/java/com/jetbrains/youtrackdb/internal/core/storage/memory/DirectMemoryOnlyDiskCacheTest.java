@@ -43,6 +43,15 @@ public class DirectMemoryOnlyDiskCacheTest {
     cache.delete();
   }
 
+  /** The ReadCache default method uses the page limit declared in global configuration. */
+  @Test
+  public void defaultCommitPageLimitMatchesConfigurationDefault() {
+    assertEquals(
+        com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT
+            .getDefValue(),
+        Integer.valueOf(cache.commitPageLimit()));
+  }
+
   // ---------------------------------------------------------------------------
   // Identity / metadata
   // ---------------------------------------------------------------------------
@@ -128,7 +137,7 @@ public class DirectMemoryOnlyDiskCacheTest {
   /**
    * Verifies that {@code flush(fileId)}, {@code close(fileId, flush)},
    * {@code flush()}, {@code syncDataFiles()}, {@code flushTillSegment()},
-   * {@code changeMaximumAmountOfMemory()}, and {@code recordOptimisticAccess()} are
+   * and {@code recordOptimisticAccess()} are
    * no-ops that complete without throwing.
    */
   @Test
@@ -138,9 +147,8 @@ public class DirectMemoryOnlyDiskCacheTest {
     cache.flush(fileId);
     cache.close(fileId, true);
     cache.flush();
-    cache.syncDataFiles(0L);
+    cache.syncDataFiles();
     cache.flushTillSegment(0L);
-    cache.changeMaximumAmountOfMemory(Long.MAX_VALUE);
     cache.recordOptimisticAccess(fileId, 0L);
   }
 
@@ -677,13 +685,13 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * Verifies that {@code getPageFrameOptimistic()} always returns {@code null} — the in-memory
+   * Verifies that {@code getCacheEntryOptimistic()} always returns {@code null} — the in-memory
    * cache does not support lock-free optimistic reads.
    */
   @Test
-  public void testGetPageFrameOptimisticAlwaysNull() {
+  public void testGetCacheEntryOptimisticAlwaysNull() {
     var fileId = cache.addFile("opt.cf");
-    assertNull(cache.getPageFrameOptimistic(fileId, 0));
+    assertNull(cache.getCacheEntryOptimistic(fileId, 0));
   }
 
   /**
@@ -701,14 +709,6 @@ public class DirectMemoryOnlyDiskCacheTest {
   // ---------------------------------------------------------------------------
   // Unsupported-operation stubs
   // ---------------------------------------------------------------------------
-
-  /**
-   * Verifies that {@code replaceFileId()} throws {@link UnsupportedOperationException}.
-   */
-  @Test(expected = UnsupportedOperationException.class)
-  public void testReplaceFileIdThrows() {
-    cache.replaceFileId(1L, 2L);
-  }
 
   /**
    * Verifies that {@code store()} throws {@link UnsupportedOperationException}.

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -48,6 +49,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Multi-threaded stress harness for the disk-engine {@link WOWCache#loadOrAdd} primitive
@@ -102,6 +104,7 @@ import org.junit.Test;
  * {@code delete()} drains. The 60s per-{@code @Test} timeout is the per-test safety
  * net; sequential class execution is the per-class safety net.
  */
+@Category(SequentialTest.class)
 public class WOWCacheLoadOrAddConcurrentTest {
 
   private static final int PAGE_SIZE = DurablePage.NEXT_FREE_POSITION + 8;
@@ -123,6 +126,8 @@ public class WOWCacheLoadOrAddConcurrentTest {
   // scenarios — eviction is exercised by the wrapper-MT step's separate scenarios).
   private static final long READ_CACHE_MAX_MEMORY = 4L * 1024 * 1024;
 
+  private static Object previousExclusiveFileAccess;
+  private static Object previousFileLock;
   private static Path storagePath;
   private static String storageName;
   private static final ByteBufferPool bufferPool = new ByteBufferPool(PAGE_SIZE);
@@ -138,6 +143,8 @@ public class WOWCacheLoadOrAddConcurrentTest {
 
   @BeforeClass
   public static void beforeClass() {
+    previousExclusiveFileAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
     final var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -147,7 +154,12 @@ public class WOWCacheLoadOrAddConcurrentTest {
 
   @AfterClass
   public static void afterClass() {
-    bufferPool.clear();
+    try {
+      bufferPool.clear();
+    } finally {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before

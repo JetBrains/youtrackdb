@@ -18,8 +18,7 @@ import java.util.concurrent.locks.StampedLock;
  *   <li><b>Shared lock</b> — {@link #acquireSharedLock()} / {@link #releaseSharedLock(long)}.
  *       Used by the CAS-pinned fallback read path and WOWCache copy-then-verify.</li>
  *   <li><b>Exclusive lock</b> — {@link #acquireExclusiveLock()} /
- *       {@link #releaseExclusiveLock(long)}. Used by write operations, eviction (to invalidate
- *       stamps), and pool acquire/release (stamp invalidation barrier).</li>
+ *       {@link #releaseExclusiveLock(long)}. Used by write operations and pool acquire/release to invalidate stamps.</li>
  * </ul>
  *
  * <p>Page coordinates ({@code fileId}, {@code pageIndex}) are set under exclusive lock when
@@ -63,7 +62,7 @@ public final class PageFrame {
     return stampedLock.validate(stamp);
   }
 
-  // --- Exclusive Lock API (for writes and eviction) ---
+  // --- Exclusive Lock API (for writes and pool reuse) ---
 
   /**
    * Acquires the exclusive lock, blocking until available. Returns a stamp for use in
@@ -127,15 +126,18 @@ public final class PageFrame {
   }
 
   /**
-   * Sets the page coordinates during initial frame assignment, before the frame is
-   * visible to other threads. Skips the exclusive lock because the caller guarantees
-   * single-threaded access (e.g., CachePointer constructor). The subsequent
-   * publication of the CachePointer via a volatile write or CAS provides the
-   * necessary happens-before edge for visibility.
+   * Publishes coordinates after the caller has finished filling the frame.
+   * The lock invalidates stamps taken through stale references during the fill,
+   * even when the frame returns to the same page. Until publication a pooled
+   * frame keeps the unassigned coordinates installed by pool release.
    */
-  public void initPageCoordinates(long fileId, int pageIndex) {
-    this.fileId = fileId;
-    this.pageIndex = pageIndex;
+  public void publishPageCoordinates(long fileId, int pageIndex) {
+    long stamp = acquireExclusiveLock();
+    try {
+      setPageCoordinates(fileId, pageIndex);
+    } finally {
+      releaseExclusiveLock(stamp);
+    }
   }
 
   /**

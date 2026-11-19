@@ -19,12 +19,19 @@ import javax.annotation.Nullable;
 public class FilterExistsMatchPatternStep extends AbstractExecutionStep {
 
   private final List<AbstractExecutionStep> subSteps;
+  private final DetachedCheckMemory memory;
 
   public FilterExistsMatchPatternStep(
       List<AbstractExecutionStep> steps, CommandContext ctx, boolean enableProfiling) {
+    this(steps, ctx, enableProfiling, null);
+  }
+
+  FilterExistsMatchPatternStep(List<AbstractExecutionStep> steps, CommandContext ctx,
+      boolean enableProfiling, DetachedCheckReadSet reads) {
     super(ctx, enableProfiling);
     assert MatchAssertions.checkNotNull(steps, "sub-steps list");
     this.subSteps = steps;
+    this.memory = new DetachedCheckMemory(reads);
   }
 
   @Override
@@ -32,11 +39,24 @@ public class FilterExistsMatchPatternStep extends AbstractExecutionStep {
     if (prev == null) {
       throw new IllegalStateException("filter step requires a previous step");
     }
+    memory.start();
     return prev.start(ctx).filter(this::filterMap);
   }
 
   @Nullable private Result filterMap(Result row, CommandContext ctx) {
-    return DetachedMatchPatternProbe.matches(row, subSteps, ctx, profilingEnabled) ? row : null;
+    return memory.matches(row,
+        () -> DetachedMatchPatternProbe.matches(row, subSteps, ctx, profilingEnabled)) ? row : null;
+  }
+
+  @Override
+  public void reset() {
+    memory.clear();
+  }
+
+  @Override
+  public void close() {
+    memory.clear();
+    super.close();
   }
 
   @Nonnull
@@ -63,7 +83,7 @@ public class FilterExistsMatchPatternStep extends AbstractExecutionStep {
   public ExecutionStep copy(CommandContext ctx) {
     var copiedSteps = subSteps.stream().map(step -> (AbstractExecutionStep) step.copy(ctx))
         .toList();
-    return new FilterExistsMatchPatternStep(copiedSteps, ctx, profilingEnabled);
+    return new FilterExistsMatchPatternStep(copiedSteps, ctx, profilingEnabled, memory.reads());
   }
 
 }

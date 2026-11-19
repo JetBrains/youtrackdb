@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.StorageCollectionFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -46,6 +47,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -205,7 +207,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       collection.create(atomicOperation);
       btree.create(atomicOperation, StringSerializer.INSTANCE, null, 1);
 
-      this.configuration = contextConfiguration;
+      this.configuration = new CollectionCountConfiguration(contextConfiguration);
 
       init(atomicOperation);
 
@@ -285,7 +287,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       throws SerializationException {
     lock.writeLock().lock();
     try {
-      this.configuration = configuration;
+      this.configuration = new CollectionCountConfiguration(configuration);
 
       collection.open(atomicOperation);
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
@@ -336,61 +338,33 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   /**
-   * Compares the storage layout version of the storage configuration against the storage layout
-   * version of the bootstrap authority record.
-   *
-   * <p>The bootstrap authority record is the durable record that names one storage identity, one
-   * storage lineage, and one lifecycle state. Storage admission accepts an image only when the
-   * record carries the supported storage layout version. The supported storage layout version is
-   * {@link #CURRENT_VERSION}. A comparison against that constant is therefore a comparison against
-   * the accepted record.
-   *
-   * <p>Both directions of a disagreement report the named inconsistent-metadata result. An older
-   * layout has no in-place upgrade, because the engine file base identifier format has no
-   * computable default for an entry written before version 24. A newer layout is unreadable for
-   * these binaries. The check reads the preloaded cache directly instead of {@code getVersion},
-   * because the caller holds the non-reentrant write lock.
-   *
-   * <p>Both messages name the two disagreeing sources and the operator action. Neither message
-   * describes the admission decision, because an operator cannot act on that internal detail.
+   * Requires configuration to agree with the admitted image layout. The preloaded cache avoids
+   * reentering the write lock. Missing versions are invalid. No disagreement repairs either source.
    */
   private void checkStorageLayoutVersionConsistency() {
     final var version = (Integer) cache.get(VERSION_PROPERTY);
-    if (version == null || version < CURRENT_VERSION) {
+    final var imageVersion = storage.getStorageFormat().layoutVersion();
+    if (version == null || version != imageVersion) {
       throw new InconsistentStorageMetadataException(storage.getName(),
           InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
-          "Inconsistent storage metadata of database '" + storage.getName()
-              + "'. The storage configuration reports storage layout version "
-              + (version == null ? "<missing>" : version)
-              + ". The bootstrap authority record reports storage layout version "
-              + CURRENT_VERSION
-              + ". A direct upgrade of the storage layout is not supported. Export database '"
-              + storage.getName()
-              + "' with the earlier version of YouTrackDB, and import that export with the"
-              + " current version of YouTrackDB.");
-    }
-    if (version > CURRENT_VERSION) {
-      throw new InconsistentStorageMetadataException(storage.getName(),
-          InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
-          "Inconsistent storage metadata of database '" + storage.getName()
-              + "'. The storage configuration reports storage layout version " + version
-              + ". The bootstrap authority record reports storage layout version "
-              + CURRENT_VERSION
-              + ". The stored layout is newer than the layout of this build. Open database '"
-              + storage.getName()
-              + "' with the version of YouTrackDB that created the database.");
+          "Inconsistent storage metadata of database '" + storage.getName() + "'. "
+              + StorageFormat.layoutVersionDisagreement("storage configuration", version,
+                  "bootstrap authority record", imageVersion));
     }
   }
 
   /**
-   * Rewrites the persisted storage-format version — FOR TESTS ONLY. Production code writes the
-   * version once, at creation ({@code init()}); this seam lets the format-gate tests fabricate a
-   * database that reads as older or newer than {@link #CURRENT_VERSION}.
+   * Rewrites or removes the persisted layout for inconsistency tests only. Production writes the
+   * selected image layout once, at creation.
    */
-  public void updateVersionForTesting(AtomicOperation atomicOperation, int version) {
+  public void updateVersionForTesting(AtomicOperation atomicOperation, Integer version) {
     lock.writeLock().lock();
     try {
-      updateIntProperty(atomicOperation, VERSION_PROPERTY, version);
+      if (version == null) {
+        dropProperty(atomicOperation, VERSION_PROPERTY);
+      } else {
+        updateIntProperty(atomicOperation, VERSION_PROPERTY, version);
+      }
     } finally {
       lock.writeLock().unlock();
     }
@@ -686,7 +660,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private void updateVersion(final AtomicOperation atomicOperation) {
-    updateIntProperty(atomicOperation, VERSION_PROPERTY, CURRENT_VERSION);
+    updateIntProperty(atomicOperation, VERSION_PROPERTY,
+        storage.getStorageFormat().layoutVersion());
   }
 
   @Override
@@ -2229,7 +2204,83 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private void autoInitCollections() {
     if (configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
         == 0) {
-      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1);
+    }
+  }
+
+  /**
+   * Owns only the collection count. Other settings keep their shared read/write behavior.
+   * Loading a persisted count must not turn it into an override for another database.
+   */
+  private static final class CollectionCountConfiguration extends ContextConfiguration {
+
+    private final ContextConfiguration shared;
+
+    private CollectionCountConfiguration(ContextConfiguration shared) {
+      this.shared = shared;
+      super.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT,
+          shared.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT));
+    }
+
+    @Override
+    public Object getValue(GlobalConfiguration key) {
+      return key == GlobalConfiguration.CLASS_COLLECTIONS_COUNT
+          ? super.getValue(key) : shared.getValue(key);
+    }
+
+    @Override
+    public <T> T getValue(String key, T defaultValue) {
+      return GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)
+          ? super.getValue(key, defaultValue) : shared.getValue(key, defaultValue);
+    }
+
+    @Override
+    public Object setValue(GlobalConfiguration key, Object value) {
+      return setValue(key.getKey(), value);
+    }
+
+    @Override
+    public Object setValue(String key, Object value) {
+      return GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)
+          ? super.setValue(key, value) : shared.setValue(key, value);
+    }
+
+    @Override
+    public java.util.Set<String> getContextKeys() {
+      var keys = new java.util.HashSet<>(shared.getContextKeys());
+      keys.addAll(super.getContextKeys());
+      return keys;
+    }
+
+    @Override
+    public <T extends Enum<T>> T getValueAsEnum(GlobalConfiguration key, Class<T> enumType) {
+      return shared.getValueAsEnum(key, enumType);
+    }
+
+    @Override
+    public void forEach(BiConsumer<String, Object> action) {
+      // Read each shared entry with its value, but export only the storage-local count.
+      shared.forEach((key, value) -> {
+        if (!GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)) {
+          action.accept(key, value);
+        }
+      });
+      super.forEach(action);
+    }
+
+    @Override
+    public void merge(ContextConfiguration source) {
+      source.forEach(this::setValue);
+    }
+
+    @Override
+    public void merge(org.apache.commons.configuration2.Configuration target) {
+      forEach(target::setProperty);
+    }
+
+    @Override
+    public int getContextSize() {
+      return getContextKeys().size();
     }
   }
 

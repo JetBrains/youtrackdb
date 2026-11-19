@@ -19,10 +19,14 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import java.io.ByteArrayInputStream;
@@ -37,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nonnull;
@@ -66,7 +71,8 @@ public class RestoreLifecycleTest {
   private static final String RECORD_CLASS = "RestoredClass";
   private static final String SOURCE = "restoreSource";
   private static final String UNUSABLE_SOURCE = "unusableRestoreSource";
-  private static final String TARGET = "restoreTarget";
+  // Scope the temporary-chain oracle to this test instance, including across JVMs.
+  private final String target = "restoreTarget-" + UUID.randomUUID();
   private static final FeatureFormatIdentity FEATURE_FORMAT = new FeatureFormatIdentity(1);
 
   private Path root;
@@ -109,10 +115,10 @@ public class RestoreLifecycleTest {
 
     try (var youTrackDB = openManager()) {
       internalOf(youTrackDB).restore(
-          TARGET,
+          target,
           this::backupFileNames,
           fileName -> {
-            observedTargets.add(Files.exists(databasesPath.resolve(TARGET)));
+            observedTargets.add(Files.exists(databasesPath.resolve(target)));
             return openBackupFile(fileName);
           },
           null,
@@ -125,14 +131,40 @@ public class RestoreLifecycleTest {
       }
       assertNull(
           "the finished restore must publish the active lifecycle state",
-          admissionReasonOf(TARGET));
+          admissionReasonOf(target));
     }
 
     try (var youTrackDB = openManager();
-        var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+        var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
       assertTrue(
           "the restored database must carry the content of the backup",
           session.getMetadata().getSchema().existsClass(RECORD_CLASS));
+    }
+  }
+
+  /** A restored configuration replaces the target's created limit before indexes reopen. */
+  @Test
+  public void restorePublishesTheBackedUpKeyLimitInsteadOfTheTargetCreationLimit()
+      throws Exception {
+    try (var youTrackDB = openManager()) {
+      createSourceDatabase(youTrackDB);
+      var source = storageOf(youTrackDB, SOURCE);
+      assertTrue(source.getRecordedMaxIndexKeySize() > 0);
+      var configuration = (CollectionBasedStorageConfiguration) source.configuration;
+      source.getAtomicOperationsManager().executeInsideAtomicOperation(
+          op -> configuration.setMaxKeySize(op, -1));
+      assertNotNull(source.fullBackup(backupPath));
+      internalOf(youTrackDB).restore(target, backupPath.toString(), null, null);
+      assertEquals(-1, storageOf(youTrackDB, target).getRecordedMaxIndexKeySize());
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
+        assertEquals(-1,
+            ((DatabaseSessionEmbedded) session).getStorage().getRecordedMaxIndexKeySize());
+      }
+    }
+    try (var youTrackDB = openManager();
+        var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
+      assertEquals(-1,
+          ((DatabaseSessionEmbedded) session).getStorage().getRecordedMaxIndexKeySize());
     }
   }
 
@@ -148,13 +180,13 @@ public class RestoreLifecycleTest {
     try (var youTrackDB = openManager()) {
       assertThrows(
           RuntimeException.class,
-          () -> internalOf(youTrackDB).restore(TARGET, emptyBackupPath.toString(), null, null));
+          () -> internalOf(youTrackDB).restore(target, emptyBackupPath.toString(), null, null));
 
-      assertFalse("the refused restore must create no database", youTrackDB.exists(TARGET));
+      assertFalse("the refused restore must create no database", youTrackDB.exists(target));
     }
     assertFalse(
         "the refused restore must create no directory",
-        Files.exists(databasesPath.resolve(TARGET)));
+        Files.exists(databasesPath.resolve(target)));
   }
 
   /**
@@ -173,17 +205,17 @@ public class RestoreLifecycleTest {
       assertThrows(
           RuntimeException.class,
           () -> internalOf(youTrackDB).restore(
-              TARGET,
+              target,
               this::backupFileNames,
               this::openTruncatedBackupFile,
               null,
               null));
 
-      assertFalse("the refused restore must create no database", youTrackDB.exists(TARGET));
+      assertFalse("the refused restore must create no database", youTrackDB.exists(target));
     }
     assertFalse(
         "the refused restore must create no directory",
-        Files.exists(databasesPath.resolve(TARGET)));
+        Files.exists(databasesPath.resolve(target)));
   }
 
   /**
@@ -209,11 +241,11 @@ public class RestoreLifecycleTest {
           temporaryDirectoriesBefore,
           temporaryChainDirectories());
 
-      assertTrue("the interrupted restore target must stay visible", youTrackDB.exists(TARGET));
+      assertTrue("the interrupted restore target must stay visible", youTrackDB.exists(target));
       assertEquals(
-          StorageAdmissionException.Reason.INTERRUPTED_RESTORE, admissionReasonOf(TARGET));
+          StorageAdmissionException.Reason.INTERRUPTED_RESTORE, admissionReasonOf(target));
       var openFailure =
-          assertThrows(RuntimeException.class, () -> youTrackDB.open(TARGET, ADMIN, PASSWORD));
+          assertThrows(RuntimeException.class, () -> youTrackDB.open(target, ADMIN, PASSWORD));
       assertEquals(
           "an open must reject the interrupted restore target",
           StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
@@ -244,17 +276,17 @@ public class RestoreLifecycleTest {
       var failure =
           assertThrows(
               RuntimeException.class,
-              () -> internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null));
+              () -> internalOf(youTrackDB).restore(target, backupPath.toString(), null, null));
 
       assertTrue(
           "the failure must name the missing creation completion evidence, saw: "
               + rootMessage(failure),
           rootMessage(failure).contains("no accepted creation completion evidence"));
-      assertFalse("the refused restore must create no database", youTrackDB.exists(TARGET));
+      assertFalse("the refused restore must create no database", youTrackDB.exists(target));
     }
     assertFalse(
         "the refused restore must create no directory",
-        Files.exists(databasesPath.resolve(TARGET)));
+        Files.exists(databasesPath.resolve(target)));
     assertFalse(
         "the source database must keep every file",
         entryNames(databasesPath.resolve(SOURCE)).isEmpty());
@@ -287,16 +319,16 @@ public class RestoreLifecycleTest {
     try (var youTrackDB = openManager()) {
       assertThrows(
           RuntimeException.class,
-          () -> internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null));
+          () -> internalOf(youTrackDB).restore(target, backupPath.toString(), null, null));
       assertEquals(
-          StorageAdmissionException.Reason.INTERRUPTED_RESTORE, admissionReasonOf(TARGET));
+          StorageAdmissionException.Reason.INTERRUPTED_RESTORE, admissionReasonOf(target));
 
       var restartFailure =
           assertThrows(
               "the destructive restart must repeat the failure of the unusable backup",
               RuntimeException.class,
               () -> internalOf(youTrackDB)
-                  .restartInterruptedRestore(TARGET, backupPath.toString(), null, null));
+                  .restartInterruptedRestore(target, backupPath.toString(), null, null));
       assertTrue(
           "the restart must name the unsupported layout version of the backup, saw: "
               + rootMessage(restartFailure),
@@ -305,10 +337,10 @@ public class RestoreLifecycleTest {
       assertEquals(
           "the repeated restart must leave the restore-in-progress state",
           StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
-          admissionReasonOf(TARGET));
+          admissionReasonOf(target));
 
-      youTrackDB.drop(TARGET);
-      assertFalse("the drop must discard the unusable restore target", youTrackDB.exists(TARGET));
+      youTrackDB.drop(target);
+      assertFalse("the drop must discard the unusable restore target", youTrackDB.exists(target));
     }
   }
 
@@ -326,10 +358,10 @@ public class RestoreLifecycleTest {
     try (var youTrackDB = openManager()) {
       interruptRestoreOfTarget(youTrackDB);
 
-      internalOf(youTrackDB).restartInterruptedRestore(TARGET, backupPath.toString(), null, null);
+      internalOf(youTrackDB).restartInterruptedRestore(target, backupPath.toString(), null, null);
 
-      assertNull("the restart must publish the active lifecycle state", admissionReasonOf(TARGET));
-      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+      assertNull("the restart must publish the active lifecycle state", admissionReasonOf(target));
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
         assertTrue(
             "the restarted database must carry the content of the backup",
             session.getMetadata().getSchema().existsClass(RECORD_CLASS));
@@ -415,13 +447,13 @@ public class RestoreLifecycleTest {
     try (var youTrackDB = openManager()) {
       interruptRestoreOfTarget(youTrackDB);
     }
-    deleteEveryEntryExceptTheAuthorityLockFile(databasesPath.resolve(TARGET));
+    deleteEveryEntryExceptTheAuthorityLockFile(databasesPath.resolve(target));
 
     try (var youTrackDB = openManager()) {
-      internalOf(youTrackDB).restartInterruptedRestore(TARGET, backupPath.toString(), null, null);
+      internalOf(youTrackDB).restartInterruptedRestore(target, backupPath.toString(), null, null);
 
-      assertNull("the restart must publish the active lifecycle state", admissionReasonOf(TARGET));
-      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+      assertNull("the restart must publish the active lifecycle state", admissionReasonOf(target));
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
         assertTrue(
             "the restarted database must carry the content of the backup",
             session.getMetadata().getSchema().existsClass(RECORD_CLASS));
@@ -638,7 +670,7 @@ public class RestoreLifecycleTest {
               () -> {
                 while (competitorRuns.get()) {
                   try {
-                    youTrackDB.createIfNotExists(TARGET, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+                    youTrackDB.createIfNotExists(target, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
                   } catch (RuntimeException expectedFailure) {
                     // Every refusal of the competing creation is expected. Only the final state
                     // of the database decides this test.
@@ -654,7 +686,7 @@ public class RestoreLifecycleTest {
           firstAttemptFinished.await(2, java.util.concurrent.TimeUnit.MINUTES));
       var attemptsBeforeRestart = competitorAttempts.get();
       try {
-        internalOf(youTrackDB).restartInterruptedRestore(TARGET, backupPath.toString(), null, null);
+        internalOf(youTrackDB).restartInterruptedRestore(target, backupPath.toString(), null, null);
       } finally {
         competitorRuns.set(false);
         competitor.join();
@@ -663,7 +695,7 @@ public class RestoreLifecycleTest {
       assertTrue(
           "the competitor must attempt at least one creation during the restart",
           competitorAttempts.get() > attemptsBeforeRestart);
-      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
         assertTrue(
             "no empty database may survive the restart",
             session.getMetadata().getSchema().existsClass(RECORD_CLASS));
@@ -763,12 +795,12 @@ public class RestoreLifecycleTest {
 
       // The public entry accepts an Apache configuration, which the embedded entry never sees.
       youTrackDB.restartInterruptedRestore(
-          TARGET, backupPath.toString(), null, new BaseConfiguration());
+          target, backupPath.toString(), null, new BaseConfiguration());
 
       assertNull(
           "the public restart must publish the active lifecycle state",
-          admissionReasonOf(TARGET));
-      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+          admissionReasonOf(target));
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
         assertTrue(
             "the restarted database must carry the content of the backup",
             session.getMetadata().getSchema().existsClass(RECORD_CLASS));
@@ -790,12 +822,12 @@ public class RestoreLifecycleTest {
     try (var youTrackDB = openManager()) {
       interruptRestoreOfTarget(youTrackDB);
 
-      youTrackDB.restartInterruptedRestore(TARGET, backupPath.toString(), null, null);
+      youTrackDB.restartInterruptedRestore(target, backupPath.toString(), null, null);
 
       assertNull(
           "the public restart must publish the active lifecycle state",
-          admissionReasonOf(TARGET));
-      try (var session = youTrackDB.open(TARGET, ADMIN, PASSWORD)) {
+          admissionReasonOf(target));
+      try (var session = youTrackDB.open(target, ADMIN, PASSWORD)) {
         assertTrue(
             "the restarted database must carry the content of the backup",
             session.getMetadata().getSchema().existsClass(RECORD_CLASS));
@@ -826,11 +858,11 @@ public class RestoreLifecycleTest {
         assertThrows(
             UnsupportedOperationException.class,
             () -> connectionWithoutOverride.restartInterruptedRestore(
-                TARGET, backupPath.toString(), null, null));
+                target, backupPath.toString(), null, null));
 
     assertTrue(
         "the refusal must name the database, saw: " + refusal.getMessage(),
-        refusal.getMessage().contains(TARGET));
+        refusal.getMessage().contains(target));
     assertTrue(
         "the refusal must prescribe an embedded connection, saw: " + refusal.getMessage(),
         refusal.getMessage().contains("embedded connection"));
@@ -859,8 +891,8 @@ public class RestoreLifecycleTest {
     }
 
     try (var youTrackDB = openManager()) {
-      internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null);
-      var restoredStorage = storageOf(youTrackDB, TARGET);
+      internalOf(youTrackDB).restore(target, backupPath.toString(), null, null);
+      var restoredStorage = storageOf(youTrackDB, target);
 
       assertNotEquals(
           "the restored target must carry a fresh storage identity",
@@ -976,12 +1008,12 @@ public class RestoreLifecycleTest {
 
     YouTrackDBEnginesManager.instance().addDbLifecycleListener(countingListener);
     try (var youTrackDB = openManager()) {
-      internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null);
+      internalOf(youTrackDB).restore(target, backupPath.toString(), null, null);
 
       assertEquals(
           "a restore must run no database creation listener for the restore target",
           0,
-          creationCountOf(creationCountsByName, TARGET));
+          creationCountOf(creationCountsByName, target));
 
       youTrackDB.create(plainCreationName, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
       assertTrue(
@@ -1181,6 +1213,228 @@ public class RestoreLifecycleTest {
     }
   }
 
+  /**
+   * The source layout survives restore with a birth scope, including persisted
+   * authority and configuration, data, and a cold reopen.
+   */
+  @Test
+  public void restorePreservesLayout27AcrossColdReopen() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = this.target + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("source" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        var opposite = format;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, opposite)) {
+          internalOf(manager).restore(target, backup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, format);
+          manager.drop(target);
+          manager.create(target, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+          assertEquals("later creation must use layout 27", opposite,
+              storageOf(manager, target).getStorageFormat());
+        }
+        manager.drop(target);
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, opposite)) {
+          internalOf(manager).restore(target, backup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, format);
+        }
+        manager.drop(SOURCE);
+      }
+      try (var manager = openManager()) {
+        assertRestoredLayoutAndData(manager, target, format);
+      }
+    }
+  }
+
+  /**
+   * A crash at activation leaves an interrupted layout-27 image. Retry admits a fresh source
+   * and replaces the interrupted target. Its data and layout survive a cold reopen.
+   */
+  @Test
+  public void activationCrashAndRetryUseTheirOwnAdmittedSourceData() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = this.target + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("crash" + format.layoutVersion()));
+      var retryBackup = Files.createDirectory(root.resolve("retry" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        manager.drop(SOURCE);
+        try (var scope =
+            StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager, "retry source");
+        }
+        storageOf(manager, SOURCE).fullBackup(retryBackup);
+        try (
+            var scope =
+                StorageBirthTestSupport.selectBirthFormat(manager, target, format);
+            var crash = BootstrapMetadataTestSupport.failRestoreActivationPublication(
+                databasesPath.resolve(target), format, () -> {
+                  var storage = storageOf(manager, target);
+                  try {
+                    assertEquals(format.layoutVersion(),
+                        storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+                            storage.configuration::getVersion).intValue());
+                  } catch (IOException failure) {
+                    throw new UncheckedIOException(failure);
+                  }
+                })) {
+          assertThrows(RuntimeException.class,
+              () -> internalOf(manager).restore(target, backup.toString(), null, null));
+          assertTrue("the third publication must be activation",
+              crash.activationMoveObserved().get());
+          assertTrue(crash.candidateObserved().get());
+        }
+        assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
+            admissionReasonOf(target));
+        assertRawLayout(target, format);
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, target, format)) {
+          internalOf(manager).restartInterruptedRestore(target, retryBackup.toString(), null, null);
+          assertRestoredLayoutAndData(manager, target, format, "retry source");
+        }
+        manager.drop(SOURCE);
+      }
+      try (var manager = openManager()) {
+        assertRestoredLayoutAndData(manager, target, format, "retry source");
+      }
+    }
+  }
+
+  /** Old configuration values must never activate a restored source with a layout-27 header. */
+  @Test
+  public void oldRestoredConfigurationPreventsActivation()
+      throws Exception {
+    for (var format : StorageFormat.values()) {
+      var target = this.target + format.layoutVersion();
+      var backup = Files.createDirectory(root.resolve("conflict" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        var storage = storageOf(manager, SOURCE);
+        var configuration = (CollectionBasedStorageConfiguration) storage.configuration;
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            operation -> configuration.updateVersionForTesting(operation,
+                25));
+        storage.fullBackup(backup);
+        var failure = assertThrows(RuntimeException.class,
+            () -> internalOf(manager).restore(target, backup.toString(), null, null));
+        assertTrue(rootMessage(failure).contains("storage layout version"));
+        assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
+            admissionReasonOf(target));
+        assertRawLayout(target, format);
+        // Restore the source configuration before closing it.
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            operation -> configuration.updateVersionForTesting(operation, format.layoutVersion()));
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /**
+   * In-place old-layout restore refuses at admission without changing authority bytes,
+   * lineage, or content. The original target stays usable and accepts another transaction.
+   */
+  @Test
+  public void inPlaceOldLayoutRefusalLeavesTheActiveTargetUnchanged() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var backup = Files.createDirectory(root.resolve("inplace" + format.layoutVersion()));
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        storageOf(manager, SOURCE).fullBackup(backup);
+        try (var scope =
+            StorageBirthTestSupport.selectBirthFormat(manager, target, format)) {
+          manager.create(target, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+        }
+        try (var session = manager.open(target, ADMIN, PASSWORD)) {
+          session.getMetadata().getSchema().createClass("TargetOnly");
+          session.begin();
+          session.newEntity("TargetOnly").setProperty("value", "kept");
+          session.commit();
+        }
+        var storage = storageOf(manager, target);
+        var lineage = storage.getStorageLineageIdentity();
+        var first =
+            Files.readAllBytes(databasesPath.resolve(target).resolve("storage-bootstrap-0.bsm"));
+        var second =
+            Files.readAllBytes(databasesPath.resolve(target).resolve("storage-bootstrap-1.bsm"));
+        // Forge old-layout tails while preserving both checksums.
+        try (var units = Files.list(backup)) {
+          for (var unit : units.toList()) {
+            var bytes = Files.readAllBytes(unit);
+            var tail = bytes.length - 122;
+            java.nio.ByteBuffer.wrap(bytes).putInt(bytes.length - 16, 25);
+            java.nio.ByteBuffer.wrap(bytes).putLong(tail,
+                DiskStorage.XX_HASH_64.hash(bytes, tail + 8, 106, 0x4D45544144415441L));
+            java.nio.ByteBuffer.wrap(bytes).putLong(bytes.length - 8,
+                DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - 8, DiskStorage.XX_HASH_SEED));
+            Files.write(unit, bytes);
+          }
+        }
+        var failure = assertThrows(UnsupportedBackupException.class,
+            () -> storage.restoreFromBackup(backup, null));
+        assertTrue(failure.getMessage().contains("Export the database"));
+        assertTrue(Arrays.equals(first,
+            Files.readAllBytes(databasesPath.resolve(target).resolve("storage-bootstrap-0.bsm"))));
+        assertTrue(Arrays.equals(second,
+            Files.readAllBytes(databasesPath.resolve(target).resolve("storage-bootstrap-1.bsm"))));
+        assertEquals(lineage, storage.getStorageLineageIdentity());
+        try (var session = manager.open(target, ADMIN, PASSWORD)) {
+          try (var rows = session.query("select from TargetOnly")) {
+            assertEquals("kept", rows.next().getProperty("value"));
+            assertFalse(rows.hasNext());
+          }
+          assertFalse(session.getMetadata().getSchema().existsClass(RECORD_CLASS));
+        }
+        try (var session = manager.open(target, ADMIN, PASSWORD)) {
+          session.begin();
+          session.newEntity("TargetOnly").setProperty("value", "still usable");
+          session.commit();
+        }
+        manager.drop(target);
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /** Reads configuration through storage independently of both bootstrap records and the descriptor. */
+  private void assertRestoredLayoutAndData(YouTrackDBImpl manager, String target,
+      StorageFormat format) throws Exception {
+    assertRestoredLayoutAndData(manager, target, format, "restored");
+  }
+
+  /** Checks the admitted layout and the data unique to the selected backup, including cold opens. */
+  private void assertRestoredLayoutAndData(YouTrackDBImpl manager, String target,
+      StorageFormat format, String expectedValue) throws Exception {
+    try (var session = manager.open(target, ADMIN, PASSWORD);
+        var rows = session.query("select from " + RECORD_CLASS)) {
+      assertEquals(expectedValue, rows.next().getProperty("value"));
+      assertFalse(rows.hasNext());
+      var storage = storageOf(manager, target);
+      assertEquals(format.layoutVersion(),
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              storage.configuration::getVersion).intValue());
+    }
+    assertEquals(format, new StorageBootstrapMetadata(databasesPath.resolve(target), FEATURE_FORMAT)
+        .readActiveRequired().storageFormat());
+    assertRawLayout(target, format);
+  }
+
+  private void assertRawLayout(String target, StorageFormat format) throws IOException {
+    for (var slot : new int[] {0, 1}) {
+      var bytes = Files.readAllBytes(databasesPath.resolve(target)
+          .resolve("storage-bootstrap-" + slot + ".bsm"));
+      assertEquals(format.layoutVersion(), java.nio.ByteBuffer.wrap(bytes).getInt(28));
+    }
+  }
+
   /** Creates the source database with one class and one record, and then takes one full backup. */
   private void createSourceDatabaseAndBackup() {
     try (var youTrackDB = openManager()) {
@@ -1202,11 +1456,11 @@ public class RestoreLifecycleTest {
 
     assertThrows(
         RuntimeException.class,
-        () -> internalOf(youTrackDB).restore(TARGET, unusableBackupPath.toString(), null, null));
+        () -> internalOf(youTrackDB).restore(target, unusableBackupPath.toString(), null, null));
     assertEquals(
         "the interrupted restore must leave the restore-in-progress state",
         StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
-        admissionReasonOf(TARGET));
+        admissionReasonOf(target));
   }
 
   /**
@@ -1231,12 +1485,17 @@ public class RestoreLifecycleTest {
 
   /** Creates the source database with one class and one record. */
   private void createSourceDatabase(YouTrackDBImpl youTrackDB) {
+    createSourceDatabase(youTrackDB, "restored");
+  }
+
+  /** Creates a source whose single record identifies the backup used by a restore. */
+  private void createSourceDatabase(YouTrackDBImpl youTrackDB, String value) {
     youTrackDB.create(SOURCE, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
     try (var session = youTrackDB.open(SOURCE, ADMIN, PASSWORD)) {
       session.getMetadata().getSchema().createClass(RECORD_CLASS);
       session.begin();
       var entity = session.newEntity(RECORD_CLASS);
-      entity.setProperty("value", "restored");
+      entity.setProperty("value", value);
       session.commit();
     }
   }
@@ -1256,12 +1515,12 @@ public class RestoreLifecycleTest {
   }
 
   /** Returns the temporary chain directories of restore requests of the target name. */
-  private static List<String> temporaryChainDirectories() throws IOException {
+  private List<String> temporaryChainDirectories() throws IOException {
     var temporaryRoot = Path.of(System.getProperty("java.io.tmpdir"));
     try (var paths = Files.list(temporaryRoot)) {
       return paths
           .map(path -> path.getFileName().toString())
-          .filter(name -> name.startsWith(TARGET + "-ytdb-backup"))
+          .filter(name -> name.startsWith(target + "-ytdb-backup"))
           .sorted()
           .toList();
     }

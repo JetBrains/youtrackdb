@@ -123,11 +123,11 @@ public interface CellBTreeSingleValue<K> {
       @Nonnull AtomicOperation atomicOperation, long delta);
 
   /**
-   * Sets the cached engine ID for lock-free snapshot queries during
+   * Sets the cached, never-reused engine file base id for lock-free snapshot queries during
    * tombstone GC. Called by the owning index engine after construction.
    * Default no-op for implementations that don't support GC.
    */
-  default void setEngineId(long engineId) {
+  default void setHistoryFileBaseId(long fileBaseId) {
     // no-op by default
   }
 

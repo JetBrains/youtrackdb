@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
@@ -25,6 +26,7 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * Regression tests for {@link WOWCache#shrinkFile(long, long)} and for the exclusive-write page
@@ -65,6 +67,7 @@ import org.junit.Test;
  * size). The no-op and real-truncate tests below assert the return so the read-cache orchestrator
  * can trust it to gate its purge.
  */
+@Category(SequentialTest.class)
 public class WOWCacheShrinkFileTest {
 
   private static final int pageSize = DurablePage.NEXT_FREE_POSITION + 8;
@@ -83,6 +86,9 @@ public class WOWCacheShrinkFileTest {
   private static final String FILE_NAME = "wowCacheShrinkFileTest.tst";
   private static final String STORAGE_NAME = "WOWCacheShrinkFileTest";
 
+  private static Object previousExclusiveFileAccess;
+  private static Object previousFileLock;
+
   private Path storagePath;
   private ByteBufferPool bufferPool;
   private CASDiskWriteAheadLog writeAheadLog;
@@ -91,14 +97,19 @@ public class WOWCacheShrinkFileTest {
 
   @BeforeClass
   public static void disableLockingForTest() {
+    previousExclusiveFileAccess = GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.getValue();
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(false);
     GlobalConfiguration.FILE_LOCK.setValue(false);
   }
 
   @AfterClass
   public static void restoreLocking() {
-    GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(true);
-    GlobalConfiguration.FILE_LOCK.setValue(true);
+    try {
+      GlobalConfiguration.STORAGE_EXCLUSIVE_FILE_ACCESS.setValue(previousExclusiveFileAccess);
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before

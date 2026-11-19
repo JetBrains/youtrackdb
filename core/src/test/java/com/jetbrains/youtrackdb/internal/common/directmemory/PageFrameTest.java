@@ -383,44 +383,18 @@ public class PageFrameTest {
   }
 
   /**
-   * Verifies that initPageCoordinates sets file ID and page index without
-   * requiring an exclusive lock (single-threaded initialization path).
+   * Coordinate publication invalidates earlier stamps, including same-page reassignment.
    */
   @Test
-  public void testInitPageCoordinates_setsCoordinatesWithoutLock() {
+  public void testPublicationInvalidatesStampsForSamePage() {
     var frame = new PageFrame(pointer);
-    // initPageCoordinates is used during initial frame assignment before
-    // the frame is visible to other threads.
-    frame.initPageCoordinates(42L, 99);
-
-    // Read under optimistic read to verify values were set.
-    long stamp = frame.tryOptimisticRead();
-    long fileId = frame.getFileId();
-    int pageIndex = frame.getPageIndex();
-    assertTrue("stamp should still be valid", stamp != 0 && frame.validate(stamp));
-    assertEquals(42L, fileId);
-    assertEquals(99, pageIndex);
-  }
-
-  /**
-   * Verifies that initPageCoordinates can overwrite previously set coordinates
-   * (used when re-assigning a pooled frame to a new page).
-   */
-  @Test
-  public void testInitPageCoordinates_overwritesPreviousCoordinates() {
-    var frame = new PageFrame(pointer);
-    frame.initPageCoordinates(10L, 20);
-
-    // Verify first write took effect
-    assertEquals(10L, frame.getFileId());
-    assertEquals(20, frame.getPageIndex());
-
-    // Overwrite with new coordinates
-    frame.initPageCoordinates(30L, 40);
-
-    long stamp = frame.tryOptimisticRead();
-    assertEquals(30L, frame.getFileId());
-    assertEquals(40, frame.getPageIndex());
-    assertTrue(frame.validate(stamp));
+    frame.publishPageCoordinates(42L, 99);
+    long before = frame.tryOptimisticRead();
+    frame.publishPageCoordinates(42L, 99);
+    assertFalse(frame.validate(before));
+    long after = frame.tryOptimisticRead();
+    assertEquals(42L, frame.getFileId());
+    assertEquals(99, frame.getPageIndex());
+    assertTrue(frame.validate(after));
   }
 }

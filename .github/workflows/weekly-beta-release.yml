@@ -206,9 +206,11 @@ jobs:
 
             ## Instructions
             1. Inspect the range `${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }}`:
-               - `git log ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }} --oneline --no-merges`
+               - `git log ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }} --first-parent --format='%h %s%n    %b'`
                - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }} --stat`
                - `git diff ${{ steps.prev.outputs.prev_ref }}..${{ steps.vars.outputs.head_sha }}` (read selectively for large diffs)
+               For `Merge pull request #N from <owner>/<branch>` subjects, use
+               the first body line as the PR title. Otherwise, use the subject.
             2. Decide whether the range is **purely infrastructural** — i.e.
                every change is one of:
                  - CI / GitHub Actions workflows (`.github/`)
@@ -246,8 +248,8 @@ jobs:
                `head` / `grep` rather than dumping the full diff.
             3. Group the user-visible changes by theme (features, bug fixes,
                performance, refactors, docs/infra). Omit categories that are empty.
-            4. Preserve YTDB issue IDs (e.g. `YTDB-123`) where they appear in
-               commit messages — link them to
+            4. Preserve YTDB issue IDs (e.g. `YTDB-123`) only from the PR titles
+               identified above, not branch names or other body text. Link them to
                `https://youtrack.jetbrains.com/issue/YTDB-123`.
             5. Keep the notes focused and skimmable. Drop purely internal churn
                (renames, whitespace, test-only tweaks) unless nothing else

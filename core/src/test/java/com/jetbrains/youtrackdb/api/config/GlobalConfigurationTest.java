@@ -42,14 +42,55 @@ import org.junit.experimental.categories.Category;
  *
  * <p>Each test below snapshots the affected configuration's current value (via {@link
  * GlobalConfiguration#getValue()} and {@link GlobalConfiguration#isChanged()}) in {@link
- * Before} and restores it in {@link After}. The restore is a stack of deltas keyed off the
- * {@code isChanged()} flag — when the snapshot recorded "not changed from default" we restore
- * by reflecting the {@code value} back to the {@code nullValue} sentinel via setting the
- * default; when "changed" we reapply the snapshot. This mirrors the snapshot/restore
- * convention codified by {@code ByteBufferPoolTest} and required by Phase A finding T5/R8.
+ * Before} and restores it in {@link After}. Entries that were unchanged are restored with
+ * {@link GlobalConfiguration#resetToDefault()}. Entries that were changed are restored with
+ * {@link GlobalConfiguration#setValue(Object)} using the snapshot value. Both the value and
+ * the changed state are preserved.
  */
 @Category(SequentialTest.class)
 public class GlobalConfigurationTest {
+
+  // Public keys, environment names, defaults and types match the startup contract.
+  // The settings remain visible and cannot be changed at runtime.
+  @Test
+  public void commitSettingsPublishProcessWideStartupContract() {
+    var limit = GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT;
+    var percent = GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT;
+    assertEquals("youtrackdb.storage.diskCache.commitPageLimit", limit.getKey());
+    assertEquals("youtrackdb.storage.diskCache.commitPinBudgetPercent", percent.getKey());
+    assertEquals("YOUTRACKDB_DISK_CACHE_COMMIT_PAGE_LIMIT",
+        GlobalConfiguration.getEnvKey(limit));
+    assertEquals("YOUTRACKDB_DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT",
+        GlobalConfiguration.getEnvKey(percent));
+    assertSame(limit, GlobalConfiguration.findByKey(limit.getKey()));
+    assertSame(percent, GlobalConfiguration.findByKey(percent.getKey()));
+    assertEquals(Integer.class, limit.getType());
+    assertEquals(Double.class, percent.getType());
+    assertEquals(1024, limit.getDefValue());
+    assertEquals(1.0, percent.getDefValue());
+    assertFalse(limit.isChangeableAtRuntime());
+    assertFalse(percent.isChangeableAtRuntime());
+    assertFalse(limit.isHidden());
+    assertFalse(percent.isHidden());
+    for (var setting : new GlobalConfiguration[] {limit, percent}) {
+      var prior = setting.getValue();
+      boolean changed = setting.isChanged();
+      try {
+        org.junit.Assert.assertThrows(NumberFormatException.class,
+            () -> setting.setValue("not-a-number"));
+        if (setting == limit) {
+          org.junit.Assert.assertThrows(NumberFormatException.class,
+              () -> setting.setValue("2147483648"));
+        }
+      } finally {
+        if (changed) {
+          setting.setValue(prior);
+        } else {
+          setting.resetToDefault();
+        }
+      }
+    }
+  }
 
   // Snapshots for each configuration the tests touch. We keep both the value and the
   // changed-from-default flag so the restore in @After can reset to the same observable
@@ -90,48 +131,39 @@ public class GlobalConfigurationTest {
 
   @After
   public void restoreConfigurations() {
-    // setValue is the only public path — if the snapshot was "default" we still call setValue
-    // with the current default to clear divergence (the next read returns the same observable
-    // value). isChanged will return true after this restoration since setValue assigns the
-    // value field unconditionally — that's an acceptable cost to keep observable getters
-    // returning the same numbers as before the test ran.
+    // Restore each snapshot value and changed state. Reset unchanged entries to their defaults.
+    // resetToDefault also clears the changed state for entries with a null default.
     if (snapInitInServletContextListenerChanged) {
       GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER
           .setValue(snapInitInServletContextListener);
     } else {
-      GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.setValue(
-          GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.getDefValue());
+      GlobalConfiguration.INIT_IN_SERVLET_CONTEXT_LISTENER.resetToDefault();
     }
     if (snapMemoryProfilingChanged) {
       GlobalConfiguration.MEMORY_PROFILING.setValue(snapMemoryProfiling);
     } else {
-      GlobalConfiguration.MEMORY_PROFILING
-          .setValue(GlobalConfiguration.MEMORY_PROFILING.getDefValue());
+      GlobalConfiguration.MEMORY_PROFILING.resetToDefault();
     }
     if (snapMemoryProfilingReportIntervalChanged) {
       GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL
           .setValue(snapMemoryProfilingReportInterval);
     } else {
-      GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.setValue(
-          GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.getDefValue());
+      GlobalConfiguration.MEMORY_PROFILING_REPORT_INTERVAL.resetToDefault();
     }
     if (snapMemoryLeftToOsChanged) {
       GlobalConfiguration.MEMORY_LEFT_TO_OS.setValue(snapMemoryLeftToOs);
     } else {
-      GlobalConfiguration.MEMORY_LEFT_TO_OS
-          .setValue(GlobalConfiguration.MEMORY_LEFT_TO_OS.getDefValue());
+      GlobalConfiguration.MEMORY_LEFT_TO_OS.resetToDefault();
     }
     if (snapDbSystemDatabaseEnabledChanged) {
       GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.setValue(snapDbSystemDatabaseEnabled);
     } else {
-      GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.setValue(
-          GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.getDefValue());
+      GlobalConfiguration.DB_SYSTEM_DATABASE_ENABLED.resetToDefault();
     }
     if (snapClientSslKeyStorePasswordChanged) {
       GlobalConfiguration.CLIENT_SSL_KEYSTORE_PASSWORD.setValue(snapClientSslKeyStorePassword);
     } else {
-      // The default for this entry is null; setValue ignores null inputs so the value field
-      // stays whatever the test set it to. Skip the restore in the not-changed branch.
+      GlobalConfiguration.CLIENT_SSL_KEYSTORE_PASSWORD.resetToDefault();
     }
   }
 
@@ -154,6 +186,45 @@ public class GlobalConfigurationTest {
     assertEquals(false, cfg.getDefValue());
     assertFalse(cfg.isHidden());
     assertFalse(cfg.isChangeableAtRuntime());
+  }
+
+  /**
+   * The deprecated setting remains available by its public name and key, with its Boolean type,
+   * true default, and exact no-effect description. Both Boolean assignments succeed.
+   * Teardown restores the exact prior value
+   * and changed state because enum configuration is process-wide.
+   */
+  @Test
+  @SuppressWarnings("deprecation")
+  public void synchronousAutoRebuildSettingRetainsDeprecatedPublicContract() throws Exception {
+    var cfg = GlobalConfiguration.INDEX_SYNCHRONOUS_AUTO_REBUILD;
+    var priorValue = cfg.getValue();
+    var priorChanged = cfg.isChanged();
+    try {
+      assertSame(cfg, GlobalConfiguration.valueOf("INDEX_SYNCHRONOUS_AUTO_REBUILD"));
+      assertSame(cfg,
+          GlobalConfiguration.findByKey("youtrackdb.index.auto.synchronousAutoRebuild"));
+      assertEquals("youtrackdb.index.auto.synchronousAutoRebuild", cfg.getKey());
+      assertSame(Boolean.class, cfg.getType());
+      assertEquals(Boolean.TRUE, cfg.getDefValue());
+      assertTrue(GlobalConfiguration.class.getField("INDEX_SYNCHRONOUS_AUTO_REBUILD")
+          .isAnnotationPresent(Deprecated.class));
+      assertEquals("The deprecated setting must keep its exact no-effect description",
+          "This setting has no effect.", cfg.getDescription());
+
+      cfg.setValue(Boolean.FALSE);
+      assertEquals(Boolean.FALSE, cfg.getValue());
+      cfg.setValue(Boolean.TRUE);
+      assertEquals(Boolean.TRUE, cfg.getValue());
+    } finally {
+      if (priorChanged) {
+        cfg.setValue(priorValue);
+      } else {
+        cfg.resetToDefault();
+      }
+      assertEquals(priorValue, cfg.getValue());
+      assertEquals(priorChanged, cfg.isChanged());
+    }
   }
 
   /**

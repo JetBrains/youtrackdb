@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -17,12 +18,17 @@ import org.apache.tinkerpop.gremlin.structure.PropertyType;
  *   <li><b>{@code hasNot(key)} presence</b> — a single-child {@link PropertiesStep} over one
  *       non-reserved key ({@link PropertyType#VALUE} or {@link PropertyType#PROPERTY}, mirroring
  *       {@link TraversalFilterStepRecogniser}) maps to {@link MatchWhereBuilder#isNotDefined}.
- *   <li><b>Pure-filter logical NOT</b> — sub-walk with no hops; the captured boundary filter is
- *       wrapped in {@link MatchWhereBuilder#not(...)} and AND-merged into the boundary alias.
- *   <li><b>Edge-bearing logical NOT</b> — sub-walk with hops; a detached {@link
- *       com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression} is appended via
- *       {@link RecognitionContext#addNotMatchExpression}, with the NOT origin pre-validated against
- *       the positive pattern ({@link RecognitionContext#positivePatternHasAlias}).
+ *   <li><b>Tree-bearing logical NOT</b> — a child with a boolean tree from {@code or()} maps to
+ *       {@link MatchBooleanCheck.Not}. The NOT negates the complete child conjunction, including
+ *       captured boundary filters, flat detached checks and the child tree.
+ *   <li><b>Pure-filter logical NOT</b> — a child without hops or captured checks supplies a boundary
+ *       filter. The filter is wrapped in {@link MatchWhereBuilder#not(...)} and AND-merged into the
+ *       boundary alias.
+ *   <li><b>Edge-bearing logical NOT</b> — a child with hops but no captured checks supplies a detached
+ *       {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression}. The recogniser
+ *       validates the NOT origin against the positive pattern through
+ *       {@link RecognitionContext#positivePatternHasAlias}. It appends the expression through
+ *       {@link RecognitionContext#addNotMatchExpression}.
  * </ol>
  *
  * <p>A range comparison under {@code not(...)} used to decline here, because the native engine
@@ -75,12 +81,18 @@ final class NotStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    // A nested not(hop) leaves the child holding a detached anti-join, and neither branch below can
-    // carry one out: the pure-filter branch reads a single boundary WHERE, and buildNotExpression
-    // takes only the captured pattern plus its alias filters. Accepting would negate the rest of the
-    // child and silently drop the inner anti-join.
-    if (!adapter.capturedNotExpressions().isEmpty()
-        || !adapter.capturedExistsExpressions().isEmpty()) {
+    if (adapter.booleanCheck() != null) {
+      // Negate the complete child conjunction, including filters and independent flat checks.
+      var childCheck = ConnectiveStepSupport.booleanArm(ctx, adapter, boundary);
+      if (childCheck == null) {
+        return Outcome.DECLINE;
+      }
+      ctx.addBooleanCheck(new MatchBooleanCheck.Not(childCheck));
+      return Outcome.ACCEPTED;
+    }
+
+    // Without a tree-bearing OR, nested detached checks have no supported negation scope.
+    if (adapter.hasCapturedChecks()) {
       return Outcome.DECLINE;
     }
 

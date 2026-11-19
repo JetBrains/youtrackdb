@@ -48,6 +48,27 @@ import org.junit.Test;
  */
 public class MatchExecutionPlannerInputsTest {
 
+  /** The shared accessor sees either flat list or the tree, and rebuilding preserves all fields. */
+  @Test
+  public void checksAndRebuildCoverEveryRepresentation() {
+    var empty = MatchPlanInputs.builder(new Pattern())
+        .orderCollationClasses(Map.of("m", List.of("Named")))
+        .promotedPresenceKeys(Map.of("m", java.util.Set.of("name"))).build();
+    var check = new SQLMatchExpression(-1);
+    assertThat(empty.hasChecks()).isFalse();
+    var not = empty.toBuilder().notMatchExpressions(List.of(check)).build();
+    var exists = empty.toBuilder().existsMatchExpressions(List.of(check)).build();
+    var tree = empty.toBuilder().booleanCheck(new MatchBooleanCheck.And(List.of())).build();
+    for (var inputs : List.of(empty, not, exists, tree)) {
+      assertThat(inputs.toBuilder().build()).isEqualTo(inputs);
+    }
+    assertThat(not.hasChecks()).isTrue();
+    assertThat(exists.hasChecks()).isTrue();
+    assertThat(tree.hasChecks()).isTrue();
+    assertThatIllegalArgumentException().isThrownBy(() -> empty.toBuilder()
+        .returnNestedProjections(List.of(new SQLNestedProjection(-1))).build());
+  }
+
   /**
    * Verifies the compact constructor normalises every nullable collection input to an empty
    * collection. This lets non-SQL front-ends omit fields they don't populate (e.g. the
@@ -58,7 +79,7 @@ public class MatchExecutionPlannerInputsTest {
     var inputs =
         new MatchPlanInputs(
             new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
-            null, null, false, false, false, false, false);
+            null, null, null, null, null, false, false, false, false, false);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
@@ -101,10 +122,13 @@ public class MatchExecutionPlannerInputsTest {
         new MatchPlanInputs(
             new Pattern(),
             /* aliasClasses */ null,
+            /* orderCollationClasses */ null,
             /* aliasFilters */ null,
+            /* promotedPresenceKeys */ null,
             /* matchExpressions */ null,
             /* notMatchExpressions */ null,
             /* existsMatchExpressions */ null,
+            /* booleanCheck */ null,
             items,
             aliases,
             nestedProjections,

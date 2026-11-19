@@ -521,6 +521,57 @@ public class OrderByStepTest extends DbTestBase {
         tracking.streamClosed().get());
   }
 
+  /** Both direct algorithms detect expiry inside their loop and close before pulling a row. */
+  @Test
+  public void directSortTimeoutInsideLoopClosesUpstreamWithoutPulling() {
+    for (Integer capacity : java.util.Arrays.asList(null, 2)) {
+      var ctx = ctx();
+      var closed = new AtomicBoolean();
+      var step = new OrderByStep(orderBy(SQLOrderByItem.ASC), capacity, ctx, 1, false) {
+        @Override
+        public void sendTimeout() {
+          throw new TimeoutException("direct loop timeout");
+        }
+      };
+      step.setPrevious(new AbstractExecutionStep(ctx, false) {
+        @Override
+        public ExecutionStep copy(CommandContext context) {
+          throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ExecutionStream internalStart(CommandContext context) {
+          return new ExecutionStream() {
+            @Override
+            public boolean hasNext(CommandContext context) {
+              // Expire only after the sort has entered its direct loop.
+              try {
+                Thread.sleep(10);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+              }
+              return true;
+            }
+
+            @Override
+            public Result next(CommandContext context) {
+              throw new AssertionError("Expired sort must not pull a row");
+            }
+
+            @Override
+            public void close(CommandContext context) {
+              closed.set(true);
+            }
+          };
+        }
+      });
+      var failure = Assert.assertThrows(TimeoutException.class, () -> step.start(ctx));
+      Assert.assertEquals("direct loop timeout", failure.getMessage());
+      Assert.assertTrue(closed.get());
+    }
+  }
+
   // ── Timeout tests ──
 
   private AbstractExecutionStep timeoutAwareUpstream(

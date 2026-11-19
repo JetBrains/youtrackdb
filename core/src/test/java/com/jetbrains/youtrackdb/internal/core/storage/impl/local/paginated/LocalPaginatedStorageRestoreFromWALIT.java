@@ -55,6 +55,8 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class LocalPaginatedStorageRestoreFromWALIT {
 
+  private static Object previousFileLock;
+  private static Object previousWalFuzzyCheckpointInterval;
   private static YouTrackDBImpl youTrackDB;
   private static File buildDir;
   private DatabaseSessionEmbedded testDocumentTx;
@@ -80,7 +82,10 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
   @BeforeClass
   public static void beforeClass() {
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.FILE_LOCK.setValue(false);
+    previousWalFuzzyCheckpointInterval =
+        GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL.getValue();
     GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL.setValue(100000000);
 
     var buildDirectory = System.getProperty("buildDirectory", "./target");
@@ -98,8 +103,14 @@ public class LocalPaginatedStorageRestoreFromWALIT {
 
   @AfterClass
   public static void afterClass() {
-    youTrackDB.close();
-    buildDir.delete();
+    try {
+      youTrackDB.close();
+      buildDir.delete();
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+      GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL
+          .setValue(previousWalFuzzyCheckpointInterval);
+    }
   }
 
   @Before

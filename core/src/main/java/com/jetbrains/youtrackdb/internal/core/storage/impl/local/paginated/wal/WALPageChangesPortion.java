@@ -198,6 +198,10 @@ public final class WALPageChangesPortion implements WALChanges {
   @Override
   public void fromStream(ByteBuffer buffer) {
     int chunkLength = buffer.getShort();
+    // Each chunk has two index bytes and fixed-size content. Check before allocating chunks.
+    if (chunkLength < 0 || chunkLength > buffer.remaining() / (2 + CHUNK_SIZE)) {
+      throw new IllegalArgumentException("Page change count exceeds WAL record content");
+    }
 
     for (var c = 0; c < chunkLength; c++) {
       int i = buffer.get();

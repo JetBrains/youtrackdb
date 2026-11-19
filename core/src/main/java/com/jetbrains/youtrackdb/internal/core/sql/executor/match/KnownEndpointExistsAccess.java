@@ -45,6 +45,7 @@ final class KnownEndpointExistsAccess {
   final String alias;
   final String sourceClass;
   final SQLWhereClause sourceFilter;
+  private SQLWhereClause estimateFilter;
   final SQLMatchExpression check;
   final Direction forward;
   final List<Hop> hops;
@@ -59,6 +60,7 @@ final class KnownEndpointExistsAccess {
     this.alias = alias;
     this.sourceClass = sourceClass;
     this.sourceFilter = sourceFilter == null ? null : sourceFilter.copy();
+    this.estimateFilter = this.sourceFilter;
     this.check = check.copy();
     this.forward = forward;
     this.hops = hops(this.check, null);
@@ -71,6 +73,13 @@ final class KnownEndpointExistsAccess {
   @Nullable static KnownEndpointExistsAccess find(SelectExecutionPlan built, Pattern pattern,
       List<SQLMatchExpression> checks, Map<String, String> classes,
       Map<String, SQLWhereClause> filters, CommandContext ctx) {
+    return find(built, pattern, checks, classes, filters, filters, ctx);
+  }
+
+  @Nullable static KnownEndpointExistsAccess find(SelectExecutionPlan built, Pattern pattern,
+      List<SQLMatchExpression> checks, Map<String, String> classes,
+      Map<String, SQLWhereClause> filters, Map<String, SQLWhereClause> estimateFilters,
+      CommandContext ctx) {
     if (built.getSteps().isEmpty() || !(built.getSteps().getFirst() instanceof MatchFirstStep root)
         || !(root.getSourcePlan() instanceof SelectExecutionPlan scan)
         || scan.getSteps().isEmpty()
@@ -125,6 +134,7 @@ final class KnownEndpointExistsAccess {
       }
       var access = new KnownEndpointExistsAccess(alias, sourceClass, filters.get(alias), check,
           direction, expression, slot, ridIn, equality);
+      access.estimateFilter = estimateFilters.get(alias);
       // Bindings never decide plan shape. Each execution resolves comparison values independently.
       return access;
     }
@@ -260,9 +270,15 @@ final class KnownEndpointExistsAccess {
     return children != null && children.stream().allMatch(child -> fixedMath(child, ctx));
   }
 
+  @Nullable SQLWhereClause estimateFilter() {
+    return estimateFilter;
+  }
+
   KnownEndpointExistsAccess copy() {
-    return new KnownEndpointExistsAccess(alias, sourceClass, sourceFilter, check, forward,
+    var copy = new KnownEndpointExistsAccess(alias, sourceClass, sourceFilter, check, forward,
         ridExpression, ridSlot, ridIn, equality);
+    copy.estimateFilter = estimateFilter == null ? null : estimateFilter.copy();
+    return copy;
   }
 
   /** Resolves fixed scalar labels once. Unsupported values retain the forward path's meaning. */

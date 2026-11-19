@@ -26,6 +26,10 @@ public class HighLevelTransactionChangeRecord extends OperationUnitRecord {
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
     var size = buffer.getInt();
+    // The enclosing record bounds every allocation driven by its payload.
+    if (size < 0 || size > buffer.remaining()) {
+      throw new IllegalArgumentException("Transaction change length exceeds WAL record content");
+    }
     data = new byte[size];
     buffer.get(data, 0, size);
   }

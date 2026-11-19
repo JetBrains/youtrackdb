@@ -46,12 +46,19 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
 
   /** The traversal sub-steps representing the NOT pattern's edges. */
   private final List<AbstractExecutionStep> subSteps;
+  private final DetachedCheckMemory memory;
 
   public FilterNotMatchPatternStep(
       List<AbstractExecutionStep> steps, CommandContext ctx, boolean enableProfiling) {
+    this(steps, ctx, enableProfiling, null);
+  }
+
+  FilterNotMatchPatternStep(List<AbstractExecutionStep> steps, CommandContext ctx,
+      boolean enableProfiling, DetachedCheckReadSet reads) {
     super(ctx, enableProfiling);
     assert MatchAssertions.checkNotNull(steps, "sub-steps list");
     this.subSteps = steps;
+    this.memory = new DetachedCheckMemory(reads);
   }
 
   @Override
@@ -59,6 +66,7 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
     if (prev == null) {
       throw new IllegalStateException("filter step requires a previous step");
     }
+    memory.start();
     var resultSet = prev.start(ctx);
     // Keep only rows that do NOT match the negative pattern
     return resultSet.filter(this::filterMap);
@@ -80,7 +88,8 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
    * temporary plan. Returns `true` if at least one result is produced (= pattern matched).
    */
   private boolean matchesPattern(Result nextItem, CommandContext ctx) {
-    return DetachedMatchPatternProbe.matches(nextItem, subSteps, ctx, profilingEnabled);
+    return memory.matches(nextItem,
+        () -> DetachedMatchPatternProbe.matches(nextItem, subSteps, ctx, profilingEnabled));
   }
 
   @Nonnull
@@ -108,14 +117,20 @@ public class FilterNotMatchPatternStep extends AbstractExecutionStep {
   }
 
   @Override
+  public void reset() {
+    memory.clear();
+  }
+
+  @Override
   public void close() {
+    memory.clear();
     super.close();
   }
 
   @Override
   public ExecutionStep copy(CommandContext ctx) {
     var subStepsCopy = subSteps.stream().map(x -> (AbstractExecutionStep) x.copy(ctx)).toList();
-    return new FilterNotMatchPatternStep(subStepsCopy, ctx, profilingEnabled);
+    return new FilterNotMatchPatternStep(subStepsCopy, ctx, profilingEnabled, memory.reads());
   }
 
 }

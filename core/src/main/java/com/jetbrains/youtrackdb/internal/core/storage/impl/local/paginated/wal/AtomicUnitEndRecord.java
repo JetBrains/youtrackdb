@@ -69,8 +69,7 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
     buffer.put(rollback ? (byte) 1 : 0);
 
     if (atomicOperationMetadataMap.size() > 0) {
-      for (final var entry :
-          atomicOperationMetadataMap.entrySet()) {
+      for (final var entry : atomicOperationMetadataMap.entrySet()) {
         if (entry.getKey().equals(RecordOperationMetadata.RID_METADATA_KEY)) {
           buffer.put((byte) 1);
 
@@ -102,6 +101,11 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
 
     if (metadataId == 1) {
       final var collectionsSize = buffer.getInt();
+      // Each metadata entry consumes a fixed-size RID before it can allocate a set entry.
+      if (collectionsSize < 0
+          || collectionsSize > buffer.remaining() / (Long.BYTES + Integer.BYTES)) {
+        throw new IllegalArgumentException("RID count exceeds WAL record content");
+      }
 
       final var recordOperationMetadata = new RecordOperationMetadata();
       for (var i = 0; i < collectionsSize; i++) {
@@ -129,8 +133,7 @@ public class AtomicUnitEndRecord extends OperationUnitBodyRecord {
   private int metadataSize() {
     var size = ByteSerializer.BYTE_SIZE;
 
-    for (var entry :
-        atomicOperationMetadataMap.entrySet()) {
+    for (var entry : atomicOperationMetadataMap.entrySet()) {
       if (entry.getKey().equals(RecordOperationMetadata.RID_METADATA_KEY)) {
         final var recordOperationMetadata =
             (RecordOperationMetadata) entry.getValue();

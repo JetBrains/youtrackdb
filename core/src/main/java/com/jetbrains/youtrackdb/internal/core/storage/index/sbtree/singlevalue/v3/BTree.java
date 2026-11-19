@@ -102,6 +102,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   // AbstractStorage.checkPageSizeAndRelatedParametersInGlobalConfiguration()
   // after class loading.
   private volatile int maxKeySize;
+  private volatile int keySizeMargin;
   private static final AlwaysLessKey ALWAYS_LESS_KEY = new AlwaysLessKey();
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
@@ -120,10 +121,10 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   private final BinarySerializerFactory serializerFactory;
   private volatile PropertyTypeInternal[] keyTypes;
 
-  // Cached engine ID for lock-free snapshot queries during GC.
-  // Set by the owning index engine after construction via setEngineId().
-  // -1 means not set (GC will skip snapshot-entry checks).
-  private volatile long engineId = -1;
+  // Cached, never-reused file base id for lock-free snapshot queries during GC.
+  // Set by the owning index engine via setHistoryFileBaseId().
+  // -1 means not set (GC conservatively preserves snapshot markers).
+  private volatile long historyFileBaseId = -1;
 
   // Whether this tree is a multi-value engine's dedicated null-key tree. Explicit identity set
   // by the owning engine via setNullTree() — the component name is a file key
@@ -162,14 +163,14 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   /**
-   * Sets the cached engine ID for this BTree, used during tombstone GC to
+   * Sets the cached history file base id for this BTree, used during tombstone GC to
    * perform lock-free snapshot queries via
    * {@link AbstractStorage#hasActiveIndexSnapshotEntriesById}.
    * Must be called by the owning index engine after construction.
    */
   @Override
-  public void setEngineId(long engineId) {
-    this.engineId = engineId;
+  public void setHistoryFileBaseId(long fileBaseId) {
+    this.historyFileBaseId = fileBaseId;
   }
 
   @Override
@@ -295,7 +296,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
         return bucket.getValue(index, keySerializer, serializerFactory);
       }
 
-      // Internal node: follow child pointer, then validate the stamp to catch eviction
+      // Internal node: follow child pointer, then validate the stamp to catch writes or frame-pool reuse
       // before chasing a potentially stale page index.
       if (index >= 0) {
         pageIndex = bucket.getRight(index);
@@ -680,7 +681,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
-              if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
+              // The RID allowance belongs only to the active prefix rule. Read the recorded
+              // limit fresh, as index-level key preparation does.
+              // Configuration trees have no margin and must not read their own configuration
+              // while its write lock is held.
+              int margin = keySizeMargin > 0 && storage.getRecordedMaxIndexKeySize() > 0
+                  ? keySizeMargin : 0;
+              if (maxKeySize > 0 && serializedKey.length > (long) maxKeySize + margin) {
                 // The display name (the index's logical name), not the internal ie_<fileBaseId>
                 // component stem — this exception is user-facing.
                 throw new TooBigIndexKeyException(storage.getName(),
@@ -1038,6 +1045,16 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
             entryPoint.setApproximateEntriesCount(updated);
           }
         });
+  }
+
+  /**
+   * Enables the compact-RID growth allowance for one variable-length user key.
+   * Non-unique engines call this on creation and load, before publishing the tree.
+   */
+  public void configureKeySizeMargin(PropertyTypeInternal[] userKeyTypes) {
+    keySizeMargin = userKeyTypes != null && userKeyTypes.length == 1
+        && (userKeyTypes[0] == PropertyTypeInternal.STRING
+            || userKeyTypes[0] == PropertyTypeInternal.BINARY) ? Long.BYTES : 0;
   }
 
   @Override
@@ -2867,16 +2884,16 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   /**
    * Checks whether any active snapshot entries exist for the given
-   * user-key prefix, using the cached {@link #engineId} for a lock-free
+   * user-key prefix, using the cached {@link #historyFileBaseId} for a lock-free
    * lookup. Falls back to {@code true} (safe: never demotes) if the
-   * engine ID was not set.
+   * history file base id was not set.
    *
    * @param isNullTree pre-computed flag for null-tree detection
    */
   private boolean hasActiveSnapshotEntries(
       CompositeKey compositeKey, boolean isNullTree, long lwm) {
-    if (engineId < 0) {
-      // engineId not set — conservatively assume active entries exist,
+    if (historyFileBaseId < 0) {
+      // History file base id not set — conservatively assume active entries exist,
       // so markers are not demoted.
       return true;
     }
@@ -2884,7 +2901,7 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     var userKeyPrefix = new CompositeKey(
         allKeys.subList(0, allKeys.size() - 1));
     return storage.hasActiveIndexSnapshotEntriesById(
-        engineId, isNullTree, userKeyPrefix, lwm);
+        historyFileBaseId, isNullTree, userKeyPrefix, lwm);
   }
 
   /**

@@ -20,7 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  * <p>The tree is stored in a level-order (BFS) layout within the page's usable area (bytes
  * {@link DurablePage#NEXT_FREE_POSITION} through {@link DurablePage#MAX_PAGE_SIZE_BYTES}).
  * Internal nodes store the maximum of their two children. Leaf nodes store the normalized
- * free-space value for one data page.
+ * free-space value for one data page or the maximum of one child FSM page.
  *
  * <pre>{@code
  *  Page byte layout (level-order segment tree):
@@ -40,16 +40,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  *  Level 2:          2 nodes  -> max of left/right halves
  *  Level 3:          4 nodes
  *  ...
- *  Level LEVELS:     CELLS_PER_PAGE leaves (each = one data page's normalized free space)
+ *  Level LEVELS:     CELLS_PER_PAGE leaves (data page free space or child FSM maximum)
  *
  *  Node at level L, index I is stored at byte offset:
  *    NEXT_FREE_POSITION + ((1 << (L-1)) - 1 + I) * CELL_SIZE
  *
  *  For the default 8 KB page size (MAX_PAGE_SIZE_BYTES = 8192, NEXT_FREE_POSITION = 28):
  *    - Total usable bytes = 8164
- *    - LEVELS = 12 (tree depth)
- *    - Internal nodes = 2^11 - 1 = 2047
- *    - CELLS_PER_PAGE = 8164 - 2047 = 6117 (leaves / tracked data pages)
+ *    - LEVELS = 13 (tree depth)
+ *    - Internal nodes = 2^12 - 1 = 4095
+ *    - CELLS_PER_PAGE = 8164 - 4095 = 4069 (leaf entries)
  * }</pre>
  *
  * <h2>Search Algorithm ({@link #findPage})</h2>
@@ -71,8 +71,9 @@ public final class FreeSpaceMapPage extends DurablePage {
   private static final int CELL_SIZE = 1;
 
   /**
-   * Number of leaf cells (data pages tracked) per FSM page. This equals the total usable
-   * cells minus the internal (non-leaf) nodes of the segment tree.
+   * Number of entries per FSM page. Each entry holds one data page value on leaf pages or
+   * one child page maximum on root and middle pages. This equals the total usable cells
+   * minus the internal (non-leaf) nodes of the segment tree.
    */
   static final int CELLS_PER_PAGE;
 
@@ -105,6 +106,11 @@ public final class FreeSpaceMapPage extends DurablePage {
 
   public FreeSpaceMapPage(PageView pageView) {
     super(pageView);
+  }
+
+  /** Returns the page-wide maximum in normalized free-space units. */
+  int getMaxFreeSpace() {
+    return 0xFF & getByteValue(nodeOffset(1, 0));
   }
 
   /** Zeroes out the entire usable area, resetting all segment-tree nodes to 0. */

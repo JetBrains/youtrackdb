@@ -323,17 +323,13 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
             .range(1, 3));
   }
 
-  /**
-   * {@code values(k).order().limit(n)} declines (sorted slice over a values projection); the same
-   * prefix without the slice still translates. Boundary count is the honesty pin — see
-   * {@code OrderRangeStepRecogniserTest#sortedSliceOverValues_declines_orderThenRangeTranslates}.
-   */
+  /** Sliced and unsliced identity orders over extracted values both engage and match native order. */
   @Test
-  public void values_order_limit_declines_whileValuesOrderTranslates() {
+  public void values_order_limit_andValuesOrderTranslate() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalentOrdered(
-        "decline: g.V().hasLabel(Person).values(age).order().limit(2)",
-        Recognition.DECLINED,
+        "g.V().hasLabel(Person).values(age).order().limit(2)",
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V()
             .hasLabel("Person")
             .values("age")
@@ -703,12 +699,9 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().has("name", "marko").range(0, 2).out("knows"));
   }
 
-  /**
-   * {@code order().by(name).limit(n).values(name)} translates; {@code values(name).order().limit}
-   * declines (sorted slice over values).
-   */
+  /** Element ordering before extraction and identity ordering after extraction both translate. */
   @Test
-  public void orderLimitValues_vs_valuesOrderLimit_documentsException() {
+  public void orderLimitValues_andValuesOrderLimitTranslate() {
     ModernGraphFixture.seed(graph, session);
     assertEquivalentOrdered(
         "PAIR translate: order().by(name).limit(2).values(name)",
@@ -718,8 +711,8 @@ public class StackedParityEquivalenceTest extends GraphBaseTest {
             .limit(2)
             .values("name"));
     assertEquivalentOrdered(
-        "PAIR decline: values(name).order().limit(2)",
-        Recognition.DECLINED,
+        "PAIR translate: values(name).order().limit(2)",
+        Recognition.RECOGNIZED,
         () -> graph.traversal().V().hasLabel("Person")
             .values("name")
             .order().by(Order.asc)

@@ -36,7 +36,23 @@ set of Record IDs.
   - An optional `COLLATE` clause selects the collation. Put null placement before collation, as in
     `ORDER BY name DESC NULLS FIRST COLLATE ci`.
 
-The same settings apply to Gremlin `order()`. An explicit clause overrides the setting.
+The non-index `ORDER BY` sort step stores keys only for items with a modifier or an edge lookup.
+It computes each stored variant at most once per row, when a comparison first needs it.
+Later comparisons reuse that value. Cheap items, such as plain field reads, keep direct reads
+on each comparison. Other callers of row comparison continue to compare rows directly.
+
+A variant is the value from either the row field or metadata.
+Metadata is used only when both rows being compared have a null field value.
+Comparisons evaluate sort items in clause order and stop at the first difference.
+Unused keys are not evaluated. A single-row sort evaluates no key.
+
+Keys with side effects, such as sequence methods, or mutable context reads, such as `$current`,
+run fewer times and in first-demand order. Their values and result order can depend on that order.
+A stable key does not depend on evaluation order, side effects or mutable context.
+Stable-key order, collation, null placement and direction are unchanged.
+
+The null-placement settings also apply to Gremlin `order()`.
+An explicit null-placement clause overrides the setting.
 If you are using a [projection](YQL-Query.md#projections), include the `ORDER BY` field in the
 projection. `ORDER BY` works only on returned projection properties, not on `LET` variables.
 - **[`UNWIND`](YQL-Query.md#unwinding)** Designates the property on which to unwind the collection. 

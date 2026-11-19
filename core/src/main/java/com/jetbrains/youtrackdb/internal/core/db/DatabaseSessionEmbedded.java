@@ -762,17 +762,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return status == STATUS.CLOSED || storage.isClosed(this);
   }
 
-  public void rebuildIndexes() {
-    assert assertIfNotActive();
-
-    checkOpenness();
-
-    var indexManager = sharedContext.getIndexManager();
-    if (indexManager.autoRecreateIndexesAfterCrash(this)) {
-      indexManager.recreateIndexes(this);
-    }
-  }
-
   private void installHooksEmbedded() {
     assert assertIfNotActive();
     hooks.clear();

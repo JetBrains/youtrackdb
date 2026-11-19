@@ -101,20 +101,20 @@ public class DatabaseMetadataUpdateListenerTest {
     assertEquals(1, sequenceCount);
   }
 
-
   @Test
   public void testIndexConfigurationUpdate() {
     session.set(DatabaseSessionEmbedded.ATTRIBUTES.LOCALE_COUNTRY, Locale.GERMAN);
     assertEquals(1, configCount);
   }
 
+  /** Index creation publishes metadata, then notifies again when its fill completes. */
   @Test
-  public void testIndexUpdate() {
+  public void indexCreationNotifiesPublicationAndFillCompletion() {
     session
         .createClass("Some")
         .createProperty("test", PropertyType.STRING)
         .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
-    assertEquals(1, indexManagerUpdateCount);
+    assertEquals(2, indexManagerUpdateCount);
   }
 
   @Test
@@ -122,7 +122,6 @@ public class DatabaseMetadataUpdateListenerTest {
     session.getMetadata().getFunctionLibrary().createFunction("some");
     assertEquals(1, functionCount);
   }
-
 
   @After
   public void after() {

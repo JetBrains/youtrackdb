@@ -6,13 +6,23 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.WalTestUtils;
 import java.io.File;
+import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -23,13 +33,13 @@ import org.junit.experimental.categories.Category;
  * Crash-recovery tests for versioned put/remove atomicity.
  *
  * <p>Verifies that the two-step mutations in {@code doVersionedPut()} (remove old +
- * put new) and {@code doVersionedRemove()} (remove + put tombstone) survive crash
- * (forceDatabaseClose) + WAL replay. Both mutations use the same
- * {@code atomicOperation}, making them atomic at the WAL level.
+ * put new) and {@code doVersionedRemove()} (remove + put tombstone) survive a crash
+ * and WAL replay. Both mutations use the same {@code atomicOperation}.
  *
- * <p>Each test creates a DISK database, performs indexed operations, simulates a
- * non-graceful shutdown, reopens (triggering WAL replay), and verifies that the
- * index state is consistent.
+ * <p>Each test persists a baseline, protects mutations from periodic page writes and WAL
+ * cleanup, then copies the open storage after flushing only the WAL. Opening the copy under
+ * a distinct database name must run recovery and restore index and SQL results that differ
+ * from the baseline. Closing the source normally after the copy cannot alter the snapshot.
  */
 @Category(SequentialTest.class)
 public class BTreeVersionedOpsWALReplayIT {
@@ -43,7 +53,7 @@ public class BTreeVersionedOpsWALReplayIT {
   @Before
   public void setUp() {
     testDir = DbTestBase.getBaseDirectoryPathStr(getClass());
-    ytdb = (YouTrackDBImpl) YourTracks.instance(testDir);
+    ytdb = newManager();
   }
 
   @After
@@ -61,7 +71,7 @@ public class BTreeVersionedOpsWALReplayIT {
    * new key is missing).
    */
   @Test
-  public void versionedPut_survivesCrashRecovery() {
+  public void versionedPut_survivesCrashRecovery() throws Exception {
     var dbName = "walPut";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -78,21 +88,23 @@ public class BTreeVersionedOpsWALReplayIT {
     entity.setProperty("name", "Alice");
     session.commit();
 
-    // Update the record — triggers doVersionedPut (remove old + put new)
-    session.begin();
-    var tx = session.getActiveTransaction();
-    entity = tx.load(entity);
-    entity.setProperty("name", "Bob");
-    session.commit();
+    var rid = entity.getIdentity();
+    var source = persistBaselineAndReopen(session, dbName);
+    WalTestUtils.withWalProtection(source, () -> {
+      // Only the WAL contains the Alice-to-Bob update when the open storage is copied.
+      source.begin();
+      source.getActiveTransaction().loadEntity(rid).setProperty("name", "Bob");
+      source.commit();
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
+    assertIndexAndSqlRids(session, "PutTest.name", "Bob",
+        "SELECT FROM PutTest WHERE name = 'Bob'", Set.of(rid));
+    assertIndexAndSqlRids(session, "PutTest.name", "Alice",
+        "SELECT FROM PutTest WHERE name = 'Alice'", Set.of());
 
-    // Simulate crash — no graceful flush
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
-
-    // Verify: "Bob" is accessible via index
+    // Verify: "Bob" is accessible via SQL
     session.begin();
     try {
       var rs = session.query("SELECT FROM PutTest WHERE name = 'Bob'");
@@ -121,7 +133,7 @@ public class BTreeVersionedOpsWALReplayIT {
    * must not be accessible via the index.
    */
   @Test
-  public void versionedRemove_survivesCrashRecovery() {
+  public void versionedRemove_survivesCrashRecovery() throws Exception {
     var dbName = "walRemove";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -137,19 +149,19 @@ public class BTreeVersionedOpsWALReplayIT {
     session.newEntity("RemTest").setProperty("val", "X");
     session.commit();
 
-    // Delete — triggers doVersionedRemove
-    session.begin();
-    session.command("DELETE FROM RemTest WHERE val = 'X'");
-    session.commit();
+    var source = persistBaselineAndReopen(session, dbName);
+    WalTestUtils.withWalProtection(source, () -> {
+      source.begin();
+      source.command("DELETE FROM RemTest WHERE val = 'X'");
+      source.commit();
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
+    assertIndexAndSqlRids(session, "RemTest.val", "X",
+        "SELECT FROM RemTest WHERE val = 'X'", Set.of());
 
-    // Simulate crash
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
-
-    // Verify: "X" must not be in the index (was deleted)
+    // Verify: "X" must not be in SQL results (was deleted)
     session.begin();
     try {
       var rs = session.query("SELECT FROM RemTest WHERE val = 'X'");
@@ -186,7 +198,7 @@ public class BTreeVersionedOpsWALReplayIT {
    * survives WAL replay.
    */
   @Test
-  public void multiValue_versionedPut_survivesCrashRecovery() {
+  public void multiValue_versionedPut_survivesCrashRecovery() throws Exception {
     var dbName = "crash_mv_put";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -204,23 +216,31 @@ public class BTreeVersionedOpsWALReplayIT {
     }
     session.commit();
 
-    // Insert second batch — 2 more with same key + 2 with null key
-    session.begin();
-    for (int i = 0; i < 2; i++) {
-      session.newEntity("MvPutTest").setProperty("tag", "shared");
-    }
-    for (int i = 0; i < 2; i++) {
-      // tag is null — will go into nullTree
-      session.newEntity("MvPutTest");
-    }
-    session.commit();
-
-    // Simulate crash — no graceful flush
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+    var source = persistBaselineAndReopen(session, dbName);
+    var sharedRids = new HashSet<RID>();
+    var nullRids = new HashSet<RID>();
+    WalTestUtils.withWalProtection(source, () -> {
+      source.begin();
+      for (int i = 0; i < 2; i++) {
+        source.newEntity("MvPutTest").setProperty("tag", "shared");
+      }
+      for (int i = 0; i < 2; i++) {
+        // A missing tag exercises the separate null-key tree.
+        source.newEntity("MvPutTest");
+      }
+      source.commit();
+      sharedRids.addAll(queryRids(source, "SELECT FROM MvPutTest WHERE tag = 'shared'"));
+      nullRids.addAll(queryRids(source, "SELECT FROM MvPutTest WHERE tag IS NULL"));
+      assertEquals(5, sharedRids.size());
+      assertEquals(2, nullRids.size());
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
+    assertIndexAndSqlRids(session, "MvPutTest.tag", "shared",
+        "SELECT FROM MvPutTest WHERE tag = 'shared'", sharedRids);
+    assertIndexAndSqlRids(session, "MvPutTest.tag", null,
+        "SELECT FROM MvPutTest WHERE tag IS NULL", nullRids);
 
     session.begin();
     try {
@@ -272,7 +292,7 @@ public class BTreeVersionedOpsWALReplayIT {
    * still be accessible.
    */
   @Test
-  public void multiValue_versionedRemove_survivesCrashRecovery() {
+  public void multiValue_versionedRemove_survivesCrashRecovery() throws Exception {
     var dbName = "crash_mv_rm";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -292,17 +312,19 @@ public class BTreeVersionedOpsWALReplayIT {
     }
     session.commit();
 
-    // Delete one record (seq=0)
-    session.begin();
-    session.command("DELETE FROM MvRemTest WHERE val = 'same' AND seq = 0 LIMIT 1");
-    session.commit();
-
-    // Simulate crash
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+    var survivingRids = queryRids(session, "SELECT FROM MvRemTest WHERE seq IN [1, 2]");
+    assertEquals(2, survivingRids.size());
+    var source = persistBaselineAndReopen(session, dbName);
+    WalTestUtils.withWalProtection(source, () -> {
+      source.begin();
+      source.command("DELETE FROM MvRemTest WHERE val = 'same' AND seq = 0 LIMIT 1");
+      source.commit();
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
+    assertIndexAndSqlRids(session, "MvRemTest.val", "same",
+        "SELECT FROM MvRemTest WHERE val = 'same'", survivingRids);
 
     session.begin();
     try {
@@ -341,11 +363,14 @@ public class BTreeVersionedOpsWALReplayIT {
    * Crash with an uncommitted transaction: only committed data should survive.
    *
    * <p>TX1 commits 5 records. TX2 inserts 5 more but does NOT commit.
-   * After crash (forceDatabaseClose) and WAL replay, only TX1's records
-   * must be visible — the uncommitted TX2 mutations must be rolled back.
+   * The persisted baseline is empty. The files are copied while TX2 is still active.
+   * TX2's inserts exist only in the memory of the source session.
+   * The copy never contains them.
+   * After WAL replay, only TX1's records must be visible. TX2 checks transaction visibility,
+   * not a crash inside an atomic WAL unit.
    */
   @Test
-  public void uncommittedTransaction_notVisibleAfterCrashRecovery() {
+  public void uncommittedTransaction_notVisibleAfterCrashRecovery() throws Exception {
     var dbName = "crash_uncommitted";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -356,26 +381,39 @@ public class BTreeVersionedOpsWALReplayIT {
     cls.createProperty("key", PropertyType.STRING);
     cls.createIndex("UncommitTest.key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
 
-    // TX1: insert 5 committed records
-    session.begin();
+    // Persist an empty baseline so that skipping replay also loses the committed records.
+    var source = persistBaselineAndReopen(session, dbName);
+    var committedRids = new HashMap<String, Set<RID>>();
+    WalTestUtils.withWalProtection(source, () -> {
+      source.begin();
+      for (int i = 1; i <= 5; i++) {
+        source.newEntity("UncommitTest").setProperty("key", "committed-" + i);
+      }
+      source.commit();
+      for (int i = 1; i <= 5; i++) {
+        var key = "committed-" + i;
+        var rids = queryRids(source, "SELECT FROM UncommitTest WHERE key = '" + key + "'");
+        assertEquals(1, rids.size());
+        committedRids.put(key, rids);
+      }
+
+      source.begin();
+      for (int i = 1; i <= 5; i++) {
+        source.newEntity("UncommitTest").setProperty("key", "uncommitted-" + i);
+      }
+      // Copy before rolling TX2 back on the source.
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
     for (int i = 1; i <= 5; i++) {
-      session.newEntity("UncommitTest").setProperty("key", "committed-" + i);
+      var key = "committed-" + i;
+      assertIndexAndSqlRids(session, "UncommitTest.key", key,
+          "SELECT FROM UncommitTest WHERE key = '" + key + "'", committedRids.get(key));
+      var uncommittedKey = "uncommitted-" + i;
+      assertIndexAndSqlRids(session, "UncommitTest.key", uncommittedKey,
+          "SELECT FROM UncommitTest WHERE key = '" + uncommittedKey + "'", Set.of());
     }
-    session.commit();
-
-    // TX2: insert 5 uncommitted records — do NOT commit
-    session.begin();
-    for (int i = 1; i <= 5; i++) {
-      session.newEntity("UncommitTest").setProperty("key", "uncommitted-" + i);
-    }
-    // No commit — TX2 is still active
-
-    // Simulate crash with uncommitted TX2
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay should only recover TX1
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
 
     session.begin();
     try {
@@ -414,13 +452,13 @@ public class BTreeVersionedOpsWALReplayIT {
   /**
    * Tombstone resurrection crash recovery: insert → delete → re-insert → crash.
    *
-   * <p>The resurrection path in doVersionedPut (line 74) accumulates +1 when
+   * <p>The resurrection path in doVersionedPut accumulates +1 when
    * overwriting a TombstoneRID. After WAL replay, the final state must show
-   * the re-inserted record as visible, and the persisted approximate count
-   * must reflect exactly 1 visible entry (not 0 or 2).
+   * the final inserted identity as visible through both the index and SQL,
+   * and the total record count must be exactly 1 (not 0 or 2).
    */
   @Test
-  public void resurrection_overTombstone_survivesCrashRecovery() {
+  public void resurrection_overTombstone_survivesCrashRecovery() throws Exception {
     var dbName = "crash_resurrection";
     ytdb.create(dbName, DatabaseType.DISK, ADMIN, ADMIN_PWD, "admin");
 
@@ -431,27 +469,29 @@ public class BTreeVersionedOpsWALReplayIT {
     cls.createProperty("name", PropertyType.STRING);
     cls.createIndex("ResTest.name", SchemaClass.INDEX_TYPE.UNIQUE, "name");
 
-    // TX1: Insert "Alice"
-    session.begin();
-    session.newEntity("ResTest").setProperty("name", "Alice");
-    session.commit();
+    // Keep even the first Alice out of the baseline. Replay must recover the final identity.
+    var source = persistBaselineAndReopen(session, dbName);
+    var finalRids = new HashSet<RID>();
+    WalTestUtils.withWalProtection(source, () -> {
+      source.begin();
+      source.newEntity("ResTest").setProperty("name", "Alice");
+      source.commit();
 
-    // TX2: Delete "Alice" — creates tombstone, count delta -1
-    session.begin();
-    session.command("DELETE FROM ResTest WHERE name = 'Alice'");
-    session.commit();
+      source.begin();
+      source.command("DELETE FROM ResTest WHERE name = 'Alice'");
+      source.commit();
 
-    // TX3: Re-insert "Alice" — resurrection over tombstone, count delta +1
-    session.begin();
-    session.newEntity("ResTest").setProperty("name", "Alice");
-    session.commit();
-
-    // Simulate crash — no graceful flush
-    session.activateOnCurrentThread();
-    ytdb.internal.forceDatabaseClose(dbName);
-
-    // Reopen — WAL replay
-    session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+      source.begin();
+      var resurrected = source.newEntity("ResTest");
+      resurrected.setProperty("name", "Alice");
+      source.commit();
+      finalRids.add(resurrected.getIdentity());
+      copyCrash(source, dbName);
+    });
+    session = closeSourceAndOpenCopy(source, dbName);
+    assertRecoveryRan(session);
+    assertIndexAndSqlRids(session, "ResTest.name", "Alice",
+        "SELECT FROM ResTest WHERE name = 'Alice'", finalRids);
 
     session.begin();
     try {
@@ -478,5 +518,77 @@ public class BTreeVersionedOpsWALReplayIT {
 
     session.close();
     ytdb.drop(dbName);
+  }
+
+  private YouTrackDBImpl newManager() {
+    // The tiny workloads fit in cache. These limits keep non-periodic flush paths idle too.
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL,
+            100000000)
+        .addGlobalConfigurationParameter(GlobalConfiguration.DISK_CACHE_SIZE, 256)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_MAX_SEGMENT_SIZE, 256)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_MAX_SIZE, 1024)
+        .build();
+    return (YouTrackDBImpl) YourTracks.instance(testDir, config.toApacheConfiguration());
+  }
+
+  private DatabaseSessionEmbedded persistBaselineAndReopen(
+      DatabaseSessionEmbedded session, String dbName) {
+    // A session close alone leaves storage open. Closing the manager persists the baseline pages.
+    session.close();
+    ytdb.close();
+    ytdb = newManager();
+    return (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, ADMIN_PWD);
+  }
+
+  private void copyCrash(DatabaseSessionEmbedded source, String dbName) throws Exception {
+    var storage = (DiskStorage) source.getStorage();
+    storage.getWALInstance().flush();
+    WalTestUtils.copyDirtyStorage(Path.of(source.getURL().substring("disk:".length())),
+        Path.of(testDir).resolve(dbName + "_recovered"));
+  }
+
+  private DatabaseSessionEmbedded closeSourceAndOpenCopy(
+      DatabaseSessionEmbedded source, String dbName) {
+    if (source.isTxActive()) {
+      source.rollback();
+    }
+    source.close();
+    ytdb.close();
+    ytdb = newManager();
+    return (DatabaseSessionEmbedded) ytdb.open(dbName + "_recovered", ADMIN, ADMIN_PWD);
+  }
+
+  private static void assertRecoveryRan(DatabaseSessionEmbedded session) {
+    assertTrue("The copied dirty storage must replay its write-ahead log",
+        ((DiskStorage) session.getStorage()).wereDataRestoredAfterOpen());
+  }
+
+  private static Set<RID> queryRids(DatabaseSessionEmbedded session, String query) {
+    session.begin();
+    try (var rows = session.query(query)) {
+      return rows.stream().map(row -> row.getIdentity()).collect(Collectors.toSet());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private static void assertIndexAndSqlRids(DatabaseSessionEmbedded session, String indexName,
+      Object key, String query, Set<RID> expected) {
+    session.begin();
+    try {
+      var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+      try (var rids = index.getRids(session, key)) {
+        var actual = rids.toList();
+        assertEquals("Recovered index " + indexName + " key " + key + " must have exact RIDs",
+            expected, new HashSet<>(actual));
+        assertEquals("Recovered index must not contain duplicate RIDs", expected.size(),
+            actual.size());
+      }
+    } finally {
+      session.rollback();
+    }
+    assertEquals("Recovered SQL results must have exact RIDs: " + query,
+        expected, queryRids(session, query));
   }
 }

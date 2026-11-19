@@ -8,6 +8,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,7 +33,66 @@ public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
 
+  /** The layout-27 descriptor is unavailable before admission and after cleanup. */
+  @Test
+  public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
+    for (var format : StorageFormat.values()) {
+      var directory = Files.createDirectory(root.resolve(format.name()));
+      var chain = new PreparedBackupChain(DATABASE, directory);
+      assertThrows(IllegalStateException.class, chain::sourceFormat);
+      chain.completePreparation(9, format);
+      assertSame(format, chain.sourceFormat());
+      chain.close();
+      assertThrows(IllegalStateException.class, chain::sourceFormat);
+    }
+  }
+
   private Path root;
+
+  /** Prepared restore accepts mixed backup encodings and copies every unit byte exactly. */
+  @Test
+  public void prepareMixedVersionChainPreservesBytesAndRejectsEitherHashFailure() throws Exception {
+    var id = java.util.UUID.randomUUID();
+    var names = new java.util.ArrayList<String>();
+    for (int sequence = 0; sequence < 6; sequence++) {
+      var version = sequence < 3 ? sequence + 3 : 5;
+      names.add(BackupUnitFiles.writeUnit(root, id, DATABASE, sequence, sequence == 0,
+          version, BackupUnitFiles.supportedFeatureFormat(),
+          BackupUnitFiles.supportedLayoutVersion(),
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, true));
+      if (sequence >= 3) {
+        var path = root.resolve(names.getLast());
+        var bytes = Files.readAllBytes(path);
+        Files.write(path, BackupUnitFiles.version6Bytes(new byte[19],
+            java.util.Arrays.copyOfRange(bytes, bytes.length - 74, bytes.length),
+            DiskStorage.BARRIER_PRESENT, sequence == 3 ? null
+                : new DiskStorage.BackupContinuity(java.util.UUID.randomUUID(),
+                    java.util.UUID.randomUUID())));
+      }
+    }
+    try (var chain = DiskStorage.prepareBackupChain(DATABASE, root, id.toString())) {
+      assertEquals(names.size(), chain.units().size());
+      for (int i = 0; i < names.size(); i++) {
+        org.junit.Assert.assertArrayEquals(Files.readAllBytes(root.resolve(names.get(i))),
+            Files.readAllBytes(chain.units().get(i).left()));
+        assertEquals(i == 0, chain.units().get(i).rightBoolean());
+      }
+    }
+    var path = root.resolve(names.getLast());
+    var sound = Files.readAllBytes(path);
+    for (boolean payloadDamage : new boolean[] {true, false}) {
+      var damaged = sound.clone();
+      damaged[payloadDamage ? 0 : damaged.length - 122 + 16] ^= 1;
+      if (!payloadDamage) {
+        BackupUnitFiles.repairVersion6Hashes(damaged, false, true);
+      }
+      Files.write(path, damaged);
+      assertThrows(
+          com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException.class,
+          () -> DiskStorage.prepareBackupChain(DATABASE, root, id.toString()));
+      org.junit.Assert.assertArrayEquals(damaged, Files.readAllBytes(path));
+    }
+  }
 
   @Before
   public void createRoot() throws Exception {
@@ -174,7 +234,7 @@ public class PreparedBackupChainTest {
   public void replayOfAClosedChainIsRefused() throws Exception {
     var temporaryDirectory = Files.createDirectories(root.resolve("request"));
     var chain = new PreparedBackupChain(DATABASE, temporaryDirectory);
-    chain.completePreparation(7);
+    chain.completePreparation(7, StorageFormat.LAYOUT_27);
     chain.close();
 
     var refusal = assertThrows(IllegalStateException.class, chain::requireComplete);
@@ -218,7 +278,7 @@ public class PreparedBackupChainTest {
 
     chain.addUnit(fullBackup, true);
     chain.addUnit(increment, false);
-    chain.completePreparation(11);
+    chain.completePreparation(11, StorageFormat.LAYOUT_27);
 
     assertEquals("the chain must keep two units", 2, chain.units().size());
     assertSame("the full backup must open the chain", fullBackup, chain.units().getFirst().left());

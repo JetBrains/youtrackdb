@@ -2241,37 +2241,15 @@ public class OrderRangeStepRecogniserTest extends GraphBaseTest {
         () -> graph.traversal().V().order().by("name").skip(0).values("name"));
   }
 
-  /**
-   * The three sort-plus-slice-plus-projection spellings all decline, and the same prefix without the
-   * slice still translates. Two orderings of the same three stages are covered — projection before
-   * the sort ({@code values(name).order().limit(2)}, {@code values(name).order().range(1, 3)}) and
-   * projection after the slice ({@code order().by(name).range(1, 3).values(name)}) — because the
-   * gates that refuse them are different ones and a reader should not have to guess that the family
-   * is closed on both sides.
-   *
-   * <p><b>Why the boundary count is the whole point here.</b> These spellings were once reported as
-   * a translator-on / translator-off divergence over an indexed fixture with tied sort keys, and
-   * the report was retired on the ground that both arms came back with the same rows. A declined
-   * shape runs the native pipeline on both arms, so its rows agree whatever a translation would have
-   * done: over a shape that declines, a row comparison holds by construction and settles nothing.
-   * The assertions below are therefore engagement assertions with the row comparison riding along,
-   * not the other way round — a change that re-admitted any of these three shapes would fail on the
-   * boundary count first, which is the signal a row comparison cannot give.
-   *
-   * <p>The decline of the first two is keyed on the captured {@code ORDER BY}: after the drop-on-absent
-   * promotion a slice behind {@code values(k)} would otherwise translate, so stripping the slice
-   * (rather than the sort) is still the control that proves the fixture can engage a boundary step.
-   * {@code order().by(name).range().values(name)} translates — same boundary, no hop; equal names
-   * are RID-total-ordered on both arms.
-   */
+  /** Projected-value slices and element-order slices both engage and retain native sequence order. */
   @Test
-  public void sortedSliceOverValues_declines_orderThenRangeTranslates() {
+  public void sortedSliceOverValues_andOrderThenRangeTranslate() {
     seedHubWithReverseSortedTargets();
 
-    assertDeclinesOverTheSameNativeRows(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().out(knows).values(name).order().limit(2)",
         () -> graph.traversal().V().out("knows").values("name").order().limit(2));
-    assertDeclinesOverTheSameNativeRows(
+    assertTranslatesAndMatchesNativeOrderedValues(
         "g.V().out(knows).values(name).order().range(1, 3)",
         () -> graph.traversal().V().out("knows").values("name").order().range(1, 3));
 

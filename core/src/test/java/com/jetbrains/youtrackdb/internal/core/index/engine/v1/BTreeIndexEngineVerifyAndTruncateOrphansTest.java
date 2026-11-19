@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.index.engine.v1;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -165,9 +165,9 @@ public class BTreeIndexEngineVerifyAndTruncateOrphansTest {
     when(atomicOperationsManager.getApplyPhaseEpoch(anyString()))
         .thenReturn(new ApplyPhaseEpoch());
     when(mockStorage.getAtomicOperationsManager()).thenReturn(atomicOperationsManager);
-    when(mockStorage.subIndexSnapshot(any(Integer.class))).thenReturn(
+    when(mockStorage.subIndexSnapshot(anyLong())).thenReturn(
         mock(com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot.class));
-    when(mockStorage.subNullIndexSnapshot(any(Integer.class))).thenReturn(
+    when(mockStorage.subNullIndexSnapshot(anyLong())).thenReturn(
         mock(com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot.class));
     return mockStorage;
   }

@@ -45,6 +45,7 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class LocalPaginatedStorageRestoreTx {
 
+  private Object previousFileLock;
   private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded testDocumentTx;
   private DatabaseSessionEmbedded baseDocumentTx;
@@ -71,6 +72,7 @@ public class LocalPaginatedStorageRestoreTx {
 
   @Before
   public void beforeClass() {
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.FILE_LOCK.setValue(false);
 
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -99,8 +101,12 @@ public class LocalPaginatedStorageRestoreTx {
 
   @After
   public void afterMethod() {
-    youTrackDB.drop("localPaginatedStorageRestoreFromTx");
-    youTrackDB.drop("basePaginatedStorageRestoreFromTx");
+    try {
+      youTrackDB.drop("localPaginatedStorageRestoreFromTx");
+      youTrackDB.drop("basePaginatedStorageRestoreFromTx");
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Test

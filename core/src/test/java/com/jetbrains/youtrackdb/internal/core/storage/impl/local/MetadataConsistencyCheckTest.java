@@ -154,6 +154,202 @@ public class MetadataConsistencyCheckTest {
     assertFalse("the loud drop must still delete the image", youTrackDB.exists(oldLayout));
   }
 
+  /** Both storage kinds persist the production default in configuration without a selection. */
+  @Test
+  public void ordinaryBirthsUseLayout27() throws Exception {
+    for (var type : DatabaseType.values()) {
+      var name = "ordinary" + type;
+      youTrackDB.create(name, type, ADMIN, PASSWORD, ADMIN);
+      assertLayout(name, type, 27);
+    }
+  }
+
+  /** A selected disk birth persists 27 and open cannot replace it with an active selection. */
+  @Test
+  public void selectedDiskBirthReopensWithoutSelectionAndIgnoresSelectionOnOpen() throws Exception {
+    var name = "selectedDisk";
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name,
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27)) {
+      youTrackDB.create(name, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+    }
+    assertLayout(name, DatabaseType.DISK, 27);
+    reopenContext();
+    assertLayout(name, DatabaseType.DISK, 27);
+    reopenContext();
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name,
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27)) {
+      assertLayout(name, DatabaseType.DISK, 27);
+    }
+  }
+
+  /** Selection is one-shot, manager/name targeted, thread confined, and removed on scope close. */
+  @Test
+  public void birthSelectionIsBoundedAndIsolated() throws Exception {
+    var format =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27;
+    var name = "selectedMemory";
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
+      youTrackDB.create("otherName", DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+      assertLayout("otherName", DatabaseType.MEMORY, 27);
+      try (var other = (YouTrackDBImpl) YourTracks.instance(
+          Files.createDirectories(root.resolve("otherManager")).toString())) {
+        other.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+        try (var session = (DatabaseSessionEmbedded) other.open(name, ADMIN, PASSWORD)) {
+          var storage = (AbstractStorage) session.getStorage();
+          assertEquals(27, storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              storage.configuration::getVersion).intValue());
+        }
+      }
+      java.util.concurrent.CompletableFuture.runAsync(() -> {
+        youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+        assertLayout(name, DatabaseType.MEMORY, 27);
+        youTrackDB.drop(name);
+      }).get(60, java.util.concurrent.TimeUnit.SECONDS);
+      youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+      assertLayout(name, DatabaseType.MEMORY, 27);
+      youTrackDB.drop(name);
+      youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+      assertLayout(name, DatabaseType.MEMORY, 27);
+      youTrackDB.drop(name);
+    }
+    try (var unused = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
+      // Closing an unused scope must also clear it.
+    }
+    youTrackDB.create(name, DatabaseType.MEMORY, ADMIN, PASSWORD, ADMIN);
+    assertLayout(name, DatabaseType.MEMORY, 27);
+  }
+
+  /** Unsupported disagreements and a missing version fail repeatedly without repairing values. */
+  @Test
+  public void unsupportedMismatchesAndMissingConfigurationVersionRemainInvalid() throws Exception {
+    var formats =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.values();
+    for (var format : formats) {
+      Integer[] versions = {25, 26, 28, 24, null};
+      for (var version : versions) {
+        var name = "mismatch" + format.layoutVersion() + "_" + version;
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(youTrackDB, name, format)) {
+          youTrackDB.create(name, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+        }
+        assertLayout(name, DatabaseType.DISK, format.layoutVersion());
+        try (var session = (DatabaseSessionEmbedded) youTrackDB.open(name, ADMIN, PASSWORD)) {
+          var storage = (AbstractStorage) session.getStorage();
+          var configuration = (CollectionBasedStorageConfiguration) storage.configuration;
+          storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+              operation -> configuration.updateVersionForTesting(operation, version));
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+          reopenContext();
+          var failure = openAndExpectFailure(name);
+          assertEquals(InconsistentStorageMetadataException.Inconsistency.STORAGE_LAYOUT_VERSION,
+              inconsistencyOf(failure).inconsistency());
+          assertTrue(messageChainOf(failure).contains(
+              "configuration reports storage layout version "
+                  + (version == null ? "<missing>" : version)));
+          assertTrue(messageChainOf(failure).contains(
+              "bootstrap authority record reports storage layout version "
+                  + format.layoutVersion()));
+          assertTrue(messageChainOf(failure).contains(
+              "The stored storage layout versions disagree."));
+          assertFalse(messageChainOf(failure).contains("Export"));
+          assertFalse(messageChainOf(failure).contains("Import"));
+          assertFalse(messageChainOf(failure).contains("A newer YouTrackDB version"));
+          assertEquals(format.layoutVersion(),
+              new StorageBootstrapMetadata(databasesPath.resolve(name), FEATURE_FORMAT)
+                  .readActiveRequired().storageFormat().layoutVersion());
+        }
+      }
+    }
+  }
+
+  /**
+   * Old layouts refuse repeatedly before repair, cleanup, startup writes, WAL or recovery.
+   * Snapshot every file byte and modification time. Only a missing empty bootstrap lock may appear.
+   */
+  @Test
+  public void oldLayoutOpenPreservesEveryFileExceptMissingEmptyLock() throws Exception {
+    for (var layout : new int[] {25, 26}) {
+      for (var missingLock : new boolean[] {false, true}) {
+        var name = "old" + layout + missingLock;
+        youTrackDB.create(name, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+        reopenContext();
+        var directory = databasesPath.resolve(name);
+        var authority = directory.resolve("storage-bootstrap-0.bsm");
+        var bytes = Files.readAllBytes(authority);
+        java.nio.ByteBuffer.wrap(bytes).putInt(28, layout);
+        java.nio.ByteBuffer.wrap(bytes).putLong(72,
+            net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+                .hash(bytes, 0, 72, 0x648B7A2195D3L));
+        Files.write(authority, bytes);
+        Files.write(directory.resolve("storage-bootstrap-2.bsm.tmp"), new byte[] {7, 8});
+        var lock = directory.resolve("storage-bootstrap.bsml");
+        if (missingLock) {
+          Files.delete(lock);
+        }
+        var content = new java.util.TreeMap<Path, String>();
+        var times = new java.util.TreeMap<Path, java.nio.file.attribute.FileTime>();
+        try (var files = Files.walk(directory)) {
+          for (var file : files.filter(Files::isRegularFile).toList()) {
+            content.put(file,
+                java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(file)));
+            times.put(file, Files.getLastModifiedTime(file));
+          }
+        }
+        String guidance;
+        try {
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+              .resolve(layout);
+          throw new AssertionError("old layout accepted");
+        } catch (IllegalArgumentException refusal) {
+          guidance = refusal.getMessage();
+        }
+        for (var attempt = 0; attempt < 2; attempt++) {
+          assertTrue(messageChainOf(openAndExpectFailure(name)).contains(guidance));
+          var actual = new java.util.TreeMap<Path, String>();
+          try (var files = Files.walk(directory)) {
+            for (var file : files.filter(Files::isRegularFile).toList()) {
+              actual.put(file,
+                  java.util.Base64.getEncoder().encodeToString(Files.readAllBytes(file)));
+            }
+          }
+          if (missingLock && attempt == 0) {
+            assertEquals("", actual.remove(lock));
+          }
+          assertEquals(content, actual);
+          for (var entry : times.entrySet()) {
+            assertEquals(entry.getValue(), Files.getLastModifiedTime(entry.getKey()));
+          }
+          if (missingLock && attempt == 0) {
+            // The first refusal may create an empty lock. Later refusals must preserve it too.
+            content.put(lock, "");
+            times.put(lock, Files.getLastModifiedTime(lock));
+          }
+        }
+      }
+    }
+  }
+
+  /** Reads configuration through storage and disk authority independently of the birth selection. */
+  private void assertLayout(String name, DatabaseType type, int expected) {
+    try (var session = (DatabaseSessionEmbedded) youTrackDB.open(name, ADMIN, PASSWORD)) {
+      var storage = (AbstractStorage) session.getStorage();
+      assertEquals(expected, storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          storage.configuration::getVersion).intValue());
+      assertEquals(expected, storage.getStorageFormat().layoutVersion());
+    } catch (IOException failure) {
+      throw new UncheckedIOException(failure);
+    }
+    if (type == DatabaseType.DISK) {
+      try {
+        assertEquals(expected,
+            new StorageBootstrapMetadata(databasesPath.resolve(name), FEATURE_FORMAT)
+                .readActiveRequired().storageFormat().layoutVersion());
+      } catch (IOException failure) {
+        throw new UncheckedIOException(failure);
+      }
+    }
+  }
+
   /** Creates a disk database and rewrites the storage layout version of its configuration. */
   private void createDatabaseWithTamperedLayoutVersion(String databaseName, int layoutVersion)
       throws Exception {

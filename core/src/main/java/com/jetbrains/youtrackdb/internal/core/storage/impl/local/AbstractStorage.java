@@ -120,6 +120,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket.PositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection.RECORD_STATUS;
@@ -128,6 +130,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -141,7 +144,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.HighLevelTransactionChangeRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.NonTxOperationPerformedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.OperationUnitRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageOperation;
@@ -152,7 +154,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALRecordDecodeException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManager;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
@@ -378,8 +383,6 @@ public abstract class AbstractStorage
    */
   private final ConcurrentLinkedDeque<Long> operatorFreezeIds = new ConcurrentLinkedDeque<>();
 
-  private volatile boolean wereNonTxOperationsPerformedInPreviousOpen;
-
   /**
    * Internal file IDs of non-durable files deleted during crash recovery, used by WAL replay
    * ({@link #restoreAtomicUnit}) to skip records referencing these files. Populated by
@@ -392,6 +395,8 @@ public abstract class AbstractStorage
 
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
+  private StorageFormat storageFormat = StorageFormat.productionDefault();
+
   private final StorageIdentityHolder storageIdentityHolder;
   private final IndexLifecycleRegistry indexLifecycleRegistry;
   private static final String TOP_LEVEL_INDEX_LIFECYCLES =
@@ -465,6 +470,9 @@ public abstract class AbstractStorage
   protected final ScalableRWLock stateLock;
 
   protected volatile StorageConfiguration configuration;
+
+  // Published when configuration is created or loaded, including after a restore.
+  private volatile int recordedMaxIndexKeySize;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
   protected final String name;
   private final AtomicLong version = new AtomicLong();
@@ -538,7 +546,7 @@ public abstract class AbstractStorage
   // Incremented during flushSnapshotBuffers(), decremented during evictStaleSnapshotEntries().
   protected final AtomicLong snapshotIndexSize = new AtomicLong();
 
-  // Indexes snapshot: maps CompositeKey(indexId, userKey..., version) → RID (TombstoneRID or plain).
+  // Indexes snapshot: CompositeKey(historyFileBaseId, userKey..., version) → RID (tombstone or plain).
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedIndexesSnapshot =
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<CompositeKey, RID> sharedNullIndexesSnapshot =
@@ -878,6 +886,8 @@ public abstract class AbstractStorage
       }
 
       checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
+      boolean physicalOpenStarted = false;
+      boolean metadataOpened = false;
       try {
         stateLock.writeLock().lock();
         try {
@@ -908,19 +918,25 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
+          validateStorageConfiguration(contextConfiguration);
+          // Only acquisitions of this physical attempt belong to failure cleanup. Closed fields
+          // from an earlier open are not resources of this attempt.
+          prepareOpenResources();
+          physicalOpenStarted = true;
           // This call is the single admission decision of storage open. Admission runs before
           // write-ahead log initialization and before recovery, so a rejected image never reaches
           // recovery. A write-ahead log records a change before that change reaches its final file.
           readStorageIdentity();
+          final var startupMetadata = checkIfStorageDirty();
+          metadataOpened = true;
           readIv();
 
-          initWalAndDiskCache(contextConfiguration);
+          initWalAndDiskCacheOnOpen(contextConfiguration);
 
           // Register all PageOperation types so recovery can deserialize logical WAL records.
           // Must happen after WAL initialization (above) and before recoverIfNeeded() (below).
           PageOperationRegistry.registerAll(WALRecordsFactory.INSTANCE);
 
-          final var startupMetadata = checkIfStorageDirty();
           final var openingFloor = operationIdFloorOnOpen(startupMetadata.lastTxId);
           if (openingFloor >= idGen.getLastId()) {
             idGen.advanceToAtLeast(openingFloor);
@@ -933,6 +949,7 @@ public abstract class AbstractStorage
                   nextOperationId(idGen.getLastId(), "storage open"));
           atomicOperationsManager = new AtomicOperationsManager(this, atomicOperationsTable);
 
+          verifyStartupHistory();
           recoverIfNeeded();
 
           atomicOperationsManager.executeInsideAtomicOperation(
@@ -941,6 +958,7 @@ public abstract class AbstractStorage
                   configuration = new CollectionBasedStorageConfiguration(this);
                   ((CollectionBasedStorageConfiguration) configuration)
                       .load(contextConfiguration, atomicOperation);
+                  refreshRecordedMaxIndexKeySize(atomicOperation);
 
                   // otherwise delayed to disk based storage to convert old format to new format.
                 }
@@ -971,34 +989,12 @@ public abstract class AbstractStorage
           atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
           atomicOperationsManager.executeInsideAtomicOperation(this::openIndexes);
 
-          // Recovery-time orphan-truncation pass. Restores the per-component
-          // logical <= physical invariant before any non-recovery transaction runs.
-          // Gated on wereDataRestoredAfterOpen: on the disk engine an orphan (physical
-          // pages past the logical horizon) is crash-only. A rolled-back transaction
-          // leaves zero physical footprint (the physical apply runs only inside
-          // commitChanges, which endAtomicOperation skips on rollback), and no correct
-          // production read extends a file outside crash recovery (this read-extend
-          // invariant is established in the read-cache-concurrency-bug design:
-          // WOWCache.loadOrAdd's extend branches are unreachable from loadForRead because
-          // no component reads past its own logical horizon), so a cleanly-closed
-          // database is orphan-free. An orphan can therefore arise only from a crash,
-          // and a crash always leaves isDirty() == true at the next open, which sets
-          // wereDataRestoredAfterOpen during recoverIfNeeded(). The pass runs whenever
-          // WAL replay happened. We gate on the field rather than a re-read isDirty()
-          // because recoverIfNeeded -> flushAllData -> clearStorageDirty has already
-          // cleared the dirty flag by the time we reach here, so isDirty() would read
-          // false even on a crash reopen; the field is the surviving "did this open
-          // replay WAL" signal. The field is shared with
-          // IndexManagerEmbedded.autoRecreateIndexesAfterCrash and is set once and never
-          // reset, so it is left alone on close.
-          //
-          // Trade-off: the pass is best-effort: truncateOrphansAfterRecovery wraps each
-          // per-component verifyAndTruncateOrphans dispatch in a try/catch that logs a
-          // truncate IOException as a WARN and continues. Skipping the pass on a clean
-          // reopen drops the cross-clean-cycle retry of a transient truncate failure on
-          // an otherwise readable component. That is bounded-acceptable: such a failure
-          // is loud (it logs a WARN at the reopen where it occurred) and is re-armed by
-          // any later crash, which sets the field again and re-runs the pass.
+          // The orphan-truncation pass uses a flag that belongs to this storage object.
+          // recoverIfNeeded sets wereDataRestoredAfterOpen when the storage is dirty.
+          // It sets the flag before WAL replay.
+          // Nothing resets the flag.
+          // A later clean reopen of the same object runs the pass again.
+          // A new storage object starts with the flag false.
           if (wereDataRestoredAfterOpen) {
             atomicOperationsManager.executeInsideAtomicOperation(
                 this::truncateOrphansAfterRecovery);
@@ -1016,7 +1012,17 @@ public abstract class AbstractStorage
                 }
               });
 
+          finishStartupHistory();
           status = STATUS.MIGRATION;
+        } catch (Throwable primary) {
+          try {
+            abortStartupHistory(primary);
+          } catch (Throwable secondary) {
+            suppressOpenFailure(primary, secondary);
+          } finally {
+            status = STATUS.CLOSED;
+          }
+          throw primary;
         } finally {
           stateLock.writeLock().unlock();
         }
@@ -1063,36 +1069,66 @@ public abstract class AbstractStorage
 
       } catch (final Throwable e) {
         try {
-          if (writeCache != null) {
+          abortStartupHistory(e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
+        var cacheClosed = true;
+        try {
+          if (physicalOpenStarted && writeCache != null) {
             readCache.closeStorage(writeCache);
           }
-        } catch (final Exception ee) {
-          // ignore
+        } catch (final Throwable ee) {
+          cacheClosed = false;
+          suppressOpenFailure(e, ee);
         }
 
         try {
-          if (writeAheadLog != null) {
+          if (physicalOpenStarted && writeAheadLog != null) {
             writeAheadLog.close();
           }
-        } catch (final Exception ee) {
-          // ignore
+        } catch (final Throwable ee) {
+          suppressOpenFailure(e, ee);
         }
 
-        try {
-          postCloseSteps(false, true, idGen.getLastId());
-        } catch (final Exception ee) {
-          // ignore
+        // Another process may open once the metadata lock is released. Release it only after
+        // the cache writers have stopped and their files have closed.
+        if (metadataOpened && cacheClosed) {
+          try {
+            postCloseSteps(false, true, idGen.getLastId());
+          } catch (final Throwable ee) {
+            suppressOpenFailure(e, ee);
+          }
         }
 
         status = STATUS.CLOSED;
         throw e;
       }
     } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
+      RuntimeException prepared = ee;
+      try {
+        prepared = logAndPrepareForRethrow(ee);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(ee, secondary);
+      }
+      throw prepared;
     } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee);
+      Error prepared = ee;
+      try {
+        prepared = logAndPrepareForRethrow(ee);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(ee, secondary);
+      }
+      throw prepared;
     } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t);
+      RuntimeException prepared;
+      try {
+        prepared = logAndPrepareForRethrow(t);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(t, secondary);
+        prepared = new RuntimeException(t);
+      }
+      throw prepared;
     } finally {
       if (status == STATUS.OPEN) {
         sessionCount.incrementAndGet();
@@ -1102,6 +1138,50 @@ public abstract class AbstractStorage
     final var additionalArgs = new Object[] {getURL(), YouTrackDBConstants.getVersion()};
     LogManager.instance()
         .info(this, "Storage '%s' is opened under YouTrackDB distribution : %s", additionalArgs);
+  }
+
+  /**
+   * Attaches secondary failures on a best-effort basis because suppression can be disabled.
+   * Primary failure identity is the guarantee, even when attachment fails.
+   */
+  protected static void suppressOpenFailure(Throwable primary, Throwable secondary) {
+    if (primary != secondary) {
+      try {
+        primary.addSuppressed(secondary);
+      } catch (Throwable ignored) {
+        // Cleanup and diagnostic failures must never replace the original open failure.
+      }
+    }
+  }
+
+  /** Validate engine-specific settings before physical startup changes state or acquires resources. */
+  protected void validateStorageConfiguration(ContextConfiguration contextConfiguration) {
+  }
+
+  /** Disk open starts new acquisitions. Memory open retains its existing in-memory image. */
+  protected void prepareOpenResources() {
+  }
+
+  /** Persistent startup history hooks are inert for engines without a disk startup owner. */
+  protected void verifyStartupHistory() throws IOException {
+  }
+
+  protected void startupHistoryBarrier() throws IOException {
+  }
+
+  protected void beginStartupReplay() {
+  }
+
+  protected void endStartupReplay() {
+  }
+
+  protected void startupReplayFailed() {
+  }
+
+  protected void finishStartupHistory() throws IOException {
+  }
+
+  protected void abortStartupHistory(Throwable primary) {
   }
 
   protected abstract void readIv() throws IOException;
@@ -1534,6 +1614,13 @@ public abstract class AbstractStorage
 
   protected void doCreate(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException {
+    doCreate(contextConfiguration, null);
+  }
+
+  /** Creates storage with an explicit restore layout, or ordinary birth selection when null. */
+  protected void doCreate(ContextConfiguration contextConfiguration,
+      @Nullable StorageFormat sourceFormat)
+      throws IOException, java.lang.InterruptedException {
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1563,6 +1650,19 @@ public abstract class AbstractStorage
           "Cannot create new storage '" + getURL() + "' because it already exists");
     }
 
+    if (sourceFormat != null) {
+      // Restore identity comes only from chain admission. Do not read or consume a test scope.
+      storageFormat = sourceFormat;
+    } else {
+      final var selection = SCOPED_BIRTH_FORMAT.get();
+      if (selection != null && !selection.consumed
+          && selection.context == context && selection.databaseName.equals(name)) {
+        selection.consumed = true;
+        storageFormat = selection.format;
+      } else {
+        storageFormat = StorageFormat.productionDefault();
+      }
+    }
     prepareStorageBirth();
     uuid = UUID.randomUUID();
     initIv();
@@ -1645,6 +1745,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
+          refreshRecordedMaxIndexKeySize(atomicOperation);
 
           generateDatabaseInstanceId(atomicOperation);
           clearStorageDirty();
@@ -1808,6 +1909,46 @@ public abstract class AbstractStorage
         name);
   }
 
+  /** Returns the selected image layout, available before configuration and recovery. */
+  public final StorageFormat getStorageFormat() {
+    return storageFormat;
+  }
+
+  /** Selects the descriptor carried by admitted bootstrap metadata before recovery. */
+  protected final void selectStorageFormat(final StorageFormat format) {
+    storageFormat = Objects.requireNonNull(format, "format");
+  }
+
+  private static final ThreadLocal<BirthFormatSelection> SCOPED_BIRTH_FORMAT = new ThreadLocal<>();
+
+  private static final class BirthFormatSelection {
+    private final YouTrackDBInternalEmbedded context;
+    private final String databaseName;
+    private final StorageFormat format;
+    private boolean consumed;
+
+    private BirthFormatSelection(YouTrackDBInternalEmbedded context, String databaseName,
+        StorageFormat format) {
+      this.context = Objects.requireNonNull(context);
+      this.databaseName = Objects.requireNonNull(databaseName);
+      this.format = Objects.requireNonNull(format);
+    }
+  }
+
+  /** A thread-confined, one-shot selection for one manager and database birth, never for open. */
+  static AutoCloseable useBirthFormatForCurrentThread(YouTrackDBInternalEmbedded context,
+      String databaseName, StorageFormat format) {
+    final var previous = SCOPED_BIRTH_FORMAT.get();
+    SCOPED_BIRTH_FORMAT.set(new BirthFormatSelection(context, databaseName, format));
+    return () -> {
+      if (previous == null) {
+        SCOPED_BIRTH_FORMAT.remove();
+      } else {
+        SCOPED_BIRTH_FORMAT.set(previous);
+      }
+    };
+  }
+
   /** Reads durable identity before write-ahead log processing starts. */
   protected void readStorageIdentity() {
   }
@@ -1937,6 +2078,16 @@ public abstract class AbstractStorage
     }
   }
 
+  /** Returns the loaded key limit without accessing configuration locks or closed caches. */
+  public int getRecordedMaxIndexKeySize() {
+    return recordedMaxIndexKeySize;
+  }
+
+  /** Refreshes the published limit before indexes can use a created or loaded configuration. */
+  protected final void refreshRecordedMaxIndexKeySize(AtomicOperation atomicOperation) {
+    recordedMaxIndexKeySize = configuration.getMaxKeySize(atomicOperation);
+  }
+
   @Override
   public final boolean isClosed(DatabaseSessionEmbedded database) {
     try {
@@ -1970,15 +2121,34 @@ public abstract class AbstractStorage
     return status == STATUS.CLOSED;
   }
 
+  /**
+   * Closes the session, or shuts down the storage when {@code force} is true.
+   *
+   * <p>Forced close waits for admitted commits and running fuzzy checkpoints or WAL vacuum that
+   * hold the storage state read lock, including the histogram rebuild tail. This method throws
+   * {@link StorageStateContextException} when {@code force} is true and the caller holds the state
+   * lock in read or write mode, or has an open commit window, because {@link ScalableRWLock} is
+   * non-reentrant. This caller check does not apply to {@link #shutdown()}.
+   */
   @Override
   public final void close(DatabaseSessionEmbedded database, final boolean force) {
+    // Reject caller misuse before lock acquisition and outside storage error handling.
+    if (force && callerOwnsStateProtection()) {
+      throw new StorageStateContextException(
+          "Forced close requires a caller without the storage state lock or an open commit window");
+    }
     try {
       if (!force) {
         close(database);
         return;
       }
 
-      doShutdown();
+      stateLock.writeLock().lock();
+      try {
+        doShutdown();
+      } finally {
+        stateLock.writeLock().unlock();
+      }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
     } catch (final Error ee) {
@@ -4300,6 +4470,7 @@ public abstract class AbstractStorage
    * reads is the pre-commit state again; a fresh engine is reconstructed from the captured durable
    * {@link IndexEngineData} through the same {@code Indexes.createIndexEngine} + {@code engine.load}
    * path {@link #openIndexes} uses at startup, and re-registered at the original slot.
+   * The captured file base id also reconnects it to the history retained by engine delete.
    *
    * <p>A fresh engine object is rebuilt rather than re-publishing the torn one: {@code
    * deleteIndexEngineInCommitWindow} ran the engine's own {@code delete}, which for a B-tree engine
@@ -4753,8 +4924,8 @@ public abstract class AbstractStorage
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
       // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
-      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
+      // and index tree component lock through Hook B. The histogram rebuild tail retains state
+      // read protection through its callIndexEngine callback, but not the tree component lock.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4824,8 +4995,8 @@ public abstract class AbstractStorage
       var engineId = entry.getKey();
       var delta = entry.getValue();
       // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The rebuild tail reaches Hook B after
-      // releasing both locks. That pre-existing unlocked lookup is deferred to YTDB-1268.
+      // and index tree component lock through Hook B. The histogram rebuild tail retains state
+      // read protection through its callIndexEngine callback, but not the tree component lock.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -7231,10 +7402,6 @@ public abstract class AbstractStorage
     return orphanTruncationDispatchCountForTests.get();
   }
 
-  public boolean wereNonTxOperationsPerformedInPreviousOpen() {
-    return wereNonTxOperationsPerformedInPreviousOpen;
-  }
-
   @Override
   public final void reload(DatabaseSessionEmbedded database) {
     try {
@@ -7566,9 +7733,9 @@ public abstract class AbstractStorage
       var beginLSN = writeAheadLog.begin();
       var endLSN = writeAheadLog.end();
 
-      // Sample operation ownership first. A committing operation publishes its page
-      // requirements before WAL completion can remove operation-table protection. The following
-      // cache sample therefore observes either the old owner or the new owner.
+      // The anchor keeps WAL for operations that register after the table sample.
+      // Sample the table before the cache so a transfer of page ownership cannot escape both.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var minAtomicOperationSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
@@ -7589,6 +7756,9 @@ public abstract class AbstractStorage
       if (minAtomicOperationSegment >= 0 && fuzzySegment > minAtomicOperationSegment) {
         fuzzySegment = minAtomicOperationSegment;
       }
+      if (fuzzySegment > anchorSegment) {
+        fuzzySegment = anchorSegment;
+      }
 
       LogManager.instance()
           .debug(
@@ -7608,7 +7778,9 @@ public abstract class AbstractStorage
         }
         LogManager.instance().debug(this, "Making fuzzy checkpoint", logger);
         saveMaintenanceFloorBeforeWalRemoval();
-        writeCache.syncDataFiles(fuzzySegment);
+        writeCache.syncDataFiles();
+        // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+        checkpointChangedPages(fuzzySegment);
 
         beginLSN = writeAheadLog.begin();
         endLSN = writeAheadLog.end();
@@ -7803,6 +7975,8 @@ public abstract class AbstractStorage
 
       writeCache.flush();
 
+      // Read the anchor before either table check to retain WAL for later registrations.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestOperationInProgress();
       if (operationSegment >= 0) {
@@ -7812,8 +7986,8 @@ public abstract class AbstractStorage
 
       writeAheadLog.flush();
 
-      // Operation protection is sampled before cache protection. Page publication happens
-      // before WAL completion releases the operation-table owner, so no cut can miss both.
+      // Sample the table before the cache to cover page ownership transfers.
+      // The anchor also covers operations that register after these table checks.
       final var notPersistedSegment =
           atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
@@ -7830,7 +8004,10 @@ public abstract class AbstractStorage
       }
 
       if (protectedSegment >= 0) {
-        writeAheadLog.cutAllSegmentsSmallerThan(protectedSegment);
+        if (protectedSegment > anchorSegment) {
+          protectedSegment = anchorSegment;
+        }
+        checkpointChangedPages(protectedSegment);
         // Unresolved recovery requirements keep the dirty marker for the next open.
         LogManager.instance()
             .warn(
@@ -7838,8 +8015,12 @@ public abstract class AbstractStorage
                 "Storage %s keeps write ahead log starting from protected segment %d",
                 (Throwable) null, name, protectedSegment);
       } else {
-        writeAheadLog.cutTill(lastLSN);
-        clearStorageDirty();
+        // This record precedes the cache flush, so its segment cannot exceed the anchor.
+        final var result = checkpointChangedPages(lastLSN.getSegment());
+        // An unavailable preflight leaves recovery pending for the next checkpoint or open.
+        if (result.outcome() != CheckpointOutcome.PREFLIGHT_UNAVAILABLE) {
+          clearStorageDirty();
+        }
       }
 
     } catch (final IOException ioe) {
@@ -7875,6 +8056,22 @@ public abstract class AbstractStorage
     return exists();
   }
 
+  /**
+   * Publishes changed-page coverage or durable invalidation, then attempts the bounded WAL cut.
+   * The caller fixes the boundary after sampling all protections and calls only after successful
+   * data synchronization, outside the cache checkpoint bracket and file inventory lock. It keeps
+   * its existing storage state exclusion and handles PREFLIGHT_UNAVAILABLE as a retryable no-cut
+   * result. IOException reporting belongs to the caller's checkpoint error boundary.
+   */
+  protected abstract CheckpointResult checkpointChangedPages(long fixedBoundary) throws IOException;
+
+  /** Initializes an existing image. Storage without disk history uses its normal initializer. */
+  protected void initWalAndDiskCacheOnOpen(ContextConfiguration contextConfiguration)
+      throws IOException, java.lang.InterruptedException {
+    initWalAndDiskCache(contextConfiguration);
+  }
+
+  /** Initializes WAL and caches for creation and the default existing-image memory open. */
   protected abstract void initWalAndDiskCache(ContextConfiguration contextConfiguration)
       throws IOException, java.lang.InterruptedException;
 
@@ -8188,18 +8385,28 @@ public abstract class AbstractStorage
 
         wereDataRestoredAfterOpen = true;
 
-        // Delete non-durable files before WAL replay — their data is unrecoverable
-        // (no WAL records exist). The returned set is used by restoreAtomicUnit() to
-        // skip WAL records referencing these files.
-        deletedNonDurableFileIds = writeCache.deleteNonDurableFilesOnRecovery(readCache);
-
+        beginStartupReplay();
+        Throwable replayFailure = null;
         try {
+          // Deletion and replay form one preservation interval, including deletion failure.
+          deletedNonDurableFileIds = writeCache.deleteNonDurableFilesOnRecovery(readCache);
           restoreFromWAL();
+        } catch (Exception | Error primary) {
+          replayFailure = primary;
+          throw primary;
         } finally {
-          // Clear after replay — no longer needed, and prevents stale references
           deletedNonDurableFileIds = new IntOpenHashSet();
+          try {
+            endStartupReplay();
+          } catch (Throwable secondary) {
+            if (replayFailure == null) {
+              throw secondary;
+            }
+            suppressOpenFailure(replayFailure, secondary);
+          }
         }
 
+        startupHistoryBarrier();
         if (recoverListener != null) {
           recoverListener.onStorageRecover();
         }
@@ -8207,7 +8414,11 @@ public abstract class AbstractStorage
         flushDirtyHistograms();
         flushAllData();
       } catch (final Exception e) {
-        LogManager.instance().error(this, "Exception during storage data restore", e);
+        try {
+          LogManager.instance().error(this, "Exception during storage data restore", e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
         throw e;
       }
 
@@ -8940,28 +9151,9 @@ public abstract class AbstractStorage
       nullIndexSnapshotVisibilityIndex.clear();
       indexesSnapshotEntriesCount.set(0);
 
-      // writeCache and readCache are guaranteed non-null past this
-      // point. The entry guard at the top of doShutdownOnDelete returns
-      // early on STATUS.CLOSED and throws unless status == STATUS.OPEN
-      // or isInError(). writeCache is assigned during
-      // initWalAndDiskCache (DiskStorage.java:790 for the disk engine,
-      // DirectMemoryStorage.java:78 for the in-memory engine), and
-      // readCache is assigned in the DiskStorage constructor
-      // (DiskStorage.java:261) or during the in-memory engine's init
-      // (DirectMemoryStorage.java:74). status = STATUS.OPEN is reached
-      // only after that wiring completes; every open() failure path
-      // that flips isInError() leaves status at STATUS.CLOSED, which
-      // the early-return catches. The asserts document the invariant
-      // and runtime-check it under -ea (the test JVM default;
-      // production runs -ea off, so this is free).
-      //
-      // Listener teardown and read-cache deletion run inside a
-      // defensive try/catch(Throwable) so any unexpected runtime
-      // failure here (a future invariant violation under -ea off, an
-      // implementation that throws from a listener removal, etc.)
-      // cannot bypass writeAheadLog.delete() and re-leak the WAL's two
-      // direct-memory write buffers (the exact failure mode this
-      // commit fixed).
+      // Completed disk common-builder or memory initialization supplies both caches before OPEN.
+      // The entry guard rejects other states and returns for CLOSED, including failed opens.
+      // Listener teardown and cache deletion must not prevent the later WAL deletion attempt.
       assert writeCache != null;
       assert readCache != null;
       try {
@@ -9197,6 +9389,8 @@ public abstract class AbstractStorage
   private LogSequenceNumber restoreFrom(WriteAheadLog writeAheadLog, LogSequenceNumber lsn,
       RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
+    final var replayDeletions = new ReplayDeletions(writeAheadLog);
+    final var cursor = new RecoveryWALCursor(writeAheadLog);
 
     long recordsProcessed = 0;
     long maxOperationUnitId = -1;
@@ -9210,10 +9404,13 @@ public abstract class AbstractStorage
     LogSequenceNumber lastUpdatedLSN = null;
 
     try {
-      var records = writeAheadLog.read(lsn, 1_000);
+      var records = cursor.read(lsn);
 
       while (!records.isEmpty()) {
         for (final var walRecord : records) {
+          // Count the end before applying its unit, including that unit's own deletion.
+          replayDeletions.position = walRecord.getLsn();
+          replayDeletions.observe(walRecord);
           switch (walRecord) {
             case AtomicUnitEndRecord atomicUnitEndRecord -> {
               final var opId = atomicUnitEndRecord.getOperationUnitId();
@@ -9226,7 +9423,8 @@ public abstract class AbstractStorage
               // flushed to the disk
               if (atomicUnit != null) {
                 atomicUnit.add(walRecord);
-                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext);
+                restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext,
+                    replayDeletions);
                 lastUpdatedLSN = walRecord.getLsn();
               }
             }
@@ -9243,16 +9441,6 @@ public abstract class AbstractStorage
                   operationUnits.computeIfAbsent(
                       operationUnitRecord.getOperationUnitId(), k -> new ArrayList<>(1024));
               operationList.add(operationUnitRecord);
-            }
-            case NonTxOperationPerformedWALRecord ignored -> {
-              if (!wereNonTxOperationsPerformedInPreviousOpen) {
-                LogManager.instance()
-                    .warn(
-                        this,
-                        "Non tx operation was used during data modification we will need index"
-                            + " rebuild.");
-                wereNonTxOperationsPerformedInPreviousOpen = true;
-              }
             }
             case null, default -> LogManager.instance()
                 .debug(this, "Record %s will be skipped during data restore",
@@ -9275,22 +9463,53 @@ public abstract class AbstractStorage
           }
         }
 
-        records = writeAheadLog.next(records.getLast().getLsn(), 1_000);
+        records = cursor.next(records.getLast().getLsn());
       }
+      cursor.checkFailure();
+    } catch (final IOException e) {
+      try {
+        try {
+          cursor.attachFailure(e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
+        startupReplayFailed();
+      } catch (Throwable secondary) {
+        suppressOpenFailure(e, secondary);
+      }
+      throw e;
     } catch (final WALPageBrokenException e) {
-      LogManager.instance()
-          .error(
-              this,
-              "Data restore was paused because broken WAL page was found. The rest of changes will"
-                  + " be rolled back.",
-              e);
+      try {
+        try {
+          cursor.attachFailure(e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
+        startupReplayFailed();
+        LogManager.instance().error(this,
+            "Data restore was paused because broken WAL page was found. The rest of changes will"
+                + " be rolled back.",
+            e);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(e, secondary);
+        throw e;
+      }
     } catch (final RuntimeException e) {
-      LogManager.instance()
-          .error(
-              this,
-              "Data restore was paused because of exception. The rest of changes will be rolled"
-                  + " back.",
-              e);
+      try {
+        try {
+          cursor.attachFailure(e);
+        } catch (Throwable secondary) {
+          suppressOpenFailure(e, secondary);
+        }
+        startupReplayFailed();
+        LogManager.instance().error(this,
+            "Data restore was paused because of exception. The rest of changes will be rolled"
+                + " back.",
+            e);
+      } catch (Throwable secondary) {
+        suppressOpenFailure(e, secondary);
+        throw e;
+      }
     }
 
     // WAL operation identifiers are highest-issued evidence, not the next identifier to issue.
@@ -9303,6 +9522,129 @@ public abstract class AbstractStorage
     return lastUpdatedLSN;
   }
 
+  /**
+   * Both recovery reads consume the decoded prefix before reporting its failure.
+   * A deferred failure must also be checked when that prefix is empty.
+   */
+  private static final class RecoveryWALCursor {
+
+    private final WriteAheadLog wal;
+    private RuntimeException failure;
+
+    private RecoveryWALCursor(WriteAheadLog wal) {
+      this.wal = wal;
+    }
+
+    private List<WriteableWALRecord> read(LogSequenceNumber position) throws IOException {
+      checkFailure();
+      try {
+        if (wal instanceof CASDiskWriteAheadLog disk) {
+          return disk.readForRecovery(position, 1_000);
+        }
+        return wal.read(position, 1_000);
+      } catch (WALRecordDecodeException e) {
+        return deferFailure(e);
+      }
+    }
+
+    private List<WriteableWALRecord> next(LogSequenceNumber position) throws IOException {
+      checkFailure();
+      try {
+        if (wal instanceof CASDiskWriteAheadLog disk) {
+          return disk.nextForRecovery(position, 1_000);
+        }
+        return wal.next(position, 1_000);
+      } catch (WALRecordDecodeException e) {
+        return deferFailure(e);
+      }
+    }
+
+    private List<WriteableWALRecord> deferFailure(WALRecordDecodeException e) {
+      failure = e.getCauseWithSuppressed();
+      return e.getRecords();
+    }
+
+    private void checkFailure() {
+      if (failure != null) {
+        throw failure;
+      }
+    }
+
+    private void attachFailure(Throwable replayFailure) {
+      // Prefix replay can fail before the deferred decode error reaches checkFailure().
+      // Keep both causes without replacing the replay failure or suppressing it on itself.
+      if (failure != null && failure != replayFailure) {
+        replayFailure.addSuppressed(failure);
+      }
+    }
+  }
+
+  /**
+   * Deletion evidence belongs to one WAL replay, including backup replay without a page context.
+   * Unit ids are unique within that WAL, as required by the normal replay buffer.
+   */
+  private final class ReplayDeletions {
+
+    private final WriteAheadLog wal;
+    private final Map<Long, List<FileDeletedWALRecord>> pending = new HashMap<>();
+    private final Map<Integer, LogSequenceNumber> committed = new HashMap<>();
+    private LogSequenceNumber position;
+    private LogSequenceNumber observedThrough;
+    private boolean scanned;
+
+    private ReplayDeletions(WriteAheadLog wal) {
+      this.wal = wal;
+    }
+
+    private void observe(WALRecord record) {
+      // The normal reader eventually catches up with the forward reader. Do not count twice.
+      if (observedThrough != null && record.getLsn().compareTo(observedThrough) <= 0) {
+        return;
+      }
+      observedThrough = record.getLsn();
+      if (record instanceof FileDeletedWALRecord deletion) {
+        pending.computeIfAbsent(deletion.getOperationUnitId(), ignored -> new ArrayList<>())
+            .add(deletion);
+      } else if (record instanceof AtomicUnitEndRecord end) {
+        final var deletions = pending.remove(end.getOperationUnitId());
+        if (deletions != null) {
+          for (final var deletion : deletions) {
+            committed.merge(writeCache.internalFileId(deletion.getFileId()), deletion.getLsn(),
+                (left, right) -> left.compareTo(right) >= 0 ? left : right);
+          }
+        }
+      }
+    }
+
+    private boolean deletedAfter(int internalId, LogSequenceNumber pagePosition) {
+      if (!scanned) {
+        scanned = true;
+        // position is the last consumed record, not the end of its fetched batch.
+        var cursor = position;
+        final var reader = new RecoveryWALCursor(wal);
+        try {
+          var records = reader.next(cursor);
+          while (!records.isEmpty()) {
+            for (final var record : records) {
+              observe(record);
+            }
+            cursor = records.getLast().getLsn();
+            records = reader.next(cursor);
+          }
+          reader.checkFailure();
+        } catch (IOException | RuntimeException e) {
+          reader.attachFailure(e);
+          // No evidence beyond the valid prefix may authorize a skip. Normal replay still
+          // handles its own read errors and can continue using all evidence collected so far.
+          LogManager.instance().warn(AbstractStorage.this,
+              "Deletion lookahead stopped at WAL position %s", e, cursor);
+        }
+      }
+      final var deletion = committed.get(internalId);
+      return deletion != null && deletion.compareTo(pagePosition) > 0;
+    }
+  }
+
   protected final void restoreAtomicUnit(
       final List<WALRecord> atomicUnit, final ModifiableBoolean atLeastOnePageUpdate)
       throws IOException {
@@ -9312,8 +9654,15 @@ public abstract class AbstractStorage
   private void restoreAtomicUnit(final List<WALRecord> atomicUnit,
       final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
       throws IOException {
+    // Standalone replay has no WAL to read forward and retains its existing fallback behavior.
+    restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate, recoveryContext, null);
+  }
+
+  private void restoreAtomicUnit(final List<WALRecord> atomicUnit,
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext,
+      ReplayDeletions replayDeletions) throws IOException {
     assert atomicUnit.getLast() instanceof AtomicUnitEndRecord;
-    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit);
+    final var declaredAllocationPages = scanDeclaredAllocationPages(atomicUnit, replayDeletions);
     if (recoveryContext != null) {
       // A fuzzy-checkpoint WAL cut can leave only the tail of a committed unit. Its
       // allocations do not prove that earlier page changes remain in WAL.
@@ -9339,7 +9688,7 @@ public abstract class AbstractStorage
           readCache.releaseFromWrite(entry, writeCache, true);
         }
       }
-      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext);
+      applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext, replayDeletions);
     } finally {
       if (recoveryContext != null) {
         recoveryContext.setDeclaredPages(null);
@@ -9351,6 +9700,11 @@ public abstract class AbstractStorage
   // Package-private so replay tests can check the allocation map without reflection.
   Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
       final List<WALRecord> atomicUnit) throws IOException {
+    return scanDeclaredAllocationPages(atomicUnit, null);
+  }
+
+  private Map<Integer, TreeMap<Long, LogSequenceNumber>> scanDeclaredAllocationPages(
+      final List<WALRecord> atomicUnit, ReplayDeletions replayDeletions) throws IOException {
     final Map<Integer, TreeMap<Long, LogSequenceNumber>> declaredAllocationPages = new TreeMap<>();
     // Scan the whole unit before any redo. Allocation records may follow the
     // page operations that require their pages, including a pending file create.
@@ -9361,7 +9715,9 @@ public abstract class AbstractStorage
         if (deletedNonDurableFileIds.contains(internalId)) {
           continue;
         }
-        ensureFileForReplay(atomicUnit, fileId);
+        if (!ensureFileForReplay(atomicUnit, fileId, allocation.getLsn(), replayDeletions)) {
+          continue;
+        }
         declaredAllocationPages.computeIfAbsent(internalId, ignored -> new TreeMap<>())
             .put(allocation.getPageIndex(), allocation.getLsn());
       }
@@ -9370,8 +9726,8 @@ public abstract class AbstractStorage
   }
 
   private void applyAtomicUnitRecords(final List<WALRecord> atomicUnit,
-      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext)
-      throws IOException {
+      final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext,
+      ReplayDeletions replayDeletions) throws IOException {
     for (final var walRecord : atomicUnit) {
       if (recoveryContext != null) {
         recoveryContext.setCurrentRecord(walRecord.getLsn());
@@ -9408,7 +9764,9 @@ public abstract class AbstractStorage
             continue;
           }
 
-          ensureFileForReplay(atomicUnit, fileId);
+          if (!ensureFileForReplay(atomicUnit, fileId, walRecord.getLsn(), replayDeletions)) {
+            continue;
+          }
 
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -9467,7 +9825,9 @@ public abstract class AbstractStorage
             continue;
           }
 
-          ensureFileForReplay(atomicUnit, fileId);
+          if (!ensureFileForReplay(atomicUnit, fileId, walRecord.getLsn(), replayDeletions)) {
+            continue;
+          }
 
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -9550,41 +9910,31 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Materializes a file a page-redo record references but the cache has not seen yet, so
-   * WAL replay can continue across atomic units. The open-time caller has already applied the
-   * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
-   * file on that path. The incremental-backup caller
-   * ({@code DiskStorage.restoreFromIncrementalBackup}, the other of the two {@code restoreFrom}
-   * callers) reaches this helper with {@code deletedNonDurableFileIds} as the empty no-op set
-   * left behind by open-time recovery — incremental-backup restore has no non-durable-file
-   * concept, so the skip is simply inert there rather than a universal precondition. The branch
-   * order is the lazy-consult sequence (see issue YTDB-1099):
+   * Resolves the file referenced by a page change, or skips a change whose missing file is deleted
+   * later. The caller checks non-durable file exclusions first. Incremental-backup replay has no
+   * non-durable files and uses an empty exclusion set.
    *
    * <ol>
-   *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
-   *       {@code addFile} was lost (the crash landed between its durable end record and
-   *       the completion of its apply phase) leaves a later committed unit's page redo
-   *       pointing at a file the cache never created. Scan this unit forward for the
-   *       {@link FileCreatedWALRecord} that creates the file, matched on
-   *       {@code internalFileId} because backup/restore rewrites the external high bits,
-   *       and materialize the empty file through the same
-   *       {@code readCache.addFile(name, id, writeCache)} path the
-   *       {@code FileCreatedWALRecord} branch uses. The later {@code FileCreatedWALRecord}
-   *       then replays as an idempotent no-op. Without this, the redo would throw and
-   *       {@code restoreFrom}'s {@code catch (RuntimeException)} would discard every later
-   *       unit.</li>
-   *   <li><b>{@code restoreFileById} fallback.</b> A file deleted by a later, already-applied
-   *       unit is resurrected from its persisted negative name-id entry. Load-bearing -- kept
-   *       unchanged.</li>
-   *   <li><b>Throw.</b> Neither path recovered the file, so the unit is genuinely incomplete
-   *       (its create record was never made durable) and the rest of the restore is
-   *       abandoned, exactly as before the fix.</li>
+   *   <li><b>Existing file.</b> Return true without consulting deletion evidence.</li>
+   *   <li><b>Pending-create consult.</b> Scan the current unit for a matching
+   *       {@link FileCreatedWALRecord}, comparing internal file ids because backup restore rewrites
+   *       external high bits. If its file name is absent, materialize the file through
+   *       {@code readCache.addFile(name, id, writeCache)} and return true. The unit's later create
+   *       record then replays as an idempotent no-op.</li>
+   *   <li><b>Later committed deletion.</b> If this recovery call has a counted deletion after the
+   *       page change, log the skip and return false without restoring the missing file.</li>
+   *   <li><b>{@code restoreFileById} fallback.</b> If no skip applies, attempt to restore the missing
+   *       file from its persisted negative name-id entry. Return true on success.</li>
+   *   <li><b>Throw.</b> If the file remains missing, throw {@link StorageException} so the caller
+   *       abandons the rest of the restore.</li>
    * </ol>
+   *
+   * @return true if the file exists or was materialized, false if the caller must skip the change
    */
-  private void ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId)
-      throws IOException {
+  private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
+      LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
     if (writeCache.exists(fileId)) {
-      return;
+      return true;
     }
 
     final var internalId = writeCache.internalFileId(fileId);
@@ -9605,13 +9955,20 @@ public abstract class AbstractStorage
       // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
       //
       // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
-      // so this forward scan finds nothing for it and correctly falls through to restoreFileById.
+      // so this scan finds nothing for it. Check later deletion evidence before the fallback.
       if (record instanceof FileCreatedWALRecord fileCreated
           && writeCache.internalFileId(fileCreated.getFileId()) == internalId
           && !writeCache.exists(fileCreated.getFileName())) {
         readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
-        return;
+        return true;
       }
+    }
+
+    if (replayDeletions != null && replayDeletions.deletedAfter(internalId, position)) {
+      LogManager.instance().info(this,
+          "Skipping page change at %s for missing file %d: committed deletion at %s",
+          position, fileId, replayDeletions.committed.get(internalId));
+      return false;
     }
 
     final var fileName = writeCache.restoreFileById(fileId);
@@ -9622,7 +9979,7 @@ public abstract class AbstractStorage
               "Previously deleted file with name "
                   + fileName
                   + " was deleted but new empty file was added to continue restore process");
-      return;
+      return true;
     }
 
     throw new StorageException(name,
@@ -10146,6 +10503,7 @@ public abstract class AbstractStorage
   }
 
   void runWALVacuum() {
+    var coordinatorStarted = false;
     stateLock.readLock().lock();
     try {
 
@@ -10187,15 +10545,18 @@ public abstract class AbstractStorage
         previousCacheSegment = cacheSegment;
       } while (minDirtySegment < flushTillSegmentId);
 
-      // Re-sample in ownership-transfer order after flushing. A concurrent commit cannot
-      // disappear from operation tracking before its cache requirement becomes visible.
+      // Take a new anchor before the final table sample to cover later registrations.
+      // Keep table-before-cache order to cover page ownership transfers.
+      final var anchorSegment = writeAheadLog.activeSegment();
       atomicOperationsTable.compactTable();
       final var operationSegment = atomicOperationsTable.getSegmentEarliestNotPersistedOperation();
-      final var activeSegment = writeAheadLog.activeSegment();
       final var cacheSegment = writeCache.getMinimalNotFlushedSegment();
-      minDirtySegment = Objects.requireNonNullElse(cacheSegment, activeSegment);
+      minDirtySegment = Objects.requireNonNullElse(cacheSegment, anchorSegment);
       if (operationSegment >= 0 && minDirtySegment > operationSegment) {
         minDirtySegment = operationSegment;
+      }
+      if (minDirtySegment > anchorSegment) {
+        minDirtySegment = anchorSegment;
       }
 
       if (minDirtySegment <= nonActiveSegments[0]) {
@@ -10208,11 +10569,20 @@ public abstract class AbstractStorage
         beforeRead.run();
       }
       saveMaintenanceFloorBeforeWalRemoval();
-      writeCache.syncDataFiles(minDirtySegment);
+      writeCache.syncDataFiles();
+      // Publish tracker coverage outside the cache checkpoint bracket and filesLock.
+      coordinatorStarted = true;
+      checkpointChangedPages(minDirtySegment);
     } catch (final Exception e) {
       LogManager.instance()
           .error(
               this, "Error during flushing of data for fuzzy checkpoint, in storage %s", e, name);
+      // Keep floor and data-force failures retryable. Coordinator failures also reach callers.
+      if (coordinatorStarted) {
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during changed-page checkpoint for storage " + name),
+            e, name);
+      }
     } finally {
       stateLock.readLock().unlock();
       walVacuumInProgress.set(false);
@@ -10546,13 +10916,16 @@ public abstract class AbstractStorage
     // entries whose snapshotData was already cleaned are removed from versionIdx.
     for (var it = stale.entrySet().iterator(); it.hasNext();) {
       var entry = it.next();
-      snapshotData.remove(entry.getKey());
+      // For pairs with no shared entries, remove the tombstone before its guard so
+      // readers in a CLEAR/reinsert gap cannot see the old RID between removals.
+      // Chained updates share keys and have a separate eviction defect (YTDB-1490).
       snapshotData.remove(entry.getValue());
+      snapshotData.remove(entry.getKey());
       it.remove();
       evicted += 2;
     }
     if (evicted > 0) {
-      // Clamp to zero: concurrent clear() and eviction may both decrement
+      // Clamp to zero: explicit snapshot utility clear() and eviction may both decrement
       // for the same entries (ConcurrentSkipListMap.remove is idempotent
       // but both callers counted entries during their own iteration pass).
       final long delta = evicted;
@@ -10592,16 +10965,16 @@ public abstract class AbstractStorage
     }
   }
 
-  public IndexesSnapshot subIndexSnapshot(long indexId) {
+  public IndexesSnapshot subIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedIndexesSnapshot, indexesSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        indexId);
+        historyFileBaseId);
   }
 
-  public IndexesSnapshot subNullIndexSnapshot(long indexId) {
+  public IndexesSnapshot subNullIndexSnapshot(long historyFileBaseId) {
     return new IndexesSnapshot(
         sharedNullIndexesSnapshot, nullIndexSnapshotVisibilityIndex, indexesSnapshotEntriesCount,
-        indexId);
+        historyFileBaseId);
   }
 
   /**
@@ -10614,6 +10987,7 @@ public abstract class AbstractStorage
    * within BTree code paths instead.
    *
    * @return the scoped snapshot, or {@code null} if no engine with this name exists
+   * @throws IllegalArgumentException if the registered engine has no B-tree file base id
    */
   @Nullable public IndexesSnapshot getIndexSnapshotByEngineName(String engineName) {
     stateLock.readLock().lock();
@@ -10622,7 +10996,7 @@ public abstract class AbstractStorage
       if (engine == null) {
         return null;
       }
-      return subIndexSnapshot(engine.getId());
+      return subIndexSnapshot(requireHistoryFileBaseId(engine));
     } finally {
       stateLock.readLock().unlock();
     }
@@ -10638,6 +11012,7 @@ public abstract class AbstractStorage
    * lock ordering inversion.
    *
    * @return the scoped null snapshot, or {@code null} if no engine with this name exists
+   * @throws IllegalArgumentException if the registered engine has no B-tree file base id
    */
   @Nullable public IndexesSnapshot getNullIndexSnapshotByEngineName(String engineName) {
     stateLock.readLock().lock();
@@ -10646,7 +11021,7 @@ public abstract class AbstractStorage
       if (engine == null) {
         return null;
       }
-      return subNullIndexSnapshot(engine.getId());
+      return subNullIndexSnapshot(requireHistoryFileBaseId(engine));
     } finally {
       stateLock.readLock().unlock();
     }
@@ -10665,7 +11040,7 @@ public abstract class AbstractStorage
    * an intermediate {@link IndexesSnapshot} instance.
    *
    * <p><b>Note:</b> This method acquires {@code stateLock.readLock()} to resolve
-   * the engine name to an ID. If the caller already knows the engine ID (e.g.,
+   * the engine name to a file base id. If the caller already knows that id (e.g.,
    * from a cached field), prefer {@link #hasActiveIndexSnapshotEntriesById} to
    * avoid the lock acquisition.
    *
@@ -10691,60 +11066,75 @@ public abstract class AbstractStorage
 
     // indexEngineNameMap is a plain HashMap — guard with stateLock.readLock()
     // to avoid racing with concurrent index creation/deletion.
-    final long indexId;
+    final long historyFileBaseId;
     stateLock.readLock().lock();
     try {
       var engine = indexEngineNameMap.get(resolvedName);
       if (engine == null) {
         return false;
       }
-      indexId = engine.getId();
+      historyFileBaseId = requireHistoryFileBaseId(engine);
     } finally {
       stateLock.readLock().unlock();
     }
 
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
   }
 
   /**
    * Lock-free variant of {@link #hasActiveIndexSnapshotEntries} that accepts a
-   * pre-resolved engine ID and a flag to select the snapshot map. This avoids
+   * pre-resolved, never-reused file base id and a flag to select the snapshot map. This avoids
    * acquiring {@code stateLock.readLock()} for the {@code indexEngineNameMap}
    * lookup, eliminating the lock-ordering inversion when called while holding
    * a BTree component lock.
    *
-   * @param indexId the pre-resolved index engine ID
+   * @param historyFileBaseId the pre-resolved engine file base id, never the reusable registry slot
    * @param useNullSnapshot {@code true} to query the null-key snapshot map
    * @param userKeyPrefix the key prefix (all CompositeKey elements except the version)
    * @param lwm the global low-water mark
    * @return {@code true} if at least one snapshot entry exists with version >= lwm
    */
   public boolean hasActiveIndexSnapshotEntriesById(
-      long indexId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
-    assert indexId >= 0 : "indexId must be non-negative, got " + indexId;
+      long historyFileBaseId, boolean useNullSnapshot, CompositeKey userKeyPrefix, long lwm) {
+    assert historyFileBaseId >= 0
+        : "historyFileBaseId must be non-negative, got " + historyFileBaseId;
     final NavigableMap<CompositeKey, RID> snapshotMap =
         useNullSnapshot ? sharedNullIndexesSnapshot : sharedIndexesSnapshot;
-    return hasActiveSnapshotEntriesInMap(snapshotMap, indexId, userKeyPrefix, lwm);
+    return hasActiveSnapshotEntriesInMap(snapshotMap, historyFileBaseId, userKeyPrefix, lwm);
+  }
+
+  /**
+   * Snapshot history belongs only to B-tree engines. Reject other engines, including test
+   * stubs, rather than treating a reusable slot as history identity or reporting no history.
+   * A false empty result could let tombstone GC demote a marker that a reader still needs.
+   */
+  private static int requireHistoryFileBaseId(BaseIndexEngine engine) {
+    if (engine instanceof BTreeIndexEngine bTreeEngine) {
+      return bTreeEngine.getFileBaseId();
+    }
+    throw new IllegalArgumentException(
+        "Index snapshot history requires a B-tree engine: " + engine.getName());
   }
 
   private static final Long LONG_MAX_VALUE = Long.MAX_VALUE;
 
   private static boolean hasActiveSnapshotEntriesInMap(
       NavigableMap<CompositeKey, RID> snapshotMap,
-      long indexId,
+      long historyFileBaseId,
       CompositeKey userKeyPrefix,
       long lwm) {
     assert lwm >= 0 : "LWM must be non-negative, got " + lwm;
     var prefixKeys = userKeyPrefix.getKeys();
-    var lower = buildSnapshotBoundKey(indexId, prefixKeys, lwm);
-    var upper = buildSnapshotBoundKey(indexId, prefixKeys, LONG_MAX_VALUE);
+    var lower = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, lwm);
+    var upper = buildSnapshotBoundKey(historyFileBaseId, prefixKeys, LONG_MAX_VALUE);
     return !snapshotMap.subMap(lower, true, upper, true).isEmpty();
   }
 
+  // The leading bound element is the never-reused file base id, not a registry slot.
   private static CompositeKey buildSnapshotBoundKey(
-      long indexId, List<Object> prefixKeys, long version) {
+      long historyFileBaseId, List<Object> prefixKeys, long version) {
     var key = new CompositeKey(prefixKeys.size() + 2);
-    key.addKey(indexId);
+    key.addKey(historyFileBaseId);
     for (var pk : prefixKeys) {
       key.addKey(pk);
     }

@@ -67,6 +67,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
@@ -85,6 +86,8 @@ public abstract class IndexAbstract implements Index {
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
   private static final String CONFIG_COLLECTIONS = "collections";
+
+  private final AtomicBoolean keyShorteningWarned = new AtomicBoolean();
 
   @Nonnull
   protected final AbstractStorage storage;
@@ -954,6 +957,15 @@ public abstract class IndexAbstract implements Index {
   @Override
   public long rebuild(DatabaseSessionEmbedded session,
       final ProgressListener progressListener) {
+    try {
+      return rebuildAndFill(session, progressListener);
+    } finally {
+      invalidatePlansAfterFill(session);
+    }
+  }
+
+  private long rebuildAndFill(DatabaseSessionEmbedded session,
+      final ProgressListener progressListener) {
     long entitiesIndexed;
 
     acquireExclusiveLock();
@@ -1036,7 +1048,7 @@ public abstract class IndexAbstract implements Index {
     // computes all statistics from scratch (exact NDV, accurate frequencies).
     setBulkLoading(true);
     try {
-      entitiesIndexed = fillIndex(session, progressListener);
+      entitiesIndexed = fillIndex(session, progressListener, false);
     } finally {
       // Always disable bulk-load mode, even on failure, to avoid
       // permanently suppressing delta accumulation if the engine survives.
@@ -1101,24 +1113,25 @@ public abstract class IndexAbstract implements Index {
     boolean recovered = false;
     while (true) {
       try {
-        var engine = storage.getIndexEngine(engineIdentifierForRebuildTail());
-        if (engine instanceof BTreeIndexEngine btreeEngine) {
-          if (btreeEngine.getHistogramManager() != null) {
-            try {
-              storage.getAtomicOperationsManager()
-                  .executeInsideAtomicOperation(
-                      atomicOperation -> btreeEngine
-                          .buildInitialHistogram(atomicOperation));
-            } catch (IOException e) {
-              // Histogram build failure must not fail the index rebuild.
-              // The histogram will be built lazily on the next rebalance.
-              LogManager.instance().warn(
-                  IndexAbstract.this,
-                  "Failed to build initial histogram for index '%s': %s",
-                  im.getName(), e.getMessage());
+        // Keep state protection through atomic completion, including the post-commit hooks.
+        storage.callIndexEngine(true, engineIdentifierForRebuildTail(), engine -> {
+          if (engine instanceof BTreeIndexEngine btreeEngine) {
+            if (btreeEngine.getHistogramManager() != null) {
+              try {
+                storage.getAtomicOperationsManager()
+                    .executeInsideAtomicOperation(btreeEngine::buildInitialHistogram);
+              } catch (IOException e) {
+                // Histogram build failure must not fail the index rebuild.
+                // The histogram will be built lazily on the next rebalance.
+                LogManager.instance().warn(
+                    IndexAbstract.this,
+                    "Failed to build initial histogram for index '%s': %s",
+                    im.getName(), e.getMessage());
+              }
             }
           }
-        }
+          return null;
+        });
         break;
       } catch (InvalidIndexEngineIdException ignore) {
         if (recovered) {
@@ -1132,6 +1145,11 @@ public abstract class IndexAbstract implements Index {
 
   public long fillIndex(DatabaseSessionEmbedded session,
       ProgressListener progressListener) {
+    return fillIndex(session, progressListener, true);
+  }
+
+  private long fillIndex(DatabaseSessionEmbedded session,
+      ProgressListener progressListener, boolean invalidate) {
     long entitiesIndexed;
     acquireSharedLock();
     try {
@@ -1164,8 +1182,23 @@ public abstract class IndexAbstract implements Index {
           e, session);
     } finally {
       releaseSharedLock();
+      if (invalidate) {
+        invalidatePlansAfterFill(session);
+      }
     }
     return entitiesIndexed;
+  }
+
+  /** Reuse metadata generations so late publications from the fill interval are rejected too. */
+  private void invalidatePlansAfterFill(DatabaseSessionEmbedded session) {
+    var shared = session.getSharedContext();
+    for (var listener : shared.browseListeners()) {
+      try {
+        listener.onIndexManagerUpdate(session, session.getDatabaseName(), shared.getIndexManager());
+      } catch (Exception failure) {
+        LogManager.instance().error(this, "Error notifying index fill completion", failure);
+      }
+    }
   }
 
   private long doFillIndex(DatabaseSessionEmbedded session,
@@ -1671,10 +1704,42 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public Object getCollatingValue(final Object key) {
+    return shortenKey(collateOnly(key), keyPrefixLength());
+  }
+
+  protected Object collateOnly(final Object key) {
     if (key != null && im.getIndexDefinition() != null) {
       return im.getIndexDefinition().getCollate().transform(key);
     }
     return key;
+  }
+
+  @Override
+  public int keyPrefixLength() {
+    var definition = im.getIndexDefinition();
+    return IndexKeyShortener.prefixLength(
+        definition == null ? null : definition.getTypes(), isUnique(),
+        storage.getRecordedMaxIndexKeySize());
+  }
+
+  private Object shortenKey(Object key, int prefixLength) {
+    var prepared = IndexKeyShortener.shorten(key, prefixLength);
+    if (prepared != key && keyShorteningWarned.compareAndSet(false, true)) {
+      LogManager.instance().warn(this,
+          "Index '%s' shortens oversized keys. Index results can be approximate.", getName());
+    }
+    return prepared;
+  }
+
+  protected record LowerBound(Object key, boolean inclusive) {
+  }
+
+  protected LowerBound prepareLowerBound(Object key, boolean inclusive) {
+    var collated = collateOnly(key);
+    int prefixLength = keyPrefixLength();
+    return new LowerBound(
+        IndexKeyShortener.lowerBoundKey(shortenKey(collated, prefixLength), prefixLength),
+        IndexKeyShortener.inclusiveLowerBound(collated, prefixLength, inclusive));
   }
 
   @Override

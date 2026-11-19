@@ -50,6 +50,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   private static File buildDir;
 
+  private static Object previousFileLock;
   private static YouTrackDBImpl youTrackDB;
   private DatabaseSessionEmbedded testDocumentTx;
   private DatabaseSessionEmbedded baseDocumentTx;
@@ -57,6 +58,7 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   @BeforeClass
   public static void beforeClass() {
+    previousFileLock = GlobalConfiguration.FILE_LOCK.getValue();
     GlobalConfiguration.FILE_LOCK.setValue(false);
 
     var buildDirectory = System.getProperty("buildDirectory", ".");
@@ -78,10 +80,14 @@ public class LocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords {
 
   @AfterClass
   public static void afterClass() throws IOException {
-    youTrackDB.drop(
-        "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
-    youTrackDB.close();
-    FileUtils.deleteRecursively(buildDir);
+    try {
+      youTrackDB.drop(
+          "baseLocalPaginatedStorageRestoreFromWALAndAddAdditionalRecords");
+      youTrackDB.close();
+      FileUtils.deleteRecursively(buildDir);
+    } finally {
+      GlobalConfiguration.FILE_LOCK.setValue(previousFileLock);
+    }
   }
 
   @Before

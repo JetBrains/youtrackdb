@@ -28,6 +28,60 @@ import org.junit.Test;
  */
 public class GremlinPlanFingerprintTest {
 
+  /** Identical executable presence checks with different origins cannot share a plan template. */
+  @Test
+  public void promotedPresence_copiesKeepDistinctFingerprint() {
+    var where =
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder();
+    var ordinary = where.wrap(where.and(where.isDefined("other"), where.isDefined("k")));
+    var promoted = ordinary.copy();
+    var plainInputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", ordinary)).build();
+    var markedInputs = MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", promoted))
+        .promotedPresenceKeys(java.util.Map.of("a", java.util.Set.of("k"))).build();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(markedInputs, ResultShaping.NONE);
+    assertThat(fingerprint).isNotEqualTo(
+        GremlinPlanFingerprint.fingerprint(plainInputs, ResultShaping.NONE));
+    assertThat(GremlinPlanFingerprint.fingerprint(MatchPlanInputs.builder(patternWithAlias("a"))
+        .aliasFilters(java.util.Map.of("a", promoted.copy()))
+        .promotedPresenceKeys(markedInputs.promotedPresenceKeys()).build(), ResultShaping.NONE))
+        .isEqualTo(fingerprint);
+  }
+
+  /** Map and key iteration order cannot split the single promotion-origin fingerprint token. */
+  @Test
+  public void promotedPresence_usesOneDeterministicToken() {
+    var left = new java.util.LinkedHashMap<String, java.util.Set<String>>();
+    left.put("b", new java.util.LinkedHashSet<>(List.of("x", "k")));
+    left.put("a", java.util.Set.of("q"));
+    var right = new java.util.LinkedHashMap<String, java.util.Set<String>>();
+    right.put("a", java.util.Set.of("q"));
+    right.put("b", new java.util.LinkedHashSet<>(List.of("k", "x")));
+    var inputs = MatchPlanInputs.builder(new Pattern()).promotedPresenceKeys(left).build();
+    left.clear();
+    var fingerprint = GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE);
+    assertThat(fingerprint.split("\\|promotedPresence=", -1)).hasSize(2);
+    assertThat(fingerprint).isEqualTo(GremlinPlanFingerprint.fingerprint(
+        MatchPlanInputs.builder(new Pattern()).promotedPresenceKeys(right).build(),
+        ResultShaping.NONE));
+  }
+
+  /** Alias and hierarchy iteration order cannot split equivalent comparison contracts. */
+  @Test
+  public void comparisonClasses_useDeterministicAliasAndClassOrder() {
+    var first = new java.util.LinkedHashMap<String, List<String>>();
+    first.put("b", List.of("Child", "Parent"));
+    first.put("a", List.of("Other"));
+    var second = new java.util.LinkedHashMap<String, List<String>>();
+    second.put("a", List.of("Other"));
+    second.put("b", List.of("Parent", "Child"));
+    var left = MatchPlanInputs.builder(new Pattern()).orderCollationClasses(first).build();
+    var right = MatchPlanInputs.builder(new Pattern()).orderCollationClasses(second).build();
+    assertThat(GremlinPlanFingerprint.fingerprint(left, ResultShaping.NONE))
+        .isEqualTo(GremlinPlanFingerprint.fingerprint(right, ResultShaping.NONE));
+  }
+
   /**
    * Nested projections are carried in {@link MatchPlanInputs#returnNestedProjections()} and affect
    * the planner's output shaping. Two MATCH inputs that differ only in the nested projection must
@@ -123,10 +177,61 @@ public class GremlinPlanFingerprintTest {
         .returnNestedProjections(statement.getReturnNestedProjections())
         .build();
 
+    var tree = new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Or(
+        List.of(
+            new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Probe(
+                statement.getNotMatchExpressions().getFirst())));
+    inputs = inputs.toBuilder().booleanCheck(tree).build();
+    assertThat(PostConcatSupport.rewriteToCountStar(inputs).booleanCheck()).isSameAs(tree);
+    assertThat(UnionStepRecogniser.rewriteReturnAlias(inputs, "a", "b").booleanCheck())
+        .isSameAs(tree);
     assertThat(PostConcatSupport.rewriteToCountStar(inputs).existsMatchExpressions())
         .hasSize(1);
     assertThat(UnionStepRecogniser.rewriteReturnAlias(inputs, "a", "b")
         .existsMatchExpressions()).hasSize(1);
+  }
+
+  /** Boolean topology, leaf roles, slot identity and aliases cannot collide in the plan cache. */
+  @Test
+  public void booleanTreeFingerprintEncodesTopologyAndSlots() {
+    var statement = parse("MATCH {class: V, as: a, where:(name = ?)}, "
+        + "NOT {as:a}.out('link'){as:b, where:(tag = ?)} RETURN a");
+    var filter =
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Filter(
+            "a", statement.getMatchExpressions().getFirst().getOrigin().getFilter());
+    var probe =
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Probe(
+            statement.getNotMatchExpressions().getFirst());
+    var seen = new java.util.HashSet<String>();
+    var variants = List.of(
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Or(
+            List.of(filter, probe)),
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.And(
+            List.of(filter, probe)),
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Or(
+            List.of(probe, filter)),
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Not(probe),
+        filter, probe,
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Filter(
+            "a]P:", filter.condition()));
+    for (var tree : variants) {
+      var inputs = MatchPlanInputs.builder(patternWithAlias("a")).booleanCheck(tree).build();
+      assertThat(seen.add(GremlinPlanFingerprint.fingerprint(inputs, ResultShaping.NONE))).isTrue();
+    }
+    var fingerprint =
+        GremlinPlanFingerprint.fingerprint(MatchPlanInputs.builder(patternWithAlias("a"))
+            .booleanCheck(variants.getFirst()).build(), ResultShaping.NONE);
+    assertThat(fingerprint).contains("$g2m_slot_0$", "$g2m_slot_1$");
+    var swapped = parse("MATCH {as:a}.out('link'){as:b, where:(tag = ?)}, "
+        + "{class: V, as: x, where:(name = ?)} RETURN a");
+    var swappedFilter =
+        new com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchBooleanCheck.Filter(
+            "a", swapped.getMatchExpressions().get(1).getOrigin().getFilter());
+    assertThat(GremlinPlanFingerprint.fingerprint(MatchPlanInputs.builder(patternWithAlias("a"))
+        .booleanCheck(swappedFilter).build(), ResultShaping.NONE))
+        .isNotEqualTo(
+            GremlinPlanFingerprint.fingerprint(MatchPlanInputs.builder(patternWithAlias("a"))
+                .booleanCheck(filter).build(), ResultShaping.NONE));
   }
 
   /** Direct-count alias, key and productive rules are structural even on identical raw inputs. */

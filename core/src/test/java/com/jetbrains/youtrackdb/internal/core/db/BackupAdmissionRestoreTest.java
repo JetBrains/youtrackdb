@@ -86,7 +86,7 @@ public class BackupAdmissionRestoreTest {
    *
    * <p>An old header carries no semantic database format and no creation completion evidence. The
    * scenario restores one chain of such headers through the path entry. The expected outcome has
-   * three parts. The restore names version 2 and all three accepted versions. No target database exists.
+   * three parts. The restore names version 2 and all four accepted versions. No target database exists.
    * No directory of the target name exists.
    */
   @Test
@@ -102,7 +102,7 @@ public class BackupAdmissionRestoreTest {
                   .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 2"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -121,7 +121,7 @@ public class BackupAdmissionRestoreTest {
               .restore(TARGET, syntheticBackupPath.toString(), null, null));
 
       assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 1"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -240,10 +240,10 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * A real version 3 full backup and version 5 increment restore together.
+   * A real version 3 full backup and version 6 increment restore together.
    *
    * <p>The original full unit retains real database content and a valid version 3 hash. The
-   * version 5 increment alone carries a second record. The restore must recover that record,
+   * version 6 increment alone carries a second record. The restore must recover that record,
    * not just the class and record from the full unit.
    */
   @Test
@@ -252,7 +252,7 @@ public class BackupAdmissionRestoreTest {
     createSourceDatabaseAndBackup();
     var fullUnit = realUnitNames().getFirst();
     var fullUnitPath = backupPath.resolve(fullUnit);
-    BackupUnitFiles.rewriteVersion4AsVersion3(fullUnitPath);
+    BackupUnitFiles.rewriteAsVersion(fullUnitPath, BackupUnitFiles.VERSION_3);
     assertEquals("the full unit must have version 3",
         BackupUnitFiles.VERSION_3, backupFormatVersion(fullUnitPath));
 
@@ -266,7 +266,7 @@ public class BackupAdmissionRestoreTest {
       var incrementUnit = storage.backup(backupPath);
       assertNotNull(incrementUnit);
       assertNotEquals("the increment must be a separate unit", fullUnit, incrementUnit);
-      assertEquals("the increment must have version 5",
+      assertEquals("the increment must have version 6",
           BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
           backupFormatVersion(backupPath.resolve(incrementUnit)));
     }
@@ -295,9 +295,9 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * A version 6 increment refuses restore before any target file exists.
+   * A version 7 increment refuses restore before any target file exists.
    *
-   * <p>The full unit is a real version 5 backup. The unsupported increment carries a valid
+   * <p>The full unit is a real version 6 backup. The unsupported increment carries a valid
    * header and hash, so refusal must follow the version check, not the content check.
    */
   @Test
@@ -312,8 +312,8 @@ public class BackupAdmissionRestoreTest {
       var refusal = assertThrows(UnsupportedBackupException.class,
           () -> internalOf(youTrackDB).restore(TARGET, backupPath.toString(), null, null));
 
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 6"));
-      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, and 5"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("version 7"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains("versions 3, 4, 5, and 6"));
       assertNoTargetExists(youTrackDB);
     }
   }
@@ -347,7 +347,7 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * One path restore refuses a chain of another storage layout version.
+   * One path restore refuses a chain of unsupported storage layout 28.
    *
    * <p>A storage layout version names the on-disk layout of one database. The expected outcome has
    * two parts. The restore names the foreign layout version. No database and no directory of the
@@ -356,7 +356,7 @@ public class BackupAdmissionRestoreTest {
   @Test
   public void pathRestoreRefusesAnIncompatibleStorageLayoutChain() throws Exception {
     writeSyntheticUnit(0, true, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
-        BackupUnitFiles.supportedFeatureFormat(), BackupUnitFiles.supportedLayoutVersion() + 1,
+        BackupUnitFiles.supportedFeatureFormat(), 28,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
 
     try (var youTrackDB = openManager()) {
@@ -1926,6 +1926,41 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
+  /** Mixed layouts refuse before manager target birth. Homogeneous layout 27 prepares normally. */
+  @Test
+  public void preparationRequiresOneLayoutBeforeTargetBirth() throws Exception {
+    for (var firstLayout : new int[] {25, 26}) {
+      var full = writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(),
+          firstLayout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      var increment = writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(),
+          27, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      try (var manager = openManager()) {
+        var refusal = assertThrows(UnsupportedBackupException.class,
+            () -> internalOf(manager).restore(TARGET, syntheticBackupPath.toString(), null, null));
+        try {
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+              .resolve(firstLayout);
+          fail("an old layout must refuse");
+        } catch (IllegalArgumentException classification) {
+          assertTrue(refusal.getMessage().contains(classification.getMessage()));
+        }
+        assertNoTargetExists(manager);
+      }
+      Files.delete(syntheticBackupPath.resolve(full));
+      Files.delete(syntheticBackupPath.resolve(increment));
+    }
+    writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(), 27,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 27,
+        BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+    try (var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
+        .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString())) {
+      try (var copies = Files.list(prepared.temporaryDirectory())) {
+        assertEquals("both layout-27 units must reach prepared copies", 2, copies.count());
+      }
+    }
+  }
+
   /** Writes one synthetic unit of one fixed database identifier into the synthetic directory. */
   private String writeSyntheticUnit(int sequenceNumber, boolean fullBackup,
       int backupFormatVersion, int featureFormat, int layoutVersion, int creationEvidence)
@@ -1988,7 +2023,7 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
-  /** All accepted versions store their version at EOF-74, with a longer v4/v5 tail. */
+  /** All accepted versions store their version at EOF-74, with longer v4/v5/v6 tails. */
   private static short backupFormatVersion(Path unitPath) throws IOException {
     var bytes = Files.readAllBytes(unitPath);
     return ByteBuffer.wrap(bytes, bytes.length - 74, Short.BYTES).getShort();

@@ -214,14 +214,11 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
 
   /**
    * Scenario: a sort over a property the schema declares case-insensitive, with and without a limit.
-   * Expected: the shortcut is refused outright — no index-ordered step at all — while the control
-   * sort over the default-collate property still takes it.
-   *
-   * <p>Case variants such as {@code Ada} and {@code ada} tie in both the folded index and the
-   * ci comparison. Edge-hop support for this collation is deferred to YTDB-1459.
+   * Expected: both the single-item and RID-tiebroken sorts accept the shortcut and stream
+   * under the lowered heap cap.
    */
   @Test
-  public void declaredCaseInsensitiveProperty_refusesTheShortcut() {
+  public void declaredCaseInsensitiveProperty_streamsWithTheShortcut() {
     seedTargets(0, target -> {
       target.createProperty("score", PropertyType.INTEGER)
           .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
@@ -235,12 +232,16 @@ public class IndexOrderedRidTieBreakTest extends GraphBaseTest {
         .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
     assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
         + " ORDER BY m.name ASC, m.@rid ASC"))
-        .as("a declared collation refuses the two-item sort")
-        .doesNotContain(INDEX_ORDERED_STEP);
+        .as("matching ci collations accept the two-item sort")
+        .contains(IndexOrderedEdgeStep.RID_TIE_BREAK_MARKER);
     assertThat(planText("MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
         + " ORDER BY m.name ASC LIMIT 5"))
-        .as("a declared collation refuses the single-item sort as well")
-        .doesNotContain(INDEX_ORDERED_STEP);
+        .as("matching ci collations accept the single-item sort as well")
+        .contains(INDEX_ORDERED_STEP);
+    withLoweredHeapCap(() -> assertThat(orderedRowsOf(
+        "MATCH {class: Src, as: s}.out('LINK'){class: Tgt, as: m} RETURN m"
+            + " ORDER BY m.name ASC, m.@rid ASC"))
+        .isEqualTo(expectedOrder("name", true, false)));
   }
 
   /**

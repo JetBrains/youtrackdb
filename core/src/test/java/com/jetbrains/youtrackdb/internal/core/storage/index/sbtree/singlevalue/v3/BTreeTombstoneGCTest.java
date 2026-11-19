@@ -45,9 +45,9 @@ public class BTreeTombstoneGCTest {
   // ~250 entries per bucket. We use 400 to ensure multiple splits.
   private static final int FILL_COUNT = 400;
 
-  // Stub engine ID used for indexEngineNameMap registration so that
-  // AbstractStorage.hasActiveSnapshotEntries() resolves the correct index.
-  private static final int STUB_ENGINE_ID = 99;
+  // Distinct slot and file base ids detect accidental slot-keyed history queries.
+  private static final int STUB_ENGINE_SLOT = 7;
+  private static final int STUB_FILE_BASE_ID = 99;
   private static final String ENGINE_NAME = "tombstoneGCIdx";
 
   private static YouTrackDBImpl youTrackDB;
@@ -92,7 +92,7 @@ public class BTreeTombstoneGCTest {
     // Create a BTree with CompositeKey(userKey, version) layout, matching
     // BTreeSingleValueIndexEngine's key structure.
     bTree = new BTree<>(ENGINE_NAME, ".cbt", ".nbt", storage);
-    bTree.setEngineId(STUB_ENGINE_ID);
+    bTree.setHistoryFileBaseId(STUB_FILE_BASE_ID);
     atomicOperationsManager.executeInsideAtomicOperation(
         atomicOperation -> bTree.create(
             atomicOperation,
@@ -103,13 +103,14 @@ public class BTreeTombstoneGCTest {
             2));
 
     // Register a stub engine so AbstractStorage snapshot queries resolve it
-    BTreeGCTestSupport.registerStubEngine(storage, ENGINE_NAME, STUB_ENGINE_ID);
+    BTreeGCTestSupport.registerStubEngine(
+        storage, ENGINE_NAME, STUB_ENGINE_SLOT, STUB_FILE_BASE_ID);
   }
 
   @After
   public void afterMethod() throws Exception {
     // Clear any snapshot entries added during the test to prevent leakage
-    // between tests. The IndexesSnapshot is scoped to our stub engine's ID,
+    // between tests. The IndexesSnapshot is scoped to our stub engine's file base id,
     // so clear() only removes entries for this test's index.
     var snapshot = storage.getIndexSnapshotByEngineName(ENGINE_NAME);
     if (snapshot != null) {
@@ -795,7 +796,7 @@ public class BTreeTombstoneGCTest {
         ENGINE_NAME + AbstractStorage.NULL_TREE_SUFFIX;
     var nullTree =
         new BTree<CompositeKey>(nullEngineName, ".cbt", ".nbt", storage);
-    nullTree.setEngineId(STUB_ENGINE_ID);
+    nullTree.setHistoryFileBaseId(STUB_FILE_BASE_ID);
     nullTree.setNullTree(true);
     atomicOperationsManager.executeInsideAtomicOperation(
         op -> nullTree.create(
@@ -872,16 +873,16 @@ public class BTreeTombstoneGCTest {
     }
   }
 
-  // ---- engineId fallback ----
+  // ---- History file base id fallback ----
 
   @Test
-  public void testMarkersNotDemotedWhenEngineIdNotSet() throws Exception {
-    // When engineId is not set (-1), hasActiveSnapshotEntries
+  public void testMarkersNotDemotedWhenHistoryFileBaseIdNotSet() throws Exception {
+    // When the history file base id is not set (-1), hasActiveSnapshotEntries
     // conservatively returns true, preventing marker demotion.
     // Tombstones should still be removed (they bypass snapshot checks).
     var unregisteredTree = new BTree<CompositeKey>(
         "unregisteredTree", ".cbt", ".nbt", storage);
-    // Deliberately do NOT call setEngineId — default is -1
+    // Deliberately do NOT call setHistoryFileBaseId — default is -1
     atomicOperationsManager.executeInsideAtomicOperation(
         op -> unregisteredTree.create(
             op,
@@ -930,18 +931,18 @@ public class BTreeTombstoneGCTest {
             op -> unregisteredTree.put(op, key, value));
       }
 
-      // With engineId == -1, ALL markers must be preserved
+      // With no history file base id, ALL markers must be preserved
       // (conservative fallback prevents demotion)
       assertThat(countEntriesOfType(
           unregisteredTree, SnapshotMarkerRID.class))
-          .as("All markers must be preserved when engineId is not set")
+          .as("All markers must be preserved when history file base id is not set")
           .isEqualTo(markersBefore);
 
-      // Tombstones must still be GC'd even without engineId —
+      // Tombstones must still be GC'd even without a history file base id —
       // tombstone removal bypasses the snapshot check entirely
       assertThat(countEntriesOfType(
           unregisteredTree, TombstoneRID.class))
-          .as("Tombstones must be removed regardless of engineId")
+          .as("Tombstones must be removed regardless of history identity")
           .isLessThan(tombstonesBefore / 2);
     } finally {
       atomicOperationsManager.executeInsideAtomicOperation(
@@ -1257,11 +1258,11 @@ public class BTreeTombstoneGCTest {
         new RecordId(1, 1));
 
     assertThat(storage.hasActiveIndexSnapshotEntriesById(
-        STUB_ENGINE_ID, false, userKeyPrefix, 50L))
+        STUB_FILE_BASE_ID, false, userKeyPrefix, 50L))
         .as("Regular map should contain the entry")
         .isTrue();
     assertThat(storage.hasActiveIndexSnapshotEntriesById(
-        STUB_ENGINE_ID, true, userKeyPrefix, 50L))
+        STUB_FILE_BASE_ID, true, userKeyPrefix, 50L))
         .as("Null map should NOT contain the entry")
         .isFalse();
   }
@@ -1282,11 +1283,11 @@ public class BTreeTombstoneGCTest {
 
     try {
       assertThat(storage.hasActiveIndexSnapshotEntriesById(
-          STUB_ENGINE_ID, true, userKeyPrefix, 50L))
+          STUB_FILE_BASE_ID, true, userKeyPrefix, 50L))
           .as("Null map should contain the entry")
           .isTrue();
       assertThat(storage.hasActiveIndexSnapshotEntriesById(
-          STUB_ENGINE_ID, false, userKeyPrefix, 50L))
+          STUB_FILE_BASE_ID, false, userKeyPrefix, 50L))
           .as("Regular map should NOT contain the entry")
           .isFalse();
     } finally {

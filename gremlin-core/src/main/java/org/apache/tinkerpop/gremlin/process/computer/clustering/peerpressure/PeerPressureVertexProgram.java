@@ -86,7 +86,8 @@ public class PeerPressureVertexProgram extends StaticVertexProgram<Pair<Serializ
             this.initialVoteStrengthTraversal = PureTraversal.loadState(configuration, INITIAL_VOTE_STRENGTH_TRAVERSAL, graph);
         if (configuration.containsKey(EDGE_TRAVERSAL)) {
             this.edgeTraversal = PureTraversal.loadState(configuration, EDGE_TRAVERSAL, graph);
-            this.voteScope = MessageScope.Local.of(() -> this.edgeTraversal.get().clone());
+            // Clone the read-only source without populating a cache shared by workers.
+            this.voteScope = MessageScope.Local.of(() -> this.edgeTraversal.getPure());
             this.countScope = MessageScope.Local.of(new MessageScope.Local.ReverseTraversalSupplier(this.voteScope));
         }
         this.property = configuration.getString(PROPERTY, CLUSTER);
@@ -104,6 +105,22 @@ public class PeerPressureVertexProgram extends StaticVertexProgram<Pair<Serializ
             this.edgeTraversal.storeState(configuration, EDGE_TRAVERSAL);
         if (null != this.initialVoteStrengthTraversal)
             this.initialVoteStrengthTraversal.storeState(configuration, INITIAL_VOTE_STRENGTH_TRAVERSAL);
+    }
+
+    @Override
+    public PeerPressureVertexProgram clone() {
+        // StaticVertexProgram.clone() returns this, so construct the worker copy explicitly.
+        final PeerPressureVertexProgram clone = new PeerPressureVertexProgram();
+        clone.edgeTraversal = this.edgeTraversal;
+        clone.initialVoteStrengthTraversal = null == this.initialVoteStrengthTraversal
+                ? null : this.initialVoteStrengthTraversal.clone();
+        clone.maxIterations = this.maxIterations;
+        clone.distributeVote = this.distributeVote;
+        clone.property = this.property;
+        // Keep scope identity stable across workers. Their suppliers only clone read-only state.
+        clone.voteScope = this.voteScope;
+        clone.countScope = this.countScope;
+        return clone;
     }
 
     @Override

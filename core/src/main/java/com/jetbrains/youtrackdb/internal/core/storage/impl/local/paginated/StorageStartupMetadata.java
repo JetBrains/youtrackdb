@@ -366,7 +366,8 @@ public class StorageStartupMetadata {
         openedAtVersion = createdAtVersion;
         // Neither copy is usable. Initialize through the locked inode without replacing it.
         update(serialize(), true);
-      } catch (IOException | RuntimeException e) {
+      } catch (IOException | RuntimeException | Error e) {
+        // Failed acquisition owns only this channel, even when reading metadata raises an Error.
         try {
           close();
         } catch (IOException closeError) {

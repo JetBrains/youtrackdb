@@ -301,6 +301,54 @@ public class IndexMultiValuesTxTest extends DbTestBase {
     }
   }
 
+  /** A whole-key barrier prevents cancellation of the earlier PUT across all TX read paths. */
+  @Test
+  public void wholeKeyRemovalThenPutAndRemoveHidesRidUntilRollback() {
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex(IDX_NAME);
+    RID rid;
+    try (var rids = index.getRids(session, "beta")) {
+      rid = rids.findFirst().orElseThrow();
+    }
+    var tx = session.getActiveTransaction();
+    index.put(tx, "beta", rid);
+    index.remove(tx, "beta");
+    index.put(tx, "beta", rid);
+    index.remove(tx, "beta", rid);
+
+    assertWholeKeyRemovalReads(index, List.of());
+    assertEquals(List.of(), new ArrayList<>((Collection<?>) index.get(session, "beta")));
+    // Storage does not support committing whole-key removals on multi-value indexes.
+    session.rollback();
+
+    session.begin();
+    assertWholeKeyRemovalReads(index, List.of(rid));
+    session.rollback();
+  }
+
+  private void assertWholeKeyRemovalReads(Index index, List<RID> expected) {
+    try (var rids = index.getRids(session, "beta")) {
+      assertEquals(expected, rids.toList());
+    }
+    for (var ascending : List.of(true, false)) {
+      try (var entries = index.streamEntries(session, List.of("beta"), ascending)) {
+        assertEquals(expected, entries.map(RawPair::second).toList());
+      }
+      try (var entries =
+          index.streamEntriesBetween(session, "beta", true, "beta", true, ascending)) {
+        assertEquals(expected, entries.map(RawPair::second).toList());
+      }
+    }
+    try (var entries = index.stream(session)) {
+      assertEquals(expected, entries.filter(entry -> "beta".equals(entry.first()))
+          .map(RawPair::second).toList());
+    }
+    try (var entries = index.descStream(session)) {
+      assertEquals(expected, entries.filter(entry -> "beta".equals(entry.first()))
+          .map(RawPair::second).toList());
+    }
+  }
+
   /** A stale NOTUNIQUE engine identifier recovers only through the descriptor owner. */
   @Test
   public void getRids_staleEngineIdentifier_recoversByDescriptorOwner() {

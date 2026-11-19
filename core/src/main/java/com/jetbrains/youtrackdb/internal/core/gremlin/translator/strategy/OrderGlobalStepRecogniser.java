@@ -156,6 +156,22 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     if (!ctx.bindStepLabels(orderStep, boundary)) {
       return Outcome.DECLINE;
     }
+    if (ctx instanceof WalkerContext walker && !ctx.emitGroupEntries()) {
+      var session = YTDBStrategyUtil.resolveYtdbSession(
+          YTDBStrategyUtil.rootTraversal(orderStep.getTraversal()));
+      if (session != null) {
+        var schema = session.getMetadata().getImmutableSchemaSnapshot();
+        if (schema != null) {
+          // Use the same immediate producer walk as native ordering. In particular, select does
+          // not inherit LINK metadata from the alias it names. No pattern class is rewritten.
+          walker.orderCollationClasses.put(boundary,
+              YTDBOrderCollationStrategy.orderedClasses(schema, orderStep).stream()
+                  .map(
+                      com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass::getName)
+                  .toList());
+        }
+      }
+    }
     ctx.setOrderBy(MatchProjectionBuilder.orderBy(items));
     // Entry-mode ORDER BY uses projection aliases (key/value), not the boundary element alias —
     // still a sort of the current GROUP BY / entry stream, so a following LIMIT may attach.
@@ -187,6 +203,15 @@ final class OrderGlobalStepRecogniser implements StepRecogniser {
     }
     var classes = YTDBOrderCollationStrategy.graphClasses(schema);
     for (var pair : step.getComparators()) {
+      if (pair.getValue0() instanceof IdentityTraversal
+          && ctx.boundaryOutputType() == BoundaryOutputType.SINGLE_VALUE
+          && ctx instanceof WalkerContext walker) {
+        var keys = walker.shaping().presencePropertyKeys();
+        if (keys.size() == 1
+            && OrderByCollationResolver.declaredCollation(classes, keys.getFirst()) != null) {
+          return true;
+        }
+      }
       var target = ByModulatorTranslator.orderModulatorPresenceTarget(
           boundary, pair.getValue0(), ctx::resolveUserLabel);
       if (target.isPresent()

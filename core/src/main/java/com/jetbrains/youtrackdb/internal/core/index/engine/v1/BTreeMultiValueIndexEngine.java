@@ -107,19 +107,19 @@ public final class BTreeMultiValueIndexEngine
       svTree =
           new BTree<>(
               stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
-      svTree.setEngineId(id);
+      svTree.setHistoryFileBaseId(this.fileBaseId);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stems.
       svTree.setDisplayName(name);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
-      nullTree.setEngineId(id);
+      nullTree.setHistoryFileBaseId(this.fileBaseId);
       nullTree.setDisplayName(name + AbstractStorage.NULL_TREE_SUFFIX);
       // Explicit null-tree identity for the tombstone-GC snapshot lookup — the component name
       // is a file key, not an identity carrier.
       nullTree.setNullTree(true);
-      indexesSnapshot = storage.subIndexSnapshot(id);
-      nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
+      indexesSnapshot = storage.subIndexSnapshot(this.fileBaseId);
+      nullIndexesSnapshot = storage.subNullIndexSnapshot(this.fileBaseId);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);
     }
@@ -157,6 +157,7 @@ public final class BTreeMultiValueIndexEngine
   public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) {
     try {
       final var sbTypes = calculateTypes(data.getKeyTypes());
+      ((BTree<?>) svTree).configureKeySizeMargin(data.getKeyTypes());
       svTree.create(
           atomicOperation,
           new IndexMultiValuKeySerializer(),
@@ -179,8 +180,8 @@ public final class BTreeMultiValueIndexEngine
   public void delete(@Nonnull AtomicOperation atomicOperation) {
     try {
       clearSVTree(atomicOperation);
-      indexesSnapshot.clear();
-      nullIndexesSnapshot.clear();
+      // Retain regular and null-key history for failed-DROP reconstruction under
+      // the same file base id. Low-water-mark eviction reclaims it after readers finish.
       svTree.delete(atomicOperation);
       nullTree.delete(atomicOperation);
       var mgr = histogramManager;
@@ -253,6 +254,7 @@ public final class BTreeMultiValueIndexEngine
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     final var sbTypes = calculateTypes(keyTypes);
+    ((BTree<?>) svTree).configureKeySizeMargin(keyTypes);
 
     // Load under the file-base-id stems the components were constructed with — never the index
     // name, which keys no file.
@@ -351,8 +353,8 @@ public final class BTreeMultiValueIndexEngine
     assert currentTotal >= 0 && currentNull >= 0 && currentNull <= currentTotal
         : "clear() snapshot invariant violated on engine=" + name + " id=" + id
             + ": currentTotal=" + currentTotal + " currentNull=" + currentNull;
-    indexesSnapshot.clear();
-    nullIndexesSnapshot.clear();
+    // Keep regular and null-key history for readers if this atomic operation rolls
+    // back. LWM eviction reclaims it once no running transaction needs it.
     // Mixed-mode encoding (replaces the prior pure-delta encoding that
     // wrote -currentTotal / -currentNull through the persist hook).
     // Persisted side: two inline per-tree absolute writes, WAL-tracked

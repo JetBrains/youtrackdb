@@ -61,7 +61,7 @@ public class StorageBackupTest {
         Assert.assertEquals(2, backupDir.listFiles().length);
 
         // Version 3 head candidates require a full hash check before extension can remove them.
-        BackupUnitFiles.rewriteVersion4AsVersion3(backupDir.toPath().resolve(backupFileName));
+        BackupUnitFiles.rewriteAsVersion(backupDir.toPath().resolve(backupFileName), 3);
         try (var backupChannel = FileChannel.open(backupDir.toPath().resolve(backupFileName),
             StandardOpenOption.WRITE, StandardOpenOption.READ)) {
           // The first byte belongs to backup content, not to the identity header at the tail.
@@ -132,7 +132,7 @@ public class StorageBackupTest {
         Assert.assertEquals(3, backupDir.listFiles().length);
 
         // Version 3 head candidates require a full hash check before extension can remove them.
-        BackupUnitFiles.rewriteVersion4AsVersion3(backupDir.toPath().resolve(backupFileName));
+        BackupUnitFiles.rewriteAsVersion(backupDir.toPath().resolve(backupFileName), 3);
         try (var backupChannel = FileChannel.open(backupDir.toPath().resolve(backupFileName),
             StandardOpenOption.WRITE, StandardOpenOption.READ)) {
           // The first byte belongs to backup content, not to the identity header at the tail.

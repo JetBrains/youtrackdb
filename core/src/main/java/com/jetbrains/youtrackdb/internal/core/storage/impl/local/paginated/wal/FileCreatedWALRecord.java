@@ -59,6 +59,12 @@ public class FileCreatedWALRecord extends OperationUnitBodyRecord {
 
   @Override
   protected void deserializeFromByteBuffer(ByteBuffer buffer) {
+    // The string serializer allocates both bytes and characters from this persisted length.
+    int nameLength = buffer.getInt(buffer.position());
+    int available = buffer.remaining() - Integer.BYTES - Long.BYTES;
+    if (nameLength < 0 || nameLength > available / Character.BYTES || available < 0) {
+      throw new IllegalArgumentException("File name length exceeds WAL record content");
+    }
     fileName = StringSerializer.staticDeserializeFromByteBufferObject(buffer);
     fileId = buffer.getLong();
   }

@@ -2,15 +2,51 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import org.apache.commons.io.FileUtils;
 
-final class WalTestUtils {
+public final class WalTestUtils {
 
   @FunctionalInterface
-  interface ThrowingRunnable {
+  public interface ThrowingRunnable {
     void run() throws Exception;
   }
 
   private WalTestUtils() {
+  }
+
+  /**
+   * Copies open storage to a distinct directory, without its process-local dirty flags.
+   * Callers protect mutations and the copy with {@link #withWalProtection} and flush the WAL
+   * before copying. This method does not flush data pages.
+   */
+  public static void copyDirtyStorage(Path source, Path target) throws IOException {
+    if (source.toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())
+        || (Files.exists(target) && Files.isSameFile(source, target))) {
+      throw new IllegalArgumentException("Crash copy requires a distinct target directory");
+    }
+    FileUtils.deleteDirectory(target.toFile());
+    Files.createDirectory(target);
+
+    try (var files = Files.list(source)) {
+      for (var sourceFile : files.toList()) {
+        var fileName = sourceFile.getFileName().toString();
+        if (fileName.equals("dirty.fl") || fileName.equals("dirty.flb")) {
+          continue;
+        }
+        try {
+          Files.copy(sourceFile, target.resolve(fileName));
+        } catch (NoSuchFileException missingFile) {
+          // Only a double-write log may disappear while the open storage is copied.
+          if (!fileName.endsWith(".dwl")) {
+            throw missingFile;
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -41,7 +77,7 @@ final class WalTestUtils {
    * {@code redo()} dispatch, LSN comparison logic, and recovery dispatch —
    * exactly as the calling test was written to exercise.
    */
-  static void withWalProtection(
+  public static void withWalProtection(
       DatabaseSessionEmbedded session, ThrowingRunnable action) throws Exception {
     var storage = (DiskStorage) session.getStorage();
     var wal = storage.getWALInstance();

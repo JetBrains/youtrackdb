@@ -6,8 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.PostConcat
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShaping;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.ProjectionExpressionFactories;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.lambda.IdentityTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.RangeGlobalStepContract;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.CountGlobalStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.OrderGlobalStep;
 
 /**
  * Recogniser for {@code RangeGlobalStep} / {@code RangeGlobalStepPlaceholder}: {@code limit(n)},
@@ -228,10 +230,16 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
     }
     // Promotion mutates the context (writes alias filters), so it sits after every remaining
     // decline. A no-op slice never reaches here. See the class Javadoc's "A slice behind a
-    // drop-on-absent projection". Order between values(k) and the slice forbids promotion — only
-    // the direct values(k).limit(n) spelling is promoted.
+    // drop-on-absent projection". A projected-value order uses the same property sequence.
+    // Other ordered projections must not move their absence drop ahead of the statement slice.
     if (ctx.dropsRowsOnAbsentProperty()) {
-      if (ctx.orderBy() != null || !ctx.promotePresenceDropToPatternFilter()) {
+      if (ctx.orderBy() != null
+          && (ctx.boundaryOutputType() != BoundaryOutputType.SINGLE_VALUE
+              || ctx.lastPropertyProjection() == null
+              || !ordersProjectedValue(step, ctx))) {
+        return Outcome.DECLINE;
+      }
+      if (!ctx.promotePresenceDropToPatternFilter()) {
         return Outcome.DECLINE;
       }
     }
@@ -245,6 +253,24 @@ final class RangeGlobalStepRecogniser implements StepRecogniser {
       ctx.setLimit(ProjectionExpressionFactories.limit(normalized.limit()));
     }
     return Outcome.ACCEPTED;
+  }
+
+  /** Identity must resolve to the projected property, not to an earlier element's RID. */
+  private static boolean ordersProjectedValue(Step<?, ?> slice, RecognitionContext ctx) {
+    var projection = ctx.lastPropertyProjection();
+    var expected = ProjectionExpressionFactories.orderByProperty(
+        projection.alias(), projection.propertyKey(), true);
+    // Inspect the captured AST because identity before values(k) resolves to @rid instead of k.
+    if (!ctx.orderBy().getItems().stream()
+        .allMatch(item -> projection.alias().equals(item.getAlias())
+            && expected.getModifier().equals(item.getModifier()))) {
+      return false;
+    }
+    return slice.getTraversal().getSteps().stream()
+        .filter(step -> step instanceof OrderGlobalStep<?, ?>)
+        .map(step -> (OrderGlobalStep<?, ?>) step)
+        .anyMatch(order -> order.getComparators().stream()
+            .allMatch(pair -> pair.getValue0() instanceof IdentityTraversal));
   }
 
   /**

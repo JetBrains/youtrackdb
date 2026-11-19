@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,11 +31,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -48,6 +51,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -92,6 +100,294 @@ public class RestoreAtomicUnitPageOperationTest {
     setField(storage, "readCache", readCache);
     setField(storage, "name", "testStorage");
     setField(storage, "deletedNonDurableFileIds", new IntOpenHashSet());
+  }
+
+  /** Missing-file operations must skip rather than resurrect an empty, invalid page. */
+  @Test
+  public void laterCommittedDeletionSkipsPageOperationAndLogs() throws Exception {
+    assertLaterDeletionSkipped(0);
+  }
+
+  /** Physical page updates use the same missing-file deletion rule as logical operations. */
+  @Test
+  public void laterCommittedDeletionSkipsPageUpdateAndLogs() throws Exception {
+    assertLaterDeletionSkipped(1);
+  }
+
+  /** Skipped allocations never enter the preload map or the page recovery context. */
+  @Test
+  public void laterCommittedDeletionSkipsAllocationAndLogs() throws Exception {
+    assertLaterDeletionSkipped(2);
+  }
+
+  private void assertLaterDeletionSkipped(int kind) throws Exception {
+    when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(false);
+    var page = replayPage(kind, 1);
+    var end = new AtomicUnitEndRecord(1, false, null);
+    // Different external high bits still describe the same internal file.
+    long backupId = (9L << 32) | DURABLE_INTERNAL_ID;
+    when(writeCache.internalFileId(backupId)).thenReturn(DURABLE_INTERNAL_ID);
+    var deletion = new FileDeletedWALRecord(2, backupId);
+    var deleteEnd = new AtomicUnitEndRecord(2, false, null);
+    var wal = replayWal(List.of(page, end, deletion, deleteEnd));
+    try (var capture = new ReplayLogCapture()) {
+      var context = new RecoveryPageContext();
+      var method = AbstractStorage.class.getDeclaredMethod("restoreFrom", WriteAheadLog.class,
+          LogSequenceNumber.class, RecoveryPageContext.class);
+      method.setAccessible(true);
+      assertEquals(deleteEnd.getLsn(), method.invoke(storage, wal, page.getLsn(), context));
+      assertEquals(1, capture.records.stream()
+          .filter(r -> r.getMessage().contains("Skipping page change")).count());
+    }
+    verify(writeCache, never()).restoreFileById(anyLong());
+    verify(readCache, never()).loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any());
+    // A declared allocation would preload this page. No load proves it was excluded during replay.
+    // All records are in one batch. Lookahead must start after its consumed end, not its tail.
+    verify(wal).next(end.getLsn(), 1_000);
+    verify(wal, times(2)).next(deleteEnd.getLsn(), 1_000);
+  }
+
+  /** The deleting unit's own end is counted before replaying its earlier clearing operations. */
+  @Test
+  public void sameUnitDeletionSkipsEarlierChanges() throws Exception {
+    when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(false);
+    var page = replayPage(0, 1);
+    var deletion = new FileDeletedWALRecord(1, DURABLE_EXTERNAL_ID);
+    var end = new AtomicUnitEndRecord(1, false, null);
+    var wal = replayWal(List.of(page, deletion, end));
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, page.getLsn()));
+    verify(writeCache, never()).restoreFileById(anyLong());
+  }
+
+  /** An absent or incomplete deletion cannot suppress redo. The persisted-name fallback stays. */
+  @Test
+  public void absentOrIncompleteDeletionRestoresFileAndReplays() throws Exception {
+    for (boolean incomplete : List.of(false, true)) {
+      setUp();
+      var page = replayPage(0, 1);
+      var records = new ArrayList<WALRecord>(List.of(page,
+          new AtomicUnitEndRecord(1, false, null)));
+      if (incomplete) {
+        records.add(new FileDeletedWALRecord(2, DURABLE_EXTERNAL_ID));
+      }
+      wireReplayFallback();
+      var wal = replayWal(records);
+      assertEquals(records.get(1).getLsn(), storage.restoreFrom(wal, page.getLsn()));
+      verify(writeCache).restoreFileById(DURABLE_EXTERNAL_ID);
+      verify((TestPageOperation) page).redo(any(DurablePage.class));
+    }
+  }
+
+  /** A broken tail hides even a complete deletion beyond it and leaves the fallback active. */
+  @Test
+  public void brokenTailDoesNotAuthorizeSkip() throws Exception {
+    var page = replayPage(0, 1);
+    var end = new AtomicUnitEndRecord(1, false, null);
+    var wal = replayWal(List.of(page, end));
+    when(wal.next(end.getLsn(), 1_000)).thenThrow(new WALPageBrokenException("broken tail"));
+    wireReplayFallback();
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, page.getLsn()));
+    verify(writeCache).restoreFileById(DURABLE_EXTERNAL_ID);
+    verify((TestPageOperation) page).redo(any(DurablePage.class));
+  }
+
+  /** A failed lookahead read does not stop application of the current unit. */
+  @Test
+  public void lookaheadIoErrorKeepsFallback() throws Exception {
+    var page = replayPage(0, 1);
+    var end = new AtomicUnitEndRecord(1, false, null);
+    var wal = replayWal(List.of(page, end));
+    var failure = new IOException("read failed");
+    when(wal.next(end.getLsn(), 1_000)).thenThrow(failure).thenReturn(List.of());
+    wireReplayFallback();
+    try (var capture = new ReplayLogCapture()) {
+      assertEquals(end.getLsn(), storage.restoreFrom(wal, page.getLsn()));
+      var warnings = capture.records.stream()
+          .filter(r -> r.getMessage().contains("Deletion lookahead stopped")).toList();
+      assertEquals(1, warnings.size());
+      assertEquals(Level.WARNING, warnings.getFirst().getLevel());
+      assertTrue(warnings.getFirst().getMessage().contains(end.getLsn().toString()));
+      assertSame(failure, warnings.getFirst().getThrown());
+    }
+    verify((TestPageOperation) page).redo(any(DurablePage.class));
+  }
+
+  /** A deletion before a new life of the same id must not suppress that life's changes. */
+  @Test
+  public void reusedIdAfterDeletionReplaysNewLife() throws Exception {
+    var page = replayPage(0, 2);
+    var deletion = new FileDeletedWALRecord(1, DURABLE_EXTERNAL_ID);
+    var end = new AtomicUnitEndRecord(2, false, null);
+    wireReplayFallback();
+    // Missing on disk, including the deletion apply. The fallback restores the new life.
+    var wal = replayWal(List.of(deletion, new AtomicUnitEndRecord(1, false, null), page, end));
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, deletion.getLsn()));
+    verify(writeCache).restoreFileById(DURABLE_EXTERNAL_ID);
+    verify((TestPageOperation) page).redo(any(DurablePage.class));
+  }
+
+  /** Existing pages replay normally even if their file is deleted later. No lookahead is needed. */
+  @Test
+  public void existingFileIsNotSkippedForLaterDeletion() throws Exception {
+    var page = replayPage(0, 1);
+    var end = new AtomicUnitEndRecord(2, false, null);
+    wireReplayPage();
+    var wal = replayWal(List.of(page, new AtomicUnitEndRecord(1, false, null),
+        new FileDeletedWALRecord(2, DURABLE_EXTERNAL_ID), end));
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, page.getLsn()));
+    verify((TestPageOperation) page).redo(any(DurablePage.class));
+    verify(wal, times(1)).next(any(), eq(1_000));
+  }
+
+  /** Separate backup-style calls have separate evidence, even without a RecoveryPageContext. */
+  @Test
+  public void backupReplayDoesNotRetainDeletionsAcrossCalls() throws Exception {
+    when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(false);
+    var oldPage = replayPage(0, 1);
+    var end = new AtomicUnitEndRecord(2, false, null);
+    var first = replayWal(List.of(oldPage, new AtomicUnitEndRecord(1, false, null),
+        new FileDeletedWALRecord(2, DURABLE_EXTERNAL_ID), end));
+    assertEquals(end.getLsn(), storage.restoreFrom(first, oldPage.getLsn()));
+    verify(writeCache, never()).restoreFileById(anyLong());
+
+    var newPage = replayPage(0, 3);
+    var newEnd = new AtomicUnitEndRecord(3, false, null);
+    wireReplayFallback();
+    var second = replayWal(List.of(newPage, newEnd));
+    assertEquals(newEnd.getLsn(), storage.restoreFrom(second, newPage.getLsn()));
+    verify(writeCache).restoreFileById(DURABLE_EXTERNAL_ID);
+    verify((TestPageOperation) newPage).redo(any(DurablePage.class));
+  }
+
+  /** A pending create wins over later deletion evidence, so its page is created and redone. */
+  @Test
+  public void pendingCreateWinsOverLaterDeletion() throws Exception {
+    wireMissingFileRecoverableViaConsult();
+    var page = spy(new TestPageOperation(0, CREATED_EXTERNAL_ID, 1,
+        new LogSequenceNumber(0, 0), 42));
+    var entry = createCacheEntryWithLsn(CREATED_EXTERNAL_ID, 0, new LogSequenceNumber(0, 0));
+    when(readCache.loadOrAddForWrite(eq(CREATED_EXTERNAL_ID), eq(0L), eq(writeCache),
+        eq(true), any())).thenReturn(entry);
+    var end = new AtomicUnitEndRecord(2, false, null);
+    var wal = replayWal(List.of(new AtomicUnitStartRecord(false, 1), page,
+        new FileCreatedWALRecord(1, "created.dat", CREATED_EXTERNAL_ID),
+        new AtomicUnitEndRecord(1, false, null), new AtomicUnitStartRecord(false, 2),
+        new FileDeletedWALRecord(2, CREATED_EXTERNAL_ID), end));
+
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, new LogSequenceNumber(1, 1)));
+
+    var order = inOrder(readCache, page);
+    order.verify(readCache).addFile("created.dat", CREATED_EXTERNAL_ID, writeCache);
+    order.verify(page).redo(any(DurablePage.class));
+    verify(writeCache, never()).restoreFileById(anyLong());
+    assertEquals(page.getLsn(),
+        DurablePage.getLogSequenceNumberFromPage(entry.getCachePointer().getBuffer()));
+  }
+
+  /**
+   * Interleaved units place a page between another unit's deletion and end. Only the deletion
+   * position defines the skip relation, so this later page must use the fallback and be redone.
+   */
+  @Test
+  public void deletionPositionNotEndPositionControlsSkip() throws Exception {
+    wireReplayFallback();
+    var deletion = new FileDeletedWALRecord(1, DURABLE_EXTERNAL_ID);
+    var page = replayPage(0, 2);
+    var end = new AtomicUnitEndRecord(2, false, null);
+    var wal = replayWal(List.of(new AtomicUnitStartRecord(false, 1), deletion,
+        new AtomicUnitStartRecord(false, 2), page, new AtomicUnitEndRecord(1, false, null),
+        end));
+
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, new LogSequenceNumber(1, 1)));
+
+    verify(writeCache).restoreFileById(DURABLE_EXTERNAL_ID);
+    verify((TestPageOperation) page).redo(any(DurablePage.class));
+  }
+
+  /** The latest of two committed deletions authorizes skipping a page between them. */
+  @Test
+  public void latestCommittedDeletionControlsSkip() throws Exception {
+    when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(false);
+    var first = new FileDeletedWALRecord(1, DURABLE_EXTERNAL_ID);
+    var page = replayPage(0, 2);
+    var end = new AtomicUnitEndRecord(3, false, null);
+    var wal = replayWal(List.of(first, new AtomicUnitEndRecord(1, false, null), page,
+        new AtomicUnitEndRecord(2, false, null),
+        new FileDeletedWALRecord(3, DURABLE_EXTERNAL_ID), end));
+
+    assertEquals(end.getLsn(), storage.restoreFrom(wal, first.getLsn()));
+
+    verify(writeCache, never()).restoreFileById(anyLong());
+    verify((TestPageOperation) page, never()).redo(any(DurablePage.class));
+  }
+
+  /** Captures only this replay's messages, even when other test classes log concurrently. */
+  private final class ReplayLogCapture extends Handler implements AutoCloseable {
+
+    private final List<LogRecord> records = new CopyOnWriteArrayList<>();
+    private final Logger logger = Logger.getLogger(storage.getClass().getName());
+    private final long threadId = Thread.currentThread().threadId();
+
+    private ReplayLogCapture() {
+      logger.addHandler(this);
+    }
+
+    @Override
+    public void publish(LogRecord record) {
+      if (record.getLongThreadID() == threadId
+          && (record.getMessage().contains("Skipping page change")
+              || record.getMessage().contains("Deletion lookahead stopped"))) {
+        records.add(record);
+      }
+    }
+
+    @Override
+    public void flush() {
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(this);
+    }
+  }
+
+  private WALRecord replayPage(int kind, long unit) {
+    return switch (kind) {
+      case 0 -> spy(new TestPageOperation(0, DURABLE_EXTERNAL_ID, unit,
+          new LogSequenceNumber(0, 0), 42));
+      case 1 -> new UpdatePageRecord(0, DURABLE_EXTERNAL_ID, unit, mock(WALChanges.class),
+          new LogSequenceNumber(0, 0));
+      default -> new PageAllocatedWALRecord(0, DURABLE_EXTERNAL_ID, unit);
+    };
+  }
+
+  private WriteAheadLog replayWal(List<WALRecord> records) throws Exception {
+    setField(storage, "idGen", new AtomicOperationIdGen());
+    for (int i = 0; i < records.size(); i++) {
+      records.get(i).setLsn(new LogSequenceNumber(1, i + 1));
+    }
+    var wal = mock(WriteAheadLog.class);
+    when(wal.read(records.getFirst().getLsn(), 1_000)).thenAnswer(inv -> records);
+    when(wal.next(any(), eq(1_000))).thenAnswer(inv -> {
+      LogSequenceNumber cursor = inv.getArgument(0);
+      return records.stream().filter(r -> r.getLsn().compareTo(cursor) > 0).toList();
+    });
+    return wal;
+  }
+
+  private void wireReplayFallback() throws Exception {
+    when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(false);
+    when(writeCache.restoreFileById(DURABLE_EXTERNAL_ID)).thenAnswer(inv -> {
+      when(writeCache.exists(DURABLE_EXTERNAL_ID)).thenReturn(true);
+      return "durable.dat";
+    });
+    wireReplayPage();
+  }
+
+  private void wireReplayPage() throws Exception {
+    var entry = createCacheEntryWithLsn(DURABLE_EXTERNAL_ID, 0, new LogSequenceNumber(0, 0));
+    when(readCache.loadOrAddForWrite(eq(DURABLE_EXTERNAL_ID), eq(0L), eq(writeCache),
+        eq(true), any())).thenReturn(entry);
   }
 
   private CacheEntry createCacheEntryWithLsn(

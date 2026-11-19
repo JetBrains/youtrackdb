@@ -103,7 +103,8 @@ final class UnionStepRecogniser implements StepRecogniser {
     }
     // Union is only recognised after a vertex prefix has pinned the boundary. Start-position
     // g.union(...) never pins one, so decline here as well as at the strategy's vertex-start gate.
-    if (ctx.boundaryAlias() == null || ctx.hasExistsMatchExpressions()) {
+    if (ctx.boundaryAlias() == null || ctx.hasExistsMatchExpressions()
+        || ctx.booleanCheck() != null) {
       return Outcome.DECLINE;
     }
     var host = ctx.unionForkHost();
@@ -314,25 +315,10 @@ final class UnionStepRecogniser implements StepRecogniser {
   private static MatchPlanInputs withReturnProjection(
       MatchPlanInputs inputs, List<SQLExpression> items, List<SQLIdentifier> aliases,
       List<SQLNestedProjection> nested) {
-    return MatchPlanInputs.builder(inputs.pattern())
-        .aliasClasses(inputs.aliasClasses())
-        .aliasFilters(inputs.aliasFilters())
-        .matchExpressions(inputs.matchExpressions())
-        .notMatchExpressions(inputs.notMatchExpressions())
-        .existsMatchExpressions(inputs.existsMatchExpressions())
+    return inputs.toBuilder()
         .returnItems(items)
         .returnAliases(aliases)
         .returnNestedProjections(nested)
-        .groupBy(inputs.groupBy())
-        .orderBy(inputs.orderBy())
-        .unwind(inputs.unwind())
-        .limit(inputs.limit())
-        .skip(inputs.skip())
-        .returnDistinct(inputs.returnDistinct())
-        .returnElements(inputs.returnElements())
-        .returnPaths(inputs.returnPaths())
-        .returnPatterns(inputs.returnPatterns())
-        .returnPathElements(inputs.returnPathElements())
         .build();
   }
 
