@@ -18,8 +18,8 @@ bridge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bridge)
 
 BRANCH = "pull/1454"
-READY = {"count": 1, "branch": [{"name": BRANCH, "default": False, "active": True}]}
-ACCEPTED = {"buildTypeId": "YouTrackDB_SummaryReadyForReview", "branchName": BRANCH}
+READY = {"count": 1, "branch": [{"name": BRANCH, "default": False}]}
+ACCEPTED = {"buildTypeId": "YouTrackDB_SummaryReadyForReview", "branchName": BRANCH, "id": 12345}
 
 
 class ReadyBridgeTest(unittest.TestCase):
@@ -41,12 +41,13 @@ class ReadyBridgeTest(unittest.TestCase):
         self.assertNotIn("placeholder", output.getvalue())
         return code, output.getvalue(), [call.args[0] for call in send.call_args_list]
 
-    def test_waits_for_active_nondefault_branch_then_posts_exactly_once(self):
-        code, _, sent = self.invoke(
-            [{"count": 0}, READY | {"branch": [READY["branch"][0] | {"active": False}]},
-             READY | {"branch": [READY["branch"][0] | {"default": True}]}, READY, ACCEPTED])
+    def test_waits_for_current_nondefault_branch_then_posts_even_when_inactive(self):
+        default = READY | {"branch": [READY["branch"][0] | {"default": True}]}
+        inactive = READY | {"branch": [READY["branch"][0] | {"active": False}]}
+        code, output, sent = self.invoke([{"count": 0}, default, inactive, ACCEPTED])
         self.assertEqual(code, 0)
-        self.assertEqual([req.get_method() for req in sent], ["GET"] * 4 + ["POST"])
+        self.assertIn("build 12345", output)
+        self.assertEqual([req.get_method() for req in sent], ["GET"] * 3 + ["POST"])
         for req in sent:
             url = urllib.parse.urlsplit(req.full_url)
             self.assertEqual((url.scheme, url.netloc), ("https", "youtrackdb.teamcity.com"))
@@ -54,18 +55,36 @@ class ReadyBridgeTest(unittest.TestCase):
         for req in sent[:-1]:
             url = urllib.parse.urlsplit(req.full_url)
             self.assertEqual(url.path, "/app/rest/buildTypes/id:YouTrackDB_SummaryReadyForReview/branches")
-            self.assertEqual(urllib.parse.parse_qs(url.query)["locator"], ["name:pull/1454"])
+            self.assertEqual(urllib.parse.parse_qs(url.query), {
+                "locator": ["name:pull/1454,policy:vcs_branches,changesFromDependencies:false"],
+                "fields": ["count,branch(name,default)"],
+            })
         self.assertEqual(sent[-1].selector, "/app/rest/buildQueue")
         self.assertEqual(json.loads(sent[-1].data), {
             "buildType": {"id": "YouTrackDB_SummaryReadyForReview"}, "branchName": "pull/1454"})
 
+    def test_empty_current_branch_list_keeps_polling_until_timeout_without_post(self):
+        code, output, sent = self.invoke(
+            [{"count": 0}, {"count": 0, "branch": []}], times=[0, 0, 0, 5, 115, 120])
+        self.assertEqual(code, 1)
+        self.assertIn("Timed out", output)
+        self.assertEqual([req.get_method() for req in sent], ["GET", "GET"])
+
     def test_timeout_does_not_post_even_if_late_poll_finds_the_branch(self):
-        for reply in ({"count": 0}, READY):
+        code, output, sent = self.invoke([READY], times=[0, 0, 120])
+        self.assertEqual(code, 1)
+        self.assertIn("Timed out", output)
+        self.assertEqual([req.get_method() for req in sent], ["GET"])
+
+    def test_missing_or_unusable_build_id_fails_without_retry(self):
+        no_id = {key: value for key, value in ACCEPTED.items() if key != "id"}
+        for reply in (no_id, *(ACCEPTED | {"id": value} for value in
+                               (None, "not-a-build", "12345", 1.5, 0, -1, True, False))):
             with self.subTest(reply=reply):
-                code, output, sent = self.invoke([reply], times=[0, 0, 120, 120])
+                code, output, sent = self.invoke([READY, reply])
                 self.assertEqual(code, 1)
-                self.assertIn("Timed out", output)
-                self.assertEqual([req.get_method() for req in sent], ["GET"])
+                self.assertIn("invalid or missing build id", output)
+                self.assertEqual([req.get_method() for req in sent], ["GET", "POST"])
 
     def test_refusal_invalid_or_wrong_reply_and_ambiguous_post_fail_without_retry(self):
         for reply, diagnostic in (

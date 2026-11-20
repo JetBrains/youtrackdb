@@ -43,8 +43,11 @@ def request(opener, token, path, timeout, payload=None):
 
 def start(branch, token):
     opener = urllib.request.build_opener(NoRedirect)
+    # Current VCS membership reflects admission. Activity can include build history.
     query = urllib.parse.urlencode({
-        "locator": "name:" + branch, "fields": "count,branch(name,default,active)"})
+        "locator": f"name:{branch},policy:vcs_branches,changesFromDependencies:false",
+        "fields": "count,branch(name,default)",
+    })
     path = f"/app/rest/buildTypes/id:{BUILD_TYPE}/branches?{query}"
     deadline = time.monotonic() + 120
     while (remaining := deadline - time.monotonic()) > 0:
@@ -53,10 +56,9 @@ def start(branch, token):
         if (type(page.get("count")) is not int or not isinstance(branches, list)
                 or page["count"] != len(branches)
                 or any(not isinstance(item, dict) or item.get("name") != branch
-                       or type(item.get("active")) is not bool
                        or type(item.get("default", False)) is not bool for item in branches)):
             raise ValueError("TeamCity returned an unreadable ready branch list.")
-        if any(item["active"] and not item.get("default", False) for item in branches):
+        if any(not item.get("default", False) for item in branches):
             if time.monotonic() >= deadline:
                 break
             # An ambiguous POST may already have started work. Do not repeat it.
@@ -64,7 +66,10 @@ def start(branch, token):
                             {"buildType": {"id": BUILD_TYPE}, "branchName": branch})
             if build.get("buildTypeId") != BUILD_TYPE or build.get("branchName") != branch:
                 raise ValueError("TeamCity returned a build for the wrong configuration or branch.")
-            return
+            build_id = build.get("id")
+            if type(build_id) is not int or build_id <= 0:
+                raise ValueError("TeamCity returned an invalid or missing build id.")
+            return build_id
         time.sleep(min(5, max(0, deadline - time.monotonic())))
     raise ValueError("Timed out waiting for TeamCity to list the ready PR branch.")
 
@@ -77,11 +82,11 @@ def main():
             raise ValueError("PR_NUMBER must be a positive integer.")
         if not token.strip():
             raise ValueError("TEAMCITY_READY_TRIGGER_TOKEN is missing.")
-        start("pull/" + number, token)
+        build_id = start("pull/" + number, token)
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
-    print("TeamCity accepted the ready summary request.")
+    print(f"TeamCity accepted the ready summary request as build {build_id}.")
     return 0
 
 

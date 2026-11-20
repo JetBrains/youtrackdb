@@ -736,6 +736,19 @@ class ReadyBuildTest(unittest.TestCase):
         self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
         self.assertEqual(self.output.getvalue(), "")
 
+    def test_no_java_or_it_module_changes_skip_integration_but_allow_unit_maven(self):
+        for reason, text in (
+            ("no-java-changes", "no Java files changed"),
+            ("no-it-modules", "no changed Java files in modules with integration tests"),
+        ):
+            with self.subTest(reason=reason):
+                skip = dict(TC_SHOULD_BUILD="true", TC_RUN_INTEGRATION_TESTS="false",
+                            TC_INTEGRATION_SKIP_REASON=reason)
+                self.assertEqual(self.run_ready("failsafe", "guard", **skip), 0)
+                self.assertIn("No integration tests needed: " + text, self.output.getvalue())
+                self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
+                self.assertEqual(self.output.getvalue(), "")
+
     def test_malformed_decisions_fail_before_maven(self):
         cases = [
             dict(TC_SHOULD_BUILD=""), dict(TC_SHOULD_BUILD="false"),
