@@ -1894,8 +1894,15 @@ public class RestoreLifecycleTest {
       storage.restoreAtomicUnit(unit, new ModifiableBoolean());
       storage.restoreAtomicUnit(unit, new ModifiableBoolean());
       assertFalse("caller must not skip an unhydrated file", Files.exists(path));
+      var namesField = cache.getClass().getDeclaredField("nameIdMap");
+      namesField.setAccessible(true);
+      var names = (java.util.Map<?, ?>) namesField.get(cache);
       assertNull("handle-free deletion must not publish a map entry",
+          names.get(PageFileNames.layout28(identity)));
+      assertEquals("logical deletion remains visible without map publication",
+          Integer.valueOf(-identity.internalId()),
           cache.registeredFileId(PageFileNames.layout28(identity)));
+      assertFalse(cache.exists(id));
     }
   }
 

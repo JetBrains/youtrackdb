@@ -141,6 +141,154 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // A real cold open rebuilds configuration, collection, link-bag and both index families
+  // from configured identities when no map variant exists. Content survives a second reopen.
+  @Test
+  public void configuredHydrationReopensContentWithoutMapEvidence() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    java.util.Set<String> expected;
+    try (var session = open()) {
+      session.execute("create class Hydrated extends V").close();
+      session.execute("create property Hydrated.single STRING").close();
+      session.execute("create property Hydrated.multi STRING").close();
+      session.execute("create index Hydrated.single on Hydrated(single) UNIQUE").close();
+      session.execute("create index Hydrated.multi on Hydrated(multi) NOTUNIQUE").close();
+      session.executeInTx(
+          tx -> session.execute("insert into Hydrated set single = 'one', multi = 'many'").close());
+      expected = session.getStorage().getWriteCache().files().keySet();
+    }
+    ytdb.close();
+    var database = Path.of(directory, "counters");
+    StorageBirthTestSupport.removeNameIdMaps(database);
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    var observations = new java.util.concurrent.atomic.AtomicInteger();
+    AbstractStorage.BEFORE_COMPONENT_ID_SEEDING.set(storage -> {
+      observations.incrementAndGet();
+      assertEquals("configured inventory must be complete before seeding",
+          expected, storage.getWriteCache().files().keySet());
+      try {
+        var field = AbstractStorage.class.getDeclaredField("indexEngines");
+        field.setAccessible(true);
+        assertTrue("index engines must not load before configured hydration",
+            ((java.util.List<?>) field.get(storage)).isEmpty());
+      } catch (ReflectiveOperationException e) {
+        throw new AssertionError(e);
+      }
+    });
+    try (var session = open()) {
+      assertEquals("real cold open must reach the pre-seed boundary", 1, observations.get());
+      assertEquals(expected, session.getStorage().getWriteCache().files().keySet());
+      for (var property : new String[] {"single", "multi"}) {
+        var value = property.equals("single") ? "one" : "many";
+        try (var rows = session.query("select from Hydrated where " + property + " = ?", value)) {
+          assertTrue(rows.hasNext());
+          assertEquals("one", rows.next().getProperty("single"));
+          assertFalse(rows.hasNext());
+        }
+      }
+      var storage = session.getStorage();
+      var cache = (WOWCache) storage.getWriteCache();
+      // Exercise the pass without collection or index handles as an inventory source.
+      var enginesField = AbstractStorage.class.getDeclaredField("indexEngines");
+      enginesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (java.util.List<Object>) enginesField.get(storage);
+      var engines = new java.util.ArrayList<>(handles);
+      handles.clear();
+      storage.stateLock.writeLock().lock();
+      try {
+        for (var entry : new HashMap<>(cache.files()).entrySet()) {
+          var identity = PageFileNames.parseLayout28(entry.getKey()).orElseThrow();
+          if (identity.kind() != PageFileKind.CONFIGURATION) {
+            StorageBirthTestSupport.detachRecoveryIdentity(cache, entry.getValue());
+          }
+        }
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            storage::hydrateConfiguredFiles);
+        assertEquals(expected, cache.files().keySet());
+        assertTrue(handles.isEmpty());
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            storage::hydrateConfiguredFiles);
+        assertEquals(expected, cache.files().keySet());
+      } finally {
+        handles.addAll(engines);
+        storage.stateLock.writeLock().unlock();
+      }
+    } finally {
+      AbstractStorage.BEFORE_COMPONENT_ID_SEEDING.remove();
+    }
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open();
+        var rows = session.query("select from Hydrated where single = 'one'")) {
+      assertTrue(rows.hasNext());
+      assertEquals("many", rows.next().getProperty("multi"));
+      assertFalse(rows.hasNext());
+    }
+  }
+
+  // Every required collection, link-bag and index role must reject a cold open when lost.
+  // Admission must neither replace the missing file nor change any surviving page-file bytes.
+  // Repairing only the lost bytes must allow a clean retry of the same image.
+  @Test
+  public void hydrationPreservesRequiredRoleFailureAndAllowsRepairedRetry() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    var required = new java.util.ArrayList<PageFileIdentity>();
+    try (var session = open()) {
+      session.execute("create class RequiredHydration extends V").close();
+      session.execute("create property RequiredHydration.value STRING").close();
+      session.execute("create index RequiredHydration.value on RequiredHydration(value) NOTUNIQUE")
+          .close();
+      var storage = session.getStorage();
+      var collectionId = session.getMetadata().getSchema().getClass("RequiredHydration")
+          .getCollectionIds()[0];
+      var componentId = operationEntry(storage, collectionId).getComponentId();
+      for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.POSITION_MAP,
+          PageFileRole.LINK_BAG_TREE}) {
+        required.add(new PageFileIdentity(role, componentId));
+      }
+      var engine = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> config(storage).getIndexEngine("RequiredHydration.value", -1, op));
+      for (var role : new PageFileRole[] {PageFileRole.INDEX_DATA, PageFileRole.INDEX_NULL_BUCKET,
+          PageFileRole.NULL_KEY_DATA, PageFileRole.NULL_KEY_NULL_BUCKET}) {
+        required.add(new PageFileIdentity(role, engine.getFileBaseId()));
+      }
+    }
+    ytdb.close();
+    var database = Path.of(directory, "counters");
+    for (var identity : required) {
+      var missing = database.resolve(PageFileNames.layout28DiskName(identity));
+      var original = Files.readAllBytes(missing);
+      Files.delete(missing);
+      StorageBirthTestSupport.removeNameIdMaps(database);
+      var survivors = new HashMap<Path, byte[]>();
+      try (var files = Files.list(database)) {
+        for (var file : files.filter(p -> p.getFileName().toString().startsWith("ytdb-p28-"))
+            .toList()) {
+          survivors.put(file, Files.readAllBytes(file));
+        }
+      }
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+      try {
+        assertThrows(identity.toString(), RuntimeException.class, this::open);
+      } finally {
+        ytdb.close();
+      }
+      assertFalse(identity.toString(), Files.exists(missing));
+      for (var entry : survivors.entrySet()) {
+        assertArrayEquals(identity + " survivor " + entry.getKey(), entry.getValue(),
+            Files.readAllBytes(entry.getKey()));
+      }
+      Files.write(missing, original);
+      StorageBirthTestSupport.removeNameIdMaps(database);
+      ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+      try (var session = open()) {
+        assertTrue(session.getStorage().getWriteCache().exists(PageFileNames.layout28(identity)));
+      }
+      ytdb.close();
+    }
+  }
+
   // Birth allocates distinct collection identities and reserves configuration zero in both profiles.
   @Test
   public void birthReservesFixedConfigurationIdentityInDiskAndMemory() throws Exception {

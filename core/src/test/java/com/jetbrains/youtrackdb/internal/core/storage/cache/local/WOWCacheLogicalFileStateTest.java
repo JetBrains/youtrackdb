@@ -50,6 +50,98 @@ import org.junit.function.ThrowingRunnable;
 
 public class WOWCacheLogicalFileStateTest {
 
+  // Expected-file admission opens only the computed path and never appends map evidence.
+  // A second pass preserves allocation state. Missing paths neither create nor publish files.
+  @Test
+  public void expectedAdmissionIsMapFreePresentOnlyAndIdempotent() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9040);
+      var absent = new PageFileIdentity(PageFileRole.RECORD_DATA, 9041);
+      var name = PageFileNames.layout28(identity);
+      var id = cache.externalFileId(identity.internalId());
+      var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      pathField.setAccessible(true);
+      var mapPath = (Path) pathField.get(cache);
+      var before = Files.readAllBytes(mapPath);
+      var disk = mapPath.getParent().resolve(PageFileNames.layout28DiskName(identity));
+      var bytes = new byte[1024 + cache.pageSize()];
+      java.util.Arrays.fill(bytes, (byte) 17);
+      Files.write(disk, bytes);
+      assertTrue(cache.admitExpectedFile(identity));
+      assertEquals(id, cache.loadFile(name));
+      var state = cache.logicalFiles().live(identity.internalId());
+      assertEquals(1, state.logicalExtent());
+      assertEquals(1, state.diskExtent());
+      assertTrue(state.diskPresent());
+      state.extents().allocateThrough(3);
+      assertTrue(cache.admitExpectedFile(identity));
+      assertEquals(3, cache.logicalFiles().live(identity.internalId()).logicalExtent());
+      assertFalse(cache.admitExpectedFile(absent));
+      assertAbsent(cache, absent);
+      assertFalse(Files.exists(mapPath.getParent()
+          .resolve(PageFileNames.layout28DiskName(absent))));
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+      org.junit.Assert.assertArrayEquals(before, Files.readAllBytes(mapPath));
+      assertOracle(cache);
+      cache.close();
+      // Close still serializes maps at this boundary. Remove that source before retrying.
+      Files.delete(mapPath);
+      cache.loadRegisteredFiles();
+      // Only the expected identity can supply this file on the second admission.
+      assertAbsent(cache, identity);
+      assertTrue(cache.admitExpectedFile(identity));
+      assertEquals(1, cache.logicalFiles().live(identity.internalId()).logicalExtent());
+    });
+  }
+
+  // A failed pass after one admission can close and retry without losing the admitted bytes.
+  // Conflicting registry owners must not redirect an expected identity to a different file.
+  @Test
+  public void expectedAdmissionRejectsConflictsAndSupportsPartialRetry() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9042);
+      var name = PageFileNames.layout28(identity);
+      var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      pathField.setAccessible(true);
+      var mapPath = (Path) pathField.get(cache);
+      var disk = mapPath.getParent().resolve(PageFileNames.layout28DiskName(identity));
+      var bytes = new byte[1024 + cache.pageSize()];
+      Files.write(disk, bytes);
+      assertTrue(cache.admitExpectedFile(identity));
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      namesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var names = (Map<String, Integer>) namesField.get(cache);
+      var idsField = WOWCache.class.getDeclaredField("idNameMap");
+      idsField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var ids = (Map<Integer, String>) idsField.get(cache);
+      names.put(name, identity.internalId() + 1);
+      assertThrows(StorageException.class, () -> cache.admitExpectedFile(identity));
+      names.put(name, identity.internalId());
+      ids.put(identity.internalId(), "wrong-owner");
+      assertThrows(StorageException.class, () -> cache.admitExpectedFile(identity));
+      ids.put(identity.internalId(), name);
+      cache.close();
+      StorageBirthTestSupport.removeNameIdMaps(mapPath.getParent());
+      cache.loadRegisteredFiles();
+      assertAbsent(cache, identity);
+      assertTrue(cache.registrationEvidence().positiveNames().isEmpty());
+      assertTrue(cache.registrationEvidence().negativeNames().isEmpty());
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+      assertTrue(cache.admitExpectedFile(identity));
+      var state = cache.logicalFiles().live(identity.internalId());
+      assertNotNull(state);
+      assertEquals(identity, state.identity());
+      assertTrue(state.diskPresent());
+      assertFalse(state.nonDurable());
+      assertEquals(1, state.logicalExtent());
+      assertEquals(1, state.diskExtent());
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+      assertOracle(cache);
+    });
+  }
+
   // Strict parsing rejects aliases, disk names and mismatched ids without inventing membership.
   @Test
   public void resolverChecksCanonicalNamesAndIdsWithoutDiskAccess() {

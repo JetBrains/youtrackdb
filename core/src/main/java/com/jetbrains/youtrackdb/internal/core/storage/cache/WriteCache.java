@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
@@ -89,6 +90,17 @@ public interface WriteCache {
    * @return Id of registered file
    */
   long loadFile(String fileName) throws IOException;
+
+  /**
+   * Admits a present expected layout 28 disk file without creating it or persisting registration.
+   * The caller owns storage lifecycle write exclusion. Missing roles remain absent so their
+   * component load paths retain required-file failure and auxiliary reconstruction policy.
+   * Repeated admission preserves logical extents and is safe during restore reseeding.
+   */
+  default boolean admitExpectedFile(PageFileIdentity identity)
+      throws IOException {
+    throw new UnsupportedOperationException("Expected-file admission is not supported");
+  }
 
   /** Whether this cache supports computed disk identities before inventory hydration. */
   default boolean supportsIdentityRecovery() {

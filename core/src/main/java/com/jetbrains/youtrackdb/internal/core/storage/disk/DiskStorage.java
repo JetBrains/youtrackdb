@@ -3309,6 +3309,7 @@ public class DiskStorage extends AbstractStorage {
 
   private void postProcessIncrementalRestore(ContextConfiguration contextConfiguration)
       throws IOException {
+    hydrateConfigurationFiles();
     if (CollectionBasedStorageConfiguration.exists(writeCache)) {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
@@ -3321,6 +3322,7 @@ public class DiskStorage extends AbstractStorage {
               .load(contextConfiguration, atomicOperation));
     }
 
+    atomicOperationsManager.executeInsideAtomicOperation(this::hydrateConfiguredFiles);
     atomicOperationsManager.executeInsideAtomicOperation(this::seedComponentIds);
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();

@@ -552,6 +552,50 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public boolean admitExpectedFile(PageFileIdentity identity) throws IOException {
+    if (logicalFiles == null) {
+      throw new UnsupportedOperationException("Expected-file admission requires layout 28");
+    }
+    final var name = PageFileNames.layout28(identity);
+    final var internalId = identity.internalId();
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      final var registered = nameIdMap.get(name);
+      final var owner = idNameMap.get(internalId);
+      if ((registered != null && Math.abs(registered) != internalId)
+          || (owner != null && !owner.equals(name))) {
+        throw new StorageException(storageName, "Conflicting expected file: " + name);
+      }
+      final var externalId = composeFileId(id, internalId);
+      var file = files.get(externalId);
+      final var firstAdmission = file == null;
+      if (firstAdmission) {
+        file = createFileHandle(name, internalId);
+      }
+      if (!file.exists()) {
+        return false;
+      }
+      if (firstAdmission) {
+        openFile(storageName, file);
+        files.add(externalId, file);
+      }
+      // Install the handle before publishing logical membership to background readers.
+      // Keep session mirrors while startup and mutation map consumers remain enabled.
+      idNameMap.remove(-internalId);
+      nameIdMap.put(name, internalId);
+      idNameMap.put(internalId, name);
+      mirrorRegistration(name, internalId, nonDurableFileIds.contains(internalId));
+      return true;
+    } catch (java.lang.InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("Interrupted while admitting expected file " + name, e);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  @Override
   public boolean supportsIdentityRecovery() {
     return logicalFiles != null;
   }

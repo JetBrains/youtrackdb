@@ -77,6 +77,15 @@ public final class StorageBirthTestSupport {
     forget.invoke(table, internalId);
   }
 
+  /** Removes every persisted name-id map variant before a map-free cache or storage open. */
+  public static void removeNameIdMaps(java.nio.file.Path directory) throws java.io.IOException {
+    for (var name : new String[] {"name_id_map.cm", "name_id_map_v2.cm",
+        "name_id_map_v2_backup.cm", "name_id_map_v3.cm", "name_id_map_v3_t.cm"}) {
+      java.nio.file.Files.deleteIfExists(directory.resolve(name));
+      org.junit.Assert.assertFalse(java.nio.file.Files.exists(directory.resolve(name)));
+    }
+  }
+
   /** Selects one birth layout for one manager and database on the current thread. */
   public static AutoCloseable selectBirthFormat(
       com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl manager,

@@ -958,6 +958,7 @@ public abstract class AbstractStorage
 
           verifyStartupHistory();
           recoverIfNeeded();
+          hydrateConfigurationFiles();
 
           atomicOperationsManager.executeInsideAtomicOperation(
               atomicOperation -> {
@@ -970,6 +971,7 @@ public abstract class AbstractStorage
                 }
 
                 initConfiguration(contextConfiguration, atomicOperation);
+                hydrateConfiguredFiles(atomicOperation);
                 seedComponentIds(atomicOperation);
               });
 
@@ -1236,6 +1238,67 @@ public abstract class AbstractStorage
     }
   }
 
+  /** Admits only present fixed configuration roles, after recovery and before metadata load. */
+  protected final void hydrateConfigurationFiles() throws IOException {
+    if (writeCache.supportsIdentityRecovery()) {
+      hydrateFileFamily(PageFileKind.CONFIGURATION, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    }
+  }
+
+  /**
+   * Builds the configured disk inventory before seeding or opening component handles.
+   * Configuration load must have released its non-reentrant lock. The storage write lock keeps
+   * backup and restore consumers out until the inventory is complete. Background cache readers
+   * can see each admitted file only after its physical handle and extents are ready.
+   * Restore uses the same idempotent pass without lowering live allocation extents.
+   */
+  protected final void hydrateConfiguredFiles(AtomicOperation operation) throws IOException {
+    assert stateLock.isWriteLockedByCurrentThread();
+    if (!writeCache.supportsIdentityRecovery()) {
+      return;
+    }
+    for (var collection : configuration.getCollections()) {
+      if (collection != null) {
+        checkCollectionIdentity(collection);
+        var componentId = ((StoragePaginatedCollectionConfiguration) collection).getComponentId();
+        hydrateFileFamily(PageFileKind.COLLECTION, componentId);
+      }
+    }
+    for (var indexName : configuration.indexEngines(operation)) {
+      var engine = configuration.getIndexEngine(indexName, -1, operation);
+      validateComponentIdEvidence(engine.getFileBaseId(), "index entry '" + indexName + "'");
+      for (var role : PageFileRole.values()) {
+        if (role.kind() == PageFileKind.INDEX_ENGINE
+            && (engine.isMultivalue()
+                || (role != PageFileRole.NULL_KEY_DATA
+                    && role != PageFileRole.NULL_KEY_NULL_BUCKET))) {
+          writeCache.admitExpectedFile(new PageFileIdentity(role, engine.getFileBaseId()));
+        }
+      }
+    }
+  }
+
+  private void hydrateFileFamily(PageFileKind kind, int componentId) throws IOException {
+    for (var role : PageFileRole.values()) {
+      if (role.kind() == kind) {
+        writeCache.admitExpectedFile(new PageFileIdentity(role, componentId));
+      }
+    }
+  }
+
+  // Assertion-only observation at the shared open/restore boundary. No callback lookup runs
+  // with assertions disabled. Tests remove their thread-scoped observer in finally.
+  static final ThreadLocal<Consumer<AbstractStorage>> BEFORE_COMPONENT_ID_SEEDING =
+      new ThreadLocal<>();
+
+  private boolean observeComponentIdSeeding() {
+    var observer = BEFORE_COMPONENT_ID_SEEDING.get();
+    if (observer != null) {
+      observer.accept(this);
+    }
+    return true;
+  }
+
   /**
    * Seeds live allocation marks after configuration load and before any component load.
    * The caller owns the storage write lock. Configuration load must have released its own lock.
@@ -1259,6 +1322,7 @@ public abstract class AbstractStorage
    */
   protected final void seedComponentIds(final AtomicOperation atomicOperation) {
     assert stateLock.isWriteLockedByCurrentThread();
+    assert observeComponentIdSeeding();
     final var layout28 = storageFormat == StorageFormat.LAYOUT_28;
     final var config = (CollectionBasedStorageConfiguration) configuration;
     if (layout28) {
