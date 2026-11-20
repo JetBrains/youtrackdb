@@ -12,6 +12,9 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.PhysicalPosition;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -127,6 +130,30 @@ public class PaginatedCollectionV2OptimisticReadTest {
       });
     } catch (IOException e) {
       throw new RuntimeException(e);
+    }
+  }
+
+  /** A validated zero-copy result must reject a removed page even with a valid old stamp. */
+  @Test
+  public void testZeroCopyResultRejectsRemovedRetainedPage() throws IOException {
+    var pos = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {1, 2, 3}, (byte) 'd', null, op));
+    flushToReadCache();
+    var result = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.readRecord(pos.collectionPosition, op));
+    Assert.assertTrue(result instanceof RawPageBuffer);
+    var raw = (RawPageBuffer) result;
+    var pointer = raw.cacheEntry().getCachePointer();
+    pointer.incrementReadersReferrer();
+    try {
+      // The optimistic read has ended, so the file lifecycle precondition holds.
+      storage.getReadCache().closeFile(collection.getFileId(), false, storage.getWriteCache());
+      Assert.assertTrue(raw.pageFrame().validate(raw.stamp()));
+      long before = OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY);
+      Assert.assertThrows(OptimisticReadFailedException.class, raw::toRawBuffer);
+      Assert.assertEquals(before + 1, OptimisticReadFailureCounters.count(Cause.FRAME_IDENTITY));
+    } finally {
+      pointer.decrementReadersReferrer();
     }
   }
 
@@ -958,7 +985,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
         long stamp = pageFrame.tryOptimisticRead();
         var rawPageBuffer = new RawPageBuffer(
             pageFrame, stamp, contentOffset, contentLength,
-            rawBuffer.version(), rawBuffer.recordType());
+            rawBuffer.version(), rawBuffer.recordType(), entry);
 
         // sliceContent should return a ByteBuffer with matching content
         ByteBuffer slice = rawPageBuffer.sliceContent();
@@ -1002,7 +1029,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
         long stamp = pageFrame.tryOptimisticRead();
         var rpb = new RawPageBuffer(pageFrame, stamp,
             page.getRecordContentOffset(0), 0,
-            rawBuffer.version(), rawBuffer.recordType());
+            rawBuffer.version(), rawBuffer.recordType(), entry);
         ByteBuffer slice = rpb.sliceContent();
         Assert.assertEquals(0, slice.capacity());
       } catch (IOException e) {

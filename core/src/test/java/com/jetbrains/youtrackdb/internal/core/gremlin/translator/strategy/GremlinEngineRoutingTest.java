@@ -142,7 +142,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     var collision = source.V().as("$reserved").path().select("side").asAdmin();
     collision.getSideEffects().register("side", () -> "live", (a, b) -> b);
     var cache = GremlinPlanCache.instance(db);
-    cache.getTranslationEntry(new GremlinShapeKey(new Object[] {"timeout-baseline"}), db);
+    cache.getTranslationInternal(new GremlinShapeKey(new Object[] {"timeout-baseline"}), db);
     var timeout = db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
     db.getConfiguration().setValue(GlobalConfiguration.COMMAND_TIMEOUT, timeout + 1);
     try {
@@ -269,7 +269,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
           () -> com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
               .resolveYtdbSession(traversal))
           .thenReturn(session);
-      new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true)
+      new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlanEntry, true)
           .apply(traversal);
       util.verify(
           () -> com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil
@@ -395,9 +395,12 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
           verify(strategies, org.mockito.Mockito.times(1)).iterator();
         }
         verify(rootStrategies, never()).getStrategy(OptionsStrategy.class);
-        verify(rootStrategies, never()).getStrategy(StandardOrderSemanticsStrategy.class);
+        // Runtime-start admission inspects the order contract once before extraction.
+        verify(rootStrategies, org.mockito.Mockito.times(traversal == sorted ? 1 : 0))
+            .getStrategy(StandardOrderSemanticsStrategy.class);
         verify(strategies, never()).getStrategy(EdgeLabelVerificationStrategy.class);
-        verify(strategies, never()).getStrategy(ProductiveByStrategy.class);
+        verify(strategies, org.mockito.Mockito.times(traversal == sorted ? 1 : 0))
+            .getStrategy(ProductiveByStrategy.class);
       }
     }
   }
@@ -620,9 +623,10 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
       var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
           (session, translation, scope) -> {
             var privateScope = new GremlinToMatchStrategy.CacheScope(scope.generation, false);
-            var plan = spy(GremlinToMatchStrategy.buildPlan(session, translation, privateScope));
+            var plan = spy(
+                GremlinToMatchStrategy.buildPlanEntry(session, translation, privateScope).value);
             plans.add(plan);
-            return shared ? scope.shared(plan) : plan;
+            return new GremlinPlanCache.Entry<>(plan, scope.generation, shared);
           });
       var traversal = graph.traversal().V().hasLabel("RouteVertex").asAdmin();
       strategy.apply(traversal);
@@ -645,10 +649,11 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
         (session, translation, scope) -> {
           var privateScope = new GremlinToMatchStrategy.CacheScope(scope.generation, false);
-          var plan = spy(GremlinToMatchStrategy.buildPlan(session, translation, privateScope));
+          var plan =
+              spy(GremlinToMatchStrategy.buildPlanEntry(session, translation, privateScope).value);
           doThrow(fatal).when(plan).getSteps();
           doThrow(cleanup).when(plan).close();
-          return plan;
+          return GremlinPlanCache.Entry.owned(plan, scope.generation);
         });
     assertThatThrownBy(() -> strategy.apply(graph.traversal().V().asAdmin()))
         .isSameAs(fatal).hasSuppressedException(cleanup);
@@ -798,7 +803,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     assertThat(GremlinPlanCache.getTranslation(
         GremlinStepWalker.extractShape(indexedRoute(), db).key(), db)).isNull();
     var uncached = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
-        GremlinToMatchStrategy::buildPlan);
+        GremlinToMatchStrategy::buildPlanEntry);
     uncached.nativeStartProof = (traversal, session) -> {
       throw new AssertionError("no proof");
     };
@@ -833,7 +838,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     }
   }
 
-  /** Parallel cold work may duplicate proof, but publication reuses the first resident decision. */
+  /** A later cold MATCH decision replaces an earlier native decision at the same generation. */
   @Test
   public void overlappingColdProofsReuseTheWinningResidentDecision() {
     createRoutingIndex();
@@ -852,8 +857,10 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     };
     var raw = indexedRoute();
     late.apply(raw);
-    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isZero();
-    late.apply(indexedRoute());
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
+    var warm = indexedRoute();
+    late.apply(warm);
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isEqualTo(1);
     assertThat(proofs.get()).isEqualTo(2);
   }
 
@@ -928,7 +935,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
           translation.boundaryAlias(), translation.outputType(), translation.returnClass(),
           extra, translation.cacheEligible(), translation.shaping(), translation.hasContributions(),
           translation.userLabelAliases());
-    }, GremlinToMatchStrategy::buildPlan, true, failures::add);
+    }, GremlinToMatchStrategy::buildPlanEntry, true, failures::add);
     var proofs = new AtomicInteger();
     strategy.nativeStartProof = (traversal, session) -> {
       proofs.incrementAndGet();
@@ -970,7 +977,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(traversal);
     }, (session, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(session, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(session, translation, scope);
     }, true);
   }
 }

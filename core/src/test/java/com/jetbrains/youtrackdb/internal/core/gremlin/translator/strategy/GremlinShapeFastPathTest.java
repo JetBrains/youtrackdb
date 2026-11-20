@@ -254,7 +254,8 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     assertThat(conversions.get()).isPositive();
     TextShapeOracle.verify(traversal);
     var observed = new ArrayList<GremlinShapeExtractor.Extraction>();
-    var strategy = new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true);
+    var strategy =
+        new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.extractionObserver = observed::add;
     var counters = new GremlinShapeBuffer.Counters();
     GremlinShapeBuffer.startCounting(counters);
@@ -361,7 +362,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       translations.incrementAndGet();
       return null;
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     var observations = new java.util.concurrent.atomic.AtomicInteger();
     strategy.extractionObserver = extraction -> {
       assertThat(extraction.complete()).isFalse();
@@ -409,7 +410,8 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
   /** Observer-retained warm extractions fail loudly after close and after a later lease starts. */
   @Test
   public void retainedWarmExtractionRejectsClosedAndReusedLease() {
-    var strategy = new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true);
+    var strategy =
+        new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.apply(graph.traversal().V().has("age", 1).asAdmin());
     var observed = new ArrayList<GremlinShapeExtractor.Extraction>();
     strategy.extractionObserver = observed::add;
@@ -614,7 +616,8 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     nativeTraversal.getStrategies().removeStrategies(GremlinToMatchStrategy.class);
     var expected = nativeTraversal.toList();
     var observed = new ArrayList<GremlinShapeExtractor.Extraction>();
-    var strategy = new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlan, true);
+    var strategy =
+        new GremlinToMatchStrategy(t -> null, GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.extractionObserver = extraction -> {
       assertThat(extraction.key()).isEqualTo(full.key());
       observed.add(extraction);
@@ -679,7 +682,8 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
         walker.verify(() -> GremlinStepWalker.hasDuplicateStepLabels(warmA));
         walker.verify(() -> GremlinStepWalker.selectCollidesWithSideEffect(warmA));
       }
-      org.mockito.Mockito.verify(has).getHasContainers();
+      // Admission scans once for a runtime start, then fast emission scans the structure once.
+      org.mockito.Mockito.verify(has, org.mockito.Mockito.times(2)).getHasContainers();
       assertThat(counters.leases).isEqualTo(1);
       assertThat(counters.emissions).isEqualTo(1);
       assertThat(counters.hits).isEqualTo(1);
@@ -786,7 +790,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
 
   /** Publication races run the actual generation-stamped cache with thread-safe session doubles. */
   @Test
-  public void actualCacheKeepsFirstWinnerPerExactKeyUnderConcurrentForcedCollisions()
+  public void actualCacheReplacesWithinExactKeyUnderConcurrentForcedCollisions()
       throws Exception {
     GremlinShapeBuffer.hasherForTests = value -> 5;
     var db = org.mockito.Mockito.mock(
@@ -794,6 +798,9 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     org.mockito.Mockito.when(db.getConfiguration())
         .thenReturn(new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration());
     var cache = new GremlinPlanCache(8);
+    var publications = List.of(new GremlinTranslationTemplate.Decline(),
+        new GremlinTranslationTemplate.Decline(), new GremlinTranslationTemplate.Decline(),
+        new GremlinTranslationTemplate.Decline());
     var start = new CountDownLatch(1);
     try (var executor = Executors.newFixedThreadPool(4)) {
       var jobs = new ArrayList<java.util.concurrent.Future<?>>();
@@ -804,8 +811,14 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
           try (var lease = GremlinShapeBuffer.acquire()) {
             lease.append(index % 2);
             var winner = cache.putTranslationInternal(lease.freeze(),
-                new GremlinTranslationTemplate.Decline(), db, cache.getGeneration());
-            assertThat(cache.getTranslationInternal(lease, db)).isSameAs(winner);
+                publications.get(index), db, cache.getGeneration());
+            // Another same-generation write may replace the returned resident before lookup.
+            assertThat(winner).satisfiesAnyOf(
+                value -> assertThat(value).isSameAs(publications.get(index % 2)),
+                value -> assertThat(value).isSameAs(publications.get(index % 2 + 2)));
+            assertThat(cache.getTranslationInternal(lease, db)).satisfiesAnyOf(
+                value -> assertThat(value).isSameAs(publications.get(index % 2)),
+                value -> assertThat(value).isSameAs(publications.get(index % 2 + 2)));
           }
           return null;
         }));
@@ -826,7 +839,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
   public void exceptionDuringStrategyApplicationClearsUsedTokenEventAndScopeReferences()
       throws Exception {
     var strategy = new GremlinToMatchStrategy(traversal -> null,
-        GremlinToMatchStrategy::buildPlan, true);
+        GremlinToMatchStrategy::buildPlanEntry, true);
     strategy.extractionObserver = extraction -> {
       throw new IllegalStateException("test failure after emission");
     };

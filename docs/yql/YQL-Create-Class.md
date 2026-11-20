@@ -17,6 +17,12 @@ CREATE CLASS <class>
 
 A class should extend `V` (Vertex) or `E` (Edge). Classes that do not extend `V` or `E` can be created at the schema level, but they are not usable through the Gremlin API.
 
+A concrete class uses one storage collection by default. The database setting
+`youtrackdb.class.collectionsCount` sets the count for new classes. Zero selects the automatic
+count of one, and a positive value selects that many collections. Existing databases retain
+their persisted positive setting, including for newly created classes. Existing classes are
+not resized.
+
 **Examples**
 
 - Create the class `Account`:

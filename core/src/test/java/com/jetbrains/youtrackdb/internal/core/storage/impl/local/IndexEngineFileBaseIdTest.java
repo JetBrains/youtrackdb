@@ -332,8 +332,8 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
-   * The too-big-key rejection is user-facing and must name the index's LOGICAL name, not
-   * the internal {@code ie_<fileBaseId>} component stem the engine files are keyed by.
+   * An oversized composite key cannot be shortened. Its user-facing rejection must name the
+   * index's LOGICAL name, not the internal {@code ie_<fileBaseId>} component file stem.
    */
   @Test
   public void tooBigIndexKeyNamesTheLogicalIndexNotTheFileStem() throws Exception {
@@ -343,12 +343,17 @@ public class IndexEngineFileBaseIdTest {
     try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
       final var cls = session.getMetadata().getSchema().createClass("FbiKeyTooBig");
       cls.createProperty("val", PropertyType.STRING);
-      cls.createIndex("FbiKeyTooBigIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+      cls.createProperty("suffix", PropertyType.INTEGER);
+      cls.createIndex("FbiKeyTooBigIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val", "suffix");
 
       final var hugeKey = "x".repeat(200_000);
       try {
         session.executeInTx(
-            tx -> tx.newEntity("FbiKeyTooBig").setProperty("val", hugeKey));
+            tx -> {
+              final var entity = tx.newEntity("FbiKeyTooBig");
+              entity.setProperty("val", hugeKey);
+              entity.setProperty("suffix", 1);
+            });
         fail("an over-limit index key must be rejected");
       } catch (final Exception e) {
         // The rejection must speak the user's language: the logical index name, no ie_ stem.

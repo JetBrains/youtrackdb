@@ -163,6 +163,43 @@ public enum GlobalConfiguration {
       "youtrackdb.storage.diskCache.bufferSize", "Size of disk buffer in megabytes", Integer.class,
       4 << 10),
 
+  DISK_CACHE_COMMIT_PAGE_LIMIT(
+      "youtrackdb.storage.diskCache.commitPageLimit",
+      "Maximum changed pages in one page-set commit. Unit: pages. Range: 1 to 2147483647."
+          + " Default: 1024. The effective limit is the smaller of this value and the pin budget"
+          + " rounded down to whole pages. A zero pin budget turns the page-set protocol off."
+          + " A positive percent that rounds down to zero pages also turns it off and logs a"
+          + " startup warning with the setting, percent and cache page count. Disk storage only."
+          + " The in-memory engine does not use this setting. A large pin budget can keep the"
+          + " cache above its configured size. The frame pool can keep freed memory."
+          + " The automatic cache size leaves little free memory."
+          + " Read once at engine startup and not changeable at runtime."
+          + " Only the value for the whole Java process counts, set through a system property"
+          + " or the YOUTRACKDB_DISK_CACHE_COMMIT_PAGE_LIMIT environment variable."
+          + " A per-database-factory YouTrackDBConfig value has no effect.",
+      Integer.class,
+      1024, false, false, true),
+
+  DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT(
+      "youtrackdb.storage.diskCache.commitPinBudgetPercent",
+      "Shared page-set commit pin budget as a decimal percent of read-cache pages."
+          + " Range: 0 to 15 inclusive. Default: 1.0. NaN and infinity are not valid."
+          + " Budget pages are the cache page count times the percent divided by 100,"
+          + " rounded down to whole pages. Zero turns the page-set protocol off."
+          + " A positive percent that rounds down to zero pages also turns it off and logs a"
+          + " startup warning with the setting, percent and cache page count."
+          + " Disk storage only. The in-memory engine does not use this setting."
+          + " Pinned pages can keep the cache above its configured size."
+          + " The frame pool can keep freed memory."
+          + " The automatic cache size leaves little free memory, so choose a large budget"
+          + " only when the server has enough memory."
+          + " Read once at engine startup and not changeable at runtime."
+          + " Only the value for the whole Java process counts, set through a system property"
+          + " or the YOUTRACKDB_DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT environment variable."
+          + " A per-database-factory YouTrackDBConfig value has no effect.",
+      Double.class,
+      1.0, false, false, true),
+
   DISK_WRITE_CACHE_PART(
       "youtrackdb.storage.diskCache.writeCachePart",
       "Percentage of disk cache, which is used as write cache",
@@ -236,6 +273,16 @@ public enum GlobalConfiguration {
           + "This log prevents pages to be teared apart so it is not recommended to switch it off.",
       Boolean.class,
       true),
+
+  STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT(
+      "youtrackdb.storage.doubleWriteLog.synchronizationLimit",
+      "Maximum number of successful page writes waiting for synchronization in each storage."
+          + " At the default, heap use per storage is about 64 to 80 MiB with compressed"
+          + " object references and about 80 to 100 MiB without them."
+          + " The limit applies to each storage separately."
+          + " A value below 1 makes disk storage open and create fail.",
+      Integer.class,
+      1_048_576),
 
   STORAGE_DOUBLE_WRITE_LOG_MAX_SEG_SIZE(
       "youtrackdb.storage.doubleWriteLog.maxSegSize",
@@ -561,8 +608,9 @@ public enum GlobalConfiguration {
 
   BTREE_MAX_KEY_SIZE(
       "youtrackdb.btree.maxKeySize",
-      "Maximum size of a key, which can be put in the SBTree in bytes (-1 by default, calculated"
-          + " automatically from the page size)",
+      "Maximum index key size in bytes (-1 uses 30% of the page size). Recorded at database"
+          + " creation. Oversized string and binary keys in single-field indexes are shortened"
+          + " to a fixed prefix when the recorded limit is positive.",
       Integer.class,
       -1),
 
@@ -844,9 +892,9 @@ public enum GlobalConfiguration {
   // CLASS
   CLASS_COLLECTIONS_COUNT(
       "youtrackdb.class.collectionsCount",
-      "Minimum collections to create when a new class is created. 0 means Automatic",
+      "Minimum collections to create for a new class. Default is 1. 0 means automatic (1).",
       Integer.class,
-      8),
+      1),
 
   // LOG
   LOG_SUPPORTS_ANSI(

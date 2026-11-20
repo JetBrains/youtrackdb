@@ -5,47 +5,88 @@ The repository does not need machine-local model overrides to enable routing.
 
 ## Model routing
 
-Check that the repository configuration parses and uses the new object form:
+The project requires Pi 1.5.2 or later and configures `openai/gpt-6.2-astra` at `high`
+as Pi's startup default. Slate supplies the ordinary model pool and the worker-summary
+compressor unless home Slate settings override them. Completed worker content goes to the
+configured compressor, OpenAI by default.
+
+Check JSON and the basic object shapes locally:
 
 ```bash
 node -e '
 const c = require("./.pi/slate.json")
-const m = c.router?.models
-if (!m || Array.isArray(m) || typeof m !== "object") {
-  throw new Error("router.models must be an object")
+const object = v => v !== null && typeof v === "object" && !Array.isArray(v)
+if (!object(c)) throw new Error("slate configuration must be an object")
+if (Object.hasOwn(c, "router")) {
+  if (!object(c.router)) throw new Error("router must be an object")
+  for (const key of ["models", "compressor"]) {
+    if (Object.hasOwn(c.router, key) && !object(c.router[key])) {
+      throw new Error(`router.${key} must be an object`)
+    }
+  }
+  console.log("basic router shape checked, explicit policy still needs Slate validation")
+} else {
+  console.log("no project router override, home policy or Slate defaults apply")
 }
-if (m.include !== undefined && !Array.isArray(m.include)) {
-  throw new Error("router.models.include must be an array")
-}
-if (m.include?.length === 0 && !m.add?.length) {
-  throw new Error("no ordinary model selected")
-}
-console.log("router model policy present")
 '
 ```
 
-Start a new Pi session after changing the configuration. Run `/slate effective` to check the
-effective model pool and any router configuration errors. The local command above checks the
-repository file only. It does not validate merged home settings or model credentials.
+This is a basic shape check, not a policy validator. It does not check nested fields, model
+names, efforts, unknown keys, empty pools, merged home settings, or credentials. Slate validates
+the merged policy. Some legacy settings produce warnings and are ignored rather than rejected.
+Do not treat a warning-backed fallback as acceptance of an explicit setting.
 
-## Notifications
+After changing configuration, use `pi --list-models` to check for the exact routes.
+The OpenAI catalog bundled with Pi 1.5.2 lacks `gpt-6.2-astra` and `gpt-6.2-sol`.
+If a route is missing, run `pi update --models` to refresh the catalogs, not the packages.
+Check the list again before reopening Pi. A refresh cannot guarantee access.
 
-The project keeps the package notification defaults. Set personal channel preferences in
-`~/.pi/agent/slate.json`.
+Start a fresh trusted Pi session without resume or model flags. Record the actual provider,
+model, and thinking level. An available model scoped by `enabledModels` can take precedence
+over the configured default. A scoped effort or an entry in `modelThinkingLevels` can override
+`high`.
+
+Without a scoped selection, Pi uses the configured Astra default only if the registry
+contains the exact route and the provider has configured authentication. Otherwise Pi can
+select another available model or no model. Only `openai/gpt-6.2-astra` at `high` passes the
+startup check.
+
+Run `/slate effective` and resolve every policy error and warning. With no home overrides,
+Slate 0.19 uses `luna-6` at `max`, `sol-6.2` at `high`, `astra-6.2` at `high`, and
+`fable-5-2` at `high`. The independent summary compressor uses `sol-6.2` at `low`.
+Check each permitted route separately for exact registry entry, authentication, and effort
+support. Policy membership does not prove availability or a successful call. If no configured
+compressor can run, Slate retains bounded, uncompressed worker output.
+
+For isolated checks, set both `HOME` and `PI_CODING_AGENT_DIR` to temporary locations, use a
+temporary project, and pass no real credentials. Use the documented Pi package commands.
+Report missing models as a runtime limitation, not a policy result. An isolated check does
+not prove that personal settings or authenticated routes work.
+
+## Personal settings
+
+The active Pi agent directory is `~/.pi/agent` by default. If you set `PI_CODING_AGENT_DIR`,
+use the absolute path to your private agent directory for this setup. The project keeps the
+package notification defaults. Set personal channel preferences in `slate.json` in that
+directory.
 
 ## YouTrack access for worker threads
 
 Model Context Protocol (MCP) connects tools to YouTrack. Pi is the agent application.
-Slate starts worker threads in Pi. Each worker gets an `mcp` gateway tool through
-`pi-mcp-adapter`. The gateway finds and calls YouTrack tools when a worker requests them.
+Slate starts worker threads in Pi. Each worker loads `pi-mcp-adapter` through the project
+worker extension whitelist. The adapter exposes an `mcp` gateway and can register cached
+server tools as Pi deferred tools named `mcp__<server>__<tool>`, even with `directTools` and
+`namespaceProxyTools` disabled. Use the gateway for discovery and calls. Do not assume direct
+deferred names are callable in every worker. The gateway can reach enabled, accessible
+servers other than YouTrack. Servers from project files require project trust and approval
+under the default approval policy.
 
-The orchestrator is the parent session that starts workers. Slate removes the gateway tool
-from the orchestrator at session start. Later adapter actions can add it back.
-JetBrains/ytdb-slate#441 tracks this limit.
+The orchestrator is the parent session that starts workers. Slate restricts its tool set at
+startup and guards later calls against its orchestrator allowlist.
 
 The repository's `.pi/mcp-adapter.json` stores adapter behavior settings only. Keep the
-YouTrack server address in your personal `~/.pi/agent/mcp-adapter.json`. Keep the token in a
-separate local file. Neither the address nor the token belongs in the repository.
+YouTrack server address in `mcp-adapter.json` in the active Pi agent directory. Keep the token
+in a separate local file. Neither your server entry nor the token belongs in the repository.
 
 In YouTrack, open your avatar, then select Profile > Account Security > Tokens. Select New
 token and give it the YouTrack scope. Create owner-only directories and files before editing
@@ -54,19 +95,28 @@ them:
 ```bash
 (
   umask 077
-  mkdir -p ~/.config/youtrack ~/.pi/agent
-  chmod 700 ~/.config/youtrack ~/.pi/agent
-  touch ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp-adapter.json
-  chmod 600 ~/.config/youtrack/mcp-auth-header ~/.pi/agent/mcp-adapter.json
+  agent_dir=${PI_CODING_AGENT_DIR:-"$HOME/.pi/agent"}
+  mkdir -p "$HOME/.config/youtrack" "$agent_dir"
+  chmod 700 "$HOME/.config/youtrack" "$agent_dir"
+  touch "$HOME/.config/youtrack/mcp-auth-header" "$agent_dir/mcp-adapter.json"
+  chmod 600 "$HOME/.config/youtrack/mcp-auth-header" "$agent_dir/mcp-adapter.json"
 )
 ```
 
-If `~/.pi/agent/mcp.json` has a `youtrack` entry, first move it into
-`~/.pi/agent/mcp-adapter.json` and remove it from the old file. Preserve other server entries
-in both files. If the adapter file already has a `youtrack` entry, update that entry instead of
-adding another. The adapter no longer reads the old file, so workers lose YouTrack access if
-you leave the entry there. Pi's built-in MCP support reads the old file and connects the
-orchestrator to YouTrack. Slate blocks those tools in the orchestrator.
+The adapter reads both personal `mcp.json` and `mcp-adapter.json`, and both project equivalents.
+`hostConfigDiscovery: "off"` disables discovery from other applications, not these standard
+sources. Personal `mcp-adapter.json` takes precedence over personal `mcp.json`. Project sources
+rank above personal sources. Keep one authoritative `youtrack` entry in the personal adapter
+file and preserve unrelated servers when consolidating duplicates.
+
+Use normal merged mode for this setup. Leave `PI_MCP_CONFIG_MODE` unset. The value
+`exclusive` skips the tracked adapter settings, including `semanticSearch: false`,
+which disables Pi-backed semantic ranking of tool metadata.
+
+The adapter replaces Pi's built-in MCP integration. On startup it can persist
+`"-builtin:mcp"` in `settings.json` in the active Pi agent directory, once per adapter
+version. It leaves an existing explicit built-in preference alone. Inspect this user-setting
+side effect in the isolated profile when accepting the upgrade.
 
 Edit `~/.config/youtrack/mcp-auth-header` in an editor. Put this single line in that file,
 with your own permanent token in place of the placeholder:
@@ -75,16 +125,16 @@ with your own permanent token in place of the placeholder:
 Bearer <your permanent token>
 ```
 
-Do not put the token in a shell command. Use this configuration in
-`~/.pi/agent/mcp-adapter.json`. If that file already contains content, preserve it.
-Add or update the `youtrack` entry inside `mcpServers`. Create that object if needed.
-Keep exactly one `youtrack` entry:
+Do not put the token in a shell command. In `mcp-adapter.json` in the active Pi agent
+directory, add or update the `youtrack` entry inside `mcpServers`. Create that object if
+needed and preserve unrelated entries:
 
 ```json
 {
   "mcpServers": {
     "youtrack": {
       "url": "https://youtrack.jetbrains.com/mcp",
+      "roots": false,
       "headers": {
         "Authorization": "!cat ~/.config/youtrack/mcp-auth-header"
       }
@@ -93,16 +143,55 @@ Keep exactly one `youtrack` entry:
 }
 ```
 
-The adapter runs the `!` command and uses its entire output as the header value. It does not
-add `Bearer` to that output. Keep both personal files private. Do not commit either file.
-Keep the personal adapter file at permission mode 0600.
+The adapter trims the `!` command's standard output and uses it as the header value.
+It rejects failed commands and empty values. It does not add `Bearer`. Setting
+`roots: false` prevents the adapter from sharing the checkout path through MCP roots.
+Keep both files private at mode 0600 and do not commit them.
 
-Keep this server lazy. Do not set `lifecycle` to `eager` or `keep-alive`. Do not enable
-`directTools` for this server. These options add startup connections or tools outside this
-setup. Restart Pi after saving the file. Without this file, a worker still sees the gateway,
-but the gateway reports no server.
+Keep the default lazy lifecycle and leave `directTools` off for YouTrack. Another enabled
+`eager` or `keep-alive` server can trigger startup discovery of uncached YouTrack metadata
+and resolve its header even if no worker requests YouTrack. Restart Pi after saving. Expect
+the worker gateway to report no servers only if the effective configuration contains none.
+A configured server can instead be disabled or await approval.
 
-Use the `/mcp-adapter` panel for the adapter. Its `/mcp-adapter disable <server>`,
-`/mcp-adapter enable <server>`, and `/mcp-adapter jev setup` commands can change the tracked
-`.pi/mcp-adapter.json`. Those changes appear in `git status`. Do not commit them.
-The `/mcp` panel now belongs to Pi's built-in MCP support.
+Opening `/mcp-adapter` or `/mcp` can connect a lazy server with an empty metadata cache
+and resolve its header before any tool call. Do not open the panel for an idle startup check
+with real server settings. The adapter's enable, disable, and semantic setup commands can
+change the tracked `.pi/mcp-adapter.json`. Inspect `git status` after panel changes. Do not
+commit personal server entries or enable semantic search as an incidental setup change.
+
+### Isolated adapter checks
+
+Use the isolated setup above with a single local fixture server in the personal adapter
+file. Keep it lazy and start with an empty metadata cache. Use a harmless tool with a known
+result. Supply scripted tool calls to Pi through a test driver, not a live model. Log fixture
+connections and tool invocations. For a command-backed header, use a dummy value and log
+command execution without logging the value.
+
+1. Start Pi and a worker without opening the panel or using the gateway. Idle startup passes
+   only if neither startup connects to the fixture or runs its header command.
+2. Call the fixture tool in the worker through `mcp`. Require the expected result and a logged
+   tool invocation. Showing the gateway alone does not pass.
+3. Check gateway exclusion in orchestrator mode. If the driver starts in tactical mode,
+   enter orchestrator mode with `/slate on`. Confirm that MCP tools are absent from the active
+   set on entry and that `mcp` is still absent when an ordinary tool turn starts.
+
+   Submit a scripted `mcp` call with the same fixture arguments as the worker call. Require
+   rejection. Pi can report `Tool mcp not found` before Slate checks the call, so this check
+   does not require a Slate denial. Compare the fixture tool's invocation count immediately
+   before and after the attempt. The count must not change.
+4. Check Slate's guard separately in the isolated Pi SDK driver. In the orchestrator session,
+   run `/mcp-adapter reconnect <server>`. Confirm that the adapter registers the fixture tool
+   with deferred exposure.
+
+   Use a test-only parent tool under a name Slate already allows, such as a fixture
+   implementation of `read` supplied through SDK `customTools`. Give it one fixed operation:
+   call the registered fixture tool by its exact name with valid arguments through Pi's
+   `ctx.executeTool()`. Do not change the allowlist, activate the deferred tool, or call its
+   implementation directly.
+
+   Require the nested result to report `slate: orchestrator mode does not allow this tool.`
+   A lookup or argument error does not pass. Compare the fixture tool's invocation count
+   immediately before and after the attempt. The count must not change. A stock interactive
+   session does not provide this test parent. If the driver cannot dispatch the nested call,
+   record the guard check as unevaluated.

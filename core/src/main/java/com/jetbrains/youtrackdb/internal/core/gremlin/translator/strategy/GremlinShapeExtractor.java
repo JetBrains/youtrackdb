@@ -139,6 +139,10 @@ final class GremlinShapeExtractor {
       return key == null ? encoder.compactKey() : key;
     }
 
+    int runtimeRidSlot() {
+      return encoder == null ? -1 : encoder.runtimeRidSlot();
+    }
+
     Object lookupKey() {
       return encoder == null ? key : encoder.lookupKey();
     }

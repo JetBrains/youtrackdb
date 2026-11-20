@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
@@ -181,8 +182,8 @@ public final class BTreeEngineTestFixtures {
     final AtomicOperation op;
     final IndexHistogramManager manager;
     @SuppressWarnings("unchecked")
-    final CellBTreeSingleValue<CompositeKey> svTree =
-        mock(CellBTreeSingleValue.class);
+    // The engine configures the key-size margin through the concrete tree API at create/load.
+    final CellBTreeSingleValue<CompositeKey> svTree = mock(BTree.class);
     @SuppressWarnings("unchecked")
     final CellBTreeSingleValue<CompositeKey> nullTree =
         mock(CellBTreeSingleValue.class);

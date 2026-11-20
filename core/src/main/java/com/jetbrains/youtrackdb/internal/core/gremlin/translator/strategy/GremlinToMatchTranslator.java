@@ -29,11 +29,10 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * gating (kill-switch, idempotency, start-step shape).
  *
  * <p>Translation is delegated to the shared production {@link GremlinStepWalker}, which walks
- * the step list and dispatches each step to the registered {@link StepRecogniser}s. Phase 1
- * recognises only the vertex source ({@code g.V()} / {@code g.V(ids)}); any unrecognised step
- * declines the whole traversal (the all-or-nothing contract) so the native TinkerPop pipeline
- * keeps handling it verbatim. Later tracks widen the recognised set by adding recognisers to
- * the walker's registry — this facade does not change.
+ * the step list and dispatches each step to the registered {@link StepRecogniser}s. An
+ * unrecognised step declines the whole traversal so the native pipeline keeps handling it.
+ * Convenience overloads use literal input. The strategy supplies a resolved runtime-start
+ * decision only for approved root walks.
  */
 final class GremlinToMatchTranslator {
 
@@ -85,9 +84,18 @@ final class GremlinToMatchTranslator {
       @Nullable Boolean orderIncludesMissingKey,
       @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
-    return GremlinStepWalker.production()
-        .walk(traversal, GremlinStepWalker.NO_CHILD_SCOPE,
-            orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+    return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic, null);
+  }
+
+  /** Null runtime decision selects literal input, including the protected uncached retry. */
+  @Nullable static TranslationResult translate(
+      Traversal.Admin<?, ?> traversal,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphic,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+    return GremlinStepWalker.production().walk(traversal, GremlinStepWalker.NO_CHILD_SCOPE,
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic, true, runtimeRidStart);
   }
 
   /**
@@ -119,7 +127,7 @@ final class GremlinToMatchTranslator {
    * @param inputParameters positional-parameter values keyed by slot ({@code 0}, {@code 1}, …) for
    *     this walk; installed on the boundary step before each execution. Empty for multi-plan,
    *     whose parameters live per child
-   * @param cacheEligible {@code false} when the walk is RID-bearing and must bypass the plan cache
+   * @param cacheEligible {@code false} when the walk carries literal RIDs and bypasses the plan cache
    *     (single-plan), or always {@code false} for a multi-plan carrier
    * @param shaping the boundary row-projection shaping the terminator pinned (row dropping, presence
    *     checks, valueMap list wrapping, group-map accumulation, singleton-map unwrapping, elementMap

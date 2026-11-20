@@ -736,7 +736,7 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
       var strategy = new GremlinToMatchStrategy(raw -> {
         walks.incrementAndGet();
         return GremlinToMatchTranslator.translate(raw);
-      }, GremlinToMatchStrategy::buildPlan, true, failures::add);
+      }, GremlinToMatchStrategy::buildPlanEntry, true, failures::add);
       long hits = cache.getTranslationHits();
       var replay = shape.get().asAdmin();
       strategy.apply(replay);
@@ -784,7 +784,7 @@ public class PropertyMapBulkingTest extends GraphBaseTest {
         assertThat(translation.shaping().propertyMapBulkingCapacity()).isEqualTo(2500);
         // Inject only the walker capacity. Bindings, layout and the real plan remain unchanged.
         return translation.withShaping(translation.shaping().withPropertyMapBulkingCapacity(0));
-      }, GremlinToMatchStrategy::buildPlan, true, failures::add);
+      }, GremlinToMatchStrategy::buildPlanEntry, true, failures::add);
       long misses = cache.getTranslationMisses();
       strategy.apply(raw);
       assertThat(cache.getTranslationMisses()).isEqualTo(misses + 1);

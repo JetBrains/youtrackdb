@@ -336,6 +336,20 @@ being pushed. CI runs full unit tests and the coverage gate on pull request push
 This includes drafts. Integration tests also run on ready pull requests under the skip rules above.
 The local end-of-track gate and closing-event re-run remain independent of draft CI results.
 
+### CI build handling
+
+After any push, the orchestrator does not wait for the CI build or check its status.
+It starts no worker thread to do so.
+This rule covers every CI build on draft pull requests, pull requests ready for review,
+and later fix pushes.
+
+The user tells the orchestrator when a CI build fails.
+The orchestrator handles that report as a fix request under the existing rules.
+
+All local gates stay unchanged.
+Merging still requires a green pull request.
+The user confirms that the pull request is green before merging.
+
 ### Encouraged, never required
 
 Run the single closest test class mid-track when a proved focus area warrants it. This can

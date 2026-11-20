@@ -14,10 +14,15 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * uses the stored plain-plan decision to keep native execution or splice the stored template with
  * this invocation's harvested bindings. The decision has exactly the plan entry's validity.
  *
- * <p>The plan template is the closed copy {@link GremlinPlanCache} already stores. The boundary
- * step must not execute or close it; it copies on first {@code openArming()}.
+ * <p>The cache wraps each outcome in an identity holder with its generation. The plan template
+ * is the closed copy {@link GremlinPlanCache} already stores. The boundary step must not execute
+ * or close it; it copies on first {@code openArming()}. The shared decline sentinel is only a
+ * payload: each publication gets a distinct holder for guarded removal.
  */
 sealed interface GremlinTranslationTemplate {
+
+  /** Shared decline payload; the cache gives each publication its own holder. */
+  Decline DECLINE = new Decline();
 
   /** The walker declined this shape; {@code apply} returns without mutating the traversal. */
   record Decline() implements GremlinTranslationTemplate {
@@ -36,7 +41,16 @@ sealed interface GremlinTranslationTemplate {
       @Nonnull ResultShaping shaping,
       int bindingCount,
       @Nonnull List<HasBindingContext.Contribution> hasContributions,
-      @Nonnull PlainPlanDecision decision)
+      @Nonnull PlainPlanDecision decision,
+      int runtimeRidSlot)
       implements GremlinTranslationTemplate {
+
+    Translate(InternalExecutionPlan planTemplate, String boundaryAlias,
+        BoundaryOutputType outputType, Class<? extends Element> returnClass,
+        ResultShaping shaping, int bindingCount,
+        List<HasBindingContext.Contribution> hasContributions, PlainPlanDecision decision) {
+      this(planTemplate, boundaryAlias, outputType, returnClass, shaping, bindingCount,
+          hasContributions, decision, -1);
+    }
   }
 }

@@ -76,9 +76,8 @@ public class IndexCollectionEmptinessCheckTest extends BaseMemoryInternalDatabas
    * Verifies the iterator-based emptiness check rejects removal of collections
    * that contain records.
    *
-   * <p>Note: classes are created with 8 collections by default and records are
-   * distributed across them. We insert enough records to guarantee coverage of
-   * all collections, then verify the default-named collection is non-empty.
+   * <p>The class uses one collection by default. A committed record makes that
+   * collection non-empty before removal is attempted.
    */
   @Test
   public void testRemoveNonEmptyCollectionFromIndexThrows() {
@@ -88,13 +87,9 @@ public class IndexCollectionEmptinessCheckTest extends BaseMemoryInternalDatabas
     clazz.createProperty("name", PropertyType.STRING);
     clazz.createIndex(className + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
 
-    // Insert enough records to ensure every collection has at least one entry.
-    // Default CLASS_COLLECTIONS_COUNT is 8, so 100 records guarantees coverage.
     session.executeInTx(tx -> {
-      for (var i = 0; i < 100; i++) {
-        var entity = session.newEntity(className);
-        entity.setProperty("name", "value" + i);
-      }
+      var entity = session.newEntity(className);
+      entity.setProperty("name", "value");
     });
 
     // Get the actual collection name from the class's first collection ID.

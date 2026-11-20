@@ -146,6 +146,8 @@ class GremlinShapeEncoder {
 
   private boolean complete = true;
 
+  @Nullable private final RuntimeRidStartEligibility.EligibleStart runtimeRidStart;
+
   private HasBindingContext hasBindingContext;
 
   private List<HasBindingContext.Slot> hasSlots;
@@ -187,15 +189,44 @@ class GremlinShapeEncoder {
   }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
-    this(schema, null);
+    this(schema, null, null);
   }
 
   GremlinShapeEncoder(@Nullable Schema schema, GremlinShapeBuffer buffer) {
+    this(schema, buffer, null);
+  }
+
+  GremlinShapeEncoder(@Nullable Schema schema, GremlinShapeBuffer buffer,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     this.schema = schema;
+    this.runtimeRidStart = runtimeRidStart;
     this.buffer = buffer;
     leaseEpoch = buffer == null ? 0 : buffer.epoch();
     tokens = buffer == null ? new ArrayList<>(96) : null;
     harvest = buffer == null ? new ArrayList<>() : null;
+  }
+
+  private int runtimeRidSlot = -1;
+
+  @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return runtimeRidStart;
+  }
+
+  void appendRuntimeRidStart() {
+    appendToken("rrs");
+    if (runtimeRidStart.idContainer() == null) {
+      deferHarvest(this::bindRuntimeRidStart);
+    }
+  }
+
+  void bindRuntimeRidStart() {
+    runtimeRidSlot = bindings == null ? 0 : bindings.size();
+    bindParam(runtimeRidStart.rid());
+  }
+
+  int runtimeRidSlot() {
+    harvest();
+    return runtimeRidSlot;
   }
 
   @Nullable Schema schema() {
