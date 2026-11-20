@@ -16,9 +16,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.RuntimeRidStartPlanningException;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,12 +42,11 @@ import org.slf4j.LoggerFactory;
  * strategies — keeps handling it verbatim. A translated traversal therefore contains exactly
  * one step (the boundary); a declined traversal is left byte-for-byte unchanged.
  *
- * <h2>Current state — recognizes the vertex source only</h2>
+ * <h2>Whole-traversal recognition</h2>
  *
  * <p>The whole-traversal walk is delegated to {@link GremlinToMatchTranslator#translate},
- * which drives the shared {@code GremlinStepWalker} + {@code StepRecogniser} registry. Phase 1
- * recognizes only the vertex source ({@code g.V()} / {@code g.V(ids)}); any traversal carrying
- * an unrecognized step declines whole and stays on the native pipeline. On a recognized shape
+ * which drives the shared {@code GremlinStepWalker} + {@code StepRecogniser} registry. Any
+ * traversal carrying an unrecognized step declines whole and stays on the native pipeline. On a recognized shape
  * {@code apply} runs its gates, receives a non-empty translation, and splices the boundary
  * step in place of the entire step list ({@link #applyTranslation}). Landing the gating
  * cascade + throw-safety net + kill-switch before any recognizer ran under the strategy was
@@ -160,8 +159,8 @@ import org.slf4j.LoggerFactory;
  * tokens plus this invocation's {@code ?} bindings), stores {@link GremlinTranslationTemplate}:
  * a hit skips the walker entirely (splice from the stored template, or return immediately on a
  * cached decline). An extraction that cannot prove completeness never reads or writes that map.
- * Walker-marked RID-bearing shapes ({@code g.V(ids)}, {@code hasId(...)}) keep their physical plans
- * private and do not publish translation templates. Complete RID declines can be cached.
+ * Successful literal RID plans bypass both caches. Approved root walks bind a runtime RID start
+ * and may use both caches. Declined RID walks may still cache their structural decline.
  * RID-free union siblings retain independent physical reuse. Schema transactions bypass both maps.
  * Generated type guards can be shared because the keys distinguish literal comparability blocks.
  * Per-walk predicate values bind as positional parameters and are installed on the boundary step
@@ -243,11 +242,24 @@ public final class GremlinToMatchStrategy
       return GremlinToMatchTranslator.translate(
           traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
     }
+
+    @Nullable @Override
+    public GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic,
+        @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+      return GremlinToMatchTranslator.translate(traversal, orderIncludesMissingKey,
+          orderByNullsPlacements, polymorphic, runtimeRidStart);
+    }
   };
 
+  private static final MatchPlanBuilder PRODUCTION_PLAN_BUILDER =
+      GremlinToMatchStrategy::buildPlanEntry;
+
   private static final GremlinToMatchStrategy INSTANCE =
-      new GremlinToMatchStrategy(
-          PRODUCTION_TRANSLATOR, GremlinToMatchStrategy::buildPlan, true);
+      new GremlinToMatchStrategy(PRODUCTION_TRANSLATOR, PRODUCTION_PLAN_BUILDER, true);
 
   private final TraversalTranslator translator;
 
@@ -261,13 +273,14 @@ public final class GremlinToMatchStrategy
   private final boolean populateTranslationCache;
 
   private final java.util.function.Consumer<String> agreementFailure;
+  @Nullable private final Runnable beforeTranslationPublication;
 
   /**
    * Package-private — tests construct a strategy with a fixture translator (and the production
    * plan builder). Production code goes through {@link #instance()}.
    */
   GremlinToMatchStrategy(TraversalTranslator translator) {
-    this(translator, GremlinToMatchStrategy::buildPlan, false);
+    this(translator, PRODUCTION_PLAN_BUILDER, false);
   }
 
   /**
@@ -292,6 +305,14 @@ public final class GremlinToMatchStrategy
   // Fault-injection tests observe refusal and exercise the production fallback in the same call.
   GremlinToMatchStrategy(TraversalTranslator translator, MatchPlanBuilder planBuilder,
       boolean populateTranslationCache, java.util.function.Consumer<String> agreementFailure) {
+    this(translator, planBuilder, populateTranslationCache, agreementFailure, null);
+  }
+
+  /** Test-only agreement and publication seams. Publication runs after agreement succeeds. */
+  GremlinToMatchStrategy(TraversalTranslator translator, MatchPlanBuilder planBuilder,
+      boolean populateTranslationCache, java.util.function.Consumer<String> agreementFailure,
+      @Nullable Runnable beforeTranslationPublication) {
+    this.beforeTranslationPublication = beforeTranslationPublication;
     this.translator = translator;
     this.planBuilder = planBuilder;
     this.populateTranslationCache = populateTranslationCache;
@@ -307,6 +328,11 @@ public final class GremlinToMatchStrategy
     return INSTANCE;
   }
 
+  /** Production components with translation-map routing selected by an isolated test source. */
+  static GremlinToMatchStrategy withTranslationCache(boolean enabled) {
+    return new GremlinToMatchStrategy(PRODUCTION_TRANSLATOR, PRODUCTION_PLAN_BUILDER, enabled);
+  }
+
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
     // Throw-safety net: the whole body runs on every Gremlin compilation and the strategy is
@@ -317,7 +343,14 @@ public final class GremlinToMatchStrategy
     // Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after the walk and
     // the plan build both succeed, so a caught exception always leaves the step list unmodified.
     try {
-      applyOrDecline(traversal);
+      try {
+        applyOrDecline(traversal);
+      } catch (RuntimeRidStartPlanningException refusal) {
+        // No values or exception text: a refusal is expected, not a translator error.
+        LOGGER
+            .debug("Gremlin runtime RID start refused. Retrying once with literal uncached input.");
+        retryLiteral(traversal);
+      }
     } catch (ReservedAliasException | ContradictoryOrderSemanticsException e) {
       // Deliberate input rejections must reach the caller instead of becoming native declines.
       throw e;
@@ -392,7 +425,8 @@ public final class GremlinToMatchStrategy
     }
     // Capture before any setting or metadata read can shape this call's keys or plans.
     var cache = GremlinPlanCache.instance(session);
-    var generation = cache.getGeneration();
+    cache.prepare(session);
+    var generation = cache.getInvalidationCounter();
     var eligible = session.getTxSchemaState() == null && cache.isEnabled();
     // Resolve all order settings once for this compilation. The shape key below and the walk
     // further down both read these values. Two independent reads could straddle a runtime flip
@@ -404,12 +438,15 @@ public final class GremlinToMatchStrategy
     if (orderByNullsPlacements == null || polymorphic == null) {
       return;
     }
+    var runtimeStart = cache.isRuntimeRidStartEnabled()
+        ? RuntimeRidStartEligibility.evaluate(traversal, true) : null;
     var extraction =
         GremlinStepWalker.extractShape(
-            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+            traversal, session, orderIncludesMissingKey, orderByNullsPlacements, polymorphic,
+            runtimeStart);
     var metrics = GremlinTranslationMetrics.of(session);
     if (populateTranslationCache && eligible && extraction.complete()) {
-      var cached = GremlinPlanCache.getTranslation(extraction.key(), session);
+      var cached = cache.getTranslationInternal(extraction.key(), session, generation);
       if (cached instanceof GremlinTranslationTemplate.Decline) {
         metrics.recordDecline(stepShape(traversal));
         return;
@@ -428,11 +465,11 @@ public final class GremlinToMatchStrategy
     }
     var translation =
         translator.translate(traversal, orderIncludesMissingKey, orderByNullsPlacements,
-            polymorphic);
+            polymorphic, runtimeStart);
     if (translation == null) {
       if (populateTranslationCache && eligible && extraction.complete()) {
         GremlinPlanCache.putTranslation(
-            extraction.key(), new GremlinTranslationTemplate.Decline(), session, generation);
+            extraction.key(), GremlinTranslationTemplate.DECLINE, session, generation);
       }
       metrics.recordDecline(stepShape(traversal));
       return;
@@ -446,6 +483,26 @@ public final class GremlinToMatchStrategy
   static boolean matchingLayout(List<HasBindingContext.Contribution> extracted,
       List<HasBindingContext.Contribution> walked) {
     return extracted.equals(walked);
+  }
+
+  /** Fresh literal walk, with no lookup, publication, extraction or generation capture. */
+  private void retryLiteral(Traversal.Admin<?, ?> traversal) {
+    var session = resolveSessionIfEnabled(traversal);
+    if (session == null) {
+      return;
+    }
+    var translation = translator.translate(traversal,
+        YTDBStrategyUtil.orderIncludesMissingKey(traversal),
+        YTDBStrategyUtil.orderByNullsPlacements(traversal),
+        YTDBStrategyUtil.isPolymorphic(traversal), null);
+    if (translation == null) {
+      GremlinTranslationMetrics.of(session).recordDecline(stepShape(traversal));
+      return;
+    }
+    var plan =
+        buildPlanUncached(session, requireInputs(translation), translation.inputParameters());
+    replaceAllStepsWithBoundary(traversal, plan, translation, false);
+    GremlinTranslationMetrics.of(session).recordSuccess();
   }
 
   /**
@@ -598,8 +655,10 @@ public final class GremlinToMatchStrategy
       replaceAllStepsWithBoundary(traversal, plans, translation);
       return;
     }
-    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation, cacheScope);
-    var copyOnOpen = cacheScope.isShared(plan);
+    var planned = planBuilder.buildPlanEntry(session, translation, cacheScope);
+    InternalExecutionPlan plan = planned.value;
+    // Ownership belongs to the returned holder, not to current membership under its key.
+    var copyOnOpen = planned.sharedPlanTemplate;
     var shaping = OrderedFilterBinding.fresh(translation.shaping());
     var bound = shaping == translation.shaping() ? translation : translation.withShaping(shaping);
     // Only the final top-level carrier is checked. Union forks can build discarded ordered ops.
@@ -610,6 +669,7 @@ public final class GremlinToMatchStrategy
     }
     replaceAllStepsWithBoundary(traversal, plan, bound, copyOnOpen);
     if (populateTranslationCache && cacheScope.eligible
+        && planned.generation == cacheScope.generation
         && copyOnOpen && extraction.complete() && absenceAgrees) {
       boolean bindingsAgree = extraction.bindings().size() == translation.inputParameters().size()
           && matchingLayout(extraction.hasContributions(), translation.hasContributions())
@@ -617,6 +677,9 @@ public final class GremlinToMatchStrategy
       if (!bindingsAgree) {
         agreementFailure.accept("Cold translation binding agreement failed");
         return;
+      }
+      if (beforeTranslationPublication != null) {
+        beforeTranslationPublication.run();
       }
       GremlinPlanCache.putTranslation(
           extraction.key(),
@@ -632,35 +695,14 @@ public final class GremlinToMatchStrategy
     }
   }
 
-  /**
-   * A successful translation's permission and unchanged pre-extraction generation. The identity
-   * set is allocated only when the builder records a shared template. Ownership checks never
-   * allocate it. Fixture builders returning private plans do not gain shared status from key equality.
-   */
+  /** Immutable cache permission and generation captured before extraction. */
   static final class CacheScope {
     final long generation;
     final boolean eligible;
-    @Nullable private Set<InternalExecutionPlan> sharedPlans;
 
     CacheScope(long generation, boolean eligible) {
       this.generation = generation;
       this.eligible = eligible;
-    }
-
-    InternalExecutionPlan shared(InternalExecutionPlan plan) {
-      if (sharedPlans == null) {
-        sharedPlans = Collections.newSetFromMap(new IdentityHashMap<>());
-      }
-      sharedPlans.add(plan);
-      return plan;
-    }
-
-    boolean isShared(InternalExecutionPlan plan) {
-      return eligible && sharedPlans != null && sharedPlans.contains(plan);
-    }
-
-    boolean hasSharedPlanSet() {
-      return sharedPlans != null;
     }
   }
 
@@ -670,39 +712,43 @@ public final class GremlinToMatchStrategy
    * the plan eagerly, with the walk's positional parameters installed on the planning context so
    * root selection and IndexOrdered cost estimates see bound {@code ?} values (mirrors
    * {@code SQLMatchStatement}). Cache-eligible shapes get/put through {@link GremlinPlanCache};
-   * RID-bearing shapes always build uncached.
+   * Literal RID-bearing shapes always build uncached.
    *
    * <p>Package-private rather than private so a test can wrap it in a fixture {@link
    * MatchPlanBuilder} that parks between union children: the concurrent-invalidation guard below is
    * only observable when a second thread invalidates mid-build, and a test that reimplemented the
    * guard would pin its own copy instead of this one.
    */
-  static InternalExecutionPlan buildPlan(
+  static GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
       DatabaseSessionEmbedded session,
-      GremlinToMatchTranslator.TranslationResult translation,
-      CacheScope cacheScope) {
+      GremlinToMatchTranslator.TranslationResult translation, CacheScope cacheScope) {
     assert !translation.isMultiPlan()
         : "single-plan buildPlan helper cannot build a multi-plan translation";
-    // The same call permission gates every physical-cache operation, including publication.
-    if (!cacheScope.eligible || !translation.cacheEligible()) {
-      return buildPlanUncached(
-          session, requireInputs(translation), translation.inputParameters());
+    var generation = cacheScope.generation;
+    if (!cacheScope.eligible || session.getTxSchemaState() != null
+        || !translation.cacheEligible()) {
+      return new GremlinPlanCache.Entry<>(
+          buildPlanUncached(session, requireInputs(translation), translation.inputParameters()),
+          generation);
     }
     var inputs = requireInputs(translation);
     var fingerprint = GremlinPlanFingerprint.fingerprint(inputs, translation.shaping());
-    var cached = GremlinPlanCache.template(fingerprint, session);
+    var cache = GremlinPlanCache.instance(session);
+    var cached = cache.planEntry(fingerprint, session, generation);
     if (cached != null) {
-      return cacheScope.shared(cached);
+      return cached;
     }
     var plan = buildPlanUncached(session, inputs, translation.inputParameters());
-    var stored = GremlinPlanCache.put(fingerprint, plan, session, cacheScope.generation);
-    if (stored != null) {
-      // The cache owns the closed template; drop the live build so the boundary step copies on open
-      // instead of executing this instance.
-      plan.close();
-      return cacheScope.shared(stored);
+    if (cache.getInvalidationCounter() == generation) {
+      cache.putInternal(fingerprint, plan, session, generation);
     }
-    return plan;
+    var stored =
+        session.getTxSchemaState() == null ? cache.peekEntry(fingerprint, generation) : null;
+    if (stored != null) {
+      plan.close();
+      return stored;
+    }
+    return new GremlinPlanCache.Entry<>(plan, generation);
   }
 
   /**
@@ -735,11 +781,17 @@ public final class GremlinToMatchStrategy
                 child.parameters(),
                 child.cacheEligible(),
                 translation.shaping());
-        var childPlan = planBuilder.buildPlan(session, childTranslation, cacheScope);
-        // Multi-plan boundaries own every child. Copy only an explicitly shared template and never
-        // bind parameters or close resources on the template itself. Private children stay private.
-        if (cacheScope.isShared(childPlan)) {
-          childPlan = childPlan.copy(YTDBMatchPlanStep.cleanCopyContext(childPlan.getContext()));
+        var childEntry = planBuilder.buildPlanEntry(session, childTranslation, cacheScope);
+        var childPlan = childEntry.value;
+        // Multi-plan boundaries own every child. Provenance survives invalidation after return.
+        if (childEntry.sharedPlanTemplate) {
+          if (childPlan.getContext() instanceof BasicCommandContext context
+              && context.hasLocalVariableKeys()) {
+            throw new IllegalStateException("Shared MATCH template context contains variable keys");
+          }
+          var isolatedCtx = new BasicCommandContext(session);
+          isolatedCtx.setInputParameters(child.parameters());
+          childPlan = childPlan.copy(isolatedCtx);
         }
         if (!child.parameters().isEmpty()) {
           childPlan.getContext().setInputParameters(child.parameters());
@@ -767,8 +819,18 @@ public final class GremlinToMatchStrategy
       MatchPlanInputs inputs,
       Map<Object, Object> inputParameters) {
     var ctx = new BasicCommandContext(session);
-    if (!inputParameters.isEmpty()) {
-      ctx.setInputParameters(inputParameters);
+    // Runtime starts have no planner expression that reads their slot. Keep the storing RID
+    // out of the planning context while retaining ordinary parameters needed by cost estimates.
+    var planningParameters = new LinkedHashMap<>(inputParameters);
+    for (var start : inputs.runtimeRidStarts().values()) {
+      planningParameters.remove(start.parameterSlot());
+    }
+    if (!planningParameters.isEmpty()) {
+      ctx.setInputParameters(planningParameters);
+    }
+    var observer = GremlinPlanCache.instance(session).beforeUncachedPlanning;
+    if (observer != null) {
+      observer.accept(inputs, ctx);
     }
     return new MatchExecutionPlanner(inputs)
         .createExecutionPlan(ctx, /* enableProfiling */ false, /* useCache */ false);
@@ -926,17 +988,26 @@ public final class GremlinToMatchStrategy
         @Nullable Boolean polymorphic) {
       return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements);
     }
+
+    /** Fixtures stay literal unless they explicitly implement the resolved runtime decision. */
+    @Nullable default GremlinToMatchTranslator.TranslationResult translate(
+        Traversal.Admin<?, ?> traversal,
+        @Nullable Boolean orderIncludesMissingKey,
+        ResolvedOrderByNullsPlacement orderByNullsPlacements,
+        @Nullable Boolean polymorphic,
+        @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+      return translate(traversal, orderIncludesMissingKey, orderByNullsPlacements, polymorphic);
+    }
   }
 
   /**
    * Injection seam for building the MATCH execution plan from translated inputs. Production wires
-   * {@link #buildPlan}; tests pass a stub so the splice path runs without a real {@link
-   * MatchExecutionPlanner}. Named rather than a bare {@code BiFunction} so the call site reads
-   * {@code planBuilder.buildPlan(session, inputs)}.
+   * {@link #buildPlanEntry}; real-cache delegates preserve its holder. Private fixtures explicitly
+   * return {@link GremlinPlanCache.Entry#owned} so no adapter silently drops shared provenance.
    */
   @FunctionalInterface
   interface MatchPlanBuilder {
-    InternalExecutionPlan buildPlan(
+    GremlinPlanCache.Entry<InternalExecutionPlan> buildPlanEntry(
         DatabaseSessionEmbedded session,
         GremlinToMatchTranslator.TranslationResult translation,
         CacheScope cacheScope);
