@@ -343,7 +343,7 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
       for (var limit : List.of(1, 10, 100)) {
         var statement = parse("MATCH {class:SourceCost,as:s}.out('LinkCost'){as:t}"
             + " RETURN t.k AS value ORDER BY t.k LIMIT " + limit);
-        var planner = new IndexOrderedPlanner(null, classes, filters, Map.of(),
+        var planner = new IndexOrderedPlanner(null, classes, filters, Map.of(), java.util.Set.of(),
             statement.getOrderBy(), null, statement.getLimit(), statement.getReturnItems(),
             statement.getReturnAliases(), false, false, false, false, false);
         var order = statement.getOrderBy().getItems().getFirst();
@@ -539,11 +539,15 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
             calls.verify(() -> MatchExecutionPlanner.canUseHashJoin(
                 org.mockito.ArgumentMatchers.any(
                     com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression.class),
-                org.mockito.ArgumentMatchers.anyMap(),
-                org.mockito.ArgumentMatchers.same(view), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.eq(inputs.aliasClasses()),
+                org.mockito.ArgumentMatchers.same(view),
+                org.mockito.ArgumentMatchers.eq(Map.of()),
+                org.mockito.ArgumentMatchers.eq(Map.of()),
                 org.mockito.ArgumentMatchers.same(context),
                 org.mockito.ArgumentMatchers.same(pattern),
-                org.mockito.ArgumentMatchers.eq(java.util.OptionalLong.of(300))));
+                org.mockito.ArgumentMatchers.eq(java.util.OptionalLong.of(300)),
+                org.mockito.ArgumentMatchers.eq(new MatchExecutionPlanner.DetachedSlice(
+                    java.util.OptionalLong.empty(), false))));
           } finally {
             tree.close();
           }

@@ -13,50 +13,77 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
-import java.util.concurrent.atomic.AtomicLong;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.BiConsumer;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
  * Bounded physical-plan and translation caches for Gremlin-to-MATCH compilation. Both maps share
- * one metadata generation because every metadata event invalidates both. Each publication keeps
- * its own build or walk-start generation. Lookups accept only the current generation, without a
- * cache-wide lock. Invalidation advances first, then clears both maps.
+ * the base metadata generation. Reads require both the captured and live generations. Publication
+ * cannot replace a newer generation and stale cleanup removes only its own identity holder.
  *
  * <p>Physical entries own closed templates. Boundaries copy before execution and never run or close
- * a shared template. Complete single-plan translation hits skip walking and physical planning.
- * Multi-plan traversals walk again and cache eligible children independently. Schema transactions
- * bypass both maps without recording hits or misses.
- *
- * <p>Hit and miss counters are lifetime totals. Physical lookups also feed the global profiler rates
- * {@link CoreMetrics#GREMLIN_PLAN_CACHE_HIT_RATE} and
- * {@link CoreMetrics#GREMLIN_PLAN_CACHE_MISS_RATE}.
+ * a shared template. Schema transactions bypass both maps without recording hits or misses.
+ * Hit and miss counters are lifetime totals.
  */
 public final class GremlinPlanCache
-    extends AbstractMetadataUpdateCache<String, GremlinPlanCache.StampedPlan> {
+    extends AbstractMetadataUpdateCache<String, GremlinPlanCache.Entry<InternalExecutionPlan>> {
 
-  private final AtomicLong generation = new AtomicLong();
+  /** Each publication has its own identity, including publications of the shared decline sentinel. */
+  static final class Entry<T> {
+    final T value;
+    final long generation;
+    // Provenance survives removal from the cache. A query never takes ownership of a template.
+    final boolean sharedPlanTemplate;
+
+    Entry(T value, long generation) {
+      this(value, generation, false);
+    }
+
+    /** Explicit ownership for a fresh private plan or fixture. */
+    static <T> Entry<T> owned(T value, long generation) {
+      return new Entry<>(value, generation, false);
+    }
+
+    private Entry(T value, long generation, boolean sharedPlanTemplate) {
+      this.value = value;
+      this.generation = generation;
+      this.sharedPlanTemplate = sharedPlanTemplate;
+    }
+  }
 
   private volatile long lastGlobalTimeout = GlobalConfiguration.COMMAND_TIMEOUT.getValueAsLong();
-
-  @Nullable private final Cache<String, StampedTranslation> translationCache;
-
+  @Nullable private final Cache<String, Entry<GremlinTranslationTemplate>> translationCache;
   private final LongAdder translationHits = new LongAdder();
   private final LongAdder translationMisses = new LongAdder();
-
-  // Package-private constructor seam for deterministic advance-before-clear race tests.
   @Nullable private final Runnable beforeClear;
 
-  record StampedPlan(InternalExecutionPlan plan, long generation) {
+  // Test hooks expose publication and advance-before-clear interleavings without locking readers.
+  @Nullable volatile Runnable afterPlanPublication;
+  @Nullable volatile Runnable afterTranslationPublication;
+  @Nullable volatile Runnable afterCounterIncrement;
+
+  private volatile boolean runtimeRidStartEnabled = true;
+
+  /** Internal database-scoped benchmark control. It is resolved once per query. */
+  public boolean isRuntimeRidStartEnabled() {
+    return runtimeRidStartEnabled;
   }
 
-  // The envelope identifies each publication, including declines with no plan payload.
-  private record StampedTranslation(GremlinTranslationTemplate template, long generation) {
+  public void setRuntimeRidStartEnabled(boolean enabled) {
+    runtimeRidStartEnabled = enabled;
   }
 
-  /** @param size maximum entries per map, or zero to disable caching */
+  /** Observe-only seam at the real planner boundary. It may count or throw, not supply a plan. */
+  @Nullable volatile BiConsumer<MatchPlanInputs, BasicCommandContext> beforeUncachedPlanning;
+
+  /**
+   * @param size the size of the cache; 0 means cache disabled
+   */
   public GremlinPlanCache(int size) {
     this(size, null);
   }
@@ -67,17 +94,13 @@ public final class GremlinPlanCache
     this.beforeClear = beforeClear;
   }
 
-  public static long getLastInvalidation(@Nonnull DatabaseSessionEmbedded db) {
-    return instance(db).getLastInvalidation();
-  }
-
   boolean isEnabled() {
     return cacheEnabled();
   }
 
   /** Capture before settings, shape extraction, or walking can read metadata. */
   public long getGeneration() {
-    return generation.get();
+    return getInvalidationCounter();
   }
 
   /** Returns true only for a currently valid physical entry. */
@@ -88,7 +111,7 @@ public final class GremlinPlanCache
   /** Returns true only for a currently valid translation or decline entry. */
   public boolean containsTranslation(String shapeKey) {
     var entry = translationCache == null ? null : translationCache.getIfPresent(shapeKey);
-    return entry != null && entry.generation() == generation.get();
+    return entry != null && entry.generation == getInvalidationCounter();
   }
 
   public long getTranslationHits() {
@@ -116,50 +139,52 @@ public final class GremlinPlanCache
     return instance(db).templateInternal(fingerprint, db);
   }
 
-  /** Publishes with the unchanged generation captured before the build's first metadata read. */
-  @Nullable public static InternalExecutionPlan put(
-      String fingerprint, InternalExecutionPlan plan, DatabaseSessionEmbedded db,
-      long buildGeneration) {
-    if (db == null || fingerprint == null) {
-      return null;
-    }
-    return instance(db).putInternal(fingerprint, plan, db, buildGeneration);
-  }
-
   @Nullable public static GremlinTranslationTemplate getTranslation(
       String shapeKey, DatabaseSessionEmbedded db) {
     if (db == null || shapeKey == null) {
       return null;
     }
-    return instance(db).getTranslationInternal(shapeKey, db);
+    var cache = instance(db);
+    cache.prepare(db);
+    return cache.getTranslationInternal(shapeKey, db, cache.getInvalidationCounter());
   }
 
-  public static void putTranslation(
+  static void putTranslation(
       String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
-      long walkGeneration) {
-    if (db == null || shapeKey == null || template == null) {
+      long generation) {
+    if (db != null && shapeKey != null && template != null) {
+      instance(db).putTranslationInternal(shapeKey, template, db, generation);
+    }
+  }
+
+  /** Normalize timeout before capturing the generation, not after shape extraction. */
+  void prepare(DatabaseSessionEmbedded db) {
+    invalidateIfTimeoutChanged(db);
+  }
+
+  void putInternal(
+      String fingerprint, ExecutionPlan plan, DatabaseSessionEmbedded db, long generation) {
+    if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()) {
       return;
     }
-    instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration);
-  }
-
-  @Nullable InternalExecutionPlan putInternal(String fingerprint, InternalExecutionPlan plan,
-      DatabaseSessionEmbedded db, long buildGeneration) {
-    if (db.getTxSchemaState() != null || fingerprint == null || !cacheEnabled()
-        || !plan.canBeCached()) {
-      return null;
+    var internal = (InternalExecutionPlan) plan;
+    // Session-specific count and security decisions must not enter the shared cache.
+    if (!internal.canBeCached()) {
+      return;
     }
-    var copyCtx = new BasicCommandContext(db);
-    var copy = plan.copy(copyCtx);
+    var copy = internal.copy(new BasicCommandContext(db));
     copy.close();
-    var entry = new StampedPlan(copy, buildGeneration);
-    // Compare inside compute so an older publisher never overwrites a newer entry. Late stale
-    // entries stay stored until replacement or eviction, but every lookup rejects their stamp.
-    var published = cache.asMap().compute(fingerprint,
-        (key, previous) -> previous == null || previous.generation() <= buildGeneration ? entry
+    var entry = new Entry<InternalExecutionPlan>(copy, generation, true);
+    cache.asMap().compute(fingerprint,
+        (key, previous) -> previous == null || previous.generation <= generation ? entry
             : previous);
-    // Return provenance for this exact publication, not another plan with an equal key.
-    return published == entry && entry.generation() == generation.get() ? copy : null;
+    var hook = afterPlanPublication;
+    if (hook != null) {
+      hook.run();
+    }
+    if (getInvalidationCounter() != generation) {
+      cache.asMap().remove(fingerprint, entry);
+    }
   }
 
   @Nullable InternalExecutionPlan getInternal(
@@ -172,62 +197,98 @@ public final class GremlinPlanCache
     if (db.getTxSchemaState() != null) {
       return null;
     }
-    invalidateIfTimeoutChanged(db);
+    prepare(db);
+    var entry = planEntry(fingerprint, db, getInvalidationCounter());
+    return entry == null ? null : entry.value;
+  }
+
+  /** Returns only a current closed template, without recording a hit or miss. */
+  @Nullable InternalExecutionPlan peekStored(String fingerprint) {
+    var entry = getCached(fingerprint);
+    return entry != null && entry.generation == getInvalidationCounter() ? entry.value : null;
+  }
+
+  /** The captured value precedes parameter harvesting; a newer entry cannot serve old bindings. */
+  @Nullable Entry<InternalExecutionPlan> planEntry(
+      String fingerprint, DatabaseSessionEmbedded db, long captured) {
+    if (db.getTxSchemaState() != null) {
+      return null;
+    }
+    prepare(db);
     if (fingerprint == null || !cacheEnabled()) {
       return null;
     }
-    var result = peekStored(fingerprint);
-    if (result != null) {
+    var entry = getCached(fingerprint);
+    if (valid(entry, captured)) {
       recordHit();
       recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE);
-      return result;
+      return entry;
     }
     recordMiss();
     recordProfilerRate(CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE);
     return null;
   }
 
-  /** Returns only a current closed template, without recording a hit or miss. */
-  @Nullable InternalExecutionPlan peekStored(String fingerprint) {
+  @Nullable Entry<InternalExecutionPlan> peekEntry(String fingerprint, long captured) {
     var entry = getCached(fingerprint);
-    return entry != null && entry.generation() == generation.get() ? entry.plan() : null;
+    return valid(entry, captured) ? entry : null;
+  }
+
+  private boolean valid(@Nullable Entry<?> entry, long captured) {
+    return entry != null && entry.generation == captured
+        && entry.generation == getInvalidationCounter();
   }
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
-      String shapeKey, DatabaseSessionEmbedded db) {
+      String shapeKey, DatabaseSessionEmbedded db, long captured) {
     if (db.getTxSchemaState() != null) {
       return null;
     }
-    invalidateIfTimeoutChanged(db);
+    prepare(db);
     if (shapeKey == null || translationCache == null) {
       return null;
     }
     var entry = translationCache.getIfPresent(shapeKey);
-    if (entry != null && entry.generation() == generation.get()) {
+    if (valid(entry, captured)) {
       translationHits.increment();
-      return entry.template();
+      return entry.value;
     }
     translationMisses.increment();
     return null;
   }
 
-  void putTranslationInternal(String shapeKey, GremlinTranslationTemplate template,
-      DatabaseSessionEmbedded db, long walkGeneration) {
+  void putTranslationInternal(
+      String shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long generation) {
     if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
       return;
     }
-    var entry = new StampedTranslation(template, walkGeneration);
+    var entry = new Entry<GremlinTranslationTemplate>(template, generation);
     translationCache.asMap().compute(shapeKey,
-        (key, previous) -> previous == null || previous.generation() <= walkGeneration ? entry
+        (key, previous) -> previous == null || previous.generation <= generation ? entry
             : previous);
+    var hook = afterTranslationPublication;
+    if (hook != null) {
+      hook.run();
+    }
+    if (getInvalidationCounter() != generation) {
+      translationCache.asMap().remove(shapeKey, entry);
+    }
+  }
+
+  @Override
+  protected void afterGenerationAdvanced() {
+    var hook = afterCounterIncrement;
+    if (hook != null) {
+      hook.run();
+    }
+    if (beforeClear != null) {
+      beforeClear.run();
+    }
   }
 
   @Override
   public void invalidate() {
-    generation.incrementAndGet();
-    if (beforeClear != null) {
-      beforeClear.run();
-    }
     super.invalidate();
     if (translationCache != null) {
       translationCache.invalidateAll();
@@ -245,17 +306,15 @@ public final class GremlinPlanCache
 
   private static void recordProfilerRate(MetricDefinition<Global, TimeRate> definition) {
     var registry = metricsRegistry();
-    if (registry == null) {
-      return;
+    if (registry != null) {
+      registry.globalMetric(definition).record();
     }
-    registry.globalMetric(definition).record();
   }
 
   @Nullable private static MetricsRegistry metricsRegistry() {
     try {
       return YouTrackDBEnginesManager.instance().getMetricsRegistry();
     } catch (RuntimeException ignored) {
-      // Engine / profiler not initialised (common in unit tests).
       return null;
     }
   }
