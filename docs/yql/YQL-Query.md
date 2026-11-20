@@ -55,6 +55,19 @@ The null-placement settings also apply to Gremlin `order()`.
 An explicit null-placement clause overrides the setting.
 If you are using a [projection](YQL-Query.md#projections), include the `ORDER BY` field in the
 projection. `ORDER BY` works only on returned projection properties, not on `LET` variables.
+
+**Values without a guaranteed order**
+
+YouTrackDB guarantees no order for a sort field if it cannot compare some of the values in it.
+For example, the default comparison cannot order a number against a list.
+In `SELECT` and `MATCH`, a query with `LIMIT` or `SKIP` may return different rows than you
+would get from the same portion of the result without those clauses.
+
+Suppose three records have the values `(3, 1)`, `([], 2)`, and `(1, 3)` for `value` and `rank`.
+For `ORDER BY value, rank`, a query with `LIMIT 1` may return a different record from the first
+record of the query without `LIMIT`. To avoid this effect, store one comparable kind of
+value in each sort field.
+
 - **[`UNWIND`](YQL-Query.md#unwinding)** Designates the property on which to unwind the collection. 
 - **`SKIP`** Defines the number of records you want to skip from the start of the result-set.
 - **`LIMIT`** Defines the maximum number of records in the result-set.  
