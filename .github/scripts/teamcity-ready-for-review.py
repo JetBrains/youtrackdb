@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Ask the fixed TeamCity project to build a ready PR from trusted base code."""
+
+import http.client
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+ORIGIN = "https://youtrackdb.teamcity.com"
+BUILD_TYPE = "YouTrackDB_SummaryReadyForReview"
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+
+
+def request(opener, token, path, timeout, payload=None):
+    phase = "checking readiness" if payload is None else "requesting a build"
+    req = urllib.request.Request(
+        ORIGIN + path, data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Authorization": "Bearer " + token, "Accept": "application/json",
+                 "Content-Type": "application/json"})
+    try:
+        with opener.open(req, timeout=timeout) as response:
+            result = json.load(response)
+        if not isinstance(result, dict):
+            raise ValueError
+        return result
+    except urllib.error.HTTPError as error:
+        raise ValueError(f"TeamCity returned HTTP {error.code} while {phase}.") from None
+    except (OSError, http.client.HTTPException):
+        raise ValueError(f"TeamCity connection failed while {phase}.") from None
+    except ValueError:
+        raise ValueError(f"TeamCity returned an unreadable response while {phase}.") from None
+
+
+def start(branch, token):
+    opener = urllib.request.build_opener(NoRedirect)
+    query = urllib.parse.urlencode({
+        "locator": "name:" + branch, "fields": "count,branch(name,default,active)"})
+    path = f"/app/rest/buildTypes/id:{BUILD_TYPE}/branches?{query}"
+    deadline = time.monotonic() + 120
+    while (remaining := deadline - time.monotonic()) > 0:
+        page = request(opener, token, path, min(10, remaining))
+        branches = page.get("branch", [])
+        if (type(page.get("count")) is not int or not isinstance(branches, list)
+                or page["count"] != len(branches)
+                or any(not isinstance(item, dict) or item.get("name") != branch
+                       or type(item.get("active")) is not bool
+                       or type(item.get("default", False)) is not bool for item in branches)):
+            raise ValueError("TeamCity returned an unreadable ready branch list.")
+        if any(item["active"] and not item.get("default", False) for item in branches):
+            if time.monotonic() >= deadline:
+                break
+            # An ambiguous POST may already have started work. Do not repeat it.
+            build = request(opener, token, "/app/rest/buildQueue", 10,
+                            {"buildType": {"id": BUILD_TYPE}, "branchName": branch})
+            if build.get("buildTypeId") != BUILD_TYPE or build.get("branchName") != branch:
+                raise ValueError("TeamCity returned a build for the wrong configuration or branch.")
+            return
+        time.sleep(min(5, max(0, deadline - time.monotonic())))
+    raise ValueError("Timed out waiting for TeamCity to list the ready PR branch.")
+
+
+def main():
+    number = os.environ.get("PR_NUMBER", "")
+    token = os.environ.get("TEAMCITY_READY_TRIGGER_TOKEN", "")
+    try:
+        if not re.fullmatch(r"[1-9][0-9]*", number):
+            raise ValueError("PR_NUMBER must be a positive integer.")
+        if not token.strip():
+            raise ValueError("TEAMCITY_READY_TRIGGER_TOKEN is missing.")
+        start("pull/" + number, token)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    print("TeamCity accepted the ready summary request.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
