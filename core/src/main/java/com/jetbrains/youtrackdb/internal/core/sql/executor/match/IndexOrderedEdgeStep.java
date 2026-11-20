@@ -155,6 +155,21 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private volatile long lastScanConsumedEntries = -1;
 
+  // Execution-local observations retain only counts and completion state, never candidate records.
+  private EqualityObservation lastEqualityObservation;
+  private int lastOrderedBufferedRows;
+
+  record EqualityObservation(long entries, boolean complete, boolean requiresLinkBagLoad) {
+  }
+
+  EqualityObservation lastEqualityObservation() {
+    return lastEqualityObservation;
+  }
+
+  int lastOrderedBufferedRows() {
+    return lastOrderedBufferedRows;
+  }
+
   /**
    * Which physical strategy {@link IndexOrderedEdgeStep} actually ran.
    * Distinct from plan-time {@code multiSourceMode}: that selects the MATCH
@@ -216,6 +231,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     rowTarget = -1;
     lastScanBudget = -1;
     lastScanConsumedEntries = -1;
+    lastEqualityObservation = null;
+    lastOrderedBufferedRows = 0;
     executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
 
@@ -472,6 +489,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         case EQUALITY -> {
           var attempt = readEqualityCandidates(
               upstream, source, bag, context, account, costs, memory);
+          lastEqualityObservation = new EqualityObservation(
+              attempt.observedEntries(), attempt.complete(), attempt.requiresLinkBagLoad());
           if (attempt.complete()) {
             chosenRuntimePath = RuntimePath.EQUALITY_FETCH;
             return equalityRows(attempt.candidates(), upstream, context);
@@ -530,70 +549,74 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   @Nullable private ExecutionStream equalityOrderedAttempt(
       LinkBag bag, Result upstream, CommandContext context,
       IndexOrderedCostModel.WorkAccount account, IndexOrderedCostModel.EqualityCosts costs) {
-    lastScanBudget = (long) account.allowance(costs);
-    lastScanConsumedEntries = 0;
-    var members = new RidSet();
-    var duplicates = new HashMap<RID, Integer>();
-    if (!account.spend((bag.size() + 1.0) * IndexOrderedCostModel.reverseEdgeEntryUnits())) {
-      return null;
-    }
-    for (var pair : bag) {
-      var rid = pair.secondaryRid();
-      if (!members.add(rid)) {
-        duplicates.merge(rid, 2, (count, ignored) -> count + 1);
-      }
-    }
-    if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
-      return null;
-    }
-    // Reserve cursor work before opening it. Keep half the allowance for member loads.
-    // The null-key and non-null-key streams can each consume one entry past the bound.
-    long entryBudget = Math.max(0, (long) (account.allowance(costs) / 2) - 2);
-    if (!account.spend(entryBudget + 2.0)) {
-      return null;
-    }
-    var filtered = new RidFilteredIndexValuesStep(
-        new IndexSearchDescriptor(index), orderAsc, nullsFirst(), context, profilingEnabled,
-        members, entryBudget);
-    var cursor = filtered.internalStart(context);
     var buffered = new ArrayList<Result>();
-    boolean handedOff = false;
     try {
-      while (buffered.size() < maxBufferedRows(rowTarget)) {
-        var hasNext = cursor.hasNext(context);
-        lastScanConsumedEntries = filtered.consumedEntryCount();
-        if (filtered.scanBudgetExhausted()) {
-          return null;
+      lastScanBudget = (long) account.allowance(costs);
+      lastScanConsumedEntries = 0;
+      var members = new RidSet();
+      var duplicates = new HashMap<RID, Integer>();
+      if (!account.spend((bag.size() + 1.0) * IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+        return null;
+      }
+      for (var pair : bag) {
+        var rid = pair.secondaryRid();
+        if (!members.add(rid)) {
+          duplicates.merge(rid, 2, (count, ignored) -> count + 1);
         }
-        if (!hasNext) {
-          handedOff = true;
-          cursor.close(context);
-          return ExecutionStream.resultIterator(buffered.iterator());
-        }
-        var entry = cursor.next(context);
-        if (!account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
-          return null;
-        }
-        var rows = orderedEqualityRows(entry, duplicates, upstream, context);
-        try {
-          while (rows.hasNext(context)) {
-            buffered.add(rows.next(context));
+      }
+      if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
+        return null;
+      }
+      // Reserve cursor work before opening it. Keep half the allowance for member loads.
+      // The null-key and non-null-key streams can each consume one entry past the bound.
+      long entryBudget = Math.max(0, (long) (account.allowance(costs) / 2) - 2);
+      if (!account.spend(entryBudget + 2.0)) {
+        return null;
+      }
+      var filtered = new RidFilteredIndexValuesStep(
+          new IndexSearchDescriptor(index), orderAsc, nullsFirst(), context, profilingEnabled,
+          members, entryBudget);
+      var cursor = filtered.internalStart(context);
+      boolean handedOff = false;
+      try {
+        while (buffered.size() < maxBufferedRows(rowTarget)) {
+          var hasNext = cursor.hasNext(context);
+          lastScanConsumedEntries = filtered.consumedEntryCount();
+          if (filtered.scanBudgetExhausted()) {
+            return null;
           }
-        } finally {
-          rows.close(context);
+          if (!hasNext) {
+            handedOff = true;
+            cursor.close(context);
+            return ExecutionStream.resultIterator(buffered.iterator());
+          }
+          var entry = cursor.next(context);
+          if (!account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
+            return null;
+          }
+          var rows = orderedEqualityRows(entry, duplicates, upstream, context);
+          try {
+            while (rows.hasNext(context)) {
+              buffered.add(rows.next(context));
+            }
+          } finally {
+            rows.close(context);
+          }
+        }
+        // Later MATCH filters can reject this prefix. Preserve the unbounded continuation.
+        filtered.liftScanBudget();
+        handedOff = true;
+        return batchedStream(List.<Supplier<ExecutionStream>>of(
+            () -> ExecutionStream.resultIterator(buffered.iterator()),
+            () -> cursor.flatMap((entry, c) -> orderedEqualityRows(entry, duplicates, upstream, c)))
+            .iterator(), Supplier::get).onClose(cursor::close);
+      } finally {
+        if (!handedOff) {
+          cursor.close(context);
         }
       }
-      // Later MATCH filters can reject this prefix. Preserve the unbounded continuation.
-      filtered.liftScanBudget();
-      handedOff = true;
-      return batchedStream(List.<Supplier<ExecutionStream>>of(
-          () -> ExecutionStream.resultIterator(buffered.iterator()),
-          () -> cursor.flatMap((entry, c) -> orderedEqualityRows(entry, duplicates, upstream, c)))
-          .iterator(), Supplier::get).onClose(cursor::close);
     } finally {
-      if (!handedOff) {
-        cursor.close(context);
-      }
+      lastOrderedBufferedRows = buffered.size();
     }
   }
 
