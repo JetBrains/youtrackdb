@@ -6,7 +6,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
  * while already holding protection.
  */
 public final class StorageStateContextException extends IllegalStateException {
-  // Temporary line for the YTDB-1533 TeamCity pilot. Never merge. Draft push control.
+  // Temporary line for the YTDB-1533 TeamCity pilot. Never merge. Newer commit control.
 
   public StorageStateContextException(String message) {
     super(message);
