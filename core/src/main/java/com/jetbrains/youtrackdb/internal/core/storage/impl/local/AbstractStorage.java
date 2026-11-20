@@ -481,6 +481,9 @@ public abstract class AbstractStorage
   protected final ScalableRWLock stateLock;
 
   protected volatile StorageConfiguration configuration;
+
+  // Published when configuration is created or loaded, including after a restore.
+  private volatile int recordedMaxIndexKeySize;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
   protected final String name;
   private final AtomicLong version = new AtomicLong();
@@ -926,6 +929,7 @@ public abstract class AbstractStorage
                 "Cannot open the storage '" + name + "' because it does not exist in path: " + url);
           }
 
+          validateStorageConfiguration(contextConfiguration);
           // Only acquisitions of this physical attempt belong to failure cleanup. Closed fields
           // from an earlier open are not resources of this attempt.
           prepareOpenResources();
@@ -965,6 +969,7 @@ public abstract class AbstractStorage
                   configuration = new CollectionBasedStorageConfiguration(this);
                   ((CollectionBasedStorageConfiguration) configuration)
                       .load(contextConfiguration, atomicOperation);
+                  refreshRecordedMaxIndexKeySize(atomicOperation);
 
                   // otherwise delayed to disk based storage to convert old format to new format.
                 }
@@ -1159,6 +1164,10 @@ public abstract class AbstractStorage
         // Cleanup and diagnostic failures must never replace the original open failure.
       }
     }
+  }
+
+  /** Validate engine-specific settings before physical startup changes state or acquires resources. */
+  protected void validateStorageConfiguration(ContextConfiguration contextConfiguration) {
   }
 
   /** Disk open starts new acquisitions. Memory open retains its existing in-memory image. */
@@ -1762,6 +1771,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
+          refreshRecordedMaxIndexKeySize(atomicOperation);
 
           generateDatabaseInstanceId(atomicOperation);
           clearStorageDirty();
@@ -2092,6 +2102,16 @@ public abstract class AbstractStorage
               + " but current value is "
               + maxKeySize);
     }
+  }
+
+  /** Returns the loaded key limit without accessing configuration locks or closed caches. */
+  public int getRecordedMaxIndexKeySize() {
+    return recordedMaxIndexKeySize;
+  }
+
+  /** Refreshes the published limit before indexes can use a created or loaded configuration. */
+  protected final void refreshRecordedMaxIndexKeySize(AtomicOperation atomicOperation) {
+    recordedMaxIndexKeySize = configuration.getMaxKeySize(atomicOperation);
   }
 
   @Override

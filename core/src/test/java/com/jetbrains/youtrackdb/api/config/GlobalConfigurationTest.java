@@ -50,6 +50,48 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class GlobalConfigurationTest {
 
+  // Public keys, environment names, defaults and types match the startup contract.
+  // The settings remain visible and cannot be changed at runtime.
+  @Test
+  public void commitSettingsPublishProcessWideStartupContract() {
+    var limit = GlobalConfiguration.DISK_CACHE_COMMIT_PAGE_LIMIT;
+    var percent = GlobalConfiguration.DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT;
+    assertEquals("youtrackdb.storage.diskCache.commitPageLimit", limit.getKey());
+    assertEquals("youtrackdb.storage.diskCache.commitPinBudgetPercent", percent.getKey());
+    assertEquals("YOUTRACKDB_DISK_CACHE_COMMIT_PAGE_LIMIT",
+        GlobalConfiguration.getEnvKey(limit));
+    assertEquals("YOUTRACKDB_DISK_CACHE_COMMIT_PIN_BUDGET_PERCENT",
+        GlobalConfiguration.getEnvKey(percent));
+    assertSame(limit, GlobalConfiguration.findByKey(limit.getKey()));
+    assertSame(percent, GlobalConfiguration.findByKey(percent.getKey()));
+    assertEquals(Integer.class, limit.getType());
+    assertEquals(Double.class, percent.getType());
+    assertEquals(1024, limit.getDefValue());
+    assertEquals(1.0, percent.getDefValue());
+    assertFalse(limit.isChangeableAtRuntime());
+    assertFalse(percent.isChangeableAtRuntime());
+    assertFalse(limit.isHidden());
+    assertFalse(percent.isHidden());
+    for (var setting : new GlobalConfiguration[] {limit, percent}) {
+      var prior = setting.getValue();
+      boolean changed = setting.isChanged();
+      try {
+        org.junit.Assert.assertThrows(NumberFormatException.class,
+            () -> setting.setValue("not-a-number"));
+        if (setting == limit) {
+          org.junit.Assert.assertThrows(NumberFormatException.class,
+              () -> setting.setValue("2147483648"));
+        }
+      } finally {
+        if (changed) {
+          setting.setValue(prior);
+        } else {
+          setting.resetToDefault();
+        }
+      }
+    }
+  }
+
   // Snapshots for each configuration the tests touch. We keep both the value and the
   // changed-from-default flag so the restore in @After can reset to the same observable
   // state (changed-from-default propagates into setConfiguration / isChanged consumers).

@@ -1,5 +1,8 @@
 # Pinless Disk Cache Reads — Final Design
 
+This document is a historical record. For the current reader rule, see
+[Page-set lock](../../storage/page-set-lock.md#reader-final-check-rule).
+
 ## Overview
 
 This feature eliminates CAS-based reference counting on the read hot path by

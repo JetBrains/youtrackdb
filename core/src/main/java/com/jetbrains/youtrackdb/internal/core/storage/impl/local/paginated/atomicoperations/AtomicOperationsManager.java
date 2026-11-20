@@ -92,6 +92,13 @@ public class AtomicOperationsManager {
   @Nonnull
   private final WriteAheadLog writeAheadLog;
 
+  private final CommitProtocolCounters commitProtocolCounters = new CommitProtocolCounters();
+
+  /** Internal commit-apply statistics for this manager's storage lifetime. */
+  public CommitProtocolCounters getCommitProtocolCounters() {
+    return commitProtocolCounters;
+  }
+
   private final ReadCache readCache;
   private final WriteCache writeCache;
 
@@ -149,7 +156,7 @@ public class AtomicOperationsManager {
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
-        storage.getEdgeSnapshotIndexSize());
+        storage.getEdgeSnapshotIndexSize(), null, commitProtocolCounters);
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {
