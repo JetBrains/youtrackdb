@@ -518,7 +518,7 @@ public final class WOWCache extends AbstractWriteCache
   private void mirrorRegistration(String name, int internalId, boolean nonDurable)
       throws IOException {
     // Hydration validates surviving positive records. Readers turn missing files into negative
-    // registration evidence, which is retained for seeding and never becomes logical membership.
+    // map records. These records do not become logical membership.
     validateLogicalRegistration(name, internalId);
     if (logicalFiles != null) {
       if (logicalFiles.live(internalId) == null) {
@@ -1625,6 +1625,24 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   @Override
+  public boolean physicalFileExists(long fileId) {
+    filesLock.acquireReadLock();
+    try {
+      checkForClose();
+      var intId = extractFileId(fileId);
+      if (logicalFiles != null) {
+        var state = logicalFiles.live(intId);
+        return state != null && Files.exists(
+            storagePath.resolve(PageFileNames.layout28DiskName(state.identity())));
+      }
+      var file = files.get(composeFileId(id, intId));
+      return file != null && file.exists();
+    } finally {
+      filesLock.releaseReadLock();
+    }
+  }
+
+  @Override
   public boolean exists(long fileId) {
     filesLock.acquireReadLock();
     try {
@@ -1767,6 +1785,10 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
+      if (logicalFiles != null) {
+        return new RegistrationEvidence(
+            List.copyOf(logicalFiles.inventory().keySet()), logicalFiles.deletedFiles());
+      }
       var positive = new ArrayList<String>();
       var negative = new ArrayList<String>();
       nameIdMap.forEach((name, fileId) -> {

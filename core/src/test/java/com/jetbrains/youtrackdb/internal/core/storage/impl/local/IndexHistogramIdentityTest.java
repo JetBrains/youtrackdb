@@ -347,6 +347,49 @@ public class IndexHistogramIdentityTest {
     }
   }
 
+  // Logical membership alone must not activate cleanup for any disk family role. A separate
+  // physical survivor does activate it, without changing the configured same-name owner.
+  @Test
+  public void logicallyLiveMissingFamilyDoesNotActivateCleanupOrReplaceOwner() throws Exception {
+    create(DatabaseType.DISK, StorageFormat.LAYOUT_28);
+    try (var session = open()) {
+      createIndex(session);
+      var storage = session.getStorage();
+      var cache = (WOWCache) storage.getWriteCache();
+      cache.pauseBackgroundFlush();
+      var owner = data(storage).getFileBaseId();
+      for (var role : PageFileRole.values()) {
+        if (role.kind() != PageFileKind.INDEX_ENGINE) {
+          continue;
+        }
+        var identity = new PageFileIdentity(role, 9000);
+        var name = PageFileNames.layout28(identity);
+        long fileId = cache.addFile(name, identity.internalId());
+        var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+        var bytes = Files.readAllBytes(path);
+        assertTrue(cache.physicalFileExists(fileId));
+        assertTrue(storage.engineFilesPresent(9000));
+        Files.delete(path);
+        try {
+          assertTrue(cache.exists(name));
+          assertTrue(cache.exists(fileId));
+          assertFalse(cache.physicalFileExists(fileId));
+          assertFalse(storage.engineFilesPresent(9000));
+          assertEquals(owner, data(storage).getFileBaseId());
+          assertTrue(storage.engineFilesPresent(owner));
+        } finally {
+          Files.write(path, bytes);
+        }
+        assertTrue(cache.physicalFileExists(fileId));
+        assertTrue(storage.engineFilesPresent(9000));
+        storage.getReadCache().deleteFile(fileId, cache);
+        assertFalse(cache.physicalFileExists(fileId));
+        assertFalse(storage.engineFilesPresent(9000));
+      }
+      assertHistogram(storage, owner);
+    }
+  }
+
   // A wrong registration must escape the load-time IOException warning handler as a storage
   // error. The manager must not silently disappear and family detection must also reject it.
   @Test

@@ -176,6 +176,16 @@ public interface WriteCache {
 
   boolean exists(long fileId);
 
+  /**
+   * Tests whether the backing file of a registered or logically live file exists on disk.
+   * This query does not find unregistered leftover files. Memory caches use their live inventory.
+   * Callers must check identity and logical membership separately. This query does not admit or
+   * create a file.
+   */
+  default boolean physicalFileExists(long fileId) {
+    return exists(fileId);
+  }
+
   void restoreModeOn() throws IOException;
 
   void restoreModeOff();
@@ -487,10 +497,9 @@ public interface WriteCache {
   }
 
   /**
-   * Registration evidence for component-id seeding, separate from visible logical inventory.
-   * Positive names include aliases and malformed names so the allocator can validate them.
-   * Negative names include persisted bookings and deletions. Layout 28 may read its registry
-   * mirrors here until the allocator's evidence source is replaced by identity recovery.
+   * Registration evidence for component-id seeding. Layout 28 disk caches return hydrated live
+   * logical names and session reservations and deletions, never map-only evidence. Legacy caches
+   * may include persisted aliases and malformed names so the allocator can validate them.
    */
   record RegistrationEvidence(List<String> positiveNames, List<String> negativeNames) {
   }

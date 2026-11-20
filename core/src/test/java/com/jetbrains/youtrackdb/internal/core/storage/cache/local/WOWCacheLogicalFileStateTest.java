@@ -312,6 +312,12 @@ public class WOWCacheLogicalFileStateTest {
       try {
         names.clear();
         ids.clear();
+        names.put("map-only.pcl", 123456);
+        names.put("map-only-deletion.pcl", -123457);
+        assertEquals(inventory.keySet(),
+            new HashSet<>(cache.registrationEvidence().positiveNames()));
+        assertEquals(java.util.Set.of(PageFileNames.layout28(reserved)),
+            new HashSet<>(cache.registrationEvidence().negativeNames()));
         assertEquals(inventory, cache.files());
         assertEquals(id, cache.fileIdByName(name));
         assertEquals(Integer.valueOf(identity.internalId()), cache.registeredFileId(name));
@@ -333,6 +339,8 @@ public class WOWCacheLogicalFileStateTest {
         cache.deleteFile(id);
         names.clear();
         ids.clear();
+        assertEquals(java.util.Set.of(name, PageFileNames.layout28(reserved)),
+            new HashSet<>(cache.registrationEvidence().negativeNames()));
         assertEquals(2, inventory.size());
         assertFalse(cache.exists(name));
         assertFalse(cache.exists(id));
@@ -658,14 +666,15 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // A positive alias with a present backing file fails open. Deleted aliases remain evidence.
+  // Map hydration rejects a present positive alias. Deleted aliases are not logical evidence.
   @Test
-  public void openRejectsPositiveAliasesButRetainsNegativeEvidence() throws Exception {
+  public void mapHydrationRejectsPositiveAliasesButIgnoresNegativeEvidence() throws Exception {
     withStandaloneCache(cache -> {
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_27);
       cache.loadRegisteredFiles();
       long aliasId = cache.addFile("alias.pcl");
+      assertTrue(cache.physicalFileExists(aliasId));
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_28);
       var failure = assertThrows(StorageException.class, cache::loadRegisteredFiles);
@@ -674,10 +683,11 @@ public class WOWCacheLogicalFileStateTest {
       cache.setStorageFormat(StorageFormat.LAYOUT_27);
       cache.loadRegisteredFiles();
       cache.deleteFile(aliasId);
+      assertFalse(cache.physicalFileExists(aliasId));
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_28);
       cache.loadRegisteredFiles();
-      assertTrue(cache.registrationEvidence().negativeNames().contains("alias.pcl"));
+      assertFalse(cache.registrationEvidence().negativeNames().contains("alias.pcl"));
       assertTrue(cache.files().isEmpty());
     });
   }
@@ -757,9 +767,9 @@ public class WOWCacheLogicalFileStateTest {
     }
   }
 
-  // Readers demote a positive alias with a missing backing file to seeding evidence only.
+  // A missing alias backing file admits neither a handle nor logical seeding evidence.
   @Test
-  public void missingAliasBackingFileOpensAsNegativeEvidenceOnly() throws Exception {
+  public void missingAliasBackingFileAdmitsNoLogicalEvidence() throws Exception {
     withStandaloneCache(cache -> {
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_27);
@@ -773,7 +783,7 @@ public class WOWCacheLogicalFileStateTest {
       Files.delete(backingFile);
       cache.setStorageFormat(StorageFormat.LAYOUT_28);
       cache.loadRegisteredFiles();
-      assertTrue(cache.registrationEvidence().negativeNames().contains("missing-alias.pcl"));
+      assertFalse(cache.registrationEvidence().negativeNames().contains("missing-alias.pcl"));
       assertTrue(cache.registrationEvidence().positiveNames().isEmpty());
       assertTrue(cache.files().isEmpty());
       assertFalse(cache.exists("missing-alias.pcl"));

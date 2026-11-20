@@ -729,29 +729,154 @@ public class ComponentIdAllocationTest {
     assertTrue(messages.toString().contains("collectionComponentIdCounter"));
   }
 
-  // Registered crash leftovers exceed every durable counter and seed all three kinds on cold open.
+  // Unconfigured leftover files are not allocator evidence without a map. Reusing the next
+  // counter value must fail booking rather than truncate any surviving bytes, for every kind.
   @Test
-  public void coldOpenSeedsEveryKindFromRegisteredNamesWithoutWritingCounters() throws Exception {
+  public void maplessColdOpenIgnoresLeftoversButBookingProtectsTheirBytes() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int[] counters;
     try (var session = open()) {
-      registerEvidence(session.getStorage(), 9000);
       counters = counters(session.getStorage());
     }
     ytdb.close();
+    var database = Path.of(directory, "counters");
+    var leftovers = new HashMap<PageFileIdentity, byte[]>();
+    for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+        PageFileRole.CONFIG_DATA}) {
+      var identity = new PageFileIdentity(role, counters[role.kind().ordinal()] + 1);
+      var bytes = new byte[com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE];
+      java.util.Arrays.fill(bytes, (byte) 42);
+      Files.write(database.resolve(PageFileNames.layout28DiskName(identity)), bytes);
+      leftovers.put(identity, bytes);
+    }
+    StorageBirthTestSupport.removeNameIdMaps(database);
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
       var storage = session.getStorage();
+      var wc = storage.getWriteCache();
       assertEquals(28, storage.getStorageFormat().layoutVersion());
-      assertEvidenceAndAllocate(storage, 9000, counters);
+      assertCounters(storage, counters);
+      for (var entry : leftovers.entrySet()) {
+        var identity = entry.getKey();
+        var name = PageFileNames.layout28(identity);
+        assertNull(wc.registeredFileId(name));
+        assertFalse(wc.registrationEvidence().positiveNames().contains(name));
+        assertFalse(wc.registrationEvidence().negativeNames().contains(name));
+        assertEquals(counters[identity.kind().ordinal()], hwm(storage, identity.kind()));
+        assertEquals(identity.componentId(), allocate(storage, identity.kind()));
+        assertThrows(StorageException.class,
+            () -> wc.bookFileId(name, identity.internalId(), false));
+        assertArrayEquals(entry.getValue(),
+            Files.readAllBytes(database.resolve(PageFileNames.layout28DiskName(identity))));
+        assertFalse(wc.exists(name));
+      }
     }
   }
 
-  // Append durable deletion records after closing the baseline database. No counter update or
-  // registry compaction follows these writes, as when a crash preserves only deletion evidence.
-  // Both primary-only and auxiliary-only families must protect every kind on the next cold open.
+  // Hydrated configured collections and indexes, not a map, raise deliberately lagging counters.
+  // Seeding reads the configuration and logical inventory without persisting repaired counters.
   @Test
-  public void coldOpenSeedsDeletionOnlyFamiliesWithoutChangingLowerCounterBytes() throws Exception {
+  public void coldOpenSeedsConfiguredIdentitiesWithoutMapOrCounterWrites() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    var maxima = new java.util.EnumMap<PageFileKind, Integer>(PageFileKind.class);
+    final byte[][] bytes;
+    try (var session = open()) {
+      var storage = session.getStorage();
+      for (var kind : PageFileKind.values()) {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> config(storage).setComponentIdCounter(kind, op, 8999));
+      }
+      var cls = session.getMetadata().getSchema().createClass("ConfiguredEvidence", 1);
+      cls.createProperty("value", PropertyType.STRING);
+      cls.createIndex("ConfiguredEvidence.value", SchemaClass.INDEX_TYPE.NOTUNIQUE, "value");
+      storage.getWriteCache().files().keySet().forEach(name -> {
+        var identity = PageFileNames.parseLayout28(name).orElseThrow();
+        maxima.merge(identity.kind(), identity.componentId(), Math::max);
+      });
+      assertTrue(maxima.get(PageFileKind.COLLECTION) >= 9000);
+      assertTrue(maxima.get(PageFileKind.INDEX_ENGINE) >= 9000);
+      for (var kind : PageFileKind.values()) {
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> config(storage).setComponentIdCounter(kind, op, 0));
+      }
+      bytes = counterBytes(storage);
+    }
+    ytdb.close();
+    StorageBirthTestSupport.removeNameIdMaps(Path.of(directory, "counters"));
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      assertCounterBytes(storage, bytes);
+      for (var kind : PageFileKind.values()) {
+        assertEquals(0, counter(storage, kind));
+        assertEquals((long) maxima.get(kind), hwm(storage, kind));
+        assertEquals(maxima.get(kind) + 1, allocate(storage, kind));
+      }
+    }
+  }
+
+  // Session live files, reservations and deletions all reserve ids even without either mirror.
+  // Map-only higher names must not raise marks, and reseeding must preserve still higher live marks.
+  @Test
+  @SuppressWarnings("unchecked")
+  public void diskSeedingUsesLogicalStatesAndNeverLowersLiveMarks() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var wc = (WOWCache) storage.getWriteCache();
+      registerEvidence(storage, 9000);
+      for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+          PageFileRole.CONFIG_DATA}) {
+        var reservation = new PageFileIdentity(role, 10000);
+        wc.bookFileId(PageFileNames.layout28(reservation), reservation.internalId(), false);
+        var deletion = new PageFileIdentity(role, 11000);
+        var id = wc.addFile(PageFileNames.layout28(deletion), deletion.internalId());
+        storage.getReadCache().deleteFile(id, wc);
+      }
+      var counters = counters(storage);
+      var bytes = counterBytes(storage);
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      var idsField = WOWCache.class.getDeclaredField("idNameMap");
+      namesField.setAccessible(true);
+      idsField.setAccessible(true);
+      var names = (java.util.Map<String, Integer>) namesField.get(wc);
+      var ids = (java.util.Map<Integer, String>) idsField.get(wc);
+      var savedNames = new HashMap<>(names);
+      var savedIds = new HashMap<>(ids);
+      try {
+        names.clear();
+        ids.clear();
+        for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+            PageFileRole.CONFIG_DATA}) {
+          var fakeLive = new PageFileIdentity(role, 12000);
+          var fakeDeleted = new PageFileIdentity(role, 13000);
+          names.put(PageFileNames.layout28(fakeLive), fakeLive.internalId());
+          names.put(PageFileNames.layout28(fakeDeleted), -fakeDeleted.internalId());
+        }
+        seed(storage);
+        assertCounterBytes(storage, bytes);
+        assertEvidenceAndAllocate(storage, 11000, counters);
+        for (var kind : PageFileKind.values()) {
+          setHwm(storage, hwmField(kind), 20000);
+        }
+        seed(storage);
+        for (var kind : PageFileKind.values()) {
+          assertEquals(20000, hwm(storage, kind));
+          assertEquals(20001, allocate(storage, kind));
+        }
+      } finally {
+        names.clear();
+        names.putAll(savedNames);
+        ids.clear();
+        ids.putAll(savedIds);
+      }
+    }
+  }
+
+  // Map-only deletions are not session evidence. Primary-only and auxiliary-only records
+  // must leave all three kinds at their configured counters on a real cold open.
+  @Test
+  public void coldOpenIgnoresMapOnlyDeletionsWithoutChangingCounterBytes() throws Exception {
     for (var roles : new PageFileRole[][] {
         {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA, PageFileRole.CONFIG_DATA},
         {PageFileRole.FREE_SPACE_MAP, PageFileRole.HISTOGRAM,
@@ -778,23 +903,25 @@ public class ComponentIdAllocationTest {
         for (var role : roles) {
           var identity = new PageFileIdentity(role, 9000);
           var name = PageFileNames.layout28(identity);
-          // Cold negative registrations are allocator evidence, not session logical state.
-          assertEquals(null, storage.getWriteCache().registeredFileId(name));
-          assertTrue(storage.getWriteCache().registrationEvidence().negativeNames().contains(name));
+          assertNull(storage.getWriteCache().registeredFileId(name));
+          assertFalse(
+              storage.getWriteCache().registrationEvidence().negativeNames().contains(name));
           assertTrue(!storage.getWriteCache().files().containsKey(name));
           assertTrue(counters[role.kind().ordinal()] < 9000);
         }
-        assertEvidenceAndAllocate(storage, 9000, counters);
+        for (var kind : PageFileKind.values()) {
+          assertEquals(counters[kind.ordinal()], hwm(storage, kind));
+          assertEquals(counters[kind.ordinal()] + 1, allocate(storage, kind));
+        }
       }
       ytdb.drop("counters");
     }
   }
 
-  // A non-computed tombstone id still reserves its logical identity. Old swapped records leave
-  // a logical positive registration with a missing backing file plus a negative disk-name alias.
-  // Replay converts the former to deletion evidence, while all non-strict names stay irrelevant.
+  // Map-only tombstones, missing backing files, aliases and malformed names do not seed ids.
+  // Ignoring them must not relax canonical name/id validation at registration.
   @Test
-  public void coldOpenCountsLogicalTombstonesButIgnoresAliasesAndMalformedNames() throws Exception {
+  public void coldOpenIgnoresMapOnlyTombstonesAliasesAndMalformedNames() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final WOWCache cache;
     final int[] counters;
@@ -825,27 +952,31 @@ public class ComponentIdAllocationTest {
       var storage = session.getStorage();
       var wc = storage.getWriteCache();
       var evidence = wc.registrationEvidence().negativeNames();
-      assertTrue(evidence.contains(nonComputed));
-      assertTrue(evidence.contains(logical));
-      assertTrue(evidence.contains(alias));
+      assertFalse(evidence.contains(nonComputed));
+      assertFalse(evidence.contains(logical));
+      assertFalse(evidence.contains(alias));
       assertEquals(null, wc.registeredFileId(nonComputed));
       assertEquals(null, wc.registeredFileId(logical));
       assertEquals(null, wc.registeredFileId(alias));
       for (var name : ignored) {
-        assertTrue(evidence.contains(name));
-        assertTrue(!wc.files().containsKey(name));
+        assertFalse(evidence.contains(name));
+        assertFalse(wc.files().containsKey(name));
       }
       assertCounterBytes(storage, bytes);
       assertCounters(storage, counters);
-      assertEquals(8000, hwm(storage, PageFileKind.COLLECTION));
-      assertEquals(9000, hwm(storage, PageFileKind.INDEX_ENGINE));
+      assertEquals(counters[PageFileKind.COLLECTION.ordinal()],
+          hwm(storage, PageFileKind.COLLECTION));
+      assertEquals(counters[PageFileKind.INDEX_ENGINE.ordinal()],
+          hwm(storage, PageFileKind.INDEX_ENGINE));
       assertEquals(counters[PageFileKind.CONFIGURATION.ordinal()],
           hwm(storage, PageFileKind.CONFIGURATION));
       // Ignored evidence must not relax creation conflicts, even for an old disk-name alias.
       assertThrows(StorageException.class, () -> wc.bookFileId(alias, 123457, false));
       assertThrows(StorageException.class, () -> wc.bookFileId(nonComputed, 123459, false));
-      assertEquals(8001, allocate(storage, PageFileKind.COLLECTION));
-      assertEquals(9001, allocate(storage, PageFileKind.INDEX_ENGINE));
+      assertEquals(counters[PageFileKind.COLLECTION.ordinal()] + 1,
+          allocate(storage, PageFileKind.COLLECTION));
+      assertEquals(counters[PageFileKind.INDEX_ENGINE.ordinal()] + 1,
+          allocate(storage, PageFileKind.INDEX_ENGINE));
       assertEquals(counters[PageFileKind.CONFIGURATION.ordinal()] + 1,
           allocate(storage, PageFileKind.CONFIGURATION));
     }

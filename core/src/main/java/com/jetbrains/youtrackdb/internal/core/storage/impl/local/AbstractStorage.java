@@ -1313,9 +1313,10 @@ public abstract class AbstractStorage
    *       cache install does not revert) and would otherwise collide with a re-issued id.
    * </ol>
    *
-   * <p>Layout 28 also seeds per-kind marks from strict logical names in live files and the
-   * deletion inventory. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
-   * open. Deletion names that fail strict parsing are ignored.
+   * <p>Layout 28 disk caches also seed per-kind marks from hydrated live logical files and
+   * session reservations and deletions, not map-only records. Memory caches retain their live
+   * inventory evidence. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
+   * open. Negative names that fail strict parsing are ignored.
    *
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
    * incremental restore into an already-open storage) keeps the monotonicity guarantee.
@@ -4874,9 +4875,10 @@ public abstract class AbstractStorage
    * the stem shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions)
    * must never false-positive the cleanup arm into a spurious delete attempt.
    *
-   * <p>On both layouts the write cache reflects the physical files. The eager cache install
-   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
-   * surviving family file is an orphan to clean up.
+   * <p>Layout 28 disk inventory is logical. Cleanup requires a separate backing-file probe
+   * after the logical identity checks. A logically live but physically absent family does not
+   * activate cleanup. Memory inventory itself determines survival. Layout 27 retains its
+   * registered-family test.
    *
    * <p>Package-private for tests.
    *
@@ -4904,7 +4906,9 @@ public abstract class AbstractStorage
           throw new StorageException(name, "Page-file identity conflict: " + fileName);
         }
         if (registered != null && registered > 0 && wc.exists(fileName)
-            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
+            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))
+            && wc.physicalFileExists(
+                AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
           present = true;
         }
       }
