@@ -971,7 +971,7 @@ public abstract class AbstractStorage
                 }
 
                 initConfiguration(contextConfiguration, atomicOperation);
-                hydrateConfiguredFiles(atomicOperation);
+                hydrateComponentFiles(atomicOperation);
                 seedComponentIds(atomicOperation);
               });
 
@@ -1246,13 +1246,13 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Builds the configured disk inventory before seeding or opening component handles.
+   * Builds the disk inventory of configured components before seeding or opening their handles.
    * Configuration load must have released its non-reentrant lock. The storage write lock keeps
    * backup and restore consumers out until the inventory is complete. Background cache readers
    * can see each admitted file only after its physical handle and extents are ready.
    * Restore uses the same idempotent pass without lowering live allocation extents.
    */
-  protected final void hydrateConfiguredFiles(AtomicOperation operation) throws IOException {
+  protected final void hydrateComponentFiles(AtomicOperation operation) throws IOException {
     assert stateLock.isWriteLockedByCurrentThread();
     if (!writeCache.supportsIdentityRecovery()) {
       return;

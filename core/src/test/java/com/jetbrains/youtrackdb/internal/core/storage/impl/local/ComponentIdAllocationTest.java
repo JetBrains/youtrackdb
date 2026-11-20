@@ -204,11 +204,11 @@ public class ComponentIdAllocationTest {
           }
         }
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-            storage::hydrateConfiguredFiles);
+            storage::hydrateComponentFiles);
         assertEquals(expected, cache.files().keySet());
         assertTrue(handles.isEmpty());
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(
-            storage::hydrateConfiguredFiles);
+            storage::hydrateComponentFiles);
         assertEquals(expected, cache.files().keySet());
       } finally {
         handles.addAll(engines);
