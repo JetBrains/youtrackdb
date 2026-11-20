@@ -658,7 +658,12 @@ public class MatchExecutionPlanner {
     // Capture before eligibility, alias inference, and any other metadata-derived inputs.
     var buildGeneration = session == null ? 0 : YqlExecutionPlanCache.getGeneration(session);
 
-    // --- Check the plan cache before doing any work ---
+    // Check the current SKIP before a cached plan or an empty root can bypass validation.
+    if (orderBy != null && !hasBuiltInReturn()) {
+      SelectExecutionPlanner.validateSkip(skip, context);
+    }
+
+    // Reuse a cached plan before building the pattern.
     if (useCache && !enableProfiling && statement.executinPlanCanBeCached(session)) {
       var plan = YqlExecutionPlanCache.get(statement.getOriginalStatement(), context, session);
       if (plan != null) {
@@ -910,7 +915,11 @@ public class MatchExecutionPlanner {
     }
 
     // Phase 8: Append return projection and post-processing steps
-    if (returnElements || returnPaths || returnPatterns || returnPathElements) {
+    var fullIndexOrder = indexOrderedCandidate != null
+        && !indexOrderedCandidate.multiFieldOrderBy();
+    var partialIndexOrder = indexOrderedCandidate != null
+        && indexOrderedCandidate.multiFieldOrderBy();
+    if (hasBuiltInReturn()) {
       // Built-in return modes ($elements, $paths, $patterns, $pathElements)
       addReturnStep(result, context, enableProfiling);
 
@@ -929,35 +938,15 @@ public class MatchExecutionPlanner {
 
       if (this.orderBy != null
           && (singleNodeIndexOrder == null || !singleNodeIndexOrder.orderFullyCovered())) {
-        // Multi-field + candidate → primary key cutoff hint for early
-        // termination in the bounded heap.
-        // Disabled when RETURN DISTINCT: early termination stops reading
-        // when primary key worsens, but the bounded heap may contain
-        // duplicates that DistinctStep will remove — producing fewer
-        // than LIMIT distinct results. Without the hint, the bounded
-        // heap still reads all upstream rows (no early termination),
-        // matching the pre-existing behavior.
-        SQLOrderByItem primaryHint = null;
-        if (indexOrderedCandidate != null
-            && indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct) {
-          primaryHint = orderBy.getItems().getFirst();
-        }
-        // indexOrderedUpstream: OrderByStep checks runtime context variable
-        // to pass through when IndexOrderedEdgeStep produces sorted output.
-        // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
-        // filter that preserves input order (RidSet-based dedup), and runs
-        // AFTER OrderByStep in the pipeline.
-        //
-        // primaryHint must stay set for multi-field + built-in returns ($paths /
-        // $patterns / $elements / $pathElements). Clearing it while leaving
-        // indexOrderedUpstream true makes OrderByStep treat the stream as fully
-        // sorted and skip the composite sort — wrong secondary-key order.
-        var indexOrderedUpstream = indexOrderedCandidate != null;
+        // $paths forwards the input rows, and DISTINCT above preserves the order of survivors.
+        // Its bounded sort can stop at a worse primary key after retaining enough distinct rows.
+        var primaryCutoff = partialIndexOrder
+            && (!returnDistinct || (returnPaths && unwind == null));
+        SQLOrderByItem primaryHint = primaryCutoff ? orderBy.getItems().getFirst() : null;
         // The SKIP and LIMIT clauses go over as AST nodes, not as a resolved number: this plan
         // is cacheable, so a parameterized bound has to be read on every execution.
         result.chain(new OrderByStep(
-            orderBy, this.skip, this.limit, primaryHint, indexOrderedUpstream,
+            orderBy, this.skip, this.limit, primaryHint, fullIndexOrder || primaryCutoff,
             context, -1, enableProfiling));
       }
 
@@ -984,16 +973,12 @@ public class MatchExecutionPlanner {
       info.skip = this.skip;
       info.limit = this.limit;
 
-      // When index-ordered traversal is active AND no GROUP BY:
-      // pass indexOrderedUpstream flag so OrderByStep can detect pre-sorted
-      // input at runtime and pass through without sorting.
-      // Safe with RETURN DISTINCT: DistinctExecutionStep is a streaming
-      // filter that preserves input order and runs after OrderByStep.
-      if (indexOrderedCandidate != null
-          && this.groupBy == null) {
-        info.indexOrderedUpstream = true;
-        if (indexOrderedCandidate.multiFieldOrderBy()
-            && !this.returnDistinct) {
+      info.matchDistinctSort = info.distinct;
+      if (this.groupBy == null) {
+        // Custom DISTINCT follows the sort. Only complete index order can stream through it.
+        var primaryCutoff = partialIndexOrder && !info.distinct;
+        info.indexOrderedUpstream = fullIndexOrder || primaryCutoff;
+        if (primaryCutoff) {
           info.primaryKeySortedInput = orderBy.getItems().getFirst();
         }
       }
@@ -1009,7 +994,7 @@ public class MatchExecutionPlanner {
         info.orderBy = null;
       }
 
-      SelectExecutionPlanner.optimizeQuery(info, context);
+      optimizeCustomReturn(info, context);
       // addOrderByProjections may replace ORDER BY items with minted aliases; rebind the hint so
       // the hint continues to identify item zero in the optimized ORDER BY clause.
       if (info.primaryKeySortedInput != null
@@ -1069,6 +1054,55 @@ public class MatchExecutionPlanner {
    */
   // Gremlin comparison metadata is independent of class filters and planner cost inputs.
   private Map<String, List<String>> orderCollationClasses = Map.of();
+
+  private void optimizeCustomReturn(QueryPlanningInfo info, CommandContext ctx) {
+    // Keep the original items. Optimization can append generated columns to the projection.
+    var visible = info.matchDistinctSort && info.limit != null && info.orderBy != null
+        ? List.copyOf(info.projection.getItems()) : List.<SQLProjectionItem>of();
+    SelectExecutionPlanner.optimizeQuery(info, ctx);
+    if (!visible.isEmpty() && info.hasOrderByMintAliases()
+        && visible.stream().allMatch(item -> scalarAliasCopy(item, ctx))) {
+      info.matchScalarColumns = visible.stream().map(SQLProjectionItem::getProjectionAliasAsString)
+          .distinct().toList();
+    }
+  }
+
+  // An ordinary alias lookup returns the materialized property. For an immutable scalar,
+  // neither SQL conversion nor ResultInternal.setProperty changes the value on the rebuild.
+  private boolean scalarAliasCopy(SQLProjectionItem item, CommandContext ctx) {
+    if (item.isAll() || item.isExclude() || item.hasNestedProjection()
+        || item.getProjectionAliasAsString().startsWith("$")
+        || item.getExpression() == null
+        || !(item.getExpression().getMathExpression() instanceof SQLBaseExpression base)) {
+      return false;
+    }
+    if (base.getModifier() == null) {
+      return base.getStringLiteralValue() != null;
+    }
+    var property = base.getModifier().getSimpleSuffixPropertyName();
+    if (property == null || base.getIdentifier() == null || !base.getIdentifier().isBaseIdentifier()
+        || aliasClasses == null) {
+      return false;
+    }
+    var alias = base.getIdentifier().getSuffix().getIdentifier().getStringValue();
+    var name = aliasClasses.get(alias);
+    if (name == null || alias.startsWith("$")) {
+      return false;
+    }
+    var type = ctx.getDatabaseSession().getMetadata().getImmutableSchemaSnapshot().getClass(name);
+    if (type == null) {
+      return false;
+    }
+    var classes = new ArrayList<SchemaClass>(type.getAllSubclasses());
+    classes.add(type);
+    return classes.stream().allMatch(clazz -> {
+      var field = clazz.getProperty(property);
+      return field != null && switch (field.getType()) {
+        case STRING, BOOLEAN, BYTE, SHORT, INTEGER, LONG, FLOAT, DOUBLE -> true;
+        default -> false;
+      };
+    });
+  }
 
   private void resolveOrderByCollations(CommandContext context) {
     if (orderBy == null || aliasClasses == null || aliasClasses.isEmpty()) {
@@ -1130,9 +1164,14 @@ public class MatchExecutionPlanner {
     info.unwind = this.unwind;
     info.skip = this.skip;
     info.limit = this.limit;
+    info.matchDistinctSort = info.distinct;
 
-    SelectExecutionPlanner.optimizeQuery(info, context);
+    optimizeCustomReturn(info, context);
     SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling);
+  }
+
+  private boolean hasBuiltInReturn() {
+    return returnElements || returnPaths || returnPatterns || returnPathElements;
   }
 
   private SQLProjection translatedReturnProjection() {

@@ -869,7 +869,10 @@ public final class IndexOrderedPlanner {
     if (sourceEstimate == Long.MAX_VALUE || sourceEstimate < 0) {
       sourceEstimate = MatchExecutionPlanner.THRESHOLD;
     }
-    long indexSize = matchedIndex.size(session);
+    long indexSize = matchedIndex.estimateEntryCount(session);
+    if (indexSize <= 0) {
+      return false;
+    }
     int defaultFanOut =
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
     if (estimateFilters.get(sourceAlias) == null) {

@@ -347,18 +347,27 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
             statement.getOrderBy(), null, statement.getLimit(), statement.getReturnItems(),
             statement.getReturnAliases(), false, false, false, false, false);
         var order = statement.getOrderBy().getItems().getFirst();
-        for (var size : List.of(100L, 1000L, 10000L, 1000000L)) {
-          org.mockito.Mockito.when(index.size(session)).thenReturn(size);
+        for (var size : List.of(-1L, 0L, 100L, 1000L, 10000L, 1000000L)) {
+          org.mockito.Mockito.when(index.estimateEntryCount(session)).thenReturn(size);
           Object[] args = {"s", index, order, Map.of("s", 300L), session, context,
               List.of(), null, false};
           planner.estimateFilters(Map.of());
           var expected = method.invoke(planner, args);
+          if (size <= 0) {
+            assertThat(expected).isEqualTo(false);
+          } else if (size == 100L && limit == 1) {
+            assertThat(expected).isEqualTo(true);
+          }
           planner.estimateFilters(estimates(filters));
           assertThat(method.invoke(planner, args)).isEqualTo(expected);
           planner.estimateFilters(filters);
           distinguished |= !method.invoke(planner, args).equals(expected);
         }
       }
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.atLeastOnce())
+          .estimateEntryCount(session);
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.atLeastOnce()).getHistogram(session);
+      org.mockito.Mockito.verifyNoMoreInteractions(index);
       assertThat(distinguished).as("ordinary presence takes the filtered cost branch").isTrue();
     } finally {
       session.rollback();

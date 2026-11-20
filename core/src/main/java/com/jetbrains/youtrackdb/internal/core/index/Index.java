@@ -243,6 +243,12 @@ public interface Index extends Comparable<Index> {
    */
   long size(DatabaseSessionEmbedded session);
 
+  /**
+   * Returns a constant-time estimate of committed entries for cost decisions, or a negative
+   * value if unavailable. It excludes pending transaction changes and cannot prove emptiness.
+   */
+  long estimateEntryCount(DatabaseSessionEmbedded session);
+
   Stream<RID> getRids(DatabaseSessionEmbedded session, final Object key);
 
   /**
