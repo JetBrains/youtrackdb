@@ -1473,11 +1473,10 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Applies boundary truncation (Strategy 1) to all boundaries in a
-   * {@link BuildResult}. After truncation, adjacent boundaries that have
-   * become equal are merged (their buckets' frequencies and NDVs are
-   * summed). This handles the rare case where two adjacent boundaries
-   * share a prefix longer than {@code maxBoundaryBytes}.
+   * Shortens oversized boundaries in a {@link BuildResult}. For non-null keys,
+   * the shortened boundaries are nondecreasing. A boundary that sorts below
+   * its adjusted predecessor takes that predecessor's value. Equal boundaries
+   * merge and their buckets' frequencies and distinct counts are summed.
    *
    * @return a new BuildResult with truncated boundaries and merged
    *         buckets, or the original result if no truncation was needed
@@ -1508,10 +1507,13 @@ public class IndexHistogramManager extends StorageComponent {
 
     // Check for adjacent equal boundaries after truncation and merge
     var comparator = DefaultComparator.INSTANCE;
-    // Count how many unique boundaries remain
+    // Compare with the adjusted predecessor so a run of inversions keeps the same maximum.
     int uniqueCount = 1; // boundaries[0] is always kept
     for (int i = 1; i <= result.actualBucketCount; i++) {
-      if (comparator.compare(truncated[i], truncated[i - 1]) != 0) {
+      int order = comparator.compare(truncated[i], truncated[i - 1]);
+      if (order < 0) {
+        truncated[i] = truncated[i - 1];
+      } else if (order > 0) {
         uniqueCount++;
       }
     }
@@ -1558,12 +1560,7 @@ public class IndexHistogramManager extends StorageComponent {
       // Check if the next boundary is different from the current one
       // (i.e., we've reached the end of a group of merged buckets).
       // The next boundary is truncated[i + 1].
-      boolean isLast = (i == result.actualBucketCount - 1);
-      boolean nextIsDifferent = !isLast
-          && comparator.compare(
-              truncated[i + 1], truncated[i]) != 0;
-
-      if (isLast || nextIsDifferent) {
+      if (comparator.compare(truncated[i + 1], truncated[i]) != 0) {
         newFreqs[newIdx] = accFreq;
         newNdvs[newIdx] = accNdv;
         newBounds[newIdx + 1] = truncated[i + 1];
@@ -1572,6 +1569,10 @@ public class IndexHistogramManager extends StorageComponent {
         accNdv = 0;
       }
     }
+
+    // A terminal run of equal boundaries belongs to the last emitted bucket.
+    newFreqs[newIdx - 1] += accFreq;
+    newNdvs[newIdx - 1] += accNdv;
 
     return new BuildResult(newBounds, newFreqs, newNdvs, newBucketCount,
         result.totalDistinct, result.mcvValue, result.mcvFrequency);

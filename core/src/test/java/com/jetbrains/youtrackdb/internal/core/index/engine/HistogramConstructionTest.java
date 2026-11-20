@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -29,6 +30,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -1703,6 +1705,81 @@ public class HistogramConstructionTest {
     }
   }
 
+  @Test
+  public void truncateBoundaries_utf8Inversion_clampsAndMergesInterior() {
+    String prefix = "a".repeat(253);
+    String fits = prefix + "b";
+    String oversized = prefix + "\u00E9";
+    assertEquals(256, UTF8Serializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, oversized));
+
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {fits, oversized, "z"},
+        new String[] {fits, "z"}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_successiveUtf8Inversions_clampToAdjustedPredecessor() {
+    String prefix = "a".repeat(253);
+    String fits = prefix + "b";
+    String firstOversized = prefix + "\u00E9";
+    String secondOversized = prefix + "\u00EA";
+    assertEquals(256, UTF8Serializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, firstOversized));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, secondOversized));
+
+    // Both oversized boundaries shorten to the same prefix. Both must move up to fits.
+    assertShortenedHistogram(UTF8Serializer.INSTANCE,
+        new String[] {"0", fits, firstOversized, secondOversized},
+        new String[] {"0", fits}, new long[] {47}, new long[] {16});
+  }
+
+  @Test
+  public void truncateBoundaries_utf16SurrogateInversion_mergesTerminalCounts() {
+    String prefix = "a".repeat(125);
+    String fits = prefix + "b";
+    String oversized = prefix + "\uD83D\uDE00";
+    assertEquals(256, StringSerializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(258, StringSerializer.INSTANCE.getObjectSize(null, oversized));
+
+    assertShortenedHistogram(StringSerializer.INSTANCE, new String[] {"a", fits, oversized},
+        new String[] {"a", fits}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_equalTerminalBoundaries_mergeIntoLastBucket() {
+    String b = "b".repeat(254);
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {"a", b, b + "x"},
+        new String[] {"a", b}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_equalInteriorBoundaries_keepExistingAllocation() {
+    String b = "b".repeat(254);
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {"a", b, b + "x", "c"},
+        new String[] {"a", b, "c"}, new long[] {7, 40}, new long[] {2, 14});
+  }
+
+  private static void assertShortenedHistogram(BinarySerializer<String> serializer,
+      String[] boundaries, String[] expectedBoundaries, long[] expectedFrequencies,
+      long[] expectedDistinctCounts) {
+    int buckets = boundaries.length - 1;
+    var original = new IndexHistogramManager.BuildResult(boundaries,
+        Arrays.copyOf(new long[] {7, 17, 23}, buckets),
+        Arrays.copyOf(new long[] {2, 5, 9}, buckets), buckets, buckets == 2 ? 7 : 16,
+        boundaries[2], 6);
+    @SuppressWarnings("unchecked")
+    var ser = (BinarySerializer<Object>) (BinarySerializer<?>) serializer;
+    var result = IndexHistogramManager.truncateBoundaries(original, 256, ser, null);
+
+    assertEquals(expectedFrequencies.length, result.actualBucketCount);
+    assertArrayEquals(expectedBoundaries, result.boundaries);
+    assertArrayEquals(expectedFrequencies, result.frequencies);
+    assertArrayEquals(expectedDistinctCounts, result.distinctCounts);
+    assertSame(original.mcvValue, result.mcvValue);
+    assertEquals(original.mcvFrequency, result.mcvFrequency);
+    assertEquals(original.totalDistinct, result.totalDistinct);
+  }
+
   /**
    * When no boundaries exceed maxBoundaryBytes, truncateBoundaries
    * should return the original BuildResult unchanged (fast path).
@@ -1726,7 +1803,7 @@ public class HistogramConstructionTest {
     Arrays.fill(distinctCounts, 10L);
 
     var original = new IndexHistogramManager.BuildResult(
-        boundaries, frequencies, distinctCounts, buckets, 40, null, 0);
+        boundaries, frequencies, distinctCounts, buckets, 40, "key_2", 6);
 
     var result = IndexHistogramManager.truncateBoundaries(
         original, 256, ser, factory);
@@ -1734,6 +1811,14 @@ public class HistogramConstructionTest {
     // Should be the same instance (no truncation needed)
     assertSame("No truncation needed — should return original",
         original, result);
+    assertArrayEquals(new String[] {"key_0", "key_1", "key_2", "key_3", "key_4"},
+        result.boundaries);
+    assertArrayEquals(new long[] {25, 25, 25, 25}, result.frequencies);
+    assertArrayEquals(new long[] {10, 10, 10, 10}, result.distinctCounts);
+    assertEquals(4, result.actualBucketCount);
+    assertEquals(40, result.totalDistinct);
+    assertEquals("key_2", result.mcvValue);
+    assertEquals(6, result.mcvFrequency);
   }
 
   /**
