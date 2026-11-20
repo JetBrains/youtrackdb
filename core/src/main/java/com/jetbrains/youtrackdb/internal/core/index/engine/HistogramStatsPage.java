@@ -20,21 +20,40 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DateSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DateTimeSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DoubleSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.FloatSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.LinkSerializer;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.stream.StreamSerializerRID;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.CacheEntryChanges;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.MultiValueEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.multivalue.v2.MultiValueEntrySerializer;
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.Date;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Page accessor for the histogram statistics page (.ixs file, page 0).
  *
- * <p>Layout (offsets absolute from page start):
+ * <p>Version 0/1 layout (offsets absolute from page start):
  * <pre>
  * 28  formatVersion             4 bytes (int)
  * 32  serializerId              1 byte
@@ -334,6 +353,327 @@ final class HistogramStatsPage extends DurablePage {
         false, // hasDriftedBuckets resets to false on restart
         hll,
         hllOnPage1);
+  }
+
+  // Version 2 uses the legacy field sequence without the version word or HLL spill bit.
+  static final int IMAGE_PREFIX_SIZE = FIXED_HEADER_SIZE - Integer.BYTES;
+  private static final int HISTOGRAM_HEADER_SIZE = Integer.BYTES + 2 * Long.BYTES;
+  // Each bucket adds a length-prefixed boundary and two counters.
+  private static final int BUCKET_OVERHEAD = Integer.BYTES + 2 * Long.BYTES;
+
+  static byte[][] prepareParts(HistogramSnapshot snapshot, BinarySerializer<Object> serializer,
+      BinarySerializerFactory factory) {
+    if (snapshot.hllOnPage1() && snapshot.hllSketch() == null) {
+      throw new IllegalArgumentException("Statistics sketch must be loaded before encoding");
+    }
+    assert checkSnapshotInvariants(snapshot, serializer.getId());
+    int registers = snapshot.hllSketch() == null ? 0 : HyperLogLogSketch.serializedSize();
+    var histogram = snapshot.histogram();
+    byte[] blob = new byte[0];
+    if (histogram != null) {
+      int budget = HistogramStatsPageContinuationCodec.IMAGE_CAPACITY
+          - IMAGE_PREFIX_SIZE - registers;
+      var keySerializer = nestedKeySerializer(serializer);
+      checkHistogramFit(histogram, keySerializer, factory, budget);
+      blob = histogram.serialize(keySerializer, factory);
+    }
+    var image = ByteBuffer.allocate(IMAGE_PREFIX_SIZE + blob.length + registers)
+        .order(ByteOrder.nativeOrder());
+    var stats = snapshot.stats();
+    image.put(serializer.getId()).putLong(stats.totalCount()).putLong(stats.distinctCount())
+        .putLong(stats.nullCount()).putLong(snapshot.mutationsSinceRebalance())
+        .putLong(snapshot.totalCountAtLastBuild()).putInt(blob.length).putInt(registers).put(blob);
+    if (registers != 0) {
+      snapshot.hllSketch().writeTo(image.array(), image.position());
+    }
+    return HistogramStatsPageContinuationCodec.encode(image.array());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static BinarySerializer<Object> nestedKeySerializer(BinarySerializer<Object> serializer) {
+    // Keep the outer DATE ID but store the nested instant without local midnight normalization.
+    return serializer.getId() == DateSerializer.ID
+        ? (BinarySerializer<Object>) (BinarySerializer<?>) DateTimeSerializer.INSTANCE : serializer;
+  }
+
+  private static boolean checkSnapshotInvariants(HistogramSnapshot snapshot, byte serializerId) {
+    var stats = snapshot.stats();
+    assert (stats.totalCount() | stats.distinctCount() | stats.nullCount()
+        | snapshot.mutationsSinceRebalance() | snapshot.totalCountAtLastBuild()) >= 0
+        && stats.nullCount() <= stats.totalCount() : "Invalid statistics snapshot counts";
+    var histogram = snapshot.histogram();
+    if (histogram != null) {
+      // The constructor checks array lengths and nonNullCount. The arrays are mutable.
+      var boundaries = histogram.boundaries();
+      assert boundaries[0] != null : "Missing first statistics histogram boundary";
+      assert histogram.mcvFrequency() >= 0 : "Negative statistics MCV frequency";
+      assert histogram.mcvValue() == null || isBuilderKey(histogram.mcvValue(), serializerId)
+          : "Unrepresentable statistics histogram key";
+      assert isBuilderKey(boundaries[0], serializerId)
+          : "Unrepresentable statistics histogram key";
+      for (int i = 0; i < histogram.bucketCount(); i++) {
+        assert histogram.frequencies()[i] >= 0 && histogram.distinctCounts()[i] >= 0
+            : "Negative statistics bucket count";
+        assert boundaries[i + 1] == null || isBuilderKey(boundaries[i + 1], serializerId)
+            : "Unrepresentable statistics histogram key";
+        assert boundaries[i + 1] != null
+            && DefaultComparator.INSTANCE.compare(boundaries[i], boundaries[i + 1]) <= 0
+            : "Statistics histogram boundaries must be nondecreasing";
+      }
+    }
+    return true;
+  }
+
+  // Check the builder guarantees only under assertions. Link keys are plain RecordId values,
+  // helper collection IDs fit signed shorts, and nested dates are plain Date values.
+  // Floating-point NaNs have canonical bits, and decimals are plain BigDecimal values.
+  private static boolean isBuilderKey(Comparable<?> key, byte serializerId) {
+    return switch (serializerId) {
+      case LinkSerializer.ID, StreamSerializerRID.ID, CompactedLinkSerializer.ID ->
+          key.getClass() == RecordId.class;
+      case MultiValueEntrySerializer.ID ->
+          key instanceof MultiValueEntry entry && entry.collectionId == (short) entry.collectionId;
+      case DateSerializer.ID, DateTimeSerializer.ID -> key.getClass() == Date.class;
+      case FloatSerializer.ID ->
+          Float.floatToRawIntBits((Float) key) == Float.floatToIntBits((Float) key);
+      case DoubleSerializer.ID ->
+          Double.doubleToRawLongBits((Double) key) == Double.doubleToLongBits((Double) key);
+      case DecimalSerializer.ID -> key.getClass() == BigDecimal.class;
+      default -> true;
+    };
+  }
+
+  private static void checkHistogramFit(EquiDepthHistogram histogram,
+      BinarySerializer<Object> serializer, BinarySerializerFactory factory, int budget) {
+    var layout = histogramKeyLayout(serializer);
+    // Include the MCV length and the final boundary length before charging key payloads.
+    long overhead = HISTOGRAM_HEADER_SIZE + 2 * Integer.BYTES
+        + (long) histogram.bucketCount() * BUCKET_OVERHEAD;
+    if (overhead > budget) {
+      throw new IllegalArgumentException("Statistics image exceeds two-page budget");
+    }
+    int remaining = budget - (int) overhead;
+    if (histogram.mcvValue() != null) {
+      remaining -= checkedKeySize(histogram.mcvValue(), layout, serializer, factory, remaining);
+    }
+    for (int i = 0; i <= histogram.bucketCount(); i++) {
+      remaining -= checkedKeySize(histogram.boundaries()[i], layout, serializer, factory,
+          remaining);
+    }
+  }
+
+  private static int checkedKeySize(Comparable<?> key, HistogramKeyLayout layout,
+      BinarySerializer<Object> serializer, BinarySerializerFactory factory, int remaining) {
+    // Bound variable keys before sizing. UTF-8 and decimal sizing allocate temporary bytes,
+    // and native UTF-16 sizing uses int arithmetic.
+    long minimum = switch (layout) {
+      case UTF8 -> Short.BYTES + (long) ((String) key).length();
+      case UTF16 -> Integer.BYTES + (long) Character.BYTES * ((String) key).length();
+      case DECIMAL -> 2 * Integer.BYTES + ((BigDecimal) key).unscaledValue().bitLength() / 8 + 1;
+      case COMPACT_LINK -> Short.BYTES + Byte.BYTES;
+      case FIXED -> serializer.getFixedLength();
+    };
+    if (minimum > remaining) {
+      throw new IllegalArgumentException("Statistics image exceeds two-page budget");
+    }
+    if (layout == HistogramKeyLayout.UTF8 && hasUnpairedSurrogate((String) key)) {
+      throw new IllegalArgumentException("Unrepresentable statistics histogram key");
+    }
+    int size = serializer.getObjectSize(factory, key);
+    if (size <= 0 || size > remaining) {
+      throw new IllegalArgumentException("Statistics image exceeds two-page budget");
+    }
+    return size;
+  }
+
+  private static boolean hasUnpairedSurrogate(String key) {
+    // codePoints combines valid surrogate pairs and leaves lone surrogates as code units.
+    return key.codePoints()
+        .anyMatch(codePoint -> Character.getType(codePoint) == Character.SURROGATE);
+  }
+
+  void writePart(byte[] part) {
+    if (part.length > partSpace()) {
+      throw new IllegalArgumentException("Statistics fragment exceeds physical page");
+    }
+    setBinaryValue(NEXT_FREE_POSITION, part);
+  }
+
+  private int partSpace() {
+    return getCacheEntry().getCachePointer().getBuffer().limit() - NEXT_FREE_POSITION;
+  }
+
+  private byte[] readPart() {
+    int headerSize = HistogramStatsPageContinuationCodec.HEADER_SIZE;
+    if (partSpace() < headerSize) {
+      throw new IllegalArgumentException("Truncated statistics page");
+    }
+    var header = ByteBuffer.wrap(getBinaryValue(NEXT_FREE_POSITION, headerSize))
+        .order(ByteOrder.nativeOrder());
+    int size = HistogramStatsPageContinuationCodec.partSize(header, getPageIndex());
+    if (size > partSpace()) {
+      throw new IllegalArgumentException("Truncated statistics fragment");
+    }
+    return getBinaryValue(NEXT_FREE_POSITION, size);
+  }
+
+  /** Reads a complete stored image. Callers supply the continuation only when available. */
+  HistogramSnapshot readStoredSnapshot(HistogramStatsPage continuation,
+      BinarySerializer<Object> serializer, BinarySerializerFactory factory) {
+    if (getIntValue(FORMAT_VERSION_OFFSET) != HistogramStatsPageContinuationCodec.FORMAT_VERSION) {
+      return readSnapshot(serializer, factory);
+    }
+    byte[] first = readPart();
+    byte[] second = null;
+    if (ByteBuffer.wrap(first).order(ByteOrder.nativeOrder()).getInt(Integer.BYTES)
+        > HistogramStatsPageContinuationCodec.PART_CAPACITY && continuation != null) {
+      if (continuation.getCacheEntry().getFileId() != getCacheEntry().getFileId()) {
+        throw new IllegalArgumentException("Statistics continuation is in a different file");
+      }
+      second = continuation.readPart();
+    }
+    byte[] bytes = HistogramStatsPageContinuationCodec.assemble(first, second);
+    var image = ByteBuffer.wrap(bytes).order(ByteOrder.nativeOrder());
+    if (image.remaining() < IMAGE_PREFIX_SIZE || image.get() != serializer.getId()) {
+      throw new IllegalArgumentException("Invalid statistics image prefix");
+    }
+    long total = image.getLong();
+    long distinct = image.getLong();
+    long nulls = image.getLong();
+    long mutations = image.getLong();
+    long lastBuild = image.getLong();
+    int histLength = image.getInt();
+    int registers = image.getInt();
+    // Estimated distinct count and the previous build count may exceed the current total.
+    if ((total | distinct | nulls | mutations | lastBuild) < 0 || nulls > total
+        || (registers != 0 && registers != HyperLogLogSketch.serializedSize())
+        || histLength < 0 || histLength != image.remaining() - registers) {
+      throw new IllegalArgumentException("Invalid statistics image fields");
+    }
+
+    EquiDepthHistogram histogram = null;
+    if (histLength != 0) {
+      byte[] blob = new byte[histLength];
+      image.get(blob);
+      var keySerializer = nestedKeySerializer(serializer);
+      validateHistogram(blob, keySerializer);
+      histogram = EquiDepthHistogram.deserialize(blob, 0, keySerializer, factory);
+      if (histogram == null || !Arrays.equals(blob, histogram.serialize(keySerializer, factory))) {
+        throw new IllegalArgumentException("Invalid statistics histogram");
+      }
+      var boundaries = histogram.boundaries();
+      for (int i = 1; i < boundaries.length; i++) {
+        if (DefaultComparator.INSTANCE.compare(boundaries[i - 1], boundaries[i]) > 0) {
+          throw new IllegalArgumentException(
+              "Statistics histogram boundaries must be nondecreasing");
+        }
+      }
+    }
+    for (int i = image.position(); i < bytes.length; i++) {
+      if (bytes[i] < 0 || bytes[i] > HyperLogLogSketch.MAX_REGISTER_VALUE) {
+        throw new IllegalArgumentException("Invalid statistics sketch register");
+      }
+    }
+    var sketch = registers == 0 ? null : HyperLogLogSketch.readFrom(bytes, image.position());
+    return new HistogramSnapshot(new IndexStatistics(total, distinct, nulls), histogram, mutations,
+        lastBuild, 0, false, sketch, false);
+  }
+
+  // Check the native histogram layout before the legacy decoder can allocate from key lengths.
+  private static void validateHistogram(byte[] blob, BinarySerializer<?> serializer) {
+    var fields = ByteBuffer.wrap(blob).order(ByteOrder.nativeOrder());
+    if (fields.remaining() < HISTOGRAM_HEADER_SIZE) {
+      throw new IllegalArgumentException("Truncated statistics histogram header");
+    }
+    int buckets = fields.getInt();
+    long nonNullCount = fields.getLong();
+    long mcvFrequency = fields.getLong();
+    // Each bucket needs two counters and a boundary length, plus the final boundary and MCV
+    // lengths. The image budget already bounds the bucket count below the legacy decoder limit.
+    int maxBuckets = (fields.remaining() - 2 * Integer.BYTES) / BUCKET_OVERHEAD;
+    if (buckets <= 0 || buckets > maxBuckets || (nonNullCount | mcvFrequency) < 0) {
+      throw new IllegalArgumentException("Invalid statistics histogram header");
+    }
+
+    int end = fields.limit();
+    fields.limit(end - buckets * 2 * Long.BYTES);
+    var layout = histogramKeyLayout(serializer);
+    validateHistogramKey(fields, serializer, layout, true);
+    for (int i = 0; i <= buckets; i++) {
+      validateHistogramKey(fields, serializer, layout, false);
+    }
+    if (fields.hasRemaining()) {
+      throw new IllegalArgumentException("Unexpected data after statistics histogram keys");
+    }
+    fields.limit(end);
+    // Estimates can drift independently. Only enforce the sign of each stored count.
+    while (fields.hasRemaining()) {
+      if (fields.getLong() < 0) {
+        throw new IllegalArgumentException("Negative statistics bucket count");
+      }
+    }
+  }
+
+  private enum HistogramKeyLayout {
+    UTF8, UTF16, DECIMAL, COMPACT_LINK, FIXED
+  }
+
+  // Keyless images only need serializer ID matching. Populated images need a readable layout.
+  private static HistogramKeyLayout histogramKeyLayout(BinarySerializer<?> serializer) {
+    return switch (serializer.getId()) {
+      case UTF8Serializer.ID -> HistogramKeyLayout.UTF8;
+      case StringSerializer.ID -> HistogramKeyLayout.UTF16;
+      case DecimalSerializer.ID -> HistogramKeyLayout.DECIMAL;
+      case CompactedLinkSerializer.ID -> HistogramKeyLayout.COMPACT_LINK;
+      default -> {
+        if (!serializer.isFixedLength() || serializer.getFixedLength() <= 0) {
+          throw new IllegalArgumentException("Unsupported statistics histogram key layout");
+        }
+        yield HistogramKeyLayout.FIXED;
+      }
+    };
+  }
+
+  private static void validateHistogramKey(ByteBuffer fields, BinarySerializer<?> serializer,
+      HistogramKeyLayout layout, boolean optional) {
+    if (fields.remaining() < Integer.BYTES) {
+      throw new IllegalArgumentException("Missing statistics histogram key length");
+    }
+    int length = fields.getInt();
+    if (optional && length == 0) {
+      return;
+    }
+    if (length <= 0 || length > fields.remaining()) {
+      throw new IllegalArgumentException("Invalid statistics histogram key length");
+    }
+
+    int start = fields.position();
+    // Check each variable-width key's inner length before invoking its native decoder.
+    boolean valid = switch (layout) {
+      case UTF8 -> length >= Short.BYTES
+          && Short.toUnsignedInt(fields.getShort(start)) == length - Short.BYTES;
+      case UTF16 -> length >= Integer.BYTES
+          && (length - Integer.BYTES) % Character.BYTES == 0
+          && fields.getInt(start) == (length - Integer.BYTES) / Character.BYTES;
+      case DECIMAL -> length > 2 * Integer.BYTES
+          && fields.getInt(start + Integer.BYTES) == length - 2 * Integer.BYTES;
+      case COMPACT_LINK -> isValidCompactLinkExtent(fields, start, length);
+      case FIXED -> serializer.getFixedLength() == length;
+    };
+    if (!valid) {
+      throw new IllegalArgumentException("Invalid encoded statistics histogram key extent");
+    }
+    fields.position(start + length);
+  }
+
+  private static boolean isValidCompactLinkExtent(ByteBuffer fields, int start, int length) {
+    // Native compact links store a collection short, then the number of position bytes.
+    int headerSize = Short.BYTES + Byte.BYTES;
+    if (length < headerSize) {
+      return false;
+    }
+    int width = Byte.toUnsignedInt(fields.get(start + Short.BYTES));
+    return width <= Long.BYTES && width == length - headerSize;
   }
 
   // ---- Page-1 HLL I/O ----

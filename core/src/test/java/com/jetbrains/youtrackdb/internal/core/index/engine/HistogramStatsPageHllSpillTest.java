@@ -5,20 +5,31 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.CompactedLinkSerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Date;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -72,14 +83,13 @@ public class HistogramStatsPageHllSpillTest {
 
   /**
    * Independent native-order bytes pin the new container header and complete-image digest.
-   * The known SHA-256 of "abc" is not produced by the codec under test.
+   * The seed-zero XXH64 of "abc" is not produced by the codec under test.
    */
   @Test
   public void continuationContainerReadsIndependentBytes() {
-    byte[] digest = java.util.HexFormat.of().parseHex(
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
-    byte[] fixture = ByteBuffer.allocate(47).order(java.nio.ByteOrder.nativeOrder())
-        .putInt(2).putInt(3).putInt(0).put(digest).put(new byte[] {97, 98, 99}).array();
+    byte[] fixture = ByteBuffer.allocate(23).order(java.nio.ByteOrder.nativeOrder())
+        .putInt(2).putInt(3).putInt(0).putLong(0x44bc2cf5ad770999L)
+        .put(new byte[] {97, 98, 99}).array();
     org.junit.Assert.assertArrayEquals(new byte[] {97, 98, 99},
         HistogramStatsPageContinuationCodec.assemble(fixture, null));
     org.junit.Assert.assertArrayEquals(fixture,
@@ -102,7 +112,7 @@ public class HistogramStatsPageHllSpillTest {
           () -> HistogramStatsPageContinuationCodec.validatePart(part));
       org.junit.Assert.assertArrayEquals(before, part);
     }
-    for (int length : new int[] {0, 43, valid[0].length - 1, valid[0].length + 1}) {
+    for (int length : new int[] {0, 19, valid[0].length - 1, valid[0].length + 1}) {
       byte[] part = java.util.Arrays.copyOf(valid[0], length);
       org.junit.Assert.assertThrows(IllegalArgumentException.class,
           () -> HistogramStatsPageContinuationCodec.validatePart(part));
@@ -136,10 +146,233 @@ public class HistogramStatsPageHllSpillTest {
     first[1][HistogramStatsPageContinuationCodec.HEADER_SIZE] ^= 1;
     org.junit.Assert.assertThrows(IllegalArgumentException.class,
         () -> HistogramStatsPageContinuationCodec.assemble(first[0], first[1]));
+    first[1][20] ^= 1;
+    first[0][20] ^= 1;
+    org.junit.Assert.assertThrows(IllegalArgumentException.class,
+        () -> HistogramStatsPageContinuationCodec.assemble(first[0], first[1]));
     byte[] inline = HistogramStatsPageContinuationCodec.encode(new byte[] {1})[0];
     inline[HistogramStatsPageContinuationCodec.HEADER_SIZE] ^= 1;
     org.junit.Assert.assertThrows(IllegalArgumentException.class,
         () -> HistogramStatsPageContinuationCodec.assemble(inline, null));
+  }
+
+  /** Matching fragment hashes cannot make invalid snapshot field values readable. */
+  @Test
+  public void compactSnapshotRejectsInvalidSemanticFields() {
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      var serializer = intKeySerializer();
+      var prefix = ByteBuffer.allocate(49).order(java.nio.ByteOrder.nativeOrder())
+          .put(serializer.getId()).putLong(4).putLong(5).putLong(1)
+          .putLong(7).putLong(8).putInt(0).putInt(0).array();
+      for (int[] field : new int[][] {{1, -1}, {9, -1}, {17, 5}, {25, -1}, {33, -1},
+          {41, -1}, {41, 1}, {45, 1}, {45, 1024}}) {
+        byte[] image = prefix.clone();
+        var fields = ByteBuffer.wrap(image).order(java.nio.ByteOrder.nativeOrder());
+        if (field[0] < 41) {
+          fields.putLong(field[0], field[1]);
+        } else {
+          fields.putInt(field[0], field[1]);
+        }
+        page.writePart(HistogramStatsPageContinuationCodec.encode(image)[0]);
+        org.junit.Assert.assertThrows(IllegalArgumentException.class,
+            () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+      }
+      page.writePart(HistogramStatsPageContinuationCodec.encode(prefix)[0]);
+      assertEquals(5, page.readStoredSnapshot(null, serializer, serializerFactory)
+          .stats().distinctCount());
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  public void compactSnapshotRejectsChecksummedNegativeHistogramCountsAndInvalidRegisters() {
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      var serializer = intKeySerializer();
+      var blob = createSimpleHistogram().serialize(serializer, serializerFactory);
+      byte[] registers = new byte[1024];
+      writeCompactImage(page, serializer, blob, registers);
+      assertNotNull(page.readStoredSnapshot(null, serializer, serializerFactory).histogram());
+
+      // The four offsets select the non-null count, MCV frequency and last bucket's counts.
+      for (int offset : new int[] {4, 12, blob.length - 24, blob.length - 8}) {
+        byte[] invalid = blob.clone();
+        ByteBuffer.wrap(invalid).order(ByteOrder.nativeOrder()).putLong(offset, -1);
+        writeCompactImage(page, serializer, invalid, registers);
+        var error = assertThrows(IllegalArgumentException.class,
+            () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+        assertEquals(offset < 20 ? "Invalid statistics histogram header"
+            : "Negative statistics bucket count", error.getMessage());
+      }
+      for (byte invalid : new byte[] {-1, 127}) {
+        registers[1023] = invalid;
+        writeCompactImage(page, serializer, blob, registers);
+        var error = assertThrows(IllegalArgumentException.class,
+            () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+        assertEquals("Invalid statistics sketch register", error.getMessage());
+      }
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void compactSnapshotChecksNestedKeyLengthsForBoundariesAndMostCommonValue() {
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      for (var candidate : new BinarySerializer<?>[] {
+          StringSerializer.INSTANCE, UTF8Serializer.INSTANCE, DecimalSerializer.INSTANCE}) {
+        var serializer = (BinarySerializer<Object>) candidate;
+        Comparable<?> key = candidate == DecimalSerializer.INSTANCE ? new BigDecimal("1.25") : "é";
+        var histogram = new EquiDepthHistogram(1, new Comparable<?>[] {key, key},
+            new long[] {2}, new long[] {1}, 2, key, 2);
+        byte[] blob = histogram.serialize(serializer, serializerFactory);
+        int firstBoundary = 24 + serializer.getObjectSize(serializerFactory, key) + Integer.BYTES;
+        for (int keyOffset : new int[] {24, firstBoundary}) {
+          byte[] invalid = blob.clone();
+          var contents = ByteBuffer.wrap(invalid).order(ByteOrder.nativeOrder());
+          // A small extent mismatch must reach the preflight, not the allocating decoder.
+          if (candidate == UTF8Serializer.INSTANCE) {
+            contents.putShort(keyOffset, (short) 7);
+          } else {
+            contents.putInt(keyOffset + (candidate == DecimalSerializer.INSTANCE ? 4 : 0), 7);
+          }
+          writeCompactImage(page, serializer, invalid, new byte[0]);
+          var error = assertThrows(IllegalArgumentException.class,
+              () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+          assertEquals("Invalid encoded statistics histogram key extent", error.getMessage());
+        }
+      }
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  public void compactSnapshotBoundsHistogramStructureBeforeDecoding() {
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      var serializer = intKeySerializer();
+      byte[] blob = createSimpleHistogram().serialize(serializer, serializerFactory);
+      for (int length : new int[] {3, 20, blob.length - 1, blob.length + 1}) {
+        writeCompactImage(page, serializer, Arrays.copyOf(blob, length), new byte[0]);
+        assertThrows(IllegalArgumentException.class,
+            () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+      }
+      // Invalid bucket count, MCV extent, first boundary length and second boundary width.
+      for (int[] field : new int[][] {{0, 0}, {0, 7}, {20, -1}, {20, 70}, {28, 0}, {36, 3}}) {
+        byte[] invalid = blob.clone();
+        ByteBuffer.wrap(invalid).order(ByteOrder.nativeOrder()).putInt(field[0], field[1]);
+        writeCompactImage(page, serializer, invalid, new byte[0]);
+        assertThrows(IllegalArgumentException.class,
+            () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+      }
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void compactSnapshotRejectsInvalidLinkWidthsBeforeDecodingEitherKeyPosition() {
+    var serializer = (BinarySerializer<Object>) serializerFactory
+        .getObjectSerializer(CompactedLinkSerializer.ID);
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      byte[] valid = ByteBuffer.allocate(4).order(ByteOrder.nativeOrder())
+          .putShort((short) 3).put((byte) 1).put((byte) 9).array();
+      byte[][] invalidKeys = {
+          {0, 0}, // Missing width.
+          {0, 0, -1}, // Width byte is outside the position range.
+          {0, 0, 2, 9}, // Width exceeds the declared key extent.
+          {0, 0, 0, 9}, // Width leaves unused bytes.
+          {0, 0, 9, 1, 2, 3, 4, 5, 6, 7, 8, 9} // Extent matches but exceeds a long.
+      };
+      for (byte[] invalid : invalidKeys) {
+        for (boolean invalidMcv : new boolean[] {true, false}) {
+          byte[] mcv = invalidMcv ? invalid : valid;
+          byte[] boundary = invalidMcv ? valid : invalid;
+          byte[] blob = ByteBuffer.allocate(48 + mcv.length + boundary.length + valid.length)
+              .order(ByteOrder.nativeOrder())
+              .putInt(1).putLong(2).putLong(1)
+              .putInt(mcv.length).put(mcv).putInt(boundary.length).put(boundary)
+              .putInt(valid.length).put(valid).putLong(2).putLong(1).array();
+          writeCompactImage(page, serializer, blob, new byte[0]);
+          var error = assertThrows(IllegalArgumentException.class,
+              () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+          assertEquals("Invalid encoded statistics histogram key extent", error.getMessage());
+        }
+      }
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  public void compactStoredDateAcceptsNonMidnightEpoch() {
+    BinarySerializer<Object> serializer =
+        serializerFactory.getObjectSerializer(PropertyTypeInternal.DATE);
+    var instant = Instant.parse("2024-01-02T12:34:56.789Z");
+    long epoch = instant.toEpochMilli();
+    byte[] blob = ByteBuffer.allocate(72).order(ByteOrder.nativeOrder())
+        .putInt(1).putLong(2).putLong(1)
+        .putInt(8).putLong(epoch).putInt(8).putLong(epoch).putInt(8).putLong(epoch)
+        .putLong(2).putLong(1).array();
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      writeCompactImage(page, serializer, blob, new byte[0]);
+      var histogram = page.readStoredSnapshot(null, serializer, serializerFactory).histogram();
+      var expected = new Date(epoch);
+      HistogramStatsPageOpsTest.assertKeyIdentity(expected, histogram.mcvValue());
+      for (var boundary : histogram.boundaries()) {
+        HistogramStatsPageOpsTest.assertKeyIdentity(expected, boundary);
+      }
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  @Test
+  public void compactStoredBoundariesRejectDescendingKeysButAcceptTies() {
+    var serializer = intKeySerializer();
+    var entry = allocatePage();
+    try {
+      var page = new HistogramStatsPage(entry);
+      var blob = ByteBuffer.allocate(80).order(ByteOrder.nativeOrder())
+          .putInt(2).putLong(3).putLong(0).putInt(0)
+          .putInt(4).putInt(0).putInt(4).putInt(10).putInt(4).putInt(5)
+          .putLong(2).putLong(1).putLong(2).putLong(1);
+      writeCompactImage(page, serializer, blob.array(), new byte[0]);
+      var error = assertThrows(IllegalArgumentException.class,
+          () -> page.readStoredSnapshot(null, serializer, serializerFactory));
+      assertEquals("Statistics histogram boundaries must be nondecreasing", error.getMessage());
+
+      // Replace the final key to make the last two boundaries equal.
+      blob.putInt(44, 10);
+      writeCompactImage(page, serializer, blob.array(), new byte[0]);
+      var histogram = page.readStoredSnapshot(null, serializer, serializerFactory).histogram();
+      org.junit.Assert.assertArrayEquals(new Integer[] {0, 10, 10}, histogram.boundaries());
+    } finally {
+      releasePage(entry);
+    }
+  }
+
+  private static void writeCompactImage(HistogramStatsPage page, BinarySerializer<?> serializer,
+      byte[] blob, byte[] registers) {
+    byte[] image = ByteBuffer.allocate(49 + blob.length + registers.length)
+        .order(ByteOrder.nativeOrder())
+        .put(serializer.getId()).putLong(4).putLong(5).putLong(1).putLong(7).putLong(8)
+        .putInt(blob.length).putInt(registers.length).put(blob).put(registers).array();
+    page.writePart(HistogramStatsPageContinuationCodec.encode(image)[0]);
   }
 
   private static final int PAGE_SIZE = DurablePage.MAX_PAGE_SIZE_BYTES;

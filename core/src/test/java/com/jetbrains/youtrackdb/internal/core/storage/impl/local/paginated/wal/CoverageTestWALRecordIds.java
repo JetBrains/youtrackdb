@@ -19,7 +19,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
  * <p>Selected production and test registrations:
  * <ul>
  *   <li>ID 200 — {@code TestPageOperation} in {@code WALRecordsFactoryPageOperationTest}.
- *   <li>IDs 201–297 — production operations, including production ID 250.
+ *   <li>IDs 201–297 and 299 — production page operations, including production ID 250.
+ *   <li>ID 298 — production page allocation record.
  *   <li>ID 461 — {@code WOWCacheTestIT.TestRecord} (failsafe).
  *   <li>ID 500 — {@code SmallTestRecord} ({@code CASDiskWriteAheadLogCloseTest}).
  *   <li>ID 511 — {@code CASDiskWriteAheadLogIT}.

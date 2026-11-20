@@ -3,27 +3,28 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import net.jpountz.xxhash.XXHashFactory;
 
 /**
  * Inactive one-or-two-page container for an opaque complete statistics image.
- * Each fragment starts after the durable header and carries the complete-image SHA-256.
- * The digest detects mixed images, not malicious tampering. No live writer uses this codec.
+ * Each fragment starts after the durable header. Three native-order ints (version, image length,
+ * role) precede a native-order XXH64 long of the complete image, with seed zero. The hash detects
+ * accidental damage, not malicious tampering. No live writer uses this codec.
  */
 final class HistogramStatsPageContinuationCodec {
 
   static final int FORMAT_VERSION = 2;
-  static final int HEADER_SIZE = 3 * Integer.BYTES + 32;
+  static final int HEADER_SIZE = 3 * Integer.BYTES + Long.BYTES;
   static final int PART_CAPACITY = 4096 - DurablePage.NEXT_FREE_POSITION - HEADER_SIZE;
+  static final int IMAGE_CAPACITY = 2 * PART_CAPACITY;
 
   private HistogramStatsPageContinuationCodec() {
   }
 
   static byte[][] encode(byte[] image) {
     checkLength(image.length);
-    byte[] digest = digest(image);
+    long digest = digest(image);
     int count = image.length > PART_CAPACITY ? 2 : 1;
     byte[][] parts = new byte[count][];
     for (int role = 0; role < count; role++) {
@@ -31,7 +32,7 @@ final class HistogramStatsPageContinuationCodec {
       int length = Math.min(PART_CAPACITY, image.length - start);
       parts[role] = ByteBuffer.allocate(HEADER_SIZE + length).order(ByteOrder.nativeOrder())
           .putInt(FORMAT_VERSION).putInt(image.length).putInt(role)
-          .put(digest).put(image, start, length).array();
+          .putLong(digest).put(image, start, length).array();
     }
     return parts;
   }
@@ -41,23 +42,24 @@ final class HistogramStatsPageContinuationCodec {
    * Complete-image agreement is checked by assemble, not by accepting an isolated fragment.
    */
   static void validatePart(byte[] part) {
-    if (part.length < HEADER_SIZE) {
-      throw new IllegalArgumentException("Truncated statistics fragment header");
-    }
     var buffer = ByteBuffer.wrap(part).order(ByteOrder.nativeOrder());
-    if (buffer.getInt() != FORMAT_VERSION) {
-      throw new IllegalArgumentException("Unsupported statistics fragment version");
-    }
-    int total = buffer.getInt();
-    checkLength(total);
-    int role = buffer.getInt();
-    if (role < 0 || role > 1 || (role == 1 && total <= PART_CAPACITY)) {
-      throw new IllegalArgumentException("Invalid statistics fragment role");
-    }
-    int expected = Math.min(PART_CAPACITY, total - role * PART_CAPACITY);
-    if (part.length != HEADER_SIZE + expected) {
+    if (part.length != partSize(buffer, part.length < HEADER_SIZE ? -1 : buffer.getInt(8))) {
       throw new IllegalArgumentException("Invalid statistics fragment extent");
     }
+  }
+
+  static int partSize(ByteBuffer buffer, long pageIndex) {
+    int offset = buffer.position();
+    if (buffer.remaining() < HEADER_SIZE || buffer.getInt(offset) != FORMAT_VERSION) {
+      throw new IllegalArgumentException("Missing or invalid statistics fragment header");
+    }
+    int total = buffer.getInt(offset + Integer.BYTES);
+    checkLength(total);
+    int role = buffer.getInt(offset + 2 * Integer.BYTES);
+    if (role != pageIndex || role < 0 || role > 1 || (role == 1 && total <= PART_CAPACITY)) {
+      throw new IllegalArgumentException("Invalid statistics fragment role or address");
+    }
+    return HEADER_SIZE + Math.min(PART_CAPACITY, total - role * PART_CAPACITY);
   }
 
   /**
@@ -87,24 +89,19 @@ final class HistogramStatsPageContinuationCodec {
       System.arraycopy(continuation, HEADER_SIZE, image, PART_CAPACITY,
           continuation.length - HEADER_SIZE);
     }
-    if (!Arrays.equals(digest(image), Arrays.copyOfRange(first, 3 * Integer.BYTES, HEADER_SIZE))) {
+    if (digest(image) != header.getLong(3 * Integer.BYTES)) {
       throw new IllegalArgumentException("Statistics image digest mismatch");
     }
     return image;
   }
 
   private static void checkLength(int length) {
-    if (length < 0 || length > 2 * PART_CAPACITY) {
+    if (length < 0 || length > IMAGE_CAPACITY) {
       throw new IllegalArgumentException("Statistics image exceeds two-page budget");
     }
   }
 
-  private static byte[] digest(byte[] image) {
-    try {
-      return MessageDigest.getInstance("SHA-256").digest(image);
-    } catch (NoSuchAlgorithmException e) {
-      // SHA-256 is mandatory in every Java implementation.
-      throw new AssertionError(e);
-    }
+  private static long digest(byte[] image) {
+    return XXHashFactory.fastestInstance().hash64().hash(image, 0, image.length, 0L);
   }
 }
