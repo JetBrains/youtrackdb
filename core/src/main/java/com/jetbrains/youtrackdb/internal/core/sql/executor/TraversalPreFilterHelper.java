@@ -322,6 +322,62 @@ public final class TraversalPreFilterHelper {
     return Math.max(incoming, outgoing);
   }
 
+  /** Measured bags belong to one execution and can be reused after a ratio rejection. */
+  public record ReverseLookup(List<LinkBag> bags, int estimate, int total) {
+
+    @Nullable public RidSet resolve(boolean collectEdgeRids) {
+      if (total < 0 || total > maxRidSetSize()) {
+        return null;
+      }
+      var result = new RidSet();
+      for (var bag : bags) {
+        for (RidPair pair : bag) {
+          result.add(collectEdgeRids ? pair.primaryRid() : pair.secondaryRid());
+        }
+      }
+      return result;
+    }
+  }
+
+  /** One vertex load and one field pass produce both directional and absolute totals. */
+  @Nullable static ReverseLookup prepareReverseLookup(
+      RID target, List<String> fields, int incomingCount, boolean both, CommandContext ctx) {
+    if (ctx.getDatabaseSession() == null) {
+      return null;
+    }
+    try {
+      var record = ctx.getDatabaseSession().getActiveTransaction().load(target);
+      if (!(record instanceof EntityImpl vertex)) {
+        return null;
+      }
+      vertex.deserializeProperties();
+      var bags = new java.util.ArrayList<LinkBag>();
+      long incoming = 0;
+      long outgoing = 0;
+      for (int i = 0; i < fields.size(); i++) {
+        var value = vertex.getPropertyInternal(fields.get(i));
+        if (value == null) {
+          continue;
+        }
+        if (!(value instanceof LinkBag bag)) {
+          return new ReverseLookup(List.of(), -1, -1);
+        }
+        bags.add(bag);
+        if (i < incomingCount) {
+          incoming = Math.min(Integer.MAX_VALUE, incoming + bag.size());
+        } else {
+          outgoing = Math.min(Integer.MAX_VALUE, outgoing + bag.size());
+        }
+      }
+      int total = bags.isEmpty() ? -1
+          : (int) Math.min(Integer.MAX_VALUE, incoming + outgoing);
+      return new ReverseLookup(bags,
+          both ? (int) Math.max(incoming, outgoing) : total, total);
+    } catch (RecordNotFoundException e) {
+      return null;
+    }
+  }
+
   private static int linkBagTotal(EntityImpl vertex, List<String> fields) {
     // Fully load once so absent hierarchy fields do not trigger repeated partial parses.
     vertex.deserializeProperties();

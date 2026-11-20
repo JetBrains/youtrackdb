@@ -55,6 +55,10 @@ public class EdgeTraversalCacheTest {
    * (e.g. {@code 100K/(100·0.5) = 2000}); pinning at {@code 100.0} keeps
    * those constants stable across config re-calibrations.
    */
+  private final Object savedLoadToScanRatio =
+      com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
+          .getValue();
+
   @org.junit.Before
   public void pinLoadToScanRatio() {
     com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
@@ -64,7 +68,31 @@ public class EdgeTraversalCacheTest {
   @org.junit.After
   public void resetLoadToScanRatio() {
     com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_PREFILTER_LOAD_TO_SCAN_RATIO
-        .resetToDefault();
+        .setValue(savedLoadToScanRatio);
+  }
+
+  /** An interleaved deferred key must not clear the verified index decision of a cached key. */
+  @Test
+  public void indexVerificationBelongsToCachedKey() {
+    var edge = createEdgeTraversal();
+    var index = stubIndexLookup(0.5, 1, "keyed", singletonRidSet(10, 1));
+    var reverse = mock(EdgeRidLookup.class);
+    when(reverse.cacheKey(any())).thenReturn("a", "b", "a");
+    when(reverse.estimatedSize(any(), any())).thenReturn(1);
+    when(reverse.passesSelectivityCheck(anyInt(), anyInt(), any())).thenReturn(false);
+    var set = new RidSet();
+    for (int i = 0; i < 100; i++) {
+      set.add(new RecordId(10, i));
+    }
+    when(index.resolve(any(), any())).thenReturn(set);
+    when(reverse.resolve(any(), any())).thenReturn(set);
+    edge.setIntersectionDescriptor(new RidFilterDescriptor.Composite(List.of(index, reverse)));
+    var ctx = new BasicCommandContext();
+    assertThat(edge.resolvePreFilter(ctx, 100)).hasSize(100);
+    when(index.estimatedSize(any(), any())).thenReturn(1_000_000);
+    when(reverse.estimatedSize(any(), any())).thenReturn(1_000_000);
+    assertThat(edge.resolvePreFilter(ctx, 50)).isNull();
+    assertThat(edge.resolvePreFilter(ctx, 50)).hasSize(100);
   }
 
   private EdgeTraversal createEdgeTraversal() {

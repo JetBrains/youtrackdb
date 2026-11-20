@@ -122,8 +122,49 @@ public class BackReferenceLinkFieldsTest extends DbTestBase {
     assertNull(edge.resolvePreFilter(ctx, 60));
     org.mockito.Mockito.verify(descriptor, org.mockito.Mockito.never())
         .resolve(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    for (int i = 0; i < 100; i++) {
+      assertNull(edge.resolvePreFilter(ctx, 60));
+    }
     assertEquals(100, edge.resolvePreFilter(ctx, 200).size());
-    org.mockito.Mockito.verify(descriptor).resolve(ctx, anchor.getIdentity());
+    org.mockito.Mockito.verify(descriptor).prepare(ctx, anchor.getIdentity());
+    session.rollback();
+  }
+
+  /** Rejected estimates share the 64-key bound and do not survive an execution copy. */
+  @Test
+  public void rejectedLookupCacheIsBoundedAndRestarted() {
+    schema();
+    session.begin();
+    var ctx = context();
+    var expression = mock(SQLExpression.class);
+    var descriptor = org.mockito.Mockito.spy(
+        new RidFilterDescriptor.EdgeRidLookup("L", "both", expression, false));
+    var edge = traversal(descriptor);
+    var anchors = new ArrayList<RID>();
+    for (int i = 0; i < 65; i++) {
+      var anchor = session.newVertex("V");
+      var neighbor = session.newVertex("V");
+      for (int j = 0; j < 100; j++) {
+        session.newRegularEdge("L2", neighbor, anchor);
+      }
+      anchors.add(anchor.getIdentity());
+      when(expression.execute((Result) null, ctx)).thenReturn(anchor.getIdentity());
+      assertNull(edge.resolvePreFilter(ctx, 60));
+    }
+    // Key 65 is not retained. The first key still is.
+    assertNull(edge.resolvePreFilter(ctx, 60));
+    when(expression.execute((Result) null, ctx)).thenReturn(anchors.getFirst());
+    assertNull(edge.resolvePreFilter(ctx, 60));
+    org.mockito.Mockito.verify(descriptor, org.mockito.Mockito.times(66))
+        .prepare(org.mockito.ArgumentMatchers.eq(ctx), org.mockito.ArgumentMatchers.any());
+    // A restart reads the updated bags rather than reusing the rejected estimate.
+    VertexEntityImpl first = session.getActiveTransaction().load(anchors.getFirst());
+    var edges = new ArrayList<com.jetbrains.youtrackdb.internal.core.db.record.record.Edge>();
+    first.getEdges(Direction.IN, "L2").forEach(edges::add);
+    for (int i = 0; i < 80; i++) {
+      edges.get(i).delete();
+    }
+    assertEquals(1, edge.copy().resolvePreFilter(ctx, 60).size());
     session.rollback();
   }
 
@@ -527,7 +568,7 @@ public class BackReferenceLinkFieldsTest extends DbTestBase {
     assertEquals(PreFilterSkipReason.BUILD_FAILED, edge.getLastSkipReason());
     String query = "select from (select expand(out('H')) from Source)"
         + " where out('L').@rid = " + anchor.getIdentity();
-    // C1 intentionally pins the incomplete SELECT result, tracked by YTDB-1644.
+    // The literal SELECT descriptor ignores subclass fields, as tracked by YTDB-1644.
     var legacy = new RidFilterDescriptor.EdgeRidLookup(
         "L", "out", desc.targetRidExpression(), false, true);
     assertEquals("Literal SELECT bag", 30, legacy.resolve(ctx, anchor.getIdentity()).size());
@@ -550,6 +591,52 @@ public class BackReferenceLinkFieldsTest extends DbTestBase {
     var plannedLookup = (RidFilterDescriptor) descriptorField.get(expand);
     assertEquals(30, plannedLookup.resolve(ctx, anchor.getIdentity()).size());
     assertTrue(result.getExecutionPlan().prettyPrint(0, 2).contains("rid filter: out('L')"));
+    session.rollback();
+  }
+
+  /**
+   * A copied SELECT plan executes the pushed-down ExpandStep. Its exact RID result
+   * pins the literal parent field, not MATCH's hierarchy-aware reading.
+   */
+  @Test
+  public void copiedSelectPlanAppliesLiteralRidFilter() {
+    schema();
+    session.begin();
+    var anchor = session.newVertex("V");
+    var expected = new java.util.HashSet<RID>();
+    for (int i = 0; i < 100; i++) {
+      var candidate = session.newVertex("V");
+      if (i < 60) {
+        session.newRegularEdge(i < 30 ? "L" : "L2", candidate, anchor);
+        if (i < 30) {
+          expected.add(candidate.getIdentity());
+        }
+      }
+    }
+    var ctx = context();
+    String query = "select from (select expand(@rid) from V) where out('L').@rid = "
+        + anchor.getIdentity();
+    try (var result = session.query(query)) {
+      // Direct execution retains the original WHERE. Copy rebuilds the pushed-down chain.
+      assertEquals(60, result.toList().size());
+      var original =
+          (com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan) result
+              .getExecutionPlan();
+      var copied = original.copy(ctx);
+      assertTrue(copied.prettyPrint(0, 2).contains("rid filter: out('L')"));
+      var actual = new java.util.HashSet<RID>();
+      var stream = copied.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          actual.add(stream.next(ctx).asEntity().getIdentity());
+        }
+      } finally {
+        stream.close(ctx);
+        copied.close();
+      }
+      // The removed outer predicate cannot produce this strict 30-of-60 subset.
+      assertEquals(expected, actual);
+    }
     session.rollback();
   }
 

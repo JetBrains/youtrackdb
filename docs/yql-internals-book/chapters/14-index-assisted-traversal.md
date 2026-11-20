@@ -163,20 +163,20 @@ single-field mode.
 
 `cacheKey`
 returns the resolved target RID, so the cache entry is reused across all source vertices that
-share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:247`)
+share the same `$matched.X` binding. Its `passesSelectivityCheck` (`RidFilterDescriptor.java:253`)
 is an *overlap ratio* test — the first of the two admission paths — described in detail later.
 
-**`IndexLookup`** (`RidFilterDescriptor.java:322`) covers field conditions that can be
+**`IndexLookup`** (`RidFilterDescriptor.java:341`) covers field conditions that can be
 served by an index — equality, range, membership. `resolve` calls
 `TraversalPreFilterHelper.resolveIndexToRidSet`, which runs the index scan and accumulates
 results. `estimatedSize` returns a histogram-based estimate from the index descriptor.
 `cacheKey` returns a fingerprint of the index and its condition: because the query parameters
 are literals or named parameters (never `$matched` references), the index result is the same
 for every source vertex in the query, and a single resolve suffices for the entire execution.
-Its `passesSelectivityCheck` (`RidFilterDescriptor.java:343`) is a *class-level selectivity*
+Its `passesSelectivityCheck` (`RidFilterDescriptor.java:362`) is a *class-level selectivity*
 test — the second admission path — which ignores the per-vertex link-bag size entirely.
 
-**`Composite`** (`RidFilterDescriptor.java:400`) combines two or more descriptors by
+**`Composite`** (`RidFilterDescriptor.java:419`) combines two or more descriptors by
 intersecting their results. `resolve` resolves each child and intersects the resulting
 `RidSet`s at the bitmap level via `TraversalPreFilterHelper.intersect`. `estimatedSize`
 returns the minimum of child estimates, since an intersection is bounded by its smallest
@@ -263,12 +263,12 @@ index is found, an `IndexLookup` descriptor is attached via `addIntersectionDesc
 
 When `addIntersectionDescriptor` is called a second time on the same edge, the existing
 descriptor and the new one are folded into a single *flat* `Composite`
-(`EdgeTraversal.java:429`). The flattening matters: if either side is already a `Composite`,
+(`EdgeTraversal.java:485`). The flattening matters: if either side is already a `Composite`,
 its children are spliced in rather than nested, so a later scan for the `IndexLookup` child
 — which the runtime admission path needs — always finds every leaf in one pass:
 
 ```java
-// EdgeTraversal.java:429
+// EdgeTraversal.java:485
 public void addIntersectionDescriptor(RidFilterDescriptor descriptor) {
   if (intersectionDescriptor == null) {
     intersectionDescriptor = descriptor;
@@ -290,7 +290,7 @@ The class filter is attached in a separate pass, `stampEdgeMetadata`
 (`MatchExecutionPlanner.java:2604`), which walks the schedule once more and stamps two kinds
 of plan-time metadata on each edge. For every edge whose target alias has a known class it
 calls `TraversalPreFilterHelper.collectionIdsForClass(schemaClass)`
-(`TraversalPreFilterHelper.java:90`), which collects all collection IDs owned by that class
+(`TraversalPreFilterHelper.java:93`), which collects all collection IDs owned by that class
 and its subclasses via `SchemaClass.getPolymorphicCollectionIds()`, and stores the resulting
 `IntSet` as `EdgeTraversal.acceptedCollectionIds`. The same pass also stamps the per-query
 row-count forecasts that the index-lookup admission path consults — but only when the earlier
@@ -349,22 +349,20 @@ remove it.
 ### The absolute cap
 
 Once the link bag is large enough, the traverser calls `EdgeTraversal.resolveWithCache`
-(`EdgeTraversal.java:683`). Before it runs either admission test, it enforces one absolute
+(`EdgeTraversal.java:772`). Before it runs either admission test, it enforces one absolute
 ceiling shared by both paths.
 
 That ceiling is the **absolute cap**. `resolveWithCache` first obtains the cheap size estimate
-and compares it against `TraversalPreFilterHelper.maxRidSetSize()` (`EdgeTraversal.java:769`).
+and compares it against `TraversalPreFilterHelper.maxRidSetSize()` (`EdgeTraversal.java:893`).
 Unlike the fixed 100 000 of earlier versions, this cap is now *heap-adaptive*: half a percent
 of the maximum heap, clamped to the range [100 000, 10 000 000]
 (`GlobalConfiguration.java:1389`). A larger heap tolerates a larger materialised set.
 A small heap is protected from a set that would dwarf it. When the estimate exceeds the cap the build
 is abandoned before it starts, recorded as `CAP_EXCEEDED`, and the `null` is cached so later
-vertices sharing the same key do not re-estimate. Because the estimate can under-count, the
-same ceiling is re-checked *during* materialisation: both `resolveIndexToRidSet` and
-`resolveReverseEdgeLookup` test their running count against the cap every 1024 elements
-(bitmask `0x3FF`, `TraversalPreFilterHelper.java:79`; the checks sit at
-`TraversalPreFilterHelper.java:138` and `:245`) and abort early if the intermediate result
-outgrows it. An over-budget descriptor does not stall the query; it returns `null` and the
+vertices sharing the same key do not re-estimate. Index estimates can under-count, so `resolveIndexToRidSet` checks its running count
+against the cap every 1024 elements (bitmask `0x3FF`,
+`TraversalPreFilterHelper.java:82`, check at `:141`). Reverse lookups validate the total
+of all selected bags before collecting RIDs. MATCH reuses those measured bags for the build. An over-budget descriptor does not stall the query; it returns `null` and the
 traverser falls back to post-load evaluation for that vertex.
 
 ### Two admission paths, one per expensive descriptor
@@ -381,7 +379,7 @@ reverse edge. Its value depends entirely on how much of the *current* adjacency 
 covers: if the reverse set already contains four out of every five forward neighbours,
 intersecting the two barely narrows anything, and the membership tests are pure overhead.
 
-So `EdgeRidLookup.passesSelectivityCheck` (`RidFilterDescriptor.java:247`) is an overlap
+So `EdgeRidLookup.passesSelectivityCheck` (`RidFilterDescriptor.java:253`) is an overlap
 ratio. It keeps the filter only when
 
 ```
@@ -391,10 +389,10 @@ resolvedSize / linkBagSize <= edgeLookupMaxRatio()
 where `edgeLookupMaxRatio()` is `GlobalConfiguration.QUERY_PREFILTER_EDGE_LOOKUP_MAX_RATIO`,
 default 0.8 (`GlobalConfiguration.java:1362`). A reverse set covering more than 80 % of the
 adjacency list is rejected. The test is cheap and per-vertex, so it runs twice: once inside
-`resolveWithCache` against the estimated size, and once in `applyPreFilter`
-(`MatchEdgeTraverser.java:607`) against the actual `ridSet.size()`, because the two inputs can
+`resolveWithCache` against the estimated size, and once in `EdgeTraversal.resolvePreFilter`
+(`EdgeTraversal.java:592`) against the actual `ridSet.size()`, because the two inputs can
 disagree — the real set may turn out larger than the estimate. A failure on the actual size is
-recorded as `OVERLAP_RATIO_TOO_HIGH` (`MatchEdgeTraverser.java:620`).
+recorded as `OVERLAP_RATIO_TOO_HIGH` (`EdgeTraversal.java:592`).
 
 #### Path B — the index-lookup amortization
 
@@ -404,22 +402,22 @@ the vertices that consult it. A per-vertex overlap ratio is the wrong question; 
 question is whether that build will pay for itself.
 
 That reasoning lives in `EdgeTraversal.checkIndexLookupAmortization`
-(`EdgeTraversal.java:1019`), and it runs in two stages. First, selectivity. The method reads
+(`EdgeTraversal.java:1160`), and it runs in two stages. First, selectivity. The method reads
 the index's class-level selectivity — the fraction of the class the condition matches. If that
 statistic is unavailable it rejects immediately and records `STATS_UNAVAILABLE`
-(`EdgeTraversal.java:1037`): without a known selectivity the build cost cannot be bounded, and
+(`EdgeTraversal.java:1178`): without a known selectivity the build cost cannot be bounded, and
 the design refuses to gamble. If the selectivity is known but exceeds
 `TraversalPreFilterHelper.indexLookupMaxSelectivity()` — default 0.95, from
 `GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY`
 (`GlobalConfiguration.java:1370`) — the index matches almost the whole class and cannot narrow
-anything, so it is rejected as `SELECTIVITY_TOO_LOW` (`EdgeTraversal.java:1049`). Note that
+anything, so it is rejected as `SELECTIVITY_TOO_LOW` (`EdgeTraversal.java:1190`). Note that
 this is a *class-level* selectivity, not a per-vertex ratio: `IndexLookup`'s
 `passesSelectivityCheck` ignores the link-bag size entirely, because the set of matching
 records is a property of the condition and the class, identical for every source vertex.
 
 Second, break-even. When the selectivity clears the threshold, the method computes the minimum
 number of neighbours that must be scanned before the build amortises, in
-`computeMinNeighborsForBuild` (`EdgeTraversal.java:1174`):
+`computeMinNeighborsForBuild` (`EdgeTraversal.java:1315`):
 
 ```
 m = estimatedSize / (loadToScanRatio · (1 − s))
@@ -435,19 +433,27 @@ edge already exceeds `m`, the traverser commits to the build on the first vertex
 was too small — the traverser defers instead, accumulating observed link-bag sizes across
 vertices and building only once the running total crosses the break-even (`DEFERRED_WITH_NET`).
 While it is still deferring, the skip is recorded as `BUILD_NOT_AMORTIZED`
-(`EdgeTraversal.java:1121`).
+(`EdgeTraversal.java:1262`).
 
 ### The descriptor cache and the vocabulary of skips
 
+MATCH prepares each reverse lookup with one vertex load and one pass over its selected
+fields. The snapshot-keyed field list groups incoming and outgoing fields once. Prepared
+bags, estimates and ratio rejections share the 64-key bound with the RID-set cache. A
+rejection applies only to forward bags no larger than the rejected bag, so a larger bag can
+still trigger a build. Composite rescue uses the same prepared child estimates and bags.
+Index verification belongs to the lookup key, including on a RID-set cache hit. An execution
+copy clears all of this state.
+
 `resolveWithCache` memoises successful resolutions in a fixed-capacity map keyed by
 `descriptor.cacheKey()`. The capacity is 64 entries (`CACHE_CAPACITY`,
-`EdgeTraversal.java:339`); once full, new entries are silently dropped, because the number of
+`EdgeTraversal.java:395`); once full, new entries are silently dropped, because the number of
 distinct descriptor keys in a single query is small enough that no eviction policy is needed.
 Rejections are cached too — a `CAP_EXCEEDED`, `STATS_UNAVAILABLE`, or `SELECTIVITY_TOO_LOW`
 verdict stores a `null` under the key so later vertices short-circuit instead of re-deciding.
 And if `resolve()` returns `null` after passing every up-front guard — a mid-materialisation
 cap abort, or a missing reverse-edge target vertex — the traverser records `BUILD_FAILED`
-(`EdgeTraversal.java:881`) and caches that too.
+(`EdgeTraversal.java:1013`) and caches that too.
 
 Each of those outcomes is a constant of the `PreFilterSkipReason` enum
 (`core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/PreFilterSkipReason.java`):

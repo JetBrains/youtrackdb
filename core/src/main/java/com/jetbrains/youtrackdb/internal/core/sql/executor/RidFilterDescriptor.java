@@ -187,7 +187,7 @@ public sealed interface RidFilterDescriptor {
     private final boolean singleField;
     private volatile Fields cachedFields;
 
-    private record Fields(Object snapshot, List<String> names) {
+    private record Fields(Object snapshot, List<String> names, int incomingCount) {
     }
 
     public EdgeRidLookup(String edgeClassName, String traversalDirection,
@@ -232,7 +232,13 @@ public sealed interface RidFilterDescriptor {
       var names = TraversalPreFilterHelper.reverseLinkFields(
           snapshot, edgeClassName, traversalDirection);
       // Keep the snapshot and its derived names in one cache entry.
-      cachedFields = new Fields(snapshot, names);
+      // Group directions once per schema snapshot, not once per source vertex.
+      var ordered = new ArrayList<String>(names.size());
+      names.stream().filter(name -> name.startsWith("in_")).forEach(ordered::add);
+      int incomingCount = ordered.size();
+      names.stream().filter(name -> !name.startsWith("in_")).forEach(ordered::add);
+      names = List.copyOf(ordered);
+      cachedFields = new Fields(snapshot, names, incomingCount);
       return names;
     }
 
@@ -280,6 +286,19 @@ public sealed interface RidFilterDescriptor {
       }
       return TraversalPreFilterHelper.resolveReverseEdgeLookup(
           targetRid, fields(ctx), collectEdgeRids, ctx);
+    }
+
+    /** Loads and measures all selected bags once for MATCH execution. */
+    @Nullable public TraversalPreFilterHelper.ReverseLookup prepare(
+        CommandContext ctx, @Nullable Object cacheKey) {
+      RID target = cacheKey instanceof RID rid ? rid : resolveTargetRid(ctx);
+      if (target == null) {
+        return null;
+      }
+      var names = fields(ctx);
+      int incoming = singleField ? names.size() : cachedFields.incomingCount();
+      return TraversalPreFilterHelper.prepareReverseLookup(
+          target, names, incoming, !singleField && "both".equals(traversalDirection), ctx);
     }
 
     /** Gives each execution step its own snapshot-keyed field-list cache. */
