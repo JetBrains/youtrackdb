@@ -293,12 +293,25 @@ public class IndexOrderedEqualityFetchTest extends DbTestBase {
     assertThat(attempt.requiresLinkBagLoad()).isFalse();
   }
 
-  /** An unsupported reverse field requires a complete LinkBag-load restart, not partial output. */
+  /** A missing reverse field is an empty adjacency, so selective fetch completes without load. */
+  @Test
+  public void missingReverseFieldCompletesWithNoLinks() {
+    seed();
+    try (var rows = session.query("SELECT FROM Message WHERE date = 0")) {
+      ((EntityImpl) rows.next().asEntityOrNull()).setPropertyInternal("in_wrote", null);
+    }
+    var attempt = read("tag = :tag");
+    assertThat(attempt.complete()).isTrue();
+    assertThat(attempt.requiresLinkBagLoad()).isFalse();
+    assertThat(attempt.candidates()).isEmpty();
+  }
+
+  /** A real non-LinkBag representation still requires the terminal source-side load. */
   @Test
   public void nonLinkBagReverseFieldRequiresLoad() {
     seed();
     try (var rows = session.query("SELECT FROM Message WHERE date = 0")) {
-      ((EntityImpl) rows.next().asEntityOrNull()).setPropertyInternal("in_wrote", null);
+      ((EntityImpl) rows.next().asEntityOrNull()).setPropertyInternal("in_wrote", "unsupported");
     }
     var attempt = read("tag = :tag");
     assertThat(attempt.complete()).isFalse();

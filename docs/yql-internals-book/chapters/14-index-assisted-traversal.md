@@ -526,6 +526,25 @@ RID-set membership only skips record loads. Every surviving record still passes 
 target filter, target class check and already-bound alias check. Repeated edges remain
 separate result rows. Applied, skipped and membership counters use the ordinary MATCH policy.
 
+### Runtime equality fetch
+
+For one source row and a positive runtime LIMIT, the ordered step prices the current
+target-index estimate against the ordering scan and the LinkBag load. Unknown estimates
+and unbounded executions use the ordinary path. The estimate uses the current parameter
+bindings even when the plan comes from the cache.
+
+One execution-local work account bounds speculative index reads and record loads.
+Each path is attempted at most once. An incomplete equality read discards its candidates
+and raises the estimate before repricing. Unsupported reverse fields select the terminal
+LinkBag load. No speculative prefix escapes before the final path is fixed.
+
+The equality path reports `equality-fetch` in the plan. It emits one row per matching
+source link, including parallel edges. OrderByStep sorts these rows. When downstream
+MATCH edges require local sorting under LIMIT, all accepted rows are sorted by the
+property order and optional RID tie-break. The stream retains every row because later
+edges can reject a prefix and secondary ORDER BY keys can reorder ties. This path signals
+pre-sorted output in the same way as the LinkBag load-and-sort path.
+
 ### Bounded equality candidate reader
 
 `IndexOrderedEdgeStep.readEqualityCandidates` reads the target index descriptor with the

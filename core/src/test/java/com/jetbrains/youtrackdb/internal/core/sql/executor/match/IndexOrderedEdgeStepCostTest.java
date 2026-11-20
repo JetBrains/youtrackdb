@@ -116,12 +116,12 @@ public class IndexOrderedEdgeStepCostTest {
     assertTrue(costs.equalityFetch() > costs.linkBagLoad());
     assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
         new IndexOrderedCostModel.WorkAccount(100_000).choose(costs));
-    // With LIMIT 5 the bounded heap uses log2(5), not log2(candidate count).
+    // Even LIMIT 5 must price every candidate for local downstream ordering.
     var bounded = equalityCosts(500, 100_000);
     double candidateWork = CostModel.indexSeekCost() / perEntry
         + 500 * (1 + IndexOrderedCostModel.recordReadCost() / perEntry
             + CostModel.perRowCpuCost() / perEntry);
-    assertEquals(candidateWork + 500 * (Math.log(5) / Math.log(2))
+    assertEquals(candidateWork + 500 * (Math.log(500) / Math.log(2))
         * CostModel.perRowCpuCost() / perEntry, bounded.equalityFetch(), 0.00001);
   }
 

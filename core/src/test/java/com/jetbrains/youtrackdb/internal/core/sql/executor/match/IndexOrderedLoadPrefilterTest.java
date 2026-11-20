@@ -13,6 +13,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
@@ -21,6 +23,19 @@ import org.junit.experimental.categories.Category;
 public class IndexOrderedLoadPrefilterTest extends DbTestBase {
 
   private String source;
+  private GlobalConfigurationScope equalityCap;
+
+  @Before
+  public void forceLoadAlternative() {
+    // These tests observe the LinkBag prefilter, not candidate-side equality fetch.
+    equalityCap = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES, 0);
+  }
+
+  @After
+  public void restoreEqualityCap() {
+    equalityCap.close();
+  }
 
   private void seed() {
     session.execute("CREATE CLASS Author EXTENDS V").close();

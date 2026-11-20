@@ -105,9 +105,9 @@ final class IndexOrderedCostModel {
     if (equalityMatches >= 0 && equalityMatches <= memoryLimit && targetRecords > 0
         && hasValidScanCpuFactor()) {
       double reverseEdgesPerCandidate = Math.max(1.0, (double) linkBagSize / targetRecords);
-      // Candidate output is unsorted. Price the same bounded top-K sort as the load path.
-      double equalitySortFactor = rowTarget > 0 && rowTarget < equalityMatches
-          ? log2(rowTarget) : log2(equalityMatches);
+      // Local ordering retains all candidates for downstream rejection and secondary keys.
+      // Price a full sort, even when the final OrderByStep can use a bounded heap.
+      double equalitySortFactor = log2(equalityMatches);
       equality = indexSeekEntryUnits()
           + equalityMatches * (1.0 + recordReadEntryUnits()
               + reverseEdgesPerCandidate * reverseEdgeEntryUnits())

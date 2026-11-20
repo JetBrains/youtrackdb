@@ -164,6 +164,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   public enum RuntimePath {
     /** Single-source RidSet-filtered B-tree scan ({@code indexScanFiltered}). */
     INDEX_SCAN("index-scan"),
+    /** Candidate-side lookup with one result per matching edge. */
+    EQUALITY_FETCH("equality-fetch"),
     /** Single-source load LinkBag + local sort ({@code loadSortFromLinkBag}). */
     LOAD_SORT("load-sort"),
     /** Single-source load LinkBag unsorted ({@code loadFromLinkBag}). */
@@ -423,6 +425,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
+    long estimate = targetIndexDescriptor == null ? -1 : targetIndexDescriptor.estimateHits(ctx);
+    if (!edgeTraversal && rowTarget > 0 && estimate >= 0) {
+      return equalityDispatch(upstreamRow, sourceRid, linkBag, indexSize, histogram, estimate, ctx);
+    }
     if (shouldUseIndexScan(linkBag.size(), indexSize, histogram)) {
       // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
       // Build RidSet only now — it is needed as the bitmap filter for the
@@ -447,6 +453,163 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromLinkBag(linkBag, ctx, upstreamRow);
     }
+  }
+
+  /** Chooses before building source membership. Speculative reads finish before emission. */
+  private ExecutionStream equalityDispatch(
+      Result upstream, RID source, LinkBag bag, long indexSize,
+      EquiDepthHistogram histogram, long estimate, CommandContext context) {
+    var account = new IndexOrderedCostModel.WorkAccount(bag.size());
+    // Stored statistics are approximate and do not walk pending transaction operations.
+    var statistics = targetIndexDescriptor.getIndex().getStatistics(context.getDatabaseSession());
+    var population = statistics == null ? indexSize : statistics.totalCount();
+    var memory = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsLong();
+    while (true) {
+      var costs = IndexOrderedCostModel.equalityCosts(
+          bag.size(), bag.size(), indexSize, population, rowTarget, estimate, memory,
+          histogram, orderAsc);
+      switch (account.choose(costs)) {
+        case EQUALITY -> {
+          var attempt = readEqualityCandidates(
+              upstream, source, bag, context, account, costs, memory);
+          if (attempt.complete()) {
+            chosenRuntimePath = RuntimePath.EQUALITY_FETCH;
+            return equalityRows(attempt.candidates(), upstream, context);
+          }
+          if (attempt.requiresLinkBagLoad()) {
+            return terminalLoad(bag, upstream, context);
+          }
+          // A refused next read raises the estimate before the remaining paths are priced.
+          estimate = Math.max(estimate, attempt.observedEntries() + 1);
+        }
+        case ORDERED -> {
+          var stream = equalityOrderedAttempt(bag, upstream, context, account, costs);
+          if (stream != null) {
+            chosenRuntimePath = RuntimePath.INDEX_SCAN;
+            signalIndexOrderedOutput(context);
+            return stream;
+          }
+        }
+        case LOAD -> {
+          return terminalLoad(bag, upstream, context);
+        }
+      }
+    }
+  }
+
+  private ExecutionStream terminalLoad(LinkBag bag, Result upstream, CommandContext context) {
+    if (downstreamEdgeCount > 0 && rowTarget > 0) {
+      chosenRuntimePath = RuntimePath.LOAD_SORT;
+      var stream = loadSortFromLinkBag(bag, context, upstream);
+      signalLoadSortedOutput(context);
+      return stream;
+    }
+    chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
+    return loadFromLinkBag(bag, context, upstream);
+  }
+
+  /** Expands every link and sorts all candidates when later MATCH edges need ordered input. */
+  private ExecutionStream equalityRows(
+      List<EqualityCandidate> candidates, Result upstream, CommandContext context) {
+    var records = candidates.stream()
+        .flatMap(candidate -> java.util.stream.LongStream.range(0, candidate.links())
+            .mapToObj(ignored -> candidate.record()));
+    if (downstreamEdgeCount > 0 && rowTarget > 0) {
+      // Later edges can reject any prefix. Secondary ORDER BY keys can reorder ties.
+      // Keep every row, just as loadSortFromLinkBag does.
+      var ordered = new ArrayList<Result>(records.toList());
+      sortByOrderProperty(ordered);
+      records = ordered.stream();
+      signalLoadSortedOutput(context);
+    }
+    return ExecutionStream.resultIterator(records.map(record -> (Result) new MatchResultRow(
+        context.getDatabaseSession(), upstream, targetAlias, record)).iterator());
+  }
+
+  /** Every cursor advance is visible, including entries outside source membership. */
+  @Nullable private ExecutionStream equalityOrderedAttempt(
+      LinkBag bag, Result upstream, CommandContext context,
+      IndexOrderedCostModel.WorkAccount account, IndexOrderedCostModel.EqualityCosts costs) {
+    lastScanBudget = (long) account.allowance(costs);
+    lastScanConsumedEntries = 0;
+    var members = new RidSet();
+    var duplicates = new HashMap<RID, Integer>();
+    if (!account.spend((bag.size() + 1.0) * IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+      return null;
+    }
+    for (var pair : bag) {
+      var rid = pair.secondaryRid();
+      if (!members.add(rid)) {
+        duplicates.merge(rid, 2, (count, ignored) -> count + 1);
+      }
+    }
+    if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
+      return null;
+    }
+    // Reserve cursor work before opening it. Keep half the allowance for member loads.
+    // The null-key and non-null-key streams can each consume one entry past the bound.
+    long entryBudget = Math.max(0, (long) (account.allowance(costs) / 2) - 2);
+    if (!account.spend(entryBudget + 2.0)) {
+      return null;
+    }
+    var filtered = new RidFilteredIndexValuesStep(
+        new IndexSearchDescriptor(index), orderAsc, nullsFirst(), context, profilingEnabled,
+        members, entryBudget);
+    var cursor = filtered.internalStart(context);
+    var buffered = new ArrayList<Result>();
+    boolean handedOff = false;
+    try {
+      while (buffered.size() < maxBufferedRows(rowTarget)) {
+        var hasNext = cursor.hasNext(context);
+        lastScanConsumedEntries = filtered.consumedEntryCount();
+        if (filtered.scanBudgetExhausted()) {
+          return null;
+        }
+        if (!hasNext) {
+          handedOff = true;
+          cursor.close(context);
+          return ExecutionStream.resultIterator(buffered.iterator());
+        }
+        var entry = cursor.next(context);
+        if (!account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
+          return null;
+        }
+        var rows = orderedEqualityRows(entry, duplicates, upstream, context);
+        try {
+          while (rows.hasNext(context)) {
+            buffered.add(rows.next(context));
+          }
+        } finally {
+          rows.close(context);
+        }
+      }
+      // Later MATCH filters can reject this prefix. Preserve the unbounded continuation.
+      filtered.liftScanBudget();
+      handedOff = true;
+      return batchedStream(List.<Supplier<ExecutionStream>>of(
+          () -> ExecutionStream.resultIterator(buffered.iterator()),
+          () -> cursor.flatMap((entry, c) -> orderedEqualityRows(entry, duplicates, upstream, c)))
+          .iterator(), Supplier::get).onClose(cursor::close);
+    } finally {
+      if (!handedOff) {
+        cursor.close(context);
+      }
+    }
+  }
+
+  private ExecutionStream orderedEqualityRows(
+      Result entry, Map<RID, Integer> duplicates, Result upstream, CommandContext context) {
+    var rid = (RID) entry.getProperty("rid");
+    var links = duplicates.getOrDefault(rid, 1);
+    var record = loadRecord(rid, context.getDatabaseSession());
+    if (record == null || !matchesTargetFilter(record, rid, context)
+        || isAlreadyBoundAndDifferent(upstream, record, context.getDatabaseSession())) {
+      return ExecutionStream.empty();
+    }
+    return ExecutionStream.resultIterator(java.util.stream.IntStream.range(0, links)
+        .mapToObj(ignored -> (Result) new MatchResultRow(
+            context.getDatabaseSession(), upstream, targetAlias, record))
+        .iterator());
   }
 
   /**
@@ -764,8 +927,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           continue;
         }
         var entity = record.asEntityOrNull();
-        if (!(entity instanceof EntityImpl impl)
-            || !(impl.getPropertyInternal(reverseField) instanceof LinkBag reverseBag)) {
+        if (!(entity instanceof EntityImpl impl)) {
+          return new EqualityAttempt(List.of(), observed, false, true);
+        }
+        var reverse = impl.getPropertyInternal(reverseField);
+        if (reverse == null) {
+          continue;
+        }
+        if (!(reverse instanceof LinkBag reverseBag)) {
           return new EqualityAttempt(List.of(), observed, false, true);
         }
         int links = 0;
@@ -809,14 +978,16 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * comparison then applies explicit clauses and direction-specific defaults consistently.
    */
   private void sortByOrderProperty(List<Result> records) {
-    records.sort((a, b) -> {
-      var cmp = comparisonItem.compare(a, b, ctx, nullsPlacement);
-      if (cmp == 0 && ridTieBreakAccepted) {
-        cmp = a.getIdentity().compareTo(b.getIdentity());
-        return orderAsc ? cmp : -cmp;
-      }
-      return cmp;
-    });
+    records.sort(this::compareOrderRecords);
+  }
+
+  private int compareOrderRecords(Result a, Result b) {
+    var cmp = comparisonItem.compare(a, b, ctx, nullsPlacement);
+    if (cmp == 0 && ridTieBreakAccepted) {
+      cmp = a.getIdentity().compareTo(b.getIdentity());
+      return orderAsc ? cmp : -cmp;
+    }
+    return cmp;
   }
 
   private boolean nullsFirst() {
