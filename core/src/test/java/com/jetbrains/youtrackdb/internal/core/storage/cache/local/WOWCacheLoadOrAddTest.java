@@ -290,7 +290,7 @@ public class WOWCacheLoadOrAddTest {
     }
     for (String invalid : new String[] {"legacy.fsm",
         "ytdb-p28-collection-099-free-space-map.fsm",
-        "ytdb-p28-collection-99-free-space-map_335544419.fsm"}) {
+        "ytdb-p28-collection-99-free-space-map_1830586723.fsm"}) {
       assertThrows(StorageException.class, () -> wowCache.bookFileId(invalid, 123456, true));
       assertNull(wowCache.registeredFileId(invalid));
     }

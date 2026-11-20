@@ -90,7 +90,7 @@ public class IndexHistogramIdentityTest {
     var name = "ytdb-p28-index-" + id + "-histogram.ixs";
     var registered = storage.getWriteCache().files().get(name);
     assertNotNull(registered);
-    assertEquals((2 << 28) | (4 << 25) | id,
+    assertEquals(new PageFileIdentity(PageFileRole.HISTOGRAM, id).internalId(),
         AbstractWriteCache.extractFileId(registered));
     var manager = engine(storage).getHistogramManager();
     assertNotNull(manager);
