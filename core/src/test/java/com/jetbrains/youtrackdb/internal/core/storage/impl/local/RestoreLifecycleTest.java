@@ -1369,10 +1369,10 @@ public class RestoreLifecycleTest {
         try (var units = Files.list(backup)) {
           for (var unit : units.toList()) {
             var bytes = Files.readAllBytes(unit);
-            var tail = bytes.length - 122;
+            var tail = bytes.length - 126;
             java.nio.ByteBuffer.wrap(bytes).putInt(bytes.length - 16, 25);
             java.nio.ByteBuffer.wrap(bytes).putLong(tail,
-                DiskStorage.XX_HASH_64.hash(bytes, tail + 8, 106, 0x4D45544144415441L));
+                DiskStorage.XX_HASH_64.hash(bytes, tail + 8, 110, 0x4D45544144415441L));
             java.nio.ByteBuffer.wrap(bytes).putLong(bytes.length - 8,
                 DiskStorage.XX_HASH_64.hash(bytes, 0, bytes.length - 8, DiskStorage.XX_HASH_SEED));
             Files.write(unit, bytes);

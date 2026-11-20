@@ -105,7 +105,7 @@ public class IndexHistogramManager extends StorageComponent {
   // formatVersion(4) + serializerId(1) + totalCount(8) + distinctCount(8) +
   // nullCount(8) + mutationsSinceRebalance(8) + totalCountAtLastBuild(8) +
   // histogramDataLength(4) + hllRegisterCount(4) = 53 bytes
-  static final int FIXED_HEADER_SIZE = 53;
+  static final int FIXED_HEADER_SIZE = HistogramStatsPage.FIXED_HEADER_SIZE;
 
   // ---- Instance state ----
   private final int engineId;
@@ -1290,22 +1290,16 @@ public class IndexHistogramManager extends StorageComponent {
           result, maxBoundaryBytes, keySerializer, serializerFactory);
     }
 
-    // Also truncate the MCV key if needed (same budget constraint)
-    Comparable<?> mcvForSize = truncated.mcvValue;
-    if (mcvForSize != null && !keySerializer.isFixedLength()) {
-      var truncatedMcv = truncateBoundary(
-          mcvForSize, maxBoundaryBytes, keySerializer, serializerFactory);
-      if (truncatedMcv != mcvForSize) {
-        mcvForSize = truncatedMcv;
-      }
-    }
-    int mcvKeySize = mcvForSize != null
-        ? keySerializer.getObjectSize(serializerFactory, mcvForSize)
+    // The writer stores the full MCV, even when its boundary form is truncated.
+    int mcvKeySize = result.mcvValue != null
+        ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
         : 0;
-
-    // Strategy 2: reduce bucket count if boundaries still exceed page space
-    return fitToPage(truncated, nonNullCount, isSingleValue, mcvKeySize,
+    var fit = fitToPage(truncated, nonNullCount, isSingleValue, mcvKeySize,
         this::computeBoundaryBytes);
+    if (fit == null) {
+      logger.warn("No histogram fits the statistics page for index {}", getName());
+    }
+    return fit;
   }
 
   /**
@@ -1328,64 +1322,31 @@ public class IndexHistogramManager extends StorageComponent {
   @Nullable static FitResult fitToPage(BuildResult result, long nonNullCount,
       boolean singleValue, int mcvKeySize,
       BoundarySizeCalculator boundarySizeCalc) {
-    int bucketCount = result.actualBucketCount;
-    // Track the source bucket count that matches the current arrays.
-    // mergeBuckets needs to know how many buckets the source arrays have.
-    int sourceBucketCount = bucketCount;
-    var boundaries = result.boundaries;
-    var frequencies = result.frequencies;
-    var distinctCounts = result.distinctCounts;
-
-    int totalBoundaryBytes =
-        boundarySizeCalc.computeSize(boundaries, bucketCount);
+    int originalCount = result.actualBucketCount;
     int hllSize = singleValue ? 0 : HyperLogLogSketch.serializedSize();
-    boolean hllSpilledToPage1 = false;
-
-    // Check page budget and reduce buckets if needed
-    while (bucketCount > MINIMUM_BUCKET_COUNT) {
-      int available = computeMaxBoundarySpace(
-          bucketCount, hllSize, mcvKeySize);
-      if (totalBoundaryBytes <= available) {
-        break;
-      }
-      // Reduce bucket count by half
-      bucketCount = bucketCount / 2;
-      if (bucketCount < MINIMUM_BUCKET_COUNT) {
-        // Try spilling HLL to page 1 (at most once — hllSize > 0 guard
-        // prevents re-entry after the first spill attempt)
-        if (!singleValue && hllSize > 0) {
-          hllSize = 0;
-          hllSpilledToPage1 = true;
-          // Reset to original arrays and bucket count. This is safe because
-          // the spill triggers when bucketCount/2 < MINIMUM_BUCKET_COUNT,
-          // which happens before mergeBuckets could run for this iteration.
-          // Explicit reset guards against future refactors.
-          bucketCount = result.actualBucketCount;
-          sourceBucketCount = bucketCount;
-          boundaries = result.boundaries;
-          frequencies = result.frequencies;
-          distinctCounts = result.distinctCounts;
-          totalBoundaryBytes =
-              boundarySizeCalc.computeSize(boundaries, bucketCount);
-          continue;
-        }
-        return null; // keys too large for any useful histogram
-      }
-      // Merge adjacent bucket pairs
-      var merged = mergeBuckets(boundaries, frequencies, distinctCounts,
-          sourceBucketCount, bucketCount);
-      sourceBucketCount = bucketCount;
-      boundaries = merged.boundaries;
-      frequencies = merged.frequencies;
-      distinctCounts = merged.distinctCounts;
-      totalBoundaryBytes =
-          boundarySizeCalc.computeSize(boundaries, bucketCount);
+    int boundaryBytes = boundarySizeCalc.computeSize(result.boundaries, originalCount);
+    if (boundaryBytes <= computeMaxBoundarySpace(originalCount, hllSize, mcvKeySize)) {
+      return new FitResult(new EquiDepthHistogram(
+          originalCount, result.boundaries, result.frequencies, result.distinctCounts,
+          nonNullCount, result.mcvValue, result.mcvFrequency), false);
     }
 
-    var histogram = new EquiDepthHistogram(
-        bucketCount, boundaries, frequencies, distinctCounts, nonNullCount,
-        result.mcvValue, result.mcvFrequency);
-    return new FitResult(histogram, hllSpilledToPage1);
+    // Spill before reducing resolution. Boundary sizes need not be monotonic
+    // because each candidate keeps different source endpoints.
+    boolean spilled = !singleValue;
+    int minimum = Math.min(originalCount, MINIMUM_BUCKET_COUNT);
+    for (int count = originalCount; count >= minimum; count--) {
+      var candidate = count == originalCount ? result
+          : mergeBuckets(result.boundaries, result.frequencies, result.distinctCounts,
+              originalCount, count);
+      int size = boundarySizeCalc.computeSize(candidate.boundaries, count);
+      if (size <= computeMaxBoundarySpace(count, 0, mcvKeySize)) {
+        return new FitResult(new EquiDepthHistogram(
+            count, candidate.boundaries, candidate.frequencies, candidate.distinctCounts,
+            nonNullCount, result.mcvValue, result.mcvFrequency), spilled);
+      }
+    }
+    return null;
   }
 
   /**
@@ -1512,11 +1473,10 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Applies boundary truncation (Strategy 1) to all boundaries in a
-   * {@link BuildResult}. After truncation, adjacent boundaries that have
-   * become equal are merged (their buckets' frequencies and NDVs are
-   * summed). This handles the rare case where two adjacent boundaries
-   * share a prefix longer than {@code maxBoundaryBytes}.
+   * Shortens oversized boundaries in a {@link BuildResult}. For non-null keys,
+   * the shortened boundaries are nondecreasing. A boundary that sorts below
+   * its adjusted predecessor takes that predecessor's value. Equal boundaries
+   * merge and their buckets' frequencies and distinct counts are summed.
    *
    * @return a new BuildResult with truncated boundaries and merged
    *         buckets, or the original result if no truncation was needed
@@ -1547,10 +1507,13 @@ public class IndexHistogramManager extends StorageComponent {
 
     // Check for adjacent equal boundaries after truncation and merge
     var comparator = DefaultComparator.INSTANCE;
-    // Count how many unique boundaries remain
+    // Compare with the adjusted predecessor so a run of inversions keeps the same maximum.
     int uniqueCount = 1; // boundaries[0] is always kept
     for (int i = 1; i <= result.actualBucketCount; i++) {
-      if (comparator.compare(truncated[i], truncated[i - 1]) != 0) {
+      int order = comparator.compare(truncated[i], truncated[i - 1]);
+      if (order < 0) {
+        truncated[i] = truncated[i - 1];
+      } else if (order > 0) {
         uniqueCount++;
       }
     }
@@ -1597,12 +1560,7 @@ public class IndexHistogramManager extends StorageComponent {
       // Check if the next boundary is different from the current one
       // (i.e., we've reached the end of a group of merged buckets).
       // The next boundary is truncated[i + 1].
-      boolean isLast = (i == result.actualBucketCount - 1);
-      boolean nextIsDifferent = !isLast
-          && comparator.compare(
-              truncated[i + 1], truncated[i]) != 0;
-
-      if (isLast || nextIsDifferent) {
+      if (comparator.compare(truncated[i + 1], truncated[i]) != 0) {
         newFreqs[newIdx] = accFreq;
         newNdvs[newIdx] = accNdv;
         newBounds[newIdx + 1] = truncated[i + 1];
@@ -1611,6 +1569,10 @@ public class IndexHistogramManager extends StorageComponent {
         accNdv = 0;
       }
     }
+
+    // A terminal run of equal boundaries belongs to the last emitted bucket.
+    newFreqs[newIdx - 1] += accFreq;
+    newNdvs[newIdx - 1] += accNdv;
 
     return new BuildResult(newBounds, newFreqs, newNdvs, newBucketCount,
         result.totalDistinct, result.mcvValue, result.mcvFrequency);
@@ -1659,21 +1621,20 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Merges buckets from originalCount down to targetCount by combining
-   * adjacent pairs.
+   * Merges balanced contiguous source groups. Group sizes differ by at most one.
+   * Ordered endpoints and the frequency and distinct-count sums are preserved.
    */
   static BuildResult mergeBuckets(
       Comparable<?>[] boundaries, long[] frequencies,
       long[] distinctCounts, int originalCount, int targetCount) {
-    int ratio = originalCount / targetCount;
     var newBounds = new Comparable<?>[targetCount + 1];
     var newFreqs = new long[targetCount];
     var newNDV = new long[targetCount];
 
     newBounds[0] = boundaries[0];
     for (int i = 0; i < targetCount; i++) {
-      int start = i * ratio;
-      int end = (i == targetCount - 1) ? originalCount : (i + 1) * ratio;
+      int start = (int) ((long) i * originalCount / targetCount);
+      int end = (int) ((long) (i + 1) * originalCount / targetCount);
       long freqSum = 0;
       long ndvSum = 0;
       for (int j = start; j < end; j++) {
@@ -1721,8 +1682,8 @@ public class IndexHistogramManager extends StorageComponent {
     try {
       executor.submit(() -> {
         try {
-          doRebalance(false);
           lastRebalanceFailureNanos = 0;
+          doRebalance(false);
         } catch (Exception e) {
           lastRebalanceFailureNanos = System.nanoTime();
           logger.error("Histogram rebalance failed for {}", getName(), e);
@@ -1835,6 +1796,9 @@ public class IndexHistogramManager extends StorageComponent {
       }
       var fitResult = fitToPage(result, scannedNonNullCount);
       if (fitResult == null) {
+        // Keep the earlier snapshot and bound repeated scans and warnings with
+        // the same cooldown used for rebalance failures.
+        lastRebalanceFailureNanos = System.nanoTime();
         return;
       }
 

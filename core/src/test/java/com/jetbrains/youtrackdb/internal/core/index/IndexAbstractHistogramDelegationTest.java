@@ -572,6 +572,66 @@ public class IndexAbstractHistogramDelegationTest {
     verify(btreeEngine).buildInitialHistogram(mockAtomicOp);
   }
 
+  @SuppressWarnings("unchecked")
+  @Test
+  public void buildHistogramAfterFill_runtimeExceptionIsCaught()
+      throws Exception {
+    setIndexId(7);
+    var im = mock(IndexMetadata.class);
+    when(im.getName()).thenReturn("failBuildIdx");
+    setIndexMetadata(im);
+
+    var manager = mock(IndexHistogramManager.class);
+    var btreeEngine = mock(BTreeIndexEngine.class);
+    when(btreeEngine.getHistogramManager()).thenReturn(manager);
+    when(storage.getIndexEngine(7)).thenReturn(btreeEngine);
+
+    // Mock executeInsideAtomicOperation to invoke the lambda, which
+    // triggers IllegalStateException from buildInitialHistogram.
+    var mockAtomicOp = mock(AtomicOperation.class);
+    var atomicOpsMgr = mock(AtomicOperationsManager.class);
+    when(storage.getAtomicOperationsManager()).thenReturn(atomicOpsMgr);
+    doAnswer(invocation -> {
+      com.jetbrains.youtrackdb.internal.common.function.TxConsumer consumer =
+          invocation.getArgument(0);
+      consumer.accept(mockAtomicOp);
+      return null;
+    }).when(atomicOpsMgr).executeInsideAtomicOperation(any());
+    doAnswer(invocation2 -> {
+      throw new IllegalStateException("simulated build failure");
+    })
+        .when(btreeEngine).buildInitialHistogram(mockAtomicOp);
+
+    // The failed build must complete and report the logical index name.
+    var records = new java.util.concurrent.CopyOnWriteArrayList<java.util.logging.LogRecord>();
+    var logger = java.util.logging.Logger.getLogger("");
+    var handler = new java.util.logging.Handler() {
+      @Override
+      public void publish(java.util.logging.LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    logger.addHandler(handler);
+    try {
+      invokeBuildHistogramAfterFill();
+      verify(btreeEngine).buildInitialHistogram(mockAtomicOp);
+      org.junit.Assert.assertTrue(records.stream()
+          .anyMatch(record -> record.getMessage().contains("Failed to build initial histogram")
+              && record.getMessage().contains("failBuildIdx")
+              && record.getThrown() instanceof IllegalStateException));
+    } finally {
+      logger.removeHandler(handler);
+    }
+  }
+
   /**
    * Verifies that buildHistogramAfterFill() resolves a stale identifier through its descriptor
    * owner and proceeds correctly.

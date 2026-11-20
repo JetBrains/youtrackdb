@@ -120,7 +120,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -168,7 +168,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -606,7 +606,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -655,7 +655,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When startLsn is (-1, -1), the returned metadata should have null startLsn
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -704,7 +704,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -853,7 +853,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -948,7 +948,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only segment is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -998,7 +998,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // When only position is -1, startLsn should be null
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, null, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1103,7 +1103,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance()
@@ -1192,7 +1192,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
 
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, uuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1285,7 +1285,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
     // The result should still be returned (with warning logged) using the filename UUID
     final var backupMetadata = new DiskStorage.BackupMetadata(backupFormatVersion, fileNameUuid,
         sequenceNumber, startLsn, endLsn, 42L,
-        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null);
+        DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27), null, 0);
 
     try (var outputStream = new ByteArrayOutputStream();
         var xxHash64 = XXHashFactory.fastestInstance().newStreamingHash64(DiskStorage.XX_HASH_SEED);
@@ -1395,7 +1395,14 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       dataOutputStream.flush();
 
       var unit = outputStream.toByteArray();
-      if (backupFormatVersion == BackupUnitFiles.VERSION_6) {
+      if (backupFormatVersion == 7) {
+        unit = BackupUnitFiles.version7Bytes(new byte[0], unit,
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+                .kibibytes());
+        if (!validHash) {
+          unit[unit.length - 1] ^= 1;
+        }
+      } else if (backupFormatVersion == BackupUnitFiles.VERSION_6) {
         unit = BackupUnitFiles.version6Bytes(new byte[0], unit, 0, null);
         if (!validHash) {
           unit[unit.length - 1] ^= 1;
@@ -1673,9 +1680,9 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   }
 
   /**
-   * Neither version 2 nor version 7 passes full or header-only admission.
+   * Neither version 2 nor version 8 passes full or header-only admission.
    *
-   * <p>The refusal must name the encountered version and all four supported versions.
+   * <p>The refusal must name the encountered version and all five supported versions.
    */
   @Test
   public void unsupportedVersionHeadersNameTheSupportedSet() throws IOException {
@@ -1694,7 +1701,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
             inspection.classification());
         Assert.assertTrue(inspection.detail(), inspection.detail().contains("version " + version));
         Assert.assertTrue(inspection.detail(),
-            inspection.detail().contains("versions 3, 4, 5, and 6"));
+            inspection.detail().contains("versions 3, 4, 5, 6, and 7"));
       }
     }
   }
@@ -1806,8 +1813,8 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   /**
    * An authentic unit of the earlier version 2 format stays unclassifiable and protected.
    *
-   * <p>A version 2 tail is twelve bytes shorter than the tail of this build, and its hash code
-   * covers every byte before that hash code. This build therefore reads the last bytes of the
+   * <p>A version 2 tail is twelve bytes shorter than the shared v3 to v7 suffix.
+   * Its hash code covers every byte before that hash code. This build reads the last bytes of the
    * content as header fields. The scenario inspects such a unit against the database identifier
    * (UUID) of its own database. The expected outcome has two parts. The validation rejects the
    * unit. The classification stays unclassifiable, so an incremental backup never deletes a real
@@ -2025,6 +2032,7 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
       int version) {
     Assert.assertTrue(inspection.detail(),
         inspection.detail().contains("backup format version " + version + ","));
-    Assert.assertTrue(inspection.detail(), inspection.detail().contains("versions 3, 4, 5, and 6"));
+    Assert.assertTrue(inspection.detail(),
+        inspection.detail().contains("versions 3, 4, 5, 6, and 7"));
   }
 }

@@ -70,6 +70,12 @@ public class PreparedBackupChainTest {
                     java.util.UUID.randomUUID())));
       }
     }
+    if (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+        .kibibytes() != 8) {
+      assertThrows(IllegalArgumentException.class,
+          () -> DiskStorage.prepareBackupChain(DATABASE, root, id.toString()));
+      return;
+    }
     try (var chain = DiskStorage.prepareBackupChain(DATABASE, root, id.toString())) {
       assertEquals(names.size(), chain.units().size());
       for (int i = 0; i < names.size(); i++) {

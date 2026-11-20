@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.memory;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -31,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointResult;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.PreparedBackupChain;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
@@ -54,8 +54,6 @@ import javax.annotation.Nullable;
  */
 public class DirectMemoryStorage extends AbstractStorage {
 
-  private static final int ONE_KB = 1024;
-
   public DirectMemoryStorage(
       final String name, final String filePath, final int id, YouTrackDBInternalEmbedded context) {
     super(name, filePath, id, context);
@@ -75,8 +73,7 @@ public class DirectMemoryStorage extends AbstractStorage {
 
     final var diskCache =
         new DirectMemoryOnlyDiskCache(
-            contextConfiguration.getValueAsInteger(GlobalConfiguration.DISK_CACHE_PAGE_SIZE)
-                * ONE_KB,
+            ProcessPageSize.bytes(),
             1, getName());
 
     if (readCache == null) {
@@ -130,6 +127,9 @@ public class DirectMemoryStorage extends AbstractStorage {
 
   @Override
   public void restoreFromPreparedBackupChain(PreparedBackupChain chain) {
+    if (chain != null) {
+      chain.checkPageSize(configuration == null ? null : configuration.getContextConfiguration());
+    }
     throw new UnsupportedOperationException("Backup is not supported for memory storage");
   }
 
