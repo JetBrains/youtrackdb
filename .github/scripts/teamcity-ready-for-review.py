@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask the fixed TeamCity project to build a ready PR from trusted base code."""
+"""Start the ready summary from trusted base code once TeamCity lists the PR branch."""
 
 import http.client
 import json
@@ -22,7 +22,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def request(opener, token, path, timeout, payload=None):
-    phase = "checking readiness" if payload is None else "requesting a build"
+    phase = "checking the PR branch list" if payload is None else "requesting a build"
     req = urllib.request.Request(
         ORIGIN + path, data=None if payload is None else json.dumps(payload).encode(),
         headers={"Authorization": "Bearer " + token, "Accept": "application/json",
@@ -43,7 +43,7 @@ def request(opener, token, path, timeout, payload=None):
 
 def start(branch, token):
     opener = urllib.request.build_opener(NoRedirect)
-    # Current VCS membership reflects admission. Activity can include build history.
+    # Require the summary to list the branch directly. Build history does not prove membership.
     query = urllib.parse.urlencode({
         "locator": f"name:{branch},policy:vcs_branches,changesFromDependencies:false",
         "fields": "count,branch(name,default)",
@@ -57,7 +57,7 @@ def start(branch, token):
                 or page["count"] != len(branches)
                 or any(not isinstance(item, dict) or item.get("name") != branch
                        or type(item.get("default", False)) is not bool for item in branches)):
-            raise ValueError("TeamCity returned an unreadable ready branch list.")
+            raise ValueError("TeamCity returned an unreadable PR branch list.")
         if any(not item.get("default", False) for item in branches):
             if time.monotonic() >= deadline:
                 break
@@ -71,7 +71,7 @@ def start(branch, token):
                 raise ValueError("TeamCity returned an invalid or missing build id.")
             return build_id
         time.sleep(min(5, max(0, deadline - time.monotonic())))
-    raise ValueError("Timed out waiting for TeamCity to list the ready PR branch.")
+    raise ValueError("Timed out waiting for TeamCity to list the PR branch for the ready summary.")
 
 
 def main():

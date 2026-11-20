@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the ready event handoff without network access."""
+"""Test the ready event handoff and PR branch list check without network access."""
 
 import contextlib
 import importlib.util
@@ -18,7 +18,7 @@ bridge = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bridge)
 
 BRANCH = "pull/1454"
-READY = {"count": 1, "branch": [{"name": BRANCH, "default": False}]}
+LISTED = {"count": 1, "branch": [{"name": BRANCH, "default": False}]}
 ACCEPTED = {"buildTypeId": "YouTrackDB_SummaryReadyForReview", "branchName": BRANCH, "id": 12345}
 
 
@@ -41,9 +41,9 @@ class ReadyBridgeTest(unittest.TestCase):
         self.assertNotIn("placeholder", output.getvalue())
         return code, output.getvalue(), [call.args[0] for call in send.call_args_list]
 
-    def test_waits_for_current_nondefault_branch_then_posts_even_when_inactive(self):
-        default = READY | {"branch": [READY["branch"][0] | {"default": True}]}
-        inactive = READY | {"branch": [READY["branch"][0] | {"active": False}]}
+    def test_waits_for_listed_nondefault_pr_branch_then_posts_even_when_inactive(self):
+        default = LISTED | {"branch": [LISTED["branch"][0] | {"default": True}]}
+        inactive = LISTED | {"branch": [LISTED["branch"][0] | {"active": False}]}
         code, output, sent = self.invoke([{"count": 0}, default, inactive, ACCEPTED])
         self.assertEqual(code, 0)
         self.assertIn("build 12345", output)
@@ -63,17 +63,17 @@ class ReadyBridgeTest(unittest.TestCase):
         self.assertEqual(json.loads(sent[-1].data), {
             "buildType": {"id": "YouTrackDB_SummaryReadyForReview"}, "branchName": "pull/1454"})
 
-    def test_empty_current_branch_list_keeps_polling_until_timeout_without_post(self):
+    def test_unlisted_pr_branch_keeps_polling_until_timeout_without_post(self):
         code, output, sent = self.invoke(
             [{"count": 0}, {"count": 0, "branch": []}], times=[0, 0, 0, 5, 115, 120])
-        self.assertEqual(code, 1)
-        self.assertIn("Timed out", output)
         self.assertEqual([req.get_method() for req in sent], ["GET", "GET"])
-
-    def test_timeout_does_not_post_even_if_late_poll_finds_the_branch(self):
-        code, output, sent = self.invoke([READY], times=[0, 0, 120])
         self.assertEqual(code, 1)
-        self.assertIn("Timed out", output)
+        self.assertIn("Timed out waiting for TeamCity to list the PR branch", output)
+
+    def test_timeout_does_not_post_even_if_late_poll_lists_the_pr_branch(self):
+        code, output, sent = self.invoke([LISTED], times=[0, 0, 120])
+        self.assertEqual(code, 1)
+        self.assertIn("Timed out waiting for TeamCity to list the PR branch", output)
         self.assertEqual([req.get_method() for req in sent], ["GET"])
 
     def test_missing_or_unusable_build_id_fails_without_retry(self):
@@ -81,7 +81,7 @@ class ReadyBridgeTest(unittest.TestCase):
         for reply in (no_id, *(ACCEPTED | {"id": value} for value in
                                (None, "not-a-build", "12345", 1.5, 0, -1, True, False))):
             with self.subTest(reply=reply):
-                code, output, sent = self.invoke([READY, reply])
+                code, output, sent = self.invoke([LISTED, reply])
                 self.assertEqual(code, 1)
                 self.assertIn("invalid or missing build id", output)
                 self.assertEqual([req.get_method() for req in sent], ["GET", "POST"])
@@ -95,7 +95,7 @@ class ReadyBridgeTest(unittest.TestCase):
             (ACCEPTED | {"buildTypeId": "other"}, "wrong configuration or branch"),
         ):
             with self.subTest(diagnostic=diagnostic):
-                code, output, sent = self.invoke([READY, reply])
+                code, output, sent = self.invoke([LISTED, reply])
                 self.assertEqual(code, 1)
                 self.assertIn(diagnostic, output)
                 self.assertEqual([req.get_method() for req in sent], ["GET", "POST"])
@@ -103,7 +103,7 @@ class ReadyBridgeTest(unittest.TestCase):
     def test_bad_branch_list_and_invalid_event_input_fail_without_post(self):
         code, output, sent = self.invoke([{"count": 1}])
         self.assertEqual(code, 1)
-        self.assertIn("unreadable ready branch list", output)
+        self.assertIn("unreadable PR branch list", output)
         self.assertEqual([req.get_method() for req in sent], ["GET"])
         for env, diagnostic in (
             ({"PR_NUMBER": number}, "positive integer") for number in ("", "0", "-1", "1,default:any")

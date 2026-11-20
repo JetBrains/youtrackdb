@@ -6,10 +6,11 @@ import jetbrains.buildServer.configs.kotlin.triggers.vcs
 version = "2026.03"
 
 val token = "tc_token_id:CID_6f70430be90149234d7210e12aa15ea9:-1:6eedf048-c2e9-4675-ba2f-6e73f59c04b0"
-// Accept the named phases. The unit trigger accepts only same-repository PRs.
 // The root preserves develop and the full queue path as logical branch names.
+// The Linux x86 unit trigger handles develop and same-repository draft PR pushes.
+// The ready summary handles ready PR pushes. The REST helper handles ready flips.
 val queueBranches = "+:gh-readonly-queue/develop/*"
-val unitTrigger = "+:develop\n+pr: sourceRepo=same"
+val unitTrigger = "+:develop\n+pr: draft=true sourceRepo=same"
 val allBranches = "+:develop\n+:gh-readonly-queue/develop/*\n+:pull/*"
 // Test builds need this tag for the Spotless ratchet.
 val spotlessBaselineFetch = """
@@ -48,7 +49,8 @@ fun BuildType.configure(
         authType = storedToken { tokenId = token }
         filterTargetBranch = "+:refs/heads/develop"
         filterAuthorRole = PullRequests.GitHubRoleFilter.EVERYBODY
-        ignoreDrafts = readyOnly
+        // Discover draft PR branches too. The start paths enforce the draft rule.
+        ignoreDrafts = false
       }
     }
     commitStatusPublisher {
