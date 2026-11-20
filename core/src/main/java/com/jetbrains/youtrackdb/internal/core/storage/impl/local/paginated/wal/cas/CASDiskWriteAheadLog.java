@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.Pointer;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
@@ -208,6 +209,10 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   private volatile long fsyncCount = 0;
 
   private final LongAdder threadsWaitingSum = new LongAdder();
+  private final Counter queueWaitCount;
+  private final Counter queueWaitTimeNanos;
+  private final ThreadLocal<Runnable> segmentRemovalListener = new ThreadLocal<>();
+
   private final LongAdder threadsWaitingCount = new LongAdder();
 
   private long reportTs = -1;
@@ -265,6 +270,9 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
 
     this.storageName = storageName;
+    var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    queueWaitCount = metrics.databaseMetric(CoreMetrics.WAL_QUEUE_WAIT_COUNT, storageName);
+    queueWaitTimeNanos = metrics.databaseMetric(CoreMetrics.WAL_QUEUE_WAIT_TIME_NANOS, storageName);
     this.walBaseName = walBaseName;
 
     pageSize = CASWALPage.DEFAULT_PAGE_SIZE;
@@ -1398,33 +1406,39 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
 
     var qsize = queueSize.addAndGet(writeableRecord.getDiskSize());
     if (qsize >= maxCacheSize) {
-      threadsWaitingCount.increment();
+      final var waitStart = System.nanoTime();
+      queueWaitCount.add(1);
       try {
-        long startTs = 0;
-        if (printPerformanceStatistic) {
-          startTs = System.nanoTime();
+        threadsWaitingCount.increment();
+        try {
+          long startTs = 0;
+          if (printPerformanceStatistic) {
+            startTs = System.nanoTime();
+          }
+          flushLatch.get().await();
+          if (printPerformanceStatistic) {
+            final var endTs = System.nanoTime();
+            threadsWaitingSum.add(endTs - startTs);
+          }
+        } catch (final InterruptedException e) {
+          LogManager.instance().error(this, "WAL write was interrupted", e);
         }
-        flushLatch.get().await();
-        if (printPerformanceStatistic) {
-          final var endTs = System.nanoTime();
-          threadsWaitingSum.add(endTs - startTs);
-        }
-      } catch (final InterruptedException e) {
-        LogManager.instance().error(this, "WAL write was interrupted", e);
-      }
 
-      qsize = queueSize.get();
+        qsize = queueSize.get();
 
-      if (qsize >= maxCacheSize) {
-        long startTs = 0;
-        if (printPerformanceStatistic) {
-          startTs = System.nanoTime();
+        if (qsize >= maxCacheSize) {
+          long startTs = 0;
+          if (printPerformanceStatistic) {
+            startTs = System.nanoTime();
+          }
+          doFlush(false);
+          if (printPerformanceStatistic) {
+            final var endTs = System.nanoTime();
+            threadsWaitingSum.add(endTs - startTs);
+          }
         }
-        doFlush(false);
-        if (printPerformanceStatistic) {
-          final var endTs = System.nanoTime();
-          threadsWaitingSum.add(endTs - startTs);
-        }
+      } finally {
+        queueWaitTimeNanos.add(System.nanoTime() - waitStart);
       }
     }
 
@@ -1499,6 +1513,15 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
   }
 
   @Override
+  public void setSegmentRemovalListener(Runnable listener) {
+    if (listener == null) {
+      segmentRemovalListener.remove();
+    } else {
+      segmentRemovalListener.set(listener);
+    }
+  }
+
+  @Override
   public boolean cutAllSegmentsSmallerThan(long segmentId) throws IOException {
     cuttingLock.exclusiveLock();
     try {
@@ -1558,6 +1581,11 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
               Files.delete(segmentPath);
               logSize.addAndGet(-length);
               removed = true;
+              // Account for this deletion before notifying, even if a later deletion fails.
+              var listener = segmentRemovalListener.get();
+              if (listener != null) {
+                listener.run();
+              }
             }
           } else {
             break;

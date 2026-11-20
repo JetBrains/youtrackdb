@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Class;
@@ -227,6 +228,9 @@ public class MetricsRegistry {
 
     GlobalMetrics() {
       CoreMetrics.GLOBAL_METRICS.forEach(globalMetric -> mGroup.init(null, globalMetric));
+
+      mGroup.initProvided(null, CoreMetrics.DIRECT_MEMORY_BYTES,
+          new SupplierGauge(() -> DirectMemoryAllocator.instance().getMemoryConsumption()));
 
       new MetricsMBean(mGroup, "YouTrackDB global metrics")
           .register(mBeanServer, "scope=Global");

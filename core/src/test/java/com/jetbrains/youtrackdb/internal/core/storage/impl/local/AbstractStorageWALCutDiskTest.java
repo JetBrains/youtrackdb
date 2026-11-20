@@ -70,6 +70,71 @@ public class AbstractStorageWALCutDiskTest {
   }
 
   /**
+   * The product task cuts real segment files through the changed-page tracker. A second
+   * execution with no old segments counts a run and time, but not another removal run.
+   */
+  @Test(timeout = 90_000)
+  public void vacuumMetricsFollowRealSegmentDeletionAndNoRemoval() throws Exception {
+    final var config = new BaseConfiguration();
+    config.setProperty(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT.getKey(), false);
+    config.setProperty(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL.getKey(), 3600);
+    config.setProperty(GlobalConfiguration.STORAGE_COLLECTION_GC_PAUSE_INTERVAL.getKey(), 3600);
+    config.setProperty(GlobalConfiguration.WAL_SEGMENTS_INTERVAL.getKey(), 3600);
+    try (var manager = (YouTrackDBImpl) YourTracks.instance(root.toString(), config)) {
+      manager.create(DATABASE, DatabaseType.DISK, "admin", "admin", "admin");
+      try (var session = manager.open(DATABASE, "admin", "admin")) {
+        final var storage = (DiskStorage) session.getStorage();
+        final var wal = storage.getWALInstance();
+        final var cache = storage.getWriteCache();
+        cache.pauseBackgroundFlush();
+        try {
+          storage.synch();
+          wal.appendNewSegment();
+          wal.flush();
+          final var oldSegments = wal.nonActiveSegments();
+          assertTrue(oldSegments.length > 0);
+          final var paths = java.util.Arrays.stream(oldSegments)
+              .mapToObj(segment -> storage.getStoragePath().resolve(
+                  ContextConfiguration.WAL_DEFAULT_NAME + "." + segment + ".wal"))
+              .toList();
+          for (var path : paths) {
+            assertTrue(Files.exists(path));
+          }
+          final var metrics = com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager
+              .instance().getMetricsRegistry();
+          final var runs = metrics.databaseMetric(
+              com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.WAL_VACUUM_RUN_COUNT,
+              storage.getName());
+          final var time = metrics.databaseMetric(
+              com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.WAL_VACUUM_TIME_NANOS,
+              storage.getName());
+          final var removals = metrics.databaseMetric(
+              com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT,
+              storage.getName());
+          final long beforeRuns = runs.getValue();
+          final long beforeTime = time.getValue();
+          final long beforeRemovals = removals.getValue();
+          final var task = new WALVacuum(storage);
+          task.run();
+          for (var path : paths) {
+            assertFalse("vacuum must delete " + path, Files.exists(path));
+          }
+          assertEquals(beforeRuns + 1, runs.getValue().longValue());
+          assertTrue(time.getValue() > beforeTime);
+          assertEquals(beforeRemovals + 1, removals.getValue().longValue());
+          final long afterRemovalTime = time.getValue();
+          task.run();
+          assertEquals(beforeRuns + 2, runs.getValue().longValue());
+          assertTrue(time.getValue() > afterRemovalTime);
+          assertEquals(beforeRemovals + 1, removals.getValue().longValue());
+        } finally {
+          cache.resumeBackgroundFlush();
+        }
+      }
+    }
+  }
+
+  /**
    * Vacuum samples an empty real operation table, then a writer registers in S and logs a
    * real append plus its commit record before publishing any page. WAL rotates to S+1.
    * Vacuum must retain S even though its table observation and later cache observation are

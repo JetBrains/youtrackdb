@@ -211,6 +211,7 @@ Maven resolves this order from the dependency graph, not from the module order i
 > → gremlin-test → tinkergraph-gremlin → gremlin-util → test-commons → gremlin-annotations
 > → gremlin-groovy → gremlin-socket-server → gremlin-driver → gremlin-server → gremlin-console
 > → core → driver → server → tests → embedded → examples → console → docker-tests → jmh-ldbc
+> → jmh-manual
 
 The copied modules add upstream dependencies to the graph. Maven places `gremlin-core`
 before `gremlin-annotations`, which supplies the processor for `gremlin-groovy`.

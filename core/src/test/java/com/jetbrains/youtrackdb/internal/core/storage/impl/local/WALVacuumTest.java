@@ -7,7 +7,13 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
+import java.util.UUID;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -19,13 +25,55 @@ import org.junit.Test;
  */
 public class WALVacuumTest {
 
+  private String databaseName;
+
+  @Before
+  public void startMetrics() {
+    YouTrackDBEnginesManager.startUp(false);
+    databaseName = "vacuumMetrics" + UUID.randomUUID();
+  }
+
+  private AbstractStorage storage() {
+    var storage = mock(AbstractStorage.class);
+    when(storage.getName()).thenReturn(databaseName);
+    return storage;
+  }
+
+  /** Memory tasks count and accumulate time even though they have no segment files to remove. */
+  @Test
+  public void memoryStorageCountsRunsWithoutRemovals() throws Exception {
+    var storage = mock(AbstractStorage.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+    storage.writeAheadLog = new MemoryWriteAheadLog();
+    var registry = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    var runs = registry.databaseMetric(CoreMetrics.WAL_VACUUM_RUN_COUNT, databaseName);
+    var time = registry.databaseMetric(CoreMetrics.WAL_VACUUM_TIME_NANOS, databaseName);
+    var removals = registry.databaseMetric(CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT, databaseName);
+    setField(storage, "walVacuumRunCount", runs);
+    setField(storage, "walVacuumTimeNanos", time);
+    setField(storage, "walVacuumRemovalRunCount", removals);
+    setField(storage, "stateLock",
+        new com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock());
+    setField(storage, "walVacuumInProgress", new java.util.concurrent.atomic.AtomicBoolean());
+    new WALVacuum(storage).run();
+    assertThat(runs.getValue()).isEqualTo(1);
+    assertThat(time.getValue()).isPositive();
+    assertThat(removals.getValue()).isZero();
+  }
+
+  private static void setField(AbstractStorage storage, String name, Object value)
+      throws Exception {
+    var field = AbstractStorage.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(storage, value);
+  }
+
   /**
    * A single {@code run()} invocation must trigger exactly one
    * {@code AbstractStorage.runWALVacuum()} call. Pins the delegation invariant.
    */
   @Test
   public void testRunDelegatesToStorageRunWALVacuum() {
-    var storage = mock(AbstractStorage.class);
+    var storage = storage();
     doNothing().when(storage).runWALVacuum();
     var vacuum = new WALVacuum(storage);
 
@@ -39,7 +87,7 @@ public class WALVacuumTest {
    */
   @Test
   public void testRunDelegatesEachInvocation() {
-    var storage = mock(AbstractStorage.class);
+    var storage = storage();
     doNothing().when(storage).runWALVacuum();
     var vacuum = new WALVacuum(storage);
 
@@ -58,7 +106,7 @@ public class WALVacuumTest {
    */
   @Test
   public void testRunPropagatesRuntimeException() {
-    var storage = mock(AbstractStorage.class);
+    var storage = storage();
     var failure = new IllegalStateException("storage failure under test");
     doThrow(failure).when(storage).runWALVacuum();
     var vacuum = new WALVacuum(storage);

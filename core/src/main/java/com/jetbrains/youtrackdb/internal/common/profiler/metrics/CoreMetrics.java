@@ -6,6 +6,25 @@ import java.util.concurrent.TimeUnit;
 public class CoreMetrics {
   // ===================== GLOBAL ===================== //
 
+  public static final MetricDefinition<MetricScope.Global, Counter> DATA_FILE_FSYNC_COUNT =
+      new MetricDefinition<>(
+          "DataFileFsyncCount", "Data File Fsync Count",
+          "Cumulative count of file synchronization (fsync) calls issued on asynchronous page files"
+              + " in this Java virtual machine (JVM) since engine start. Unit: calls."
+              + " Failed calls count. Disabled calls do not count. Ordinary-channel files do not count."
+              + "\n\nThe value never decreases until engine shutdown."
+              + " It returns to zero when the engine restarts. Read differences between samples."
+              + " Concurrent reads can lag active updates.",
+          MetricType.counter());
+
+  public static final MetricDefinition<MetricScope.Global, Gauge<Long>> DIRECT_MEMORY_BYTES =
+      new MetricDefinition<>(
+          "DirectMemoryBytes", "Direct Memory Bytes",
+          "Current bytes of direct memory held by the engine in this Java virtual machine (JVM)."
+              + " Includes retained pool buffers, disk cache and write-ahead log (WAL) buffers."
+              + " Concurrent reads can lag active allocations and releases.",
+          MetricType.gauge(Long.class));
+
   public static final MetricDefinition<MetricScope.Global, TimeRate> FILE_EVICTION_RATE =
       new MetricDefinition<>(
           "FileEvictionRate",
@@ -175,6 +194,8 @@ public class CoreMetrics {
               100.0));
 
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
+      DATA_FILE_FSYNC_COUNT,
+      DIRECT_MEMORY_BYTES,
       FILE_EVICTION_RATE,
       CACHE_HIT_RATIO,
       PREFILTER_EFFECTIVENESS,
@@ -191,6 +212,69 @@ public class CoreMetrics {
       GREMLIN_TRANSLATION_ERROR_RATIO);
 
   // ===================== DATABASE ===================== //
+
+  public static final MetricDefinition<MetricScope.Database, Counter> WAL_QUEUE_WAIT_COUNT =
+      new MetricDefinition<>(
+          "WalQueueWaitCount", "WAL Queue Wait Count",
+          "Cumulative count of callers that enter the write-ahead log (WAL) queue-space wait path."
+              + " Callers enter when the queue reaches its limit. Unit: wait-path entries."
+              + " Counts on entry, including immediate completion and interruption."
+              + " Elapsed time updates on exit."
+              + "\n\nDatabases with the same name in one engine share this value."
+              + " The value never decreases until engine shutdown, including across database close, drop and reopen."
+              + " It covers time since engine start and returns to zero when the engine restarts."
+              + " Read differences between samples. Concurrent reads can lag active updates.",
+          MetricType.counter());
+
+  public static final MetricDefinition<MetricScope.Database, Counter> WAL_QUEUE_WAIT_TIME_NANOS =
+      new MetricDefinition<>(
+          "WalQueueWaitTimeNanos", "WAL Queue Wait Time",
+          "Cumulative nanoseconds in the write-ahead log (WAL) queue-space wait path."
+              + " Callers enter when the queue reaches its limit. Unit: nanoseconds."
+              + " Includes immediate completion, interruption and caller-assisted flushing."
+              + " The count updates on entry. Time updates on exit."
+              + "\n\nDatabases with the same name in one engine share this value."
+              + " The value never decreases until engine shutdown, including across database close, drop and reopen."
+              + " It covers time since engine start and returns to zero when the engine restarts."
+              + " Read differences between samples. Concurrent reads can lag active updates.",
+          MetricType.counter());
+
+  public static final MetricDefinition<MetricScope.Database, Counter> WAL_VACUUM_RUN_COUNT =
+      new MetricDefinition<>(
+          "WalVacuumRunCount", "WAL Vacuum Run Count",
+          "Cumulative count of write-ahead log (WAL) vacuum runs. Unit: runs."
+              + " Each run executes the background task that flushes data so old WAL segments can be removed."
+              + " Counts every execution for every storage type, whatever its result."
+              + "\n\nDatabases with the same name in one engine share this value."
+              + " The value never decreases until engine shutdown, including across database close, drop and reopen."
+              + " It covers time since engine start and returns to zero when the engine restarts."
+              + " Read differences between samples. Concurrent reads can lag active updates.",
+          MetricType.counter());
+
+  public static final MetricDefinition<MetricScope.Database, Counter> WAL_VACUUM_TIME_NANOS =
+      new MetricDefinition<>(
+          "WalVacuumTimeNanos", "WAL Vacuum Time",
+          "Cumulative nanoseconds in write-ahead log (WAL) vacuum runs. Unit: nanoseconds."
+              + " Each run executes the background task that flushes data so old WAL segments can be removed."
+              + " Includes every execution for every storage type, whatever its result. Time updates on exit."
+              + "\n\nDatabases with the same name in one engine share this value."
+              + " The value never decreases until engine shutdown, including across database close, drop and reopen."
+              + " It covers time since engine start and returns to zero when the engine restarts."
+              + " Read differences between samples. Concurrent reads can lag active updates.",
+          MetricType.counter());
+
+  public static final MetricDefinition<MetricScope.Database, Counter> WAL_VACUUM_REMOVAL_RUN_COUNT =
+      new MetricDefinition<>(
+          "WalVacuumRemovalRunCount", "WAL Vacuum Removal Run Count",
+          "Cumulative count of write-ahead log (WAL) vacuum runs that deleted at least one segment."
+              + " Includes runs that later fail. Counts runs, not segments. Unit: runs."
+              + " Each run executes the background task that flushes data so old WAL segments can be removed."
+              + " Covers every storage type, but memory storage removes no segments."
+              + "\n\nDatabases with the same name in one engine share this value."
+              + " The value never decreases until engine shutdown, including across database close, drop and reopen."
+              + " It covers time since engine start and returns to zero when the engine restarts."
+              + " Read differences between samples. Concurrent reads can lag active updates.",
+          MetricType.counter());
 
   public static final MetricDefinition<MetricScope.Database, TimeRate> DISK_READ_RATE =
       new MetricDefinition<>(
@@ -316,6 +400,11 @@ public class CoreMetrics {
           MetricType.gauge(Integer.class));
 
   public static final Set<MetricDefinition<MetricScope.Database, ?>> DATABASE_METRICS = Set.of(
+      WAL_QUEUE_WAIT_COUNT,
+      WAL_QUEUE_WAIT_TIME_NANOS,
+      WAL_VACUUM_RUN_COUNT,
+      WAL_VACUUM_TIME_NANOS,
+      WAL_VACUUM_REMOVAL_RUN_COUNT,
       DISK_READ_RATE,
       DISK_WRITE_RATE,
       DATABASE_FREEZE_DURATION,
