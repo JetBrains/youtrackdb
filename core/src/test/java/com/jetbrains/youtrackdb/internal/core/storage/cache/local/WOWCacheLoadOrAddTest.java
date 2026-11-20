@@ -398,6 +398,8 @@ public class WOWCacheLoadOrAddTest {
     wowCache.setStorageFormat(
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     wowCache.loadRegisteredFiles();
+    assertFalse(wowCache.exists(fileId));
+    assertTrue(wowCache.admitExpectedFile(identity));
     assertEquals(5, wowCache.getFilledUpTo(fileId));
     assertEquals(5, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
     wowCache.loadOrAdd(fileId, 4, true).decrementReadersReferrer();

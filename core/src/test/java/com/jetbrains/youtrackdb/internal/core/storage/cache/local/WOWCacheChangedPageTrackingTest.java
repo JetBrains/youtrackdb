@@ -589,6 +589,31 @@ public class WOWCacheChangedPageTrackingTest {
     }
   }
 
+  /** Layout 28 ignores map-backed handles even when log open fails, then retries cleanly. */
+  @Test
+  public void layout28FailedLogOpenIgnoresMapHandlesAndRetries() throws Exception {
+    var file = cache.addFile("partial.tst");
+    cache.close();
+    cache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    var log = spy(new DoubleWriteLogNoOP());
+    org.mockito.Mockito.doThrow(new IOException("double-write log open failed"))
+        .when(log).open(org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), anyInt());
+    setField(cache, "doubleWriteLog", log);
+    try {
+      assertThrows(IOException.class, cache::loadRegisteredFiles);
+      var handles = (ClosableLinkedContainer<Long, File>) field(cache, "files");
+      assertNull(handles.get(file));
+      cache.close();
+      assertTrue(cache.logicalFiles().inventory().isEmpty());
+    } finally {
+      setField(cache, "doubleWriteLog", new DoubleWriteLogNoOP());
+      cache.loadRegisteredFiles();
+    }
+    assertTrue(cache.files().isEmpty());
+  }
+
   /** Real registry loading opens handles before a double-write log open failure. */
   @Test
   public void closeReleasesHandlesAfterFailedRegisteredFilesLoad() throws Exception {

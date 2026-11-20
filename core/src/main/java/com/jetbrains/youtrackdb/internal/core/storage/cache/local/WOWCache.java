@@ -517,8 +517,8 @@ public final class WOWCache extends AbstractWriteCache
 
   private void mirrorRegistration(String name, int internalId, boolean nonDurable)
       throws IOException {
-    // Hydration validates surviving positive records. Readers turn missing files into negative
-    // map records. These records do not become logical membership.
+    // Layout 28 validates explicit admissions and registrations, not persisted map records.
+    // Layout 27 keeps registrations in maps and has no logical table.
     validateLogicalRegistration(name, internalId);
     if (logicalFiles != null) {
       if (logicalFiles.live(internalId) == null) {
@@ -581,7 +581,7 @@ public final class WOWCache extends AbstractWriteCache
         files.add(externalId, file);
       }
       // Install the handle before publishing logical membership to background readers.
-      // Keep session mirrors while startup and mutation map consumers remain enabled.
+      // Keep session mirrors for lifecycle and mutation consumers.
       idNameMap.remove(-internalId);
       nameIdMap.put(name, internalId);
       idNameMap.put(internalId, name);
@@ -649,7 +649,8 @@ public final class WOWCache extends AbstractWriteCache
   // Open layout 28 caches enumerate logical membership, not registry evidence.
   private java.util.Collection<Integer> liveFileIds() {
     if (logicalFiles == null || closed) {
-      // Failed registry loading can own handles before the logical mirror is hydrated.
+      // Layout 27 registry loading can own handles before the cache opens.
+      // Layout 28 loads no map and admits no handles until the cache is open.
       return nameIdMap.values();
     }
     return logicalFiles.liveIds();
@@ -881,15 +882,16 @@ public final class WOWCache extends AbstractWriteCache
   public void loadRegisteredFiles() throws IOException, java.lang.InterruptedException {
     filesLock.acquireWriteLock();
     try {
-      initNameIdMapping();
-      if (logicalFiles != null) {
+      if (logicalFiles == null) {
+        initNameIdMapping();
+      } else {
+        // Layout 28 admits only known identities, never persisted map records.
+        Files.createDirectories(storagePath);
+        nameIdMapHolderPath = storagePath.resolve(NAME_ID_MAP_V3);
+        nameIdMap.clear();
+        idNameMap.clear();
         logicalFiles.clear();
-        for (var entry : nameIdMap.entrySet()) {
-          if (entry.getValue() > 0) {
-            mirrorRegistration(entry.getKey(), entry.getValue(),
-                nonDurableFileIds.contains(entry.getValue()));
-          }
-        }
+        nonDurableFileIds = readNonDurableRegistry();
       }
 
       doubleWriteLogOpenAttempted = true;
@@ -2844,8 +2846,9 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireWriteLock();
     try {
       if (closed) {
-        // Registry loading can fail after opening some handles. No page writers were admitted.
-        // Close those handles without persisting the incomplete inventory.
+        // Layout 27 registry loading can fail after opening handles but before page writers enter.
+        // Close those handles without persisting the incomplete inventory. Layout 28 does not load
+        // the map at open, so a failed load has no admitted handles or logical membership.
         for (var fileId : liveFileIds()) {
           if (fileId >= 0) {
             long externalId = composeFileId(id, fileId);
@@ -2890,43 +2893,46 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
-      final var nameIdMapBackupPath = storagePath.resolve(NAME_ID_MAP_V2_BACKUP);
-      try (final var nameIdMapHolder =
-          FileChannel.open(
-              nameIdMapBackupPath,
-              StandardOpenOption.CREATE,
-              StandardOpenOption.READ,
-              StandardOpenOption.WRITE)) {
-        nameIdMapHolder.truncate(0);
+      if (logicalFiles == null) {
+        final var nameIdMapBackupPath = storagePath.resolve(NAME_ID_MAP_V2_BACKUP);
+        try (final var nameIdMapHolder =
+            FileChannel.open(
+                nameIdMapBackupPath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE)) {
+          nameIdMapHolder.truncate(0);
 
-        for (final var entry : nameIdMap.entrySet()) {
-          final String fileName;
+          for (final var entry : nameIdMap.entrySet()) {
+            final String fileName;
 
-          if (entry.getValue() >= 0) {
-            fileName = idFileNameMap.get(entry.getValue().intValue());
-          } else {
-            fileName = entry.getKey();
+            if (entry.getValue() >= 0) {
+              fileName = idFileNameMap.get(entry.getValue().intValue());
+            } else {
+              fileName = entry.getKey();
+            }
+
+            writeNameIdEntry(
+                nameIdMapHolder,
+                new NameFileIdEntry(entry.getKey(), entry.getValue(), fileName),
+                false);
           }
 
-          writeNameIdEntry(
-              nameIdMapHolder,
-              new NameFileIdEntry(entry.getKey(), entry.getValue(), fileName),
-              false);
+          if (callFsync) {
+            nameIdMapHolder.force(true);
+          }
         }
 
-        if (callFsync) {
-          nameIdMapHolder.force(true);
+        try {
+          Files.move(
+              nameIdMapBackupPath,
+              nameIdMapHolderPath,
+              StandardCopyOption.REPLACE_EXISTING,
+              StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+          Files.move(nameIdMapBackupPath, nameIdMapHolderPath, StandardCopyOption.REPLACE_EXISTING);
         }
-      }
 
-      try {
-        Files.move(
-            nameIdMapBackupPath,
-            nameIdMapHolderPath,
-            StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE);
-      } catch (AtomicMoveNotSupportedException e) {
-        Files.move(nameIdMapBackupPath, nameIdMapHolderPath, StandardCopyOption.REPLACE_EXISTING);
       }
 
       doubleWriteLog.close();
@@ -2938,7 +2944,7 @@ public final class WOWCache extends AbstractWriteCache
 
       // Non-durable side files are intentionally preserved on clean shutdown so that
       // crash recovery can identify and delete non-durable files if the next startup
-      // follows a crash. On clean open, initNameIdMapping() reads the side files to
+      // follows a crash. Cache open reads the side files to
       // restore the nonDurableFileIds set; on crash recovery, recoverIfNeeded() calls
       // deleteNonDurableFilesOnRecovery() which reads the same set and deletes the files.
       //
@@ -3491,9 +3497,11 @@ public final class WOWCache extends AbstractWriteCache
   /**
    * Reads non-durable file IDs from the shadow-copy side file pair.
    * Read protocol: try primary, if hash invalid → try shadow, if both invalid → return empty.
-   * Filters out IDs not present in {@link #idNameMap}.
+   * Layout 27 filters out IDs not present in {@link #idNameMap}. Layout 28 validates IDs with
+   * {@link PageFileIdentity#decode(int)} independently of the map, which it does not load at open.
    *
-   * <p>Must be called under {@link #filesLock} write lock, after name-id map is fully loaded.
+   * <p>Must be called under {@link #filesLock} write lock. For layout 27, the name-id map must be
+   * fully loaded first.
    */
   private IntOpenHashSet readNonDurableRegistry() {
     final var primaryPath = storagePath.resolve(NON_DURABLE_FILES);
@@ -4006,7 +4014,11 @@ public final class WOWCache extends AbstractWriteCache
   private void writeNameIdEntry(final NameFileIdEntry nameFileIdEntry, final boolean sync)
       throws IOException {
     try (final var nameIdMapHolder =
-        FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+        logicalFiles == null
+            ? FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ,
+                StandardOpenOption.WRITE)
+            : FileChannel.open(nameIdMapHolderPath, StandardOpenOption.CREATE,
+                StandardOpenOption.READ, StandardOpenOption.WRITE)) {
       writeNameIdEntry(nameIdMapHolder, nameFileIdEntry, sync);
     }
   }
@@ -6096,7 +6108,7 @@ public final class WOWCache extends AbstractWriteCache
         if (registered == null) {
           return null;
         }
-        // Hydrated legacy aliases retain their existing deletion path.
+        // Layout 28 admission requires decodable IDs, so registered handles cannot reach here.
       }
     }
     if (logicalFiles != null && (registered == null
@@ -6122,6 +6134,8 @@ public final class WOWCache extends AbstractWriteCache
       return new RawPair<>(file.getName(), name);
     }
 
+    // Only legacy layout 27 files use the registered-path deletion below.
+    // Layout 28 admits canonical handles without loading map aliases.
     final var fileClassic = files.remove(fileId);
 
     if (fileClassic != null) {

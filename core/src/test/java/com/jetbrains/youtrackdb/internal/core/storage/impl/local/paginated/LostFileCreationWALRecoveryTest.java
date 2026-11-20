@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -67,7 +68,17 @@ public class LostFileCreationWALRecoveryTest {
     runRecoveryScenario(true);
   }
 
+  /** Layout 28 replays creating units without any map variant, including same-name replacement. */
+  @Test
+  public void layout28MaplessCreationAndLaterTransactionSurviveRecovery() throws Exception {
+    runRecoveryScenario(true, true);
+  }
+
   private void runRecoveryScenario(boolean replaceIndex) throws Exception {
+    runRecoveryScenario(replaceIndex, false);
+  }
+
+  private void runRecoveryScenario(boolean replaceIndex, boolean layout28) throws Exception {
     var config = YouTrackDBConfig.builder()
         .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL,
             100000000)
@@ -76,7 +87,14 @@ public class LostFileCreationWALRecoveryTest {
         .addGlobalConfigurationParameter(GlobalConfiguration.STORAGE_CALL_FSYNC, true)
         .build();
     try (var manager = (YouTrackDBImpl) YourTracks.instance(directory.toString())) {
-      manager.create("source", DatabaseType.DISK, config, "admin", "admin", "admin");
+      if (layout28) {
+        try (var selection = StorageBirthTestSupport.selectBirthFormat(
+            manager, "source", StorageFormat.LAYOUT_28)) {
+          manager.create("source", DatabaseType.DISK, config, "admin", "admin", "admin");
+        }
+      } else {
+        manager.create("source", DatabaseType.DISK, config, "admin", "admin", "admin");
+      }
       try (var session = manager.open("source", "admin", "admin")) {
         session.getMetadata().getSchema().createClass("Baseline");
         session.executeInTx(tx -> session.newEntity("Baseline").setProperty("value", "before"));
@@ -159,9 +177,17 @@ public class LostFileCreationWALRecoveryTest {
     }
     // New managers force storage close, so the second open also checks persisted recovery effects.
     for (var open = 0; open < 2; open++) {
+      if (layout28) {
+        StorageBirthTestSupport.removeNameIdMaps(directory.resolve("recovered"));
+      }
       try (var manager = (YouTrackDBImpl) YourTracks.instance(directory.toString());
           var session = manager.open("recovered", "admin", "admin")) {
+        assertEquals(layout28 ? 28 : 27, session.getStorage().getStorageFormat().layoutVersion());
         assertRecoveredData(session, replaceIndex);
+        if (layout28 && open == 0) {
+          assertTrue("Recovery creation must recreate the append bridge",
+              Files.exists(directory.resolve("recovered").resolve(NAME_ID_MAP)));
+        }
         var cache = ((DiskStorage) session.getStorage()).getWriteCache();
         for (var id : cache.files().values()) {
           assertTrue(Files.exists(directory.resolve("recovered")

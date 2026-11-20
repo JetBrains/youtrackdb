@@ -1778,7 +1778,7 @@ public class RestoreLifecycleTest {
     }
   }
 
-  /** Complete creation WAL recreates an absent file and keeps component opening usable on reopen. */
+  /** Creation WAL admits an absent file. A later cold open needs explicit unconfigured admission. */
   @Test(timeout = 120_000)
   public void identityCompleteCreationReopenPublishesLifecycleMirror() throws Exception {
     runIdentityCrashChild(false, true);
@@ -1787,6 +1787,10 @@ public class RestoreLifecycleTest {
       try (var manager = openManager(); var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
         var storage = storageOf(manager, SOURCE);
         var cache = storage.getWriteCache();
+        if (attempt > 0) {
+          assertFalse(cache.exists(PageFileNames.layout28(identity)));
+          assertTrue(cache.admitExpectedFile(identity));
+        }
         long id = cache.loadFile(PageFileNames.layout28(identity));
         assertEquals(cache.externalFileId(identity.internalId()), id);
         assertEquals(1, cache.getFilledUpTo(id));

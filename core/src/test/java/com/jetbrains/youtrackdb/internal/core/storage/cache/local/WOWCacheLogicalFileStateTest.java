@@ -50,6 +50,78 @@ import org.junit.function.ThrowingRunnable;
 
 public class WOWCacheLogicalFileStateTest {
 
+  // Every map variant can be unreadable without affecting layout 28 open or close.
+  // No mutation runs between the two lifecycle operations.
+  @Test
+  public void openAndCloseNeverAccessAnyNameIdMapVariant() throws Exception {
+    withStandaloneCache(cache -> {
+      var field = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      field.setAccessible(true);
+      var directory = ((Path) field.get(cache)).getParent();
+      cache.close();
+      var maps = List.of("name_id_map.cm", "name_id_map_v2.cm", "name_id_map_v3.cm",
+          "name_id_map_v2_backup.cm", "name_id_map_v3_t.cm");
+      for (var map : maps) {
+        Files.createDirectory(directory.resolve(map));
+      }
+      cache.loadRegisteredFiles();
+      assertTrue(cache.files().isEmpty());
+      for (var map : maps) {
+        assertTrue(Files.isDirectory(directory.resolve(map)));
+      }
+      cache.close();
+      for (var map : maps) {
+        assertTrue(Files.isDirectory(directory.resolve(map)));
+        Files.delete(directory.resolve(map));
+      }
+      cache.loadRegisteredFiles();
+    });
+  }
+
+  // Stale canonical records cannot install handles, even when their backing files survive.
+  // Mutation appends create a missing map, while lifecycle close leaves its bytes unchanged.
+  @Test
+  public void staleCanonicalMapIsIgnoredAndMutationBridgeCreatesMissingMap() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9070);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      var field = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      field.setAccessible(true);
+      var map = (Path) field.get(cache);
+      assertFalse(Files.exists(map));
+      cache.addFile(name, id);
+      var bytes = Files.readAllBytes(map);
+      cache.close();
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+      cache.loadRegisteredFiles();
+      assertAbsent(cache, identity);
+      var handlesField = WOWCache.class.getDeclaredField("files");
+      handlesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long, ?>) handlesField.get(cache);
+      assertNull(handles.get(id));
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+      cache.close();
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+      Files.delete(map);
+      cache.loadRegisteredFiles();
+      assertTrue(cache.admitExpectedFile(identity));
+      assertFalse(Files.exists(map));
+      var recovered = new PageFileIdentity(PageFileRole.RECORD_DATA, 9071);
+      cache.resolveRecoveryFile(PageFileNames.layout28(recovered),
+          cache.externalFileId(recovered.internalId()),
+          com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.REPLAY_CREATE);
+      assertTrue(Files.exists(map));
+      assertLive(cache, recovered, false);
+      Files.delete(map);
+      var created = new PageFileIdentity(PageFileRole.RECORD_DATA, 9072);
+      cache.addFile(PageFileNames.layout28(created), cache.externalFileId(created.internalId()));
+      assertTrue(Files.exists(map));
+      assertLive(cache, created, false);
+    });
+  }
+
   // Expected-file admission opens only the computed path and never appends map evidence.
   // A second pass preserves allocation state. Missing paths neither create nor publish files.
   @Test
@@ -62,7 +134,7 @@ public class WOWCacheLogicalFileStateTest {
       var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
       pathField.setAccessible(true);
       var mapPath = (Path) pathField.get(cache);
-      var before = Files.readAllBytes(mapPath);
+      assertFalse(Files.exists(mapPath));
       var disk = mapPath.getParent().resolve(PageFileNames.layout28DiskName(identity));
       var bytes = new byte[1024 + cache.pageSize()];
       java.util.Arrays.fill(bytes, (byte) 17);
@@ -81,11 +153,10 @@ public class WOWCacheLogicalFileStateTest {
       assertFalse(Files.exists(mapPath.getParent()
           .resolve(PageFileNames.layout28DiskName(absent))));
       org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
-      org.junit.Assert.assertArrayEquals(before, Files.readAllBytes(mapPath));
+      assertFalse(Files.exists(mapPath));
       assertOracle(cache);
       cache.close();
-      // Close still serializes maps at this boundary. Remove that source before retrying.
-      Files.delete(mapPath);
+      assertFalse(Files.exists(mapPath));
       cache.loadRegisteredFiles();
       // Only the expected identity can supply this file on the second admission.
       assertAbsent(cache, identity);
@@ -260,7 +331,7 @@ public class WOWCacheLogicalFileStateTest {
         cache = (WOWCache) session.getStorage().getWriteCache();
         assertAbsent(cache, identity);
         assertAbsent(cache, loaded);
-        cache.addFile(name);
+        cache.addFile(name, cache.externalFileId(identity.internalId()));
         assertLive(cache, identity, false);
         var reserved = new PageFileIdentity(PageFileRole.RECORD_DATA, 9002);
         assertAbsent(cache, reserved);
@@ -666,9 +737,9 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // Map hydration rejects a present positive alias. Deleted aliases are not logical evidence.
+  // Layout 28 ignores positive and deleted aliases. Layout 27 retains map-backed handles.
   @Test
-  public void mapHydrationRejectsPositiveAliasesButIgnoresNegativeEvidence() throws Exception {
+  public void openIgnoresPositiveAliasesAndNegativeEvidence() throws Exception {
     withStandaloneCache(cache -> {
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_27);
@@ -677,8 +748,12 @@ public class WOWCacheLogicalFileStateTest {
       assertTrue(cache.physicalFileExists(aliasId));
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_28);
-      var failure = assertThrows(StorageException.class, cache::loadRegisteredFiles);
-      assertTrue(failure.getMessage().contains("Invalid layout 28 registration"));
+      cache.loadRegisteredFiles();
+      assertTrue(cache.files().isEmpty());
+      var handles = snapshot(cache, "idNameMap");
+      assertTrue(handles.isEmpty());
+      assertFalse(cache.exists(aliasId));
+      assertFalse(cache.exists("alias.pcl"));
       cache.close();
       cache.setStorageFormat(StorageFormat.LAYOUT_27);
       cache.loadRegisteredFiles();
@@ -732,7 +807,8 @@ public class WOWCacheLogicalFileStateTest {
     }
   }
 
-  // A clean cold reopen rebuilds live canonical entries with both persisted durability values.
+  // A cold reopen loads durability independently of map records. Explicit admission restores
+  // unconfigured files with their persisted durability classification.
   @Test
   public void reopenPreservesLiveCanonicalDurability() throws Exception {
     var directory = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-durability-open";
@@ -759,6 +835,10 @@ public class WOWCacheLogicalFileStateTest {
         var cache = (WOWCache) session.getStorage().getWriteCache();
         assertTrue(cache.isNonDurable(cache.externalFileId(nonDurable.internalId())));
         assertFalse(cache.isNonDurable(cache.externalFileId(durable.internalId())));
+        assertAbsent(cache, nonDurable);
+        assertAbsent(cache, durable);
+        assertTrue(cache.admitExpectedFile(nonDurable));
+        assertTrue(cache.admitExpectedFile(durable));
         assertLive(cache, nonDurable, true);
         assertLive(cache, durable, false);
       }
@@ -799,7 +879,8 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // Registry loading rebuilds live state before the log opens. Failed-open close must clear it.
+  // Log-open failure before file admission leaves no logical state. Cleanup is idempotent,
+  // and a retry can explicitly admit the preserved file. Closing that inventory releases its handle.
   @Test
   public void failedRegistryLoadCleanupClearsLogicalState() throws Exception {
     withStandaloneCache(cache -> {
@@ -813,9 +894,9 @@ public class WOWCacheLogicalFileStateTest {
       logField.setAccessible(true);
       var originalLog = logField.get(cache);
       var failingLog = mock(DoubleWriteLog.class);
-      var failure = new IOException("Injected log open failure after logical state rebuild");
+      var failure = new IOException("Injected log open failure before file admission");
       doAnswer(invocation -> {
-        assertNotNull(cache.logicalFiles().live(name, identity.internalId()));
+        assertNull(cache.logicalFiles().live(identity.internalId()));
         throw failure;
       }).when(failingLog).open(org.mockito.ArgumentMatchers.anyString(),
           org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
@@ -823,14 +904,35 @@ public class WOWCacheLogicalFileStateTest {
       try {
         logField.set(cache, failingLog);
         assertEquals(failure, assertThrows(IOException.class, cache::loadRegisteredFiles));
-        assertNotNull(cache.logicalFiles().live(name, identity.internalId()));
+        assertNull(cache.logicalFiles().live(name, identity.internalId()));
+        var handlesField = WOWCache.class.getDeclaredField("files");
+        handlesField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var handles = (ClosableLinkedContainer<Long, ?>) handlesField.get(cache);
         cache.close();
         assertTrue(snapshot(cache.logicalFiles(), "states").isEmpty());
+        assertNull(handles.get(cache.externalFileId(identity.internalId())));
         cache.close();
         assertTrue(snapshot(cache.logicalFiles(), "states").isEmpty());
       } finally {
         logField.set(cache, originalLog);
       }
+      cache.loadRegisteredFiles();
+      assertAbsent(cache, identity);
+      assertTrue(cache.admitExpectedFile(identity));
+      assertLive(cache, identity, false);
+      var handlesField = WOWCache.class.getDeclaredField("files");
+      handlesField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) handlesField.get(cache);
+      var handle = handles.get(cache.externalFileId(identity.internalId()));
+      cache.close();
+      assertFalse(handle.isOpen());
+      assertNull(handles.get(cache.externalFileId(identity.internalId())));
+      cache.loadRegisteredFiles();
+      assertTrue(cache.admitExpectedFile(identity));
+      assertLive(cache, identity, false);
     });
   }
 

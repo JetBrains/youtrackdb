@@ -227,6 +227,53 @@ public class ComponentIdAllocationTest {
     }
   }
 
+  // A real open failure after configured hydration must close every installed handle and clear
+  // logical membership. The same manager must retry the unchanged, mapless image successfully.
+  @Test
+  public void failedOpenAfterHydrationClosesHandlesAndRetries() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    ytdb.close();
+    StorageBirthTestSupport.removeNameIdMaps(Path.of(directory, "counters"));
+    ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
+    var admitted = new java.util.concurrent.atomic.AtomicReference<WOWCache>();
+    var handles = new java.util.ArrayList<
+        com.jetbrains.youtrackdb.internal.core.storage.fs.File>();
+    AbstractStorage.BEFORE_COMPONENT_ID_SEEDING.set(storage -> {
+      var cache = (WOWCache) storage.getWriteCache();
+      admitted.set(cache);
+      assertFalse(cache.files().isEmpty());
+      try {
+        var field = WOWCache.class.getDeclaredField("files");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var container =
+            (com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer<
+                Long, com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
+        cache.files().values().forEach(id -> handles.add(container.get(id)));
+      } catch (ReflectiveOperationException failure) {
+        throw new AssertionError(failure);
+      }
+      throw new IllegalStateException("Injected failure after configured hydration");
+    });
+    try {
+      assertThrows(RuntimeException.class, this::open);
+    } finally {
+      AbstractStorage.BEFORE_COMPONENT_ID_SEEDING.remove();
+    }
+    assertNotNull(admitted.get());
+    assertFalse(handles.isEmpty());
+    handles.forEach(handle -> assertFalse(handle.isOpen()));
+    var state = WOWCache.class.getDeclaredField("logicalFiles");
+    state.setAccessible(true);
+    var table = state.get(admitted.get());
+    var inventory = table.getClass().getDeclaredMethod("inventory");
+    inventory.setAccessible(true);
+    assertTrue(((java.util.Map<?, ?>) inventory.invoke(table)).isEmpty());
+    try (var session = open()) {
+      assertFalse(session.getStorage().getWriteCache().files().isEmpty());
+    }
+  }
+
   // Every required collection, link-bag and index role must reject a cold open when lost.
   // Admission must neither replace the missing file nor change any surviving page-file bytes.
   // Repairing only the lost bytes must allow a clean retry of the same image.
@@ -769,6 +816,10 @@ public class ComponentIdAllocationTest {
         assertArrayEquals(entry.getValue(),
             Files.readAllBytes(database.resolve(PageFileNames.layout28DiskName(identity))));
         assertFalse(wc.exists(name));
+        int next = allocate(storage, identity.kind());
+        assertEquals(identity.componentId() + 1, next);
+        var retry = new PageFileIdentity(identity.role(), next);
+        wc.bookFileId(PageFileNames.layout28(retry), retry.internalId(), false);
       }
     }
   }
@@ -992,7 +1043,7 @@ public class ComponentIdAllocationTest {
         entryClass, boolean.class);
     write.setAccessible(true);
     try (var channel = FileChannel.open(Path.of(directory, "counters", "name_id_map_v3.cm"),
-        StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+        StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
       invoke(write, cache, channel, constructor.newInstance(name, id, physical), true);
     }
   }
@@ -1173,10 +1224,11 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // Invalid names fail registration and cold-open hydration of present-file evidence,
-  // including every kind over bound. Both errors identify the offending name.
+  // Invalid names still fail registration, including every kind over bound. Persisted
+  // records cannot admit their backing files or poison a layout 28 cold open.
   @Test
-  public void layout28ColdOpenRejectsInvalidRegisteredEvidenceWithFileName() throws Exception {
+  public void layout28ColdOpenIgnoresInvalidRegisteredEvidenceButRegistrationRejectsIt()
+      throws Exception {
     for (String file : new String[] {
         "ie_33554432.cbt", "ie_033554432$null.ixs",
         "ie_2147483648.cbt", "ie_9223372036854775808$null.ixs",
@@ -1198,8 +1250,15 @@ public class ComponentIdAllocationTest {
       Files.copy(Path.of(directory, "counters", sourceFile), fixture);
       appendRegistry(cache, file, 123456, fixture.getFileName().toString());
       ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
-      assertStorageFailureNames(assertThrows(DatabaseException.class, this::open), file);
-      // Drop opens the poisoned storage, so dispose only this test's closed fixture instead.
+      var bytes = Files.readAllBytes(fixture);
+      try (var session = open()) {
+        var wc = session.getStorage().getWriteCache();
+        assertNull(wc.registeredFileId(file));
+        assertFalse(wc.exists(file));
+        assertFalse(wc.registrationEvidence().positiveNames().contains(file));
+        assertThrows(StorageException.class, () -> wc.addFile(file));
+        assertArrayEquals(bytes, Files.readAllBytes(fixture));
+      }
       ytdb.close();
       FileUtils.deleteDirectory(new File(directory));
       ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
@@ -1263,9 +1322,10 @@ public class ComponentIdAllocationTest {
     assertStorageFailureNames(assertThrows(DatabaseException.class, this::open), "negative-entry");
   }
 
-  // The maximum legal evidence loads without counter writes and exhausts all three allocators.
+  // Maximum map-only identities do not exhaust cold-open allocators. Explicit session
+  // admission still raises each kind to its legal maximum without changing counter bytes.
   @Test
-  public void layout28MaximumRegisteredEvidenceLoadsAndRefusesNextAllocation() throws Exception {
+  public void layout28MaximumMapEvidenceIsIgnoredUntilExplicitAdmission() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int[] counters;
     try (var session = open()) {
@@ -1279,12 +1339,22 @@ public class ComponentIdAllocationTest {
       var storage = session.getStorage();
       assertCounters(storage, counters);
       for (var kind : PageFileKind.values()) {
+        assertEquals(counters[kind.ordinal()] + 1, allocate(storage, kind));
+      }
+      var allocatedCounters = counters(storage);
+      var cache = (WOWCache) storage.getWriteCache();
+      for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+          PageFileRole.CONFIG_DATA}) {
+        assertTrue(cache.admitExpectedFile(new PageFileIdentity(role, 33554431)));
+      }
+      seed(storage);
+      for (var kind : PageFileKind.values()) {
         assertEquals(33554431, hwm(storage, kind));
         assertTrue(assertThrows(StorageException.class, () -> allocate(storage, kind))
             .getMessage().startsWith("The " + kind + " component-id space is exhausted"));
         assertEquals(33554431, hwm(storage, kind));
       }
-      assertCounters(storage, counters);
+      assertCounters(storage, allocatedCounters);
     }
   }
 

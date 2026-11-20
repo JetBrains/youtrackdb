@@ -1015,8 +1015,12 @@ public class WOWCacheNonDurableFileTrackingTest {
           .contains(identity.internalId()));
       assertFalse(wowCache.isNonDurable(id));
       assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
-      assertEquals("handle-free deletion leaves the map absent", null,
-          wowCache.registeredFileId(name));
+      assertEquals("logical deletion remains visible without map hydration",
+          Integer.valueOf(-identity.internalId()), wowCache.registeredFileId(name));
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      namesField.setAccessible(true);
+      assertTrue("handle-free deletion leaves the session map absent",
+          ((java.util.Map<?, ?>) namesField.get(wowCache)).isEmpty());
       assertFalse(wowCache.resolveRecoveryFile(null, id, RecoveryFilePermission.OPEN_ONLY));
       wowCache.deleteFile(id); // Repeating deletion must also make progress.
     } finally {
