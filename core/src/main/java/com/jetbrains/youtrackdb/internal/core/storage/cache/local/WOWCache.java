@@ -86,6 +86,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -534,12 +535,6 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void mirrorReservation(String name, int internalId) {
-    if (isLogicalIdentity(name, internalId)) {
-      logicalFiles.reserve(name, internalId);
-    }
-  }
-
   private void validateLogicalRegistration(String name, int internalId) {
     if (logicalFiles != null) {
       try {
@@ -632,11 +627,10 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  // Open layout 28 caches enumerate logical membership, not registry evidence.
+  // Layout 28 caches enumerate logical membership, including during close.
   private java.util.Collection<Integer> liveFileIds() {
-    if (logicalFiles == null || closed) {
+    if (logicalFiles == null) {
       // Layout 27 registry loading can own handles before the cache opens.
-      // Layout 28 loads no map and admits no handles until the cache is open.
       return nameIdMap.values();
     }
     return logicalFiles.liveIds();
@@ -644,14 +638,8 @@ public final class WOWCache extends AbstractWriteCache
 
   private boolean hasDiskFile(int internalId) {
     var state = logicalState(internalId);
-    return logicalFiles == null || closed || (state != null ? state.diskPresent()
+    return logicalFiles == null || (state != null ? state.diskPresent()
         : files.get(composeFileId(id, internalId)) != null);
-  }
-
-  private boolean isLogicalIdentity(String name, int internalId) {
-    // Legacy aliases and non-computed tombstones remain map evidence, not logical identities.
-    return logicalFiles != null && PageFileNames.parseLayout28(name)
-        .filter(identity -> identity.internalId() == internalId).isPresent();
   }
 
   /**
@@ -874,8 +862,6 @@ public final class WOWCache extends AbstractWriteCache
         // Layout 28 admits only known identities, never persisted map records.
         Files.createDirectories(storagePath);
         nameIdMapHolderPath = storagePath.resolve(NAME_ID_MAP_V3);
-        nameIdMap.clear();
-        idNameMap.clear();
         logicalFiles.clear();
         nonDurableFileIds = readNonDurableRegistry();
       }
@@ -1023,7 +1009,6 @@ public final class WOWCache extends AbstractWriteCache
       if (fileId != null) {
         if (fileId < 0) {
           validateLogicalRegistration(fileName, -fileId);
-          mirrorReservation(fileName, -fileId);
           return composeFileId(id, -fileId);
         } else {
           throw new StorageException(storageName,
@@ -1036,7 +1021,6 @@ public final class WOWCache extends AbstractWriteCache
           validateLogicalRegistration(fileName, nextId);
           nameIdMap.put(fileName, -nextId);
           idNameMap.put(-nextId, fileName);
-          mirrorReservation(fileName, nextId);
           return composeFileId(id, nextId);
         }
       }
@@ -1089,7 +1073,6 @@ public final class WOWCache extends AbstractWriteCache
       }
       nameIdMap.put(fileName, -intId);
       idNameMap.put(-intId, fileName);
-      mirrorReservation(fileName, intId);
       return composeFileId(id, intId);
     } finally {
       filesLock.releaseWriteLock();
@@ -1594,7 +1577,7 @@ public final class WOWCache extends AbstractWriteCache
 
         try {
           // readCache.deleteFile() clears read cache pages and delegates to
-          // writeCache.deleteFile() which handles disk deletion + name-id map cleanup
+          // writeCache.deleteFile() which handles disk deletion and layout-specific state
           // + non-durable registry removal under filesLock
           readCache.deleteFile(externalId, this);
         } catch (final Exception e) {
@@ -2647,7 +2630,7 @@ public final class WOWCache extends AbstractWriteCache
           }
         }
 
-        if (file != null) {
+        if (file != null && logicalFiles == null) {
           writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
         }
       }
@@ -3050,9 +3033,10 @@ public final class WOWCache extends AbstractWriteCache
         logger.warn("Failed to write non-durable registry during close", e);
       }
 
-      nameIdMap.clear();
-      idNameMap.clear();
-      if (logicalFiles != null) {
+      if (logicalFiles == null) {
+        nameIdMap.clear();
+        idNameMap.clear();
+      } else {
         logicalFiles.clear();
       }
       nonDurableFileIds = new IntOpenHashSet();
@@ -4118,11 +4102,8 @@ public final class WOWCache extends AbstractWriteCache
   private void writeNameIdEntry(final NameFileIdEntry nameFileIdEntry, final boolean sync)
       throws IOException {
     try (final var nameIdMapHolder =
-        logicalFiles == null
-            ? FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ,
-                StandardOpenOption.WRITE)
-            : FileChannel.open(nameIdMapHolderPath, StandardOpenOption.CREATE,
-                StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+        FileChannel.open(nameIdMapHolderPath, StandardOpenOption.READ,
+            StandardOpenOption.WRITE)) {
       writeNameIdEntry(nameIdMapHolder, nameFileIdEntry, sync);
     }
   }
@@ -4545,7 +4526,7 @@ public final class WOWCache extends AbstractWriteCache
 
   private void fsyncFiles() throws java.lang.InterruptedException, IOException {
     if (callFsync) {
-      for (int intFileId : logicalFiles == null || closed
+      for (int intFileId : logicalFiles == null
           ? idNameMap.keySet() : liveFileIds()) {
         if (intFileId >= 0 && hasDiskFile(intFileId)) {
           final var extFileId = externalFileId(intFileId);
@@ -6215,27 +6196,21 @@ public final class WOWCache extends AbstractWriteCache
         // Layout 28 admission requires decodable IDs, so registered handles cannot reach here.
       }
     }
-    if (logicalFiles != null && (registered == null
-        || (identity != null
-            && registered.getName().equals(PageFileNames.layout28DiskName(identity))))) {
+    if (logicalFiles != null) {
       final var name = PageFileNames.layout28(identity);
       var file = files.remove(fileId);
       if (file == null) {
         file = createFileHandle(name, internalFileId);
       }
-      if (file.exists()) {
+      try {
         file.delete();
+      } catch (NoSuchFileException missingFile) {
+        // Missing files still need logical deletion. All other I/O failures must reach the caller.
       }
       logicalFiles.delete(name, internalFileId);
-      // Handle-free deletion changes physical and logical state, but owns no map mirror.
-      if (registered == null) {
-        return null;
-      }
-      // Keep the staged lifecycle mirror, without using it to decide physical deletion.
-      idNameMap.remove(internalFileId);
-      nameIdMap.put(name, -internalFileId);
-      idNameMap.put(-internalFileId, name);
-      return new RawPair<>(file.getName(), name);
+      // Preserve the removed-handle result for whole-database deletion inventory.
+      // Layout 28 records deletion only in the logical table, never in the legacy map.
+      return registered == null ? null : new RawPair<>(file.getName(), name);
     }
 
     // Only legacy layout 27 files use the registered-path deletion below.
@@ -6253,10 +6228,6 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.put(name, -internalFileId);
       idNameMap.put(-internalFileId, name);
-      if (isLogicalIdentity(name, internalFileId)) {
-        logicalFiles.delete(name, internalFileId);
-      }
-
       return new RawPair<>(fileClassic.getName(), name);
     }
 

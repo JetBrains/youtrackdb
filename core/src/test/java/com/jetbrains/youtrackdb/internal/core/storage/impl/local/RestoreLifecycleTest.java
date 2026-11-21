@@ -1600,6 +1600,7 @@ public class RestoreLifecycleTest {
       var registry = databasesPath.resolve(SOURCE).resolve("name_id_map_v3.cm");
       long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
       StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      StorageBirthTestSupport.seedNameIdMap(cache, name, -identity.internalId(), "");
       var mapBytes = Files.readAllBytes(registry);
       try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
         for (int i = 0; i < 4; i++) {

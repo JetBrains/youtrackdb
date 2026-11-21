@@ -384,20 +384,14 @@ public class LinkCollectionsBTreeManagerSharedOwnershipTest {
       var owner = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
           op -> storage.captureCollectionOwner(collectionId, op));
       var name = PageFileNames.layout28(identity(owner.componentId()));
-      var field = cache.getClass().getDeclaredField("nameIdMap");
-      field.setAccessible(true);
-      @SuppressWarnings("unchecked")
-      var names = (Map<String, Integer>) field.get(cache);
-      var saved = names.remove(name);
-      try {
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(
+          (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) cache)) {
         storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
           var captured = storage.captureCollectionOwner(collectionId, op);
           assertSame(owner.tree(), manager.requireComponent(captured, op));
           assertEquals(owner.tree().getFileId(), op.loadFile(name,
               identity(owner.componentId()).internalId()));
         });
-      } finally {
-        names.put(name, saved);
       }
     });
   }

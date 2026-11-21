@@ -510,20 +510,18 @@ public class WOWCacheLoadOrAddTest {
     wowCache.bookFileId(bookedName, bookedIdentity.internalId(), false);
     final long live = wowCache.addFile(liveName, liveIdentity.internalId());
     // Seed independent stale live evidence so cold open must not install its handle.
-    final var liveWriter = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
-        NameFileIdEntry.class, boolean.class);
-    liveWriter.setAccessible(true);
-    liveWriter.invoke(wowCache, new NameFileIdEntry(liveName, liveIdentity.internalId(),
-        PageFileNames.layout28DiskName(liveIdentity)), true);
+    com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
+        .seedNameIdMap(wowCache, liveName, liveIdentity.internalId(),
+            PageFileNames.layout28DiskName(liveIdentity));
+    com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
+        .seedNameIdMap(wowCache, deletedName, -deletedIdentity.internalId(), "");
     assertEquals(java.util.Set.of(deletedName, bookedName),
         new java.util.HashSet<>(wowCache.deletedFiles()));
     // Booking is session-only. Seed the negative record that a legacy close would persist.
     final var bookedRecord =
         new NameFileIdEntry(bookedName, -bookedIdentity.internalId(), bookedName);
-    final var writer = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
-        NameFileIdEntry.class, boolean.class);
-    writer.setAccessible(true);
-    writer.invoke(wowCache, bookedRecord, true);
+    com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
+        .seedNameIdMap(wowCache, bookedName, -bookedIdentity.internalId(), bookedName);
     final var map = storagePath.resolve("name_id_map_v3.cm");
     final var reader = WOWCache.class.getDeclaredMethod("readNextNameIdEntryV3", FileChannel.class);
     reader.setAccessible(true);
@@ -568,6 +566,8 @@ public class WOWCacheLoadOrAddTest {
     final var name = PageFileNames.layout28(identity);
     final var fileId = wowCache.addFile(name, identity.internalId());
     wowCache.deleteFile(fileId);
+    com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
+        .seedNameIdMap(wowCache, name, -identity.internalId(), "");
     final var map = storagePath.resolve("name_id_map_v3.cm");
     final var bytes = Files.readAllBytes(map);
     assertTrue(bytes.length > 0);

@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -7,6 +8,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -23,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
@@ -36,6 +40,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -88,11 +93,8 @@ public class WOWCacheLogicalFileStateTest {
       long id = cache.addFile(name);
       var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
       assertFalse(Files.exists(map));
-      var writer = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
-          NameFileIdEntry.class, boolean.class);
-      writer.setAccessible(true);
-      writer.invoke(cache, new NameFileIdEntry(name, identity.internalId(),
-          PageFileNames.layout28DiskName(identity)), true);
+      StorageBirthTestSupport.seedNameIdMap(cache, name, identity.internalId(),
+          PageFileNames.layout28DiskName(identity));
       var bytes = Files.readAllBytes(map);
       cache.close();
       cache.loadRegisteredFiles();
@@ -545,11 +547,189 @@ public class WOWCacheLogicalFileStateTest {
       } finally {
         names.putAll(savedNames);
         ids.putAll(savedIds);
-        // Restore the mutation bridge maps and discard the synthetic pending identity.
+        // Restore fixture evidence and discard the synthetic pending identity.
         cache.logicalFiles().forget(pending.internalId());
         names.remove(name);
         ids.remove(identity.internalId());
       }
+    });
+  }
+
+  // A cache born at layout 28 stays map-free across mutation, force, deletion and cold reopen.
+  // Poison maps through the first registered-file load, close and reopen.
+  @Test
+  public void zeroMapLifecycleWithEitherFsyncSetting() throws Exception {
+    for (boolean callFsync : new boolean[] {false, true}) {
+      withStandaloneCache(cache -> {
+        var fsync = WOWCache.class.getDeclaredField("callFsync");
+        fsync.setAccessible(true);
+        fsync.set(cache, callFsync);
+        var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9080);
+        var survivor = new PageFileIdentity(PageFileRole.RECORD_DATA, 9081);
+        var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+        var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
+        assertFalse(Files.exists(map));
+        try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+          long id = cache.addFile(PageFileNames.layout28(identity));
+          long kept = cache.addFile(PageFileNames.layout28(survivor));
+          assertTrue(Files.exists(disk));
+          var handlesField = WOWCache.class.getDeclaredField("files");
+          handlesField.setAccessible(true);
+          @SuppressWarnings("unchecked")
+          var handles = (ClosableLinkedContainer<Long,
+              com.jetbrains.youtrackdb.internal.core.storage.fs.File>) handlesField.get(cache);
+          var handle = spy(handles.remove(kept));
+          handles.add(kept, handle);
+          var page = cache.loadOrAdd(kept, 0, false);
+          long stamp = page.acquireExclusiveLock();
+          try {
+            page.getBuffer().putLong(64, 123456L);
+            cache.store(kept, 0, page);
+          } finally {
+            page.releaseExclusiveLock(stamp);
+            page.decrementReadersReferrer();
+          }
+          cache.flush();
+          verify(handle, times(callFsync ? 1 : 0)).synch();
+          org.mockito.Mockito.clearInvocations(handle);
+          cache.syncDataFiles();
+          verify(handle, times(callFsync ? 1 : 0)).synch();
+          org.mockito.Mockito.clearInvocations(handle);
+          var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
+          force.setAccessible(true);
+          force.invoke(cache);
+          verify(handle, times(callFsync ? 1 : 0)).synch();
+          assertFalse(Files.exists(map));
+          cache.deleteFile(id);
+          assertDeleted(cache, identity);
+          assertFalse(Files.exists(disk));
+          cache.close();
+          assertFalse(Files.exists(map));
+          // Closed-cache force must not fall back to either legacy map.
+          force.invoke(cache);
+          cache.loadRegisteredFiles();
+          assertFalse(cache.admitExpectedFile(identity));
+          assertTrue(cache.admitExpectedFile(survivor));
+          var loaded = cache.loadOrAdd(kept, 0, false);
+          try {
+            assertEquals(123456L, loaded.getBuffer().getLong(64));
+          } finally {
+            loaded.decrementReadersReferrer();
+          }
+          assertFalse(Files.exists(map));
+          cache.deleteFile(kept);
+          cache.close();
+          assertFalse(Files.exists(map));
+        }
+      });
+    }
+  }
+
+  // An indeterminate exists() result must not hide an actual physical deletion failure.
+  @Test
+  public void physicalDeletionFailurePropagatesWithoutLogicalDeletion() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9083);
+      long id = cache.addFile(PageFileNames.layout28(identity));
+      var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      var field = WOWCache.class.getDeclaredField("files");
+      field.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var handles = (ClosableLinkedContainer<Long,
+          com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
+      var handle = spy(handles.remove(id));
+      handles.add(id, handle);
+      var failure = new AccessDeniedException(disk.toString());
+      doReturn(false).when(handle).exists();
+      doThrow(failure).when(handle).delete();
+      try {
+        var thrown = assertThrows(WriteCacheException.class, () -> cache.deleteFile(id));
+        assertEquals(failure, thrown.getCause().getCause());
+        verify(handle).delete();
+        assertTrue(Files.exists(disk));
+        assertLive(cache, identity, false);
+      } finally {
+        handle.close();
+      }
+      // A retry without a registered handle must still remove the physical file.
+      cache.deleteFile(id);
+      assertDeleted(cache, identity);
+      assertFalse(Files.exists(disk));
+    });
+  }
+
+  // The handle-free path must also propagate non-missing failures before publishing DELETED.
+  @Test
+  public void handleFreeDeletionFailureDoesNotPublishDeleted() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9084);
+      var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      Files.createDirectory(disk);
+      var child = Files.createFile(disk.resolve("blocks-deletion"));
+      long id = cache.externalFileId(identity.internalId());
+      assertThrows(WriteCacheException.class, () -> cache.deleteFile(id));
+      assertAbsent(cache, identity);
+      assertTrue(Files.exists(child));
+      Files.delete(child);
+      Files.delete(disk);
+      cache.deleteFile(id);
+      assertDeleted(cache, identity);
+    });
+  }
+
+  // A registered handle whose physical file is missing still transitions to logical DELETED.
+  @Test
+  public void missingPhysicalFileIsDeletedLogically() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9085);
+      long id = cache.addFile(PageFileNames.layout28(identity));
+      var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      Files.delete(disk);
+      cache.deleteFile(id);
+      assertDeleted(cache, identity);
+      cache.deleteFile(id);
+      assertDeleted(cache, identity);
+      assertFalse(Files.exists(disk));
+    });
+  }
+
+  // Deleting a handle-backed layout 28 file leaves pre-existing legacy map bytes untouched.
+  @Test
+  public void handleBackedDeletionLeavesExistingMapUnchanged() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9086);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.addFile(name);
+      StorageBirthTestSupport.seedNameIdMap(cache, name, identity.internalId(),
+          PageFileNames.layout28DiskName(identity));
+      var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
+      var bytes = Files.readAllBytes(map);
+      assertTrue(bytes.length > 0);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        cache.deleteFile(id);
+        assertDeleted(cache, identity);
+      }
+      assertFalse(Files.exists(
+          cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity))));
+      assertArrayEquals(bytes, Files.readAllBytes(map));
+    });
+  }
+
+  // Replay deletion followed by recreation must not leave a negative session-map tombstone.
+  @Test
+  public void replayDeleteThenRecreateLeavesNoSessionTombstone() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9082);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.addFile(name);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        cache.deleteFile(id);
+        assertDeleted(cache, identity);
+        assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.REPLAY_CREATE));
+        assertLive(cache, identity, false);
+      }
+      assertTrue(snapshot(cache, "nameIdMap").isEmpty());
+      assertTrue(snapshot(cache, "idNameMap").isEmpty());
     });
   }
 
@@ -1074,7 +1254,9 @@ public class WOWCacheLogicalFileStateTest {
         // Preserve the assertion failure if terminal cleanup also fails.
         try (AutoCloseable ignored = cache::close) {
           cache.setStorageFormat(StorageFormat.LAYOUT_28);
-          cache.loadRegisteredFiles();
+          try (var maps = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+            cache.loadRegisteredFiles();
+          }
           action.run(cache);
         }
       } finally {

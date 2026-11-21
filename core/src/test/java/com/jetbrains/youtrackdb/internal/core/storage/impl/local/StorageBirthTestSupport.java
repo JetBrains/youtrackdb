@@ -77,6 +77,24 @@ public final class StorageBirthTestSupport {
     forget.invoke(table, internalId);
   }
 
+  /** Appends explicit stale legacy evidence without invoking the live registration path. */
+  public static void seedNameIdMap(WOWCache cache, String name, int id, String physical)
+      throws Exception {
+    var entryClass = Class.forName(
+        "com.jetbrains.youtrackdb.internal.core.storage.cache.local.NameFileIdEntry");
+    var constructor = entryClass.getDeclaredConstructor(String.class, int.class, String.class);
+    constructor.setAccessible(true);
+    var writer = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
+        java.nio.channels.FileChannel.class, entryClass, boolean.class);
+    writer.setAccessible(true);
+    try (var channel = java.nio.channels.FileChannel.open(
+        cache.getRootDirectory().resolve("name_id_map_v3.cm"),
+        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.READ,
+        java.nio.file.StandardOpenOption.WRITE)) {
+      writer.invoke(cache, channel, constructor.newInstance(name, id, physical), false);
+    }
+  }
+
   /** Rejects even transient session-map access until the caller closes this scope. */
   public static AutoCloseable poisonSessionMaps(WOWCache cache) throws Exception {
     var fields = new java.lang.reflect.Field[2];
