@@ -157,6 +157,19 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   // Execution-local observations retain only counts and completion state, never candidate records.
   private EqualityObservation lastEqualityObservation;
+  private boolean multiEqualityEligible;
+  private int lastEqualitySourceEdges = -1;
+  private long lastMultiSourceLoadCalls;
+
+  /** Target load calls made by the eager multi-source LinkBag fallback, excluding scan work. */
+  long lastMultiSourceLoadCalls() {
+    return lastMultiSourceLoadCalls;
+  }
+
+  int lastEqualitySourceEdges() {
+    return lastEqualitySourceEdges;
+  }
+
   private int lastOrderedBufferedRows;
 
   record EqualityObservation(long entries, boolean complete, boolean requiresLinkBagLoad) {
@@ -232,6 +245,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     lastScanBudget = -1;
     lastScanConsumedEntries = -1;
     lastEqualityObservation = null;
+    lastEqualitySourceEdges = -1;
+    lastMultiSourceLoadCalls = 0;
     lastOrderedBufferedRows = 0;
     executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
@@ -281,6 +296,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Keeps the scheduled forecast and root lineage for the ordinary MATCH prefilter policy. */
   IndexOrderedEdgeStep withTraversal(EdgeTraversal traversal, CommandContext context) {
     plannedTraversal = traversal.copy();
+    multiEqualityEligible = IndexOrderedPlanner.indexedEquality(
+        targetFilter, targetClassName, context) != null;
     if (targetFilter != null) {
       targetIndexDescriptor = TraversalPreFilterHelper.findIndexForFilter(
           targetFilter, targetClassName, context);
@@ -1025,7 +1042,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream multiSourceDispatch(CommandContext ctx) {
     return switch (multiSourceMode) {
       case FILTERED_BOUND -> filteredBound(ctx);
-      case FILTERED_UNBOUND -> filteredUnbound(ctx);
+      case FILTERED_UNBOUND -> rowTarget > 0 && multiEqualityEligible
+          && targetIndexDescriptor.estimateHits(ctx) >= 0
+              ? filteredBound(ctx) : filteredUnbound(ctx);
       case UNFILTERED_BOUND -> {
         // Full index scan + reverse-edge class check; no RidSet filter.
         chosenRuntimePath = RuntimePath.GLOBAL_SCAN;
@@ -1079,7 +1098,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
-    var edgeEstimate = estimateTotalEdges(sourceMap, session, indexSize);
+    var sourceSizes = new HashMap<RID, Integer>();
+    long equalityEstimate = targetIndexDescriptor == null ? -1
+        : targetIndexDescriptor.estimateHits(ctx);
+    if (!edgeTraversal && rowTarget > 0 && equalityEstimate >= 0
+        && multiEqualityEligible) {
+      var equality = multiSourceEquality(
+          sourceMap, sourceSizes, indexSize, histogram, equalityEstimate, ctx);
+      if (equality != null) {
+        return equality;
+      }
+    }
+    if (multiSourceMode == IndexOrderedPlanner.MultiSourceMode.FILTERED_UNBOUND) {
+      // Equality was not selected. Preserve the unbound union strategy and its EXPLAIN mode.
+      return filteredUnbound(ctx, ExecutionStream.resultIterator(
+          sourceMap.values().stream().flatMap(List::stream).iterator()));
+    }
+    var edgeEstimate = estimateTotalEdges(sourceMap, sourceSizes, session, indexSize);
     var strategy = pickMultiSourceStrategy(
         edgeEstimate.totalEdges(), indexSize, histogram, edgeEstimate.capped());
 
@@ -1102,10 +1137,138 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     };
   }
 
+  /**
+   * Reads equality candidates once for the complete source set. The real source LinkBag total
+   * prices membership and bounds speculative work before any candidate load. A failed speculative
+   * attempt ends at plain LinkBag loading, which retains the planned traversal's cached prefilter
+   * and forecast policy.
+   * A null result keeps the existing ordered/union/load choice without opening an equality cursor.
+   */
+  @Nullable private ExecutionStream multiSourceEquality(
+      Map<RID, List<Result>> sources, Map<RID, Integer> sourceSizes, long indexSize,
+      EquiDepthHistogram histogram, long estimate, CommandContext context) {
+    // The sample is useful for scan selection, but must never enlarge speculative work.
+    // Read each source's literal field once here, including empty sources in the real total.
+    long realEdges = 0;
+    boolean unsupportedStorage = false;
+    for (var source : sources.keySet()) {
+      var entity = (EntityImpl) context.getDatabaseSession().getActiveTransaction().load(source);
+      var field = entity.getPropertyInternal(linkBagFieldName);
+      if (field instanceof LinkBag bag) {
+        int size = bag.size();
+        sourceSizes.put(source, size);
+        realEdges += size;
+      } else {
+        // A negative size retains the sampler's exclusion of absent or unsupported bags.
+        sourceSizes.put(source, -1);
+        unsupportedStorage |= field != null;
+      }
+    }
+    int edges = (int) Math.min(realEdges, Integer.MAX_VALUE);
+    lastEqualitySourceEdges = edges;
+    var statistics = targetIndexDescriptor.getIndex().getStatistics(context.getDatabaseSession());
+    var population = statistics == null ? indexSize : statistics.totalCount();
+    var memory = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsLong();
+    var costs = IndexOrderedCostModel.equalityCosts(
+        edges, edges, indexSize, population, rowTarget, estimate, memory, histogram, orderAsc);
+    var account = new IndexOrderedCostModel.WorkAccount(edges);
+    if (account.choose(costs) != IndexOrderedCostModel.EqualityPath.EQUALITY) {
+      return null;
+    }
+    var rows = new ArrayList<Result>();
+    long observed = 0;
+    boolean complete = false;
+    boolean unsupported = false;
+    ExecutionStream cursor = null;
+    try {
+      if (unsupportedStorage) {
+        unsupported = true;
+        throw new EqualityWorkExhausted();
+      }
+      var reads = new EqualityReads();
+      var candidateLimit = account.candidateReadLimit(costs, memory);
+      var seen = new HashSet<RID>();
+      var targetClass = resolveTargetClass(context);
+      cursor = reads.open(context, () -> {
+        if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
+          throw new EqualityWorkExhausted();
+        }
+      });
+      while (true) {
+        if (!account.spend(1)) {
+          throw new EqualityWorkExhausted();
+        }
+        if (!reads.advance(cursor, context)) {
+          complete = true;
+          break;
+        }
+        observed++;
+        var rid = (RID) cursor.next(context).getProperty("rid");
+        if (!seen.add(rid)) {
+          continue;
+        }
+        if (seen.size() > candidateLimit
+            || !account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
+          throw new EqualityWorkExhausted();
+        }
+        var record = reads.record(rid, context);
+        if (record == null || !matchesTargetFilter(record, rid, context, targetClass)) {
+          continue;
+        }
+        var reverse = ((EntityImpl) record.asEntityOrNull()).getPropertyInternal(reverseFieldName);
+        if (reverse == null) {
+          continue;
+        }
+        if (!(reverse instanceof LinkBag bag)) {
+          unsupported = true;
+          throw new EqualityWorkExhausted();
+        }
+        if (!account.spend(IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+          throw new EqualityWorkExhausted();
+        }
+        var links = reads.edges(bag);
+        while (links.hasNext()) {
+          if (!account.spend(IndexOrderedCostModel.reverseEdgeEntryUnits())) {
+            throw new EqualityWorkExhausted();
+          }
+          var bindings = sources.get(reads.next(links).secondaryRid());
+          if (bindings != null) {
+            for (var binding : bindings) {
+              if (!isAlreadyBoundAndDifferent(binding, record, context.getDatabaseSession())) {
+                rows.add(new MatchResultRow(
+                    context.getDatabaseSession(), binding, targetAlias, record));
+              }
+            }
+          }
+        }
+      }
+    } catch (EqualityWorkExhausted exhausted) {
+      // No speculative row is visible. The terminal load starts from the complete source map.
+    } finally {
+      if (cursor != null) {
+        cursor.close(context);
+      }
+    }
+    lastEqualityObservation = new EqualityObservation(observed, complete, unsupported);
+    context.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+    if (!complete) {
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+      return batchedStream(sources.entrySet().iterator(),
+          entry -> batchedStream(entry.getValue().iterator(), binding -> {
+            var bag = loadLinkBag(entry.getKey(), context.getDatabaseSession());
+            return bag == null ? ExecutionStream.empty() : loadFromLinkBag(bag, context, binding);
+          }));
+    }
+    // The global OrderByStep owns every ORDER BY item, tie, null placement and final LIMIT.
+    chosenRuntimePath = RuntimePath.EQUALITY_FETCH;
+    return ExecutionStream.resultIterator(rows.iterator());
+  }
+
   // ---- Mode B: FILTERED_UNBOUND (union RidSet, no binding) ----
 
   /**
-   * Builds union RidSet from filtered upstream LinkBags. No sourceMap needed
+   * When equality is selected, Mode B uses the shared candidate-side executor and retains
+   * bindings internally until projection. Otherwise it builds a union RidSet. No sourceMap needed
    * — just bitmap check per entry. Source alias is NOT bound in results.
    *
    * <p>Not binding the source alias does not license collapsing the row
@@ -1115,6 +1278,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * emits that many rows. Only the source <em>values</em> are omitted.
    */
   private ExecutionStream filteredUnbound(CommandContext ctx) {
+    return filteredUnbound(ctx, prev.start(ctx));
+  }
+
+  private ExecutionStream filteredUnbound(CommandContext ctx, ExecutionStream upstream) {
     var session = ctx.getDatabaseSession();
     int maxRidSetSize =
         GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger();
@@ -1137,7 +1304,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var sourceOccurrences = new HashMap<RID, Integer>();
     boolean ridSetOverflow = false;
     boolean sourceOverflow = false;
-    var upstream = prev.start(ctx);
     while (upstream.hasNext(ctx)) {
       var row = upstream.next(ctx);
       var sourceRid = extractSourceRid(row);
@@ -1262,11 +1428,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       LinkBag linkBag, DatabaseSessionEmbedded session, CommandContext ctx,
       java.util.function.Consumer<Result> consumer) {
     var targetClass = resolveTargetClass(ctx);
-    for (RidPair pair : linkBag) {
-      var rid = ridFromPair(pair);
-      var record = loadRecord(rid, session);
-      if (record != null && matchesTargetFilter(record, rid, ctx, targetClass)) {
-        consumer.accept(record);
+    try (var membership = new LoadMembership(resolveLoadPrefilter(linkBag, ctx))) {
+      for (RidPair pair : linkBag) {
+        var rid = ridFromPair(pair);
+        if (!membership.accepts(rid)) {
+          continue;
+        }
+        lastMultiSourceLoadCalls++;
+        var record = loadRecord(rid, session);
+        if (record != null && matchesTargetFilter(record, rid, ctx, targetClass)) {
+          consumer.accept(record);
+        }
       }
     }
   }
@@ -1819,7 +1991,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * trusting density {@code 1.0} for {@code GLOBAL_SCAN}.
    */
   private TotalEdgesEstimate estimateTotalEdges(
-      Map<RID, ?> sourceMap, DatabaseSessionEmbedded session, long indexSize) {
+      Map<RID, ?> sourceMap, Map<RID, Integer> sourceSizes,
+      DatabaseSessionEmbedded session, long indexSize) {
     int sampleSize = Math.min(sourceMap.size(), 5);
     var sampleSizes = new int[sampleSize];
     int sampled = 0;
@@ -1827,9 +2000,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (sampled >= sampleSize) {
         break;
       }
-      var linkBag = loadLinkBag(sourceRid, session);
-      if (linkBag != null) {
-        sampleSizes[sampled++] = linkBag.size();
+      // Reuse metadata collected for equality pricing without iterating any source edges.
+      var size = sourceSizes.get(sourceRid);
+      if (size != null) {
+        if (size >= 0) {
+          sampleSizes[sampled++] = size;
+        }
+      } else {
+        var linkBag = loadLinkBag(sourceRid, session);
+        if (linkBag != null) {
+          sampleSizes[sampled++] = linkBag.size();
+        }
       }
     }
     long perSource;
@@ -2020,6 +2201,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   private IndexOrderedEdgeStep copyLookupPlan(IndexOrderedEdgeStep template) {
     targetIndexDescriptor = template.targetIndexDescriptor;
+    multiEqualityEligible = template.multiEqualityEligible;
     plannedTraversal = template.plannedTraversal == null ? null : template.plannedTraversal.copy();
     return this;
   }

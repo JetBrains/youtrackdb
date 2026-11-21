@@ -545,6 +545,14 @@ property order and optional RID tie-break. The stream retains every row because 
 edges can reject a prefix and secondary ORDER BY keys can reorder ties. This path signals
 pre-sorted output in the same way as the LinkBag load-and-sort path.
 
+For filtered several-source queries with a positive LIMIT and an indexed equality predicate,
+the step prices and bounds equality fetch from the real sum of source LinkBag sizes. Empty
+source fields contribute no edges. The step reads each candidate once and walks its reverse LinkBag against all sources. Each edge and upstream binding
+contributes a row. A failed equality attempt discards all buffered rows and uses the planned
+traversal's cached prefilter for the terminal LinkBag load. The global OrderByStep owns the full
+sort and LIMIT, including when later MATCH edges reject rows. Several-source queries without
+LIMIT retain their ordinary planning gates.
+
 ### Bounded equality candidate reader
 
 `IndexOrderedEdgeStep.readEqualityCandidates` reads the target index descriptor with the

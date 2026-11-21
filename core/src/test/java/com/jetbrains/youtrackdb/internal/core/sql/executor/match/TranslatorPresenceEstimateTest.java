@@ -349,8 +349,11 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
         var order = statement.getOrderBy().getItems().getFirst();
         for (var size : List.of(100L, 1000L, 10000L, 1000000L)) {
           org.mockito.Mockito.when(index.size(session)).thenReturn(size);
+          var pattern = new Pattern();
+          statement.getMatchExpressions().forEach(pattern::addExpression);
+          var edge = new EdgeTraversal(pattern.get("s").out.iterator().next(), true);
           Object[] args = {"s", index, order, Map.of("s", 300L), session, context,
-              List.of(), null, false};
+              List.of(edge), edge, false};
           planner.estimateFilters(Map.of());
           var expected = method.invoke(planner, args);
           planner.estimateFilters(estimates(filters));

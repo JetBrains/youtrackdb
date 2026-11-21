@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexOrderCollations;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -581,8 +583,8 @@ public final class IndexOrderedPlanner {
    *       null key, and a target filter that keeps only rows whose ordered property is not null.
    *   <li>The row projects the ordered alias alone, so the two items are a total order over what
    *       the caller receives, and no deduplication step follows.
-   *   <li>The mode binds no second alias. A bound mode emits one row per source per target, so
-   *       rows sharing a target tie on both items and the sort is not total.
+   *   <li>The logical mode projects no second alias. Equality execution may retain upstream
+   *       bindings internally, but rows sharing a target are identical after projection.
    * </ul>
    *
    * <p>Two further conditions cannot be decided here and are enforced at run time by
@@ -912,10 +914,37 @@ public final class IndexOrderedPlanner {
       // Invalid configuration and uneconomic zero budgets both use the ordinary sort plan.
       return false;
     }
+    // Equality lookup is a third execution path. A RID pin is only a membership filter.
+    var target = matchedEdge.out ? matchedEdge.edge.in : matchedEdge.edge.out;
+    var targetWhere = matchedEdge.edge.item.getFilter();
+    var descriptor = indexedEquality(
+        targetWhere == null ? null : targetWhere.getFilter(), aliasClasses.get(target.alias),
+        context);
+    if (queryLimit > 0 && descriptor != null) {
+      return true;
+    }
     var costs = IndexOrderedCostModel.computeCosts(
         estimatedEdges, indexSize, queryLimit,
         matchedIndex.getHistogram(session), asc);
     return costs != null && costs.costUnionScan() < costs.costLoadSort();
+  }
+
+  /** Equality admission excludes RID pins, ranges and indexed membership predicates. */
+  @Nullable static IndexSearchDescriptor indexedEquality(SQLWhereClause filter, String targetClass,
+      CommandContext context) {
+    if (filter == null || targetClass == null) {
+      return null;
+    }
+    var schemaClass = context.getDatabaseSession().getMetadata()
+        .getImmutableSchemaSnapshot().getClassInternal(targetClass);
+    if (schemaClass == null || !schemaClass.isVertexType()) {
+      return null;
+    }
+    var descriptor = TraversalPreFilterHelper.findIndexForFilter(filter, targetClass, context);
+    if (descriptor == null) {
+      return null;
+    }
+    return descriptor.isEqualityLookup() ? descriptor : null;
   }
 
   /**

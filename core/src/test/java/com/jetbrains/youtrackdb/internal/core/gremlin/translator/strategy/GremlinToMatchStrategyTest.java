@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.RuntimeRidStartPlanningException;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
@@ -86,6 +87,66 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::session);
+
+  /** A RID-start multi-hop equality query stays literal and returns the plain MATCH rows. */
+  @Test
+  public void severalSourceEqualityRidStartMatchesPlainMatch() {
+    session.createVertexClass("Root");
+    session.createVertexClass("Author");
+    var message = session.createVertexClass("Message");
+    message.createProperty("date", PropertyType.INTEGER).createIndex(INDEX_TYPE.NOTUNIQUE);
+    message.createProperty("tag", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    session.createEdgeClass("members");
+    session.createEdgeClass("wrote");
+    var root = graph.addVertex(T.label, "Root");
+    var a = graph.addVertex(T.label, "Author");
+    var b = graph.addVertex(T.label, "Author");
+    root.addEdge("members", a);
+    root.addEdge("members", b);
+    for (int i = 0; i < 1000; i++) {
+      var m = graph.addVertex(T.label, "Message", "date", i,
+          "tag", i >= 990 ? "rare" : "common");
+      a.addEdge("wrote", m);
+      b.addEdge("wrote", m);
+    }
+    graph.tx().commit();
+    setKillSwitch(true);
+    var cache = GremlinPlanCache.instance(session());
+    cache.invalidate();
+    var attempts = new ArrayList<MatchPlanInputs>();
+    cache.beforeUncachedPlanning = (input, context) -> attempts.add(input);
+    try {
+      var admin = graph.traversal().V(root.id()).out("members").out("wrote")
+          .hasLabel("Message").has("tag", "rare").order().by("date", Order.asc)
+          .limit(40).asAdmin();
+      GremlinToMatchStrategy.instance().apply(admin);
+      assertThat(admin.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+      // Runtime RID eligibility accepts one hop and one terminal suffix, not this two-hop walk.
+      assertThat(attempts).hasSize(1);
+      assertThat(attempts.getFirst().runtimeRidStarts()).isEmpty();
+      var boundary = (YTDBMatchPlanStep<?, ?>) admin.getStartStep();
+      var actual = admin.toList().stream().map(v -> v.id().toString()).toList();
+      var ordered = boundary.getPlan().getSteps().stream()
+          .filter(IndexOrderedEdgeStep.class::isInstance)
+          .map(IndexOrderedEdgeStep.class::cast)
+          .findFirst().orElseThrow();
+      assertThat(ordered.getChosenRuntimePath()).isEqualTo(
+          IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+      var expected = new ArrayList<String>();
+      try (var rows = session().query("SELECT FROM (MATCH {rid: " + root.id()
+          + ", as: r}.out('members'){as: a}.out('wrote')"
+          + "{class: Message, as: m, where: (tag = 'rare')}"
+          + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d, rid LIMIT 40")) {
+        while (rows.hasNext()) {
+          expected.add(rows.next().getProperty("rid").toString());
+        }
+      }
+      assertThat(actual).containsExactlyElementsOf(expected);
+      assertThat(actual).hasSize(20);
+    } finally {
+      cache.beforeUncachedPlanning = null;
+    }
+  }
 
   /** A typed runtime refusal retries once with real literal MATCH, no publication or error metric. */
   @Test
