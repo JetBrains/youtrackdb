@@ -59,6 +59,164 @@ final class IndexOrderedCostModel {
       double costLoadSort) {
   }
 
+  /**
+   * Single-source prices in ordered-index-entry units. The load price never applies predicate
+   * selectivity: even a selective filter must load every member of the source LinkBag.
+   */
+  record EqualityCosts(double orderedScan, double equalityFetch, double linkBagLoad) {
+  }
+
+  /**
+   * Prices the candidate-side membership method before loading candidates. Every candidate costs
+   * one equality-index entry, a record read and an estimated reverse-LinkBag walk. Unknown
+   * cardinality disables equality fetch and preserves the existing ordered-scan estimate.
+   *
+   * @param filteredLinks source links in the target class, or the full bag size if not cheap to count
+   * @param targetRecords class population used to turn equality cardinality into selectivity
+   */
+  static EqualityCosts equalityCosts(
+      int linkBagSize, int filteredLinks, long indexSize, long targetRecords,
+      long rowTarget, long equalityMatches, long memoryLimit,
+      @Nullable EquiDepthHistogram histogram, boolean orderAsc) {
+    double perEntry = scanCostPerEntry();
+    double sortFactor = rowTarget > 0 && rowTarget < linkBagSize
+        ? log2(rowTarget) : log2(linkBagSize);
+    double load = (linkBagSize * recordReadCost()
+        + linkBagSize * sortFactor * CostModel.perRowCpuCost()) / perEntry;
+    var baseline = computeCosts(
+        filteredLinks, indexSize, rowTarget, histogram, orderAsc);
+    double scan = Double.POSITIVE_INFINITY;
+    if (baseline != null) {
+      double selectivity = equalityMatches < 0 || targetRecords <= 0
+          ? 1.0 : Math.min(1.0, (double) equalityMatches / targetRecords);
+      double length = selectivity == 0 ? indexSize
+          : Math.min(indexSize, baseline.expectedScanLength() / selectivity);
+      // Apply the scan cutoff after selectivity correction and the index-size cap.
+      if (length <= GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN.getValueAsLong()) {
+        // Membership precedes the filter. Selectivity increases, never discounts, record loads.
+        double records = selectivity == 0 ? linkBagSize
+            : Math.min(linkBagSize, baseline.k() / selectivity);
+        scan = (linkBagSize * CostModel.perRowCpuCost() + CostModel.indexSeekCost()
+            + length * perEntry + records * CostModel.randomPageReadCost())
+            * GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble() / perEntry;
+      }
+    }
+    double equality = Double.POSITIVE_INFINITY;
+    if (equalityMatches >= 0 && equalityMatches <= memoryLimit && targetRecords > 0
+        && hasValidScanCpuFactor()) {
+      double reverseEdgesPerCandidate = Math.max(1.0, (double) linkBagSize / targetRecords);
+      // Local ordering retains all candidates for downstream rejection and secondary keys.
+      // Price a full sort, even when the final OrderByStep can use a bounded heap.
+      double equalitySortFactor = log2(equalityMatches);
+      equality = indexSeekEntryUnits()
+          + equalityMatches * (1.0 + recordReadEntryUnits()
+              + reverseEdgesPerCandidate * reverseEdgeEntryUnits())
+          + equalityMatches * equalitySortFactor * CostModel.perRowCpuCost() / perEntry;
+    }
+    return new EqualityCosts(scan, equality, load);
+  }
+
+  /** Record loads and cursor advances have different costs in the shared work account. */
+  static double recordReadEntryUnits() {
+    return recordReadCost() / scanCostPerEntry();
+  }
+
+  /** Each link visited on the candidate's reverse LinkBag incurs a CPU charge. */
+  static double reverseEdgeEntryUnits() {
+    return CostModel.perRowCpuCost() / scanCostPerEntry();
+  }
+
+  /** A point-lookup seek spends work even when its equality cursor returns no entries. */
+  static double indexSeekEntryUnits() {
+    return CostModel.indexSeekCost() / scanCostPerEntry();
+  }
+
+  /** Paths are execution-local. LOAD is terminal and does not spend speculative work. */
+  enum EqualityPath {
+    ORDERED, EQUALITY, LOAD
+  }
+
+  /**
+   * One speculative-work account for one execution, denominated in ordered-index entries.
+   * The terminal LinkBag load is outside the account, so all failed attempts together cost at
+   * most one load alternative. Callers must finish speculative reads before emitting any row.
+   */
+  static final class WorkAccount {
+    private double remaining;
+    private double attemptRemaining;
+    private boolean orderedTried;
+    private boolean equalityTried;
+    private boolean terminal;
+    private EqualityPath chosen;
+
+    WorkAccount(int linkBagSize) {
+      remaining = entriesWorthTheLoadAlternative(linkBagSize);
+    }
+
+    /**
+     * Chooses the cheapest untried path using current prices. The caller raises underestimated
+     * cardinalities before calling again. Ties prefer ORDERED, then EQUALITY, then LOAD.
+     */
+    EqualityPath choose(EqualityCosts costs) {
+      if (terminal) {
+        return EqualityPath.LOAD;
+      }
+      double ordered = orderedTried ? Double.POSITIVE_INFINITY : costs.orderedScan();
+      double equality = equalityTried ? Double.POSITIVE_INFINITY : costs.equalityFetch();
+      if (remaining > 0 && ordered <= equality && ordered < costs.linkBagLoad()) {
+        orderedTried = true;
+        chosen = EqualityPath.ORDERED;
+      } else if (remaining > 0 && equality < costs.linkBagLoad()) {
+        equalityTried = true;
+        chosen = EqualityPath.EQUALITY;
+      } else {
+        terminal = true;
+        chosen = EqualityPath.LOAD;
+      }
+      attemptRemaining = Double.POSITIVE_INFINITY;
+      attemptRemaining = allowance(costs);
+      return chosen;
+    }
+
+    /**
+     * Caps the active attempt by the cheapest untried alternative and the remaining account.
+     * The active path cannot cap itself. Repricing cannot replenish work already spent.
+     */
+    double allowance(EqualityCosts costs) {
+      if (chosen == null || terminal) {
+        return 0;
+      }
+      double cap = costs.linkBagLoad();
+      if (!orderedTried) {
+        cap = Math.min(cap, costs.orderedScan());
+      }
+      if (!equalityTried) {
+        cap = Math.min(cap, costs.equalityFetch());
+      }
+      return Math.max(0, Math.min(attemptRemaining, Math.min(remaining, cap)));
+    }
+
+    /** Charges before the read. A refused read leaves the balance unchanged. */
+    boolean spend(double entryUnits) {
+      if (terminal || chosen == null || !Double.isFinite(entryUnits) || entryUnits <= 0
+          || entryUnits > Math.min(remaining, attemptRemaining)) {
+        return false;
+      }
+      remaining -= entryUnits;
+      attemptRemaining -= entryUnits;
+      return true;
+    }
+
+    /**
+     * Converts the account to a candidate-record limit, not a cursor-entry limit. Candidate edge
+     * reads still need individual charges while walking the reverse LinkBag without copying it.
+     */
+    long candidateReadLimit(EqualityCosts costs, long memoryLimit) {
+      double perCandidate = 1.0 + recordReadEntryUnits();
+      return Math.max(0, Math.min(memoryLimit, (long) (allowance(costs) / perCandidate)));
+    }
+  }
+
   /** Multi-source execution strategy chosen by {@link #pickMultiSourceStrategy}. */
   enum MultiSourceStrategy {
     UNION_RIDSET_SCAN, GLOBAL_SCAN, LOAD_ALL_SORT

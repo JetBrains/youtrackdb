@@ -507,6 +507,72 @@ correctness), and emits the matching rows. Total disk loads: 12, down from 40 00
 
 ---
 
+## Index-ordered MATCH load paths
+
+The single-source `IndexOrderedEdgeStep` load paths use prefilters from the edge item's
+own target filter. They share the plain MATCH descriptor builder. A literal or parameter
+RID equality uses singleton admission, including when it has an indexed conjunct.
+Other filters use the SELECT index finder at plan time.
+Intersections from other aliases do not apply to these load paths.
+The target class check runs before membership probes, as in plain MATCH.
+
+Both the local-sort path and the unsorted path call `EdgeTraversal.resolvePreFilter`.
+Ordinary MATCH calls the same helper. It checks the minimum bag size, resolves the RID set,
+and applies the descriptor's admission rules. Index lookup resolution evaluates bound values
+and hit estimates in the current execution context. The ordered step retains the scheduled
+`rootSourceRows` and `forecastN` for amortization. Each execution has a fresh traversal cache.
+
+RID-set membership only skips record loads. Every surviving record still passes the full
+target filter, target class check and already-bound alias check. Repeated edges remain
+separate result rows. Applied, skipped and membership counters use the ordinary MATCH policy.
+
+### Runtime equality fetch
+
+For one source row and a positive runtime LIMIT, the ordered step prices the current
+target-index estimate against the ordering scan and the LinkBag load. Unknown estimates
+and unbounded executions use the ordinary path. The estimate uses the current parameter
+bindings even when the plan comes from the cache.
+
+One execution-local work account bounds speculative index reads and record loads.
+Each path is attempted at most once. An incomplete equality read discards its candidates
+and raises the estimate before repricing. Unsupported reverse fields select the terminal
+LinkBag load. No speculative prefix escapes before the final path is fixed.
+
+The equality path reports `equality-fetch` in the plan. It emits one row per matching
+source link, including parallel edges. OrderByStep sorts these rows. When downstream
+MATCH edges require local sorting under LIMIT, all accepted rows are sorted by the
+property order and optional RID tie-break. The stream retains every row because later
+edges can reject a prefix and secondary ORDER BY keys can reorder ties. This path signals
+pre-sorted output in the same way as the LinkBag load-and-sort path.
+
+For filtered several-source queries with a positive LIMIT and an indexed equality predicate,
+the step prices and bounds equality fetch from the real sum of source LinkBag sizes. Empty
+source fields contribute no edges. The step reads each candidate once and walks its reverse LinkBag against all sources. Each edge and upstream binding
+contributes a row. A failed equality attempt discards all buffered rows and uses the planned
+traversal's cached prefilter for the terminal LinkBag load. The global OrderByStep owns the full
+sort and LIMIT, including when later MATCH edges reject rows. Several-source queries without
+LIMIT retain their ordinary planning gates.
+
+### Bounded equality candidate reader
+
+`IndexOrderedEdgeStep.readEqualityCandidates` reads the target index descriptor with the
+current parameter bindings. It returns candidates and link counts, not result rows.
+It does not select a runtime path or change the pre-sorted signal.
+
+The reader accepts only vertex traversal with a source LinkBag. It removes repeated
+index RIDs and checks the full target filter, target class and existing alias binding.
+For each surviving candidate, it walks the reverse LinkBag for the same literal edge
+field. Each link back to the source contributes one to the candidate's count.
+It does not copy the reverse bag.
+
+The caller owns the source record load and supplies its already loaded LinkBag,
+an execution-local work account and a candidate memory limit. Each range lookup,
+including each IN key, consumes the account before the lookup. Index advances,
+record loads and reverse-bag iterator operations also consume the account before the read.
+Iterator construction and advances reserve work for their read-ahead.
+An incomplete attempt contains no candidates. It reports the observed index entry count
+for repricing. An unsupported field representation requires the LinkBag load path.
+
 ## When the planner can apply this optimisation
 
 The eligibility conditions reduce to three requirements:
@@ -567,6 +633,7 @@ elide an in-memory sort.
 |---|---|---|
 | `youtrackdb.query.orderBy.nullsPlacementAsc` | `FIRST` | Requested ascending null placement when the planner tests whether index order can elide an in-memory sort |
 | `youtrackdb.query.orderBy.nullsPlacementDesc` | `LAST` | Requested descending null placement when the planner tests whether index order can elide an in-memory sort |
+| `youtrackdb.query.indexOrdered.maxEqualityCandidates` | heap-adaptive: 0.5 % of max heap, clamped to [100 000, 10 000 000] | Candidate RID memory cap for index-ordered MATCH equality fetch |
 | `youtrackdb.query.prefilter.maxRidSetSize` | heap-adaptive: 0.5 % of max heap, clamped to [100 000, 10 000 000] | Absolute cap on RidSet entries; exceeding it (up front or mid-build) aborts materialisation |
 | `youtrackdb.query.prefilter.minLinkBagSize` | 50 | Minimum adjacency-list size below which the RID-set filter is skipped entirely |
 | `youtrackdb.query.prefilter.edgeLookupMaxRatio` | 0.8 | Path A: maximum `resolvedSize / linkBagSize` for an `EdgeRidLookup`; above this the overlap is too high to help |
