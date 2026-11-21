@@ -77,6 +77,27 @@ public final class StorageBirthTestSupport {
     forget.invoke(table, internalId);
   }
 
+  /** Rejects even transient session-map access until the caller closes this scope. */
+  public static AutoCloseable poisonSessionMaps(WOWCache cache) throws Exception {
+    var fields = new java.lang.reflect.Field[2];
+    var originals = new Object[2];
+    var names = new String[] {"nameIdMap", "idNameMap"};
+    for (int i = 0; i < fields.length; i++) {
+      var field = WOWCache.class.getDeclaredField(names[i]);
+      field.setAccessible(true);
+      fields[i] = field;
+      originals[i] = field.get(cache);
+      field.set(cache, org.mockito.Mockito.mock(field.getType(), invocation -> {
+        throw new AssertionError("Unexpected session-map access: " + invocation.getMethod());
+      }));
+    }
+    return () -> {
+      for (int i = 0; i < fields.length; i++) {
+        fields[i].set(cache, originals[i]);
+      }
+    };
+  }
+
   /** Removes every persisted name-id map variant before a map-free cache or storage open. */
   public static void removeNameIdMaps(java.nio.file.Path directory) throws java.io.IOException {
     for (var name : new String[] {"name_id_map.cm", "name_id_map_v2.cm",

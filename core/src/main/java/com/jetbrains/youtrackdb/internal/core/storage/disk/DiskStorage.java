@@ -3444,12 +3444,8 @@ public class DiskStorage extends AbstractStorage {
 
       var fileName = zipEntryPath.getFileName().toString();
       if (writeCache.supportsIdentityRecovery()) {
-        if (writeCache.resolveRecoveryFile(fileName, expectedFileId,
-            RecoveryFilePermission.RESTORE)) {
-          fileId = writeCache.externalFileId(writeCache.internalFileId(expectedFileId));
-        } else {
-          fileId = readCache.addFile(fileName, expectedFileId, writeCache);
-        }
+        writeCache.resolveRecoveryFile(fileName, expectedFileId, RecoveryFilePermission.RESTORE);
+        fileId = writeCache.externalFileId(writeCache.internalFileId(expectedFileId));
       } else if (!writeCache.exists(fileName)) {
         fileId = readCache.addFile(fileName, expectedFileId, writeCache);
       } else {

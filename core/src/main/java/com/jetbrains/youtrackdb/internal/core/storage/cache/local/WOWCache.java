@@ -515,7 +515,7 @@ public final class WOWCache extends AbstractWriteCache
     return logicalFiles;
   }
 
-  private void mirrorRegistration(String name, int internalId, boolean nonDurable)
+  private void registerLogicalFile(String name, int internalId, boolean nonDurable)
       throws IOException {
     // Layout 28 validates explicit admissions and registrations, not persisted map records.
     // Layout 27 keeps registrations in maps and has no logical table.
@@ -561,12 +561,6 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireWriteLock();
     try {
       checkForClose();
-      final var registered = nameIdMap.get(name);
-      final var owner = idNameMap.get(internalId);
-      if ((registered != null && Math.abs(registered) != internalId)
-          || (owner != null && !owner.equals(name))) {
-        throw new StorageException(storageName, "Conflicting expected file: " + name);
-      }
       final var externalId = composeFileId(id, internalId);
       var file = files.get(externalId);
       final var firstAdmission = file == null;
@@ -581,11 +575,7 @@ public final class WOWCache extends AbstractWriteCache
         files.add(externalId, file);
       }
       // Install the handle before publishing logical membership to background readers.
-      // Keep session mirrors for lifecycle and mutation consumers.
-      idNameMap.remove(-internalId);
-      nameIdMap.put(name, internalId);
-      idNameMap.put(internalId, name);
-      mirrorRegistration(name, internalId, nonDurableFileIds.contains(internalId));
+      registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId));
       return true;
     } catch (java.lang.InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -617,26 +607,22 @@ public final class WOWCache extends AbstractWriteCache
         file = createFileHandle(canonicalName, identity.internalId());
       }
       if (!file.exists()) {
-        if (permission != RecoveryFilePermission.REPLAY_CREATE) {
+        if (permission == RecoveryFilePermission.OPEN_ONLY) {
           return false;
         }
-        // Only a complete creating WAL unit authorizes an empty physical file here.
+        // A complete creating WAL unit or an admitted restore entry authorizes creation.
         createFile(file, callFsync);
+        if (permission == RecoveryFilePermission.RESTORE && !startupReplayPreservation) {
+          changedPageTracker.resetFile(identity.internalId());
+        }
       } else if (firstAdmission) {
         openFile(storageName, file);
       }
       if (firstAdmission) {
         files.add(externalId, file);
-        // Publish the lifecycle mirror only on first physical admission, never as recovery
-        // evidence. Repeated page replay must not append and force another registry record.
-        idNameMap.remove(-identity.internalId());
-        nameIdMap.put(canonicalName, identity.internalId());
-        idNameMap.put(identity.internalId(), canonicalName);
-        mirrorRegistration(canonicalName, identity.internalId(),
-            nonDurableFileIds.contains(identity.internalId()));
-        writeNameIdEntry(new NameFileIdEntry(canonicalName, identity.internalId(), file.getName()),
-            true);
       }
+      registerLogicalFile(canonicalName, identity.internalId(),
+          nonDurableFileIds.contains(identity.internalId()));
       return true;
     } catch (java.lang.InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -1203,7 +1189,7 @@ public final class WOWCache extends AbstractWriteCache
 
         nameIdMap.put(fileName, fileId);
         idNameMap.put(fileId, fileName);
-        mirrorRegistration(fileName, fileId, nonDurableFileIds.contains(fileId));
+        registerLogicalFile(fileName, fileId, nonDurableFileIds.contains(fileId));
 
         writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
@@ -1280,7 +1266,7 @@ public final class WOWCache extends AbstractWriteCache
 
       nameIdMap.put(fileName, fileId);
       idNameMap.put(fileId, fileName);
-      mirrorRegistration(fileName, fileId, nonDurableFileIds.contains(fileId));
+      registerLogicalFile(fileName, fileId, nonDurableFileIds.contains(fileId));
 
       writeNameIdEntry(new NameFileIdEntry(fileName, fileId, fileClassic.getName()), true);
 
@@ -1408,6 +1394,12 @@ public final class WOWCache extends AbstractWriteCache
         }
       }
 
+      // Map-free admission publishes live membership only in the layout 28 logical table.
+      if (logicalFiles != null && logicalFiles.live(intId) != null) {
+        throw new StorageException(storageName,
+            "File with name '" + fileName + "'' already exists in storage '" + storageName + "'");
+      }
+
       fileId = composeFileId(id, intId);
       fileClassic = files.get(fileId);
 
@@ -1443,7 +1435,7 @@ public final class WOWCache extends AbstractWriteCache
       nameIdMap.put(fileName, intId);
       idNameMap.put(intId, fileName);
       // Mirror the current set even if the name-id write below fails.
-      mirrorRegistration(fileName, intId, nonDurableFileIds.contains(intId));
+      registerLogicalFile(fileName, intId, nonDurableFileIds.contains(intId));
 
       writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
 
@@ -1451,7 +1443,7 @@ public final class WOWCache extends AbstractWriteCache
         final var updated = new IntOpenHashSet(nonDurableFileIds);
         updated.add(intId);
         nonDurableFileIds = updated;
-        mirrorRegistration(fileName, intId, nonDurableFileIds.contains(intId));
+        registerLogicalFile(fileName, intId, nonDurableFileIds.contains(intId));
         writeNonDurableRegistry();
       }
 
@@ -3582,7 +3574,13 @@ public final class WOWCache extends AbstractWriteCache
         final var fileId = buffer.getInt();
         // Layout 28 registry evidence is independent of the legacy map.
         if (logicalFiles != null) {
-          PageFileIdentity.decode(fileId);
+          try {
+            PageFileIdentity.decode(fileId);
+          } catch (IllegalArgumentException e) {
+            logger.warn("Non-durable registry file {} has invalid file id {}, ignoring",
+                path, fileId, e);
+            return null;
+          }
         } else if (!idNameMap.containsKey(fileId)) {
           continue;
         }

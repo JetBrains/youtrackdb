@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
@@ -112,9 +113,8 @@ public class WOWCacheLogicalFileStateTest {
       cache.resolveRecoveryFile(PageFileNames.layout28(recovered),
           cache.externalFileId(recovered.internalId()),
           com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.REPLAY_CREATE);
-      assertTrue(Files.exists(map));
+      assertFalse(Files.exists(map));
       assertLive(cache, recovered, false);
-      Files.delete(map);
       var created = new PageFileIdentity(PageFileRole.RECORD_DATA, 9072);
       cache.addFile(PageFileNames.layout28(created), cache.externalFileId(created.internalId()));
       assertTrue(Files.exists(map));
@@ -165,51 +165,101 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // A failed pass after one admission can close and retry without losing the admitted bytes.
-  // Conflicting registry owners must not redirect an expected identity to a different file.
+  // After a cold reopen, expected admission leaves maps empty. Adding the same live identity
+  // must fail before truncating its present bytes or publishing map evidence.
   @Test
-  public void expectedAdmissionRejectsConflictsAndSupportsPartialRetry() throws Exception {
+  public void addFileRejectsAdmittedLiveIdentityWithoutTruncatingBytes() throws Exception {
     withStandaloneCache(cache -> {
-      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9042);
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9043);
       var name = PageFileNames.layout28(identity);
+      var id = cache.externalFileId(identity.internalId());
+      cache.close();
+      cache.loadRegisteredFiles();
       var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
       pathField.setAccessible(true);
-      var mapPath = (Path) pathField.get(cache);
-      var disk = mapPath.getParent().resolve(PageFileNames.layout28DiskName(identity));
+      var map = (Path) pathField.get(cache);
+      var disk = map.getParent().resolve(PageFileNames.layout28DiskName(identity));
       var bytes = new byte[1024 + cache.pageSize()];
+      java.util.Arrays.fill(bytes, (byte) 43);
       Files.write(disk, bytes);
       assertTrue(cache.admitExpectedFile(identity));
-      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
-      namesField.setAccessible(true);
-      @SuppressWarnings("unchecked")
-      var names = (Map<String, Integer>) namesField.get(cache);
-      var idsField = WOWCache.class.getDeclaredField("idNameMap");
-      idsField.setAccessible(true);
-      @SuppressWarnings("unchecked")
-      var ids = (Map<Integer, String>) idsField.get(cache);
-      names.put(name, identity.internalId() + 1);
-      assertThrows(StorageException.class, () -> cache.admitExpectedFile(identity));
-      names.put(name, identity.internalId());
-      ids.put(identity.internalId(), "wrong-owner");
-      assertThrows(StorageException.class, () -> cache.admitExpectedFile(identity));
-      ids.put(identity.internalId(), name);
+      assertTrue(snapshot(cache, "nameIdMap").isEmpty());
+      var failure = assertThrows(StorageException.class, () -> cache.addFile(name, id));
+      assertTrue(failure.getMessage().contains("already exists"));
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+      assertEquals(1, cache.logicalFiles().live(identity.internalId()).logicalExtent());
+      assertFalse(Files.exists(map));
+    });
+  }
+
+  // Session maps cannot redirect admission. Every route preserves present bytes on retry.
+  @Test
+  public void admissionIgnoresSessionMapsAndSupportsPartialRetry() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9042);
+      var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      pathField.setAccessible(true);
+      var map = (Path) pathField.get(cache);
+      var disk = map.getParent().resolve(PageFileNames.layout28DiskName(identity));
+      var bytes = new byte[1024 + cache.pageSize()];
+      java.util.Arrays.fill(bytes, (byte) 42);
+      Files.write(disk, bytes);
+      Files.createDirectory(map);
+      for (int pass = 0; pass < 2; pass++) {
+        assertAbsent(cache, identity);
+        try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+          assertTrue(cache.admitExpectedFile(identity));
+          for (var permission : RecoveryFilePermission.values()) {
+            assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity),
+                cache.externalFileId(identity.internalId()), permission));
+          }
+          assertTrue(cache.admitExpectedFile(identity));
+          var state = cache.logicalFiles().live(identity.internalId());
+          assertEquals(identity, state.identity());
+          assertTrue(state.diskPresent());
+          assertFalse(state.nonDurable());
+          assertEquals(1, state.logicalExtent());
+          assertEquals(1, state.diskExtent());
+          assertOracle(cache);
+        }
+        org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+        cache.close();
+        cache.loadRegisteredFiles();
+      }
+      Files.delete(map);
+    });
+  }
+
+  // Missing-file recovery needs explicit authority. Creation and repeat admission use no maps.
+  @Test
+  public void recoveryCreationRequiresPermissionWithoutMapAccess() throws Exception {
+    withStandaloneCache(cache -> {
+      var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
+      pathField.setAccessible(true);
+      var map = (Path) pathField.get(cache);
+      Files.createDirectory(map);
+      for (var permission : RecoveryFilePermission.values()) {
+        var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9050 + permission.ordinal());
+        var id = cache.externalFileId(identity.internalId());
+        var allowed = permission != RecoveryFilePermission.OPEN_ONLY;
+        try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+          assertEquals(allowed, cache.resolveRecoveryFile(null, id, permission));
+          assertEquals(allowed, cache.resolveRecoveryFile(null, id, permission));
+          if (allowed) {
+            assertLive(cache, identity, false);
+          } else {
+            assertAbsent(cache, identity);
+          }
+        }
+        assertEquals(allowed,
+            Files.exists(map.getParent().resolve(PageFileNames.layout28DiskName(identity))));
+      }
       cache.close();
-      StorageBirthTestSupport.removeNameIdMaps(mapPath.getParent());
       cache.loadRegisteredFiles();
-      assertAbsent(cache, identity);
-      assertTrue(cache.registrationEvidence().positiveNames().isEmpty());
-      assertTrue(cache.registrationEvidence().negativeNames().isEmpty());
-      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
-      assertTrue(cache.admitExpectedFile(identity));
-      var state = cache.logicalFiles().live(identity.internalId());
-      assertNotNull(state);
-      assertEquals(identity, state.identity());
-      assertTrue(state.diskPresent());
-      assertFalse(state.nonDurable());
-      assertEquals(1, state.logicalExtent());
-      assertEquals(1, state.diskExtent());
-      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
-      assertOracle(cache);
+      var restored = new PageFileIdentity(PageFileRole.RECORD_DATA, 9052);
+      assertTrue(cache.admitExpectedFile(restored));
+      assertLive(cache, restored, false);
+      Files.delete(map);
     });
   }
 
@@ -425,7 +475,7 @@ public class WOWCacheLogicalFileStateTest {
       } finally {
         names.putAll(savedNames);
         ids.putAll(savedIds);
-        // Hydration and serialization still use the mirror in this staged track.
+        // Restore the mutation bridge maps and discard the synthetic pending identity.
         cache.logicalFiles().forget(pending.internalId());
         names.remove(name);
         ids.remove(identity.internalId());
@@ -1037,45 +1087,20 @@ public class WOWCacheLogicalFileStateTest {
   // The oracle compares complete live sets, not just the identity used by the current step.
   private static void assertOracle(WOWCache cache) {
     try {
-      Map<String, Integer> names = snapshot(cache, "nameIdMap");
       Map<Integer, LogicalPageFileTable.State> states = snapshot(cache.logicalFiles(), "states");
-      var expected = new HashSet<Integer>();
-      names.forEach((name, id) -> PageFileNames.parseLayout28(name)
-          .filter(identity -> identity.internalId() == id)
-          .ifPresent(identity -> expected.add(id)));
-      var actual = new HashSet<Integer>();
+      var visible = new HashMap<String, Long>();
       states.forEach((id, state) -> {
         if (state.kind() == LogicalPageFileTable.Kind.LIVE) {
-          actual.add(id);
-        } else {
-          var registered = names.get(PageFileNames.layout28(state.identity()));
-          // Wrong-id entries are aliases and are outside the map-agreement contract.
-          if (registered != null && Math.abs(registered) == id) {
-            assertEquals(Integer.valueOf(-id), registered);
-          }
-        }
-      });
-      assertEquals(expected, actual);
-      var visible = new HashMap<String, Long>();
-      names.forEach((name, id) -> {
-        if (expected.contains(id)) {
-          visible.put(name, cache.externalFileId(id));
+          visible.put(PageFileNames.layout28(state.identity()), cache.externalFileId(id));
         }
       });
       assertEquals(visible, cache.files());
-      var candidates = new HashSet<>(names.keySet());
-      candidates.addAll(cache.files().keySet());
-      states.values().forEach(state -> candidates.add(PageFileNames.layout28(state.identity())));
-      for (var name : candidates) {
-        assertEquals(visible.containsKey(name), cache.exists(name));
+      for (var state : states.values()) {
+        var name = PageFileNames.layout28(state.identity());
+        var live = state.kind() == LogicalPageFileTable.Kind.LIVE;
+        assertEquals(live, cache.exists(name));
         assertEquals(visible.getOrDefault(name, -1L).longValue(), cache.fileIdByName(name));
-      }
-      var ids = new HashSet<>(names.values());
-      ids.addAll(states.keySet());
-      for (var id : ids) {
-        if (id > 0) {
-          assertEquals(expected.contains(id), cache.exists(cache.externalFileId(id)));
-        }
+        assertEquals(live, cache.exists(cache.externalFileId(state.identity().internalId())));
       }
     } catch (Exception e) {
       throw new AssertionError(e);

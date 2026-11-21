@@ -185,7 +185,7 @@ public class LostFileCreationWALRecoveryTest {
         assertEquals(layout28 ? 28 : 27, session.getStorage().getStorageFormat().layoutVersion());
         assertRecoveredData(session, replaceIndex);
         if (layout28 && open == 0) {
-          assertTrue("Recovery creation must recreate the append bridge",
+          assertFalse("Recovery admission must not recreate the name-id map",
               Files.exists(directory.resolve("recovered").resolve(NAME_ID_MAP)));
         }
         var cache = ((DiskStorage) session.getStorage()).getWriteCache();

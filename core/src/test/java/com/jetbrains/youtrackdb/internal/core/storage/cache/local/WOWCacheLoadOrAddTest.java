@@ -237,10 +237,10 @@ public class WOWCacheLoadOrAddTest {
     }).when(wrapper).getUnderlyingFileSize();
     files.add(fileId, wrapper);
     try {
-      var mirror = WOWCache.class.getDeclaredMethod("mirrorRegistration",
+      var registration = WOWCache.class.getDeclaredMethod("registerLogicalFile",
           String.class, int.class, boolean.class);
-      mirror.setAccessible(true);
-      mirror.invoke(wowCache, name, identity.internalId(), false);
+      registration.setAccessible(true);
+      registration.invoke(wowCache, name, identity.internalId(), false);
       assertEquals(7, wowCache.logicalFiles().live(identity.internalId()).diskExtent());
     } finally {
       files.remove(fileId);

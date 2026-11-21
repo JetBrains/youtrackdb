@@ -112,9 +112,9 @@ public interface WriteCache {
   }
 
   /**
-   * Opens a computed disk identity before inventory hydration. Only REPLAY_CREATE authorizes
-   * creation from a complete creating WAL unit. RESTORE admits a present file. Restore callers
-   * create absent files through addFile after archive admission.
+   * Opens a computed disk identity before inventory hydration without using the name-id map.
+   * REPLAY_CREATE authorizes creation from a complete creating WAL unit. RESTORE authorizes
+   * creation after archive admission. Both open present files without truncating them.
    */
   default boolean resolveRecoveryFile(
       @Nullable String fileName, long fileId, RecoveryFilePermission permission)

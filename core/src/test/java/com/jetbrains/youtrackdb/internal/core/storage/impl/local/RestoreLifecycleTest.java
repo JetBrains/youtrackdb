@@ -1557,7 +1557,7 @@ public class RestoreLifecycleTest {
     }
   }
 
-  /** Complete creation evidence resolves page redo and publishes the staged lifecycle mirror. */
+  /** Complete creation evidence admits logical membership and resolves page redo without maps. */
   @Test
   public void identityReplayCreatesOnlyWithEvidenceAndIsIdempotent() throws Exception {
     try (var manager = openManager();
@@ -1585,9 +1585,9 @@ public class RestoreLifecycleTest {
     }
   }
 
-  /** Repeated page redo of a present file must persist its recovery mirror exactly once. */
+  /** Repeated page redo admits and allocates a present file without any map access. */
   @Test
-  public void identityPageReplayPersistsMirrorOnlyOnFirstAdmission() throws Exception {
+  public void identityPageReplayNeverAccessesMaps() throws Exception {
     try (var manager = openManager();
         var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
             StorageFormat.LAYOUT_28)) {
@@ -1598,39 +1598,22 @@ public class RestoreLifecycleTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12012);
       var name = PageFileNames.layout28(identity);
       var registry = databasesPath.resolve(SOURCE).resolve("name_id_map_v3.cm");
-      long start = Files.size(registry);
       long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
       StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
-      // Remove only this fixture's original registration, leaving its physical file present.
-      try (var channel = java.nio.channels.FileChannel.open(registry,
-          java.nio.file.StandardOpenOption.WRITE)) {
-        channel.truncate(start);
-      }
-      for (int i = 0; i < 4; i++) {
-        var allocation = new PageAllocatedWALRecord(i, id, i + 1);
-        allocation.setLsn(new LogSequenceNumber(1, i + 10));
-        List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, i + 1), allocation,
-            new AtomicUnitEndRecord(i + 1, false, null));
-        storage.restoreAtomicUnit(unit, new ModifiableBoolean());
-        storage.restoreAtomicUnit(unit, new ModifiableBoolean());
-      }
-      var reader = cache.getClass().getDeclaredMethod("readNextNameIdEntryV3",
-          java.nio.channels.FileChannel.class);
-      reader.setAccessible(true);
-      int records = 0;
-      try (var channel = java.nio.channels.FileChannel.open(registry)) {
-        channel.position(start);
-        Object entry;
-        while ((entry = reader.invoke(cache, channel)) != null) {
-          var getId = entry.getClass().getDeclaredMethod("getFileId");
-          getId.setAccessible(true);
-          if ((int) getId.invoke(entry) == identity.internalId()) {
-            records++;
-          }
+      var mapBytes = Files.readAllBytes(registry);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        for (int i = 0; i < 4; i++) {
+          var allocation = new PageAllocatedWALRecord(i, id, i + 1);
+          allocation.setLsn(new LogSequenceNumber(1, i + 10));
+          List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, i + 1), allocation,
+              new AtomicUnitEndRecord(i + 1, false, null));
+          storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+          storage.restoreAtomicUnit(unit, new ModifiableBoolean());
         }
+        assertEquals(id, cache.fileIdByName(name));
+        assertEquals(4, cache.getFilledUpTo(id));
       }
-      assertEquals("page redo must not append duplicate lifecycle mirrors", 1, records);
-      assertEquals(4, cache.getFilledUpTo(id));
+      org.junit.Assert.assertArrayEquals(mapBytes, Files.readAllBytes(registry));
       cache.deleteFile(id);
     }
   }
@@ -1780,7 +1763,7 @@ public class RestoreLifecycleTest {
 
   /** Creation WAL admits an absent file. A later cold open needs explicit unconfigured admission. */
   @Test(timeout = 120_000)
-  public void identityCompleteCreationReopenPublishesLifecycleMirror() throws Exception {
+  public void identityCompleteCreationReplayIsMapFreeAndReopenNeedsAdmission() throws Exception {
     runIdentityCrashChild(false, true);
     var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
     for (int attempt = 0; attempt < 2; attempt++) {
@@ -1845,17 +1828,10 @@ public class RestoreLifecycleTest {
     var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
         .getWriteCache();
     cache.pauseBackgroundFlush();
-    var map = Path.of(arguments[0]).resolve(SOURCE).resolve("name_id_map_v3.cm");
-    long mapSize = Files.size(map);
     var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
     long id = cache.addFile(PageFileNames.layout28(identity),
         cache.externalFileId(identity.internalId()), nonDurable);
-    // Drop only the appended target entry. Metadata entries remain a valid opening fixture.
-    try (var channel = java.nio.channels.FileChannel.open(map,
-        java.nio.file.StandardOpenOption.WRITE)) {
-      channel.truncate(mapSize);
-      channel.force(true);
-    }
+    StorageBirthTestSupport.removeNameIdMaps(Path.of(arguments[0]).resolve(SOURCE));
     storage.makeStorageDirty();
     var wal = storage.getWALInstance();
     long unit = storage.getIdGen().nextId();

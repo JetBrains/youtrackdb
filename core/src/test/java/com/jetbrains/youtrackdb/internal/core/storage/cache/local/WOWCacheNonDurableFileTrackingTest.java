@@ -34,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCach
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
@@ -1071,8 +1072,11 @@ public class WOWCacheNonDurableFileTrackingTest {
         () -> wowCache.resolveRecoveryFile("wrong.pcl", id, RecoveryFilePermission.RESTORE));
     assertThrows(IllegalArgumentException.class,
         () -> wowCache.resolveRecoveryFile(name, id + 1, RecoveryFilePermission.RESTORE));
-    assertFalse(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
     assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    try (var ignored = StorageBirthTestSupport.poisonSessionMaps(wowCache)) {
+      assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+      assertTrue(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    }
     assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.REPLAY_CREATE));
     assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
     wowCache.deleteFile(id);
@@ -1324,6 +1328,45 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertFalse(
         "Durable file should remain durable after close/reopen",
         wowCache.isNonDurable(restoredDurableId));
+  }
+
+  /** An undecodable primary id invalidates the whole copy and selects the valid shadow. */
+  @Test
+  public void undecodablePrimaryFallsBackToShadow() throws Exception {
+    assertUndecodableRegistryFallback(false);
+  }
+
+  /** Two checksummed but undecodable copies use the existing empty-set fallback. */
+  @Test
+  public void undecodableCopiesUseEmptyFallback() throws Exception {
+    assertUndecodableRegistryFallback(true);
+  }
+
+  private void assertUndecodableRegistryFallback(boolean corruptShadow) throws Exception {
+    wowCache.close();
+    createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12200);
+    var id = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()), true);
+    wowCache.close();
+    // A valid entry before the invalid one also proves that the copy is not partially accepted.
+    var buffer = ByteBuffer.allocate(24).order(ByteOrder.BIG_ENDIAN);
+    buffer.putInt(1).putLong(0).putInt(2).putInt(identity.internalId()).putInt(0);
+    var hash = net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+        .hash(buffer, 12, 12, 0xADF678FE45L);
+    buffer.putLong(4, hash);
+    Files.write(storagePath.resolve("non_durable_files.cm"), buffer.array());
+    if (corruptShadow) {
+      Files.write(storagePath.resolve("non_durable_files_shadow.cm"), buffer.array());
+    }
+    createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    assertTrue(wowCache.files().isEmpty());
+    assertTrue(wowCache.admitExpectedFile(identity));
+    assertEquals(!corruptShadow, wowCache.isNonDurable(id));
+    var state = wowCache.logicalFiles().live(identity.internalId());
+    assertEquals(!corruptShadow, state.nonDurable());
+    assertTrue(state.diskPresent());
+    assertTrue(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
   }
 
   /**
