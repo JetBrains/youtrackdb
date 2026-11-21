@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.ResultShap
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedEdgeStep;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -93,7 +94,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
                   return switch (shape) {
                     case 0 -> hop.values("name").order();
                     case 1 -> hop.values("name").order().limit(1);
-                    case 2 -> hop.order().by("name").limit(1);
+                    case 2 -> hop.order().by("name").range(1, 3);
                     default -> hop.and(org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__
                         .out("nestedLink"),
                         org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__
@@ -114,6 +115,159 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
     } finally {
       cache.beforeUncachedPlanning = null;
     }
+  }
+
+  /**
+   * Q1's ordered limit publishes one template per literal limit, not per RID or equality value.
+   * Tiny and hub starts share that template with empty, deleted and wrong-class starts.
+   * Duplicate scores, null keys and subclass labels expose ordering and class-guard mistakes.
+   */
+  @Test
+  public void orderedLimitsReuseOnePlanAcrossRecordsAndValues() {
+    session.createVertexClass("LimitStart");
+    session.execute("CREATE CLASS LimitChildStart EXTENDS LimitStart").close();
+    var target = session.createVertexClass("LimitTarget");
+    target.createProperty("score",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
+    target.createProperty("tag",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+    session.execute("CREATE CLASS LimitChildTarget EXTENDS LimitTarget").close();
+    session.execute("CREATE INDEX LimitTarget_score ON LimitTarget (score) NOTUNIQUE").close();
+    session.execute("CREATE INDEX LimitTarget_tag ON LimitTarget (tag) NOTUNIQUE").close();
+    session.createEdgeClass("limitLink");
+    var tiny = graph.addVertex(T.label, "LimitStart");
+    var hub = graph.addVertex(T.label, "LimitChildStart");
+    var empty = graph.addVertex(T.label, "LimitStart");
+    var deleted = graph.addVertex(T.label, "LimitStart");
+    var wrong = graph.addVertex(T.label, "LimitTarget", "tag", "wrong");
+    for (int i = 0; i < 200; i++) {
+      var vertex = graph.addVertex(T.label, i == 150 ? "LimitChildTarget" : "LimitTarget",
+          "score", i / 2, "tag", i == 150 ? "rare" : "common");
+      vertex.addEdge("limitLink", hub);
+      if (i == 0 || i == 150) {
+        vertex.addEdge("limitLink", tiny);
+        vertex.addEdge("limitLink", wrong);
+      }
+    }
+    var nullKey = graph.addVertex(T.label, "LimitTarget", "tag", "common", "score", null);
+    nullKey.addEdge("limitLink", hub);
+    graph.tx().commit();
+    var missing = new com.jetbrains.youtrackdb.internal.core.id.RecordId(
+        (com.jetbrains.youtrackdb.internal.core.db.record.record.RID) deleted.id());
+    graph.traversal().V(missing).drop().iterate();
+    graph.tx().commit();
+    session.getIndex("LimitTarget_tag").analyzeHistogram(session);
+    var cache = GremlinPlanCache.instance(db(graph));
+    var runs = new AtomicInteger();
+    var literalRuns = new AtomicInteger();
+    cache.beforeUncachedPlanning = (input, context) -> {
+      if (input.runtimeRidStarts().isEmpty()) {
+        literalRuns.incrementAndGet();
+      } else {
+        runs.incrementAndGet();
+      }
+    };
+    try {
+      cache.invalidate();
+      var templates = new java.util.HashMap<String, InternalExecutionPlan>();
+      for (var direction : List.of(org.apache.tinkerpop.gremlin.process.traversal.Order.asc,
+          org.apache.tinkerpop.gremlin.process.traversal.Order.desc)) {
+        for (long limit : List.of(1L, 5L, 0L)) {
+          var starts = List.of(tiny.id(), hub.id(), hub.id(), empty.id(), missing, wrong.id());
+          for (int route = 0; route < starts.size(); route++) {
+            var id = starts.get(route);
+            var tag = route == 0 || route == 2 ? "rare" : "common";
+            var source = graph.traversal().withStrategies(
+                GremlinToMatchStrategy.withTranslationCache(route != 1));
+            var hits = cache.getHits();
+            var translationHits = cache.getTranslationHits();
+            var query = orderedLimit(source, id, tag, direction, limit).asAdmin();
+            query.applyStrategies();
+            assertThat(query.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+            var boundary = (YTDBMatchPlanStep<?, ?>) query.getStartStep();
+            var template = templates.computeIfAbsent(direction + ":" + limit,
+                key -> boundary.getPlan());
+            assertThat(boundary.getPlan()).as("direction %s limit %s route %s runs %s",
+                direction, limit, route, runs.get()).isSameAs(template);
+            if (limit > 0) {
+              assertThat(template.prettyPrint(0, 2))
+                  .contains("FETCH FROM RID PARAMETER", "INDEX ORDERED MATCH");
+            }
+            assertThat(runs.get()).as("no retry or repeated planning").isEqualTo(templates.size());
+            if (route == 1) {
+              assertThat(cache.getHits()).isEqualTo(hits + 1);
+            } else if (route > 1) {
+              assertThat(cache.getTranslationHits()).isEqualTo(translationHits + 1);
+            }
+            var rows = query.toList();
+            assertThat(boundary.getPlan()).isNotSameAs(template);
+            if (limit > 0 && route < 3) {
+              var executed = boundary.getPlan().getSteps().stream()
+                  .filter(IndexOrderedEdgeStep.class::isInstance)
+                  .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
+              // The same template must reprice both adjacency size and equality selectivity.
+              var expected = switch (route) {
+                case 0 -> IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED;
+                case 1 -> IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN;
+                default -> IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH;
+              };
+              assertThat(executed.getChosenRuntimePath())
+                  .as("direction %s limit %s route %s", direction, limit, route)
+                  .isEqualTo(expected);
+            }
+            assertThat(rows).isEqualTo(orderedLimit(
+                source.withoutStrategies(GremlinToMatchStrategy.class), id, tag, direction, limit)
+                .toList());
+            if (limit == 0 || route >= 3) {
+              assertThat(rows).isEmpty();
+            } else {
+              assertThat(rows).hasSize(route == 1 ? (int) limit : 1);
+            }
+            cache.setRuntimeRidStartEnabled(false);
+            try {
+              int before = literalRuns.get();
+              // Repeating the literal control also pins PF1: neither cache reuses a RID plan.
+              for (int repeat = 0; repeat < 2; repeat++) {
+                assertThat(orderedLimit(source, id, tag, direction, limit).toList())
+                    .isEqualTo(rows);
+              }
+              assertThat(literalRuns.get()).isEqualTo(before + 2);
+            } finally {
+              cache.setRuntimeRidStartEnabled(true);
+            }
+          }
+        }
+      }
+      assertThat(templates.values()).doesNotHaveDuplicates().hasSize(6);
+      // Reopen every entry after both directions are cached. A direction-key collision or
+      // eviction would lose template identity or cause another planning run.
+      for (var direction : List.of(org.apache.tinkerpop.gremlin.process.traversal.Order.asc,
+          org.apache.tinkerpop.gremlin.process.traversal.Order.desc)) {
+        for (long limit : List.of(0L, 1L, 5L)) {
+          var query = orderedLimit(graph.traversal(), hub.id(), "common", direction, limit)
+              .asAdmin();
+          query.applyStrategies();
+          assertThat(((YTDBMatchPlanStep<?, ?>) query.getStartStep()).getPlan())
+              .isSameAs(templates.get(direction + ":" + limit));
+          assertThat(query.toList()).isEqualTo(orderedLimit(graph.traversal()
+              .withoutStrategies(GremlinToMatchStrategy.class), hub.id(), "common", direction,
+              limit).toList());
+        }
+      }
+      assertThat(runs.get()).isEqualTo(6);
+    } finally {
+      cache.beforeUncachedPlanning = null;
+      cache.setRuntimeRidStartEnabled(true);
+    }
+  }
+
+  private static org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>
+      orderedLimit(
+          org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource source,
+          Object id, String tag, org.apache.tinkerpop.gremlin.process.traversal.Order direction,
+          long limit) {
+    return source.V(id).hasLabel("LimitStart").in("limitLink").has("tag", tag)
+        .hasLabel("LimitTarget").order().by("score", direction).limit(limit);
   }
 
   /** Producer-class ci, mixed and unknown comparisons retain exact order on both warm routes. */
@@ -439,12 +593,8 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
         com.jetbrains.youtrackdb.api.config.GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY;
     var original = session.getConfiguration().getValueAsBoolean(flag);
     var runs = new AtomicInteger();
-    var cappedOrder = new java.util.concurrent.atomic.AtomicBoolean(true);
     cache.beforeUncachedPlanning = (input, context) -> {
       runs.incrementAndGet();
-      if (cappedOrder.get()) {
-        assertThat(input.runtimeRidStarts()).isEmpty();
-      }
       if (!input.runtimeRidStarts().isEmpty()) {
         assertThat(input.runtimeRidStarts().values())
             .allSatisfy(start -> assertThat(start.parameterSlot()).isZero());
@@ -452,22 +602,21 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
       }
     };
     try {
-      // The indexed finite-cap control proves the index is usable for the actual target alias V.
+      // A finite cap also reuses the indexed runtime source for the actual target alias V.
       session.getConfiguration().setValue(flag, false);
       for (var id : List.of(a.id(), b.id())) {
         var cap = graph.traversal().V(id).out("structuralFirst")
             .order().by("name").limit(1).asAdmin();
-        assertThat(RuntimeRidStartEligibility.evaluate(cap, true)).isNull();
+        assertThat(RuntimeRidStartEligibility.evaluate(cap, true)).isNotNull();
         cap.applyStrategies();
         assertThat(((YTDBMatchPlanStep<?, ?>) cap.getStartStep()).getPlan().prettyPrint(0, 2))
-            .contains("INDEX ORDERED MATCH").doesNotContain("FETCH FROM RID PARAMETER");
+            .contains("INDEX ORDERED MATCH", "FETCH FROM RID PARAMETER");
         assertThat(TranslatorEquivalenceSupport.sortedIds(cap.toList())).isEqualTo(
             TranslatorEquivalenceSupport.sortedIds(graph.traversal()
                 .withoutStrategies(GremlinToMatchStrategy.class).V(id).out("structuralFirst")
                 .order().by("name").limit(1).toList()));
       }
-      assertThat(runs.get()).isEqualTo(2);
-      cappedOrder.set(false);
+      assertThat(runs.get()).isEqualTo(1);
       for (boolean missingKeys : List.of(false, true)) {
         session.getConfiguration().setValue(flag, missingKeys);
         for (int arm = 0; arm < 41; arm++) {
