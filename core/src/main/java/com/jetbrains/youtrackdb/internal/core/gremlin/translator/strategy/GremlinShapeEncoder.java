@@ -17,19 +17,128 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.AndP;
 import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
 
 /**
- * Length-prefixed token writer and positional-parameter harvest for the pre-walk translation-cache
+ * Structural token writer with deferred positional-parameter harvest for the translation-cache
  * key. Recognisers append structural step tokens while extraction supplies the boundary class and
  * fold position for each has contribution. Comparison values stay out of the key (only their runtime
  * class and prefix layout enter) so they rebound as {@code ?}.
  *
- * <p>Every variable-length token is length-prefixed, matching {@link GremlinPlanFingerprint}, so a
- * user identifier cannot forge another walk's key by embedding delimiters.
+ * <p>Tokens keep explicit boundaries. Text rendering uses length prefixes for predicate
+ * fingerprints. Deferred harvest actions belong to this invocation and never enter a shared key.
  */
-final class GremlinShapeEncoder {
+class GremlinShapeEncoder {
 
-  private final StringBuilder sb = new StringBuilder(256);
+  private final List<Object> tokens;
+  final GremlinShapeBuffer buffer;
+  private final long leaseEpoch;
 
-  private final LinkedHashMap<Object, Object> bindings = new LinkedHashMap<>();
+  private void requireLease() {
+    if (buffer != null) {
+      buffer.requireLease(leaseEpoch);
+    }
+  }
+
+  private GremlinShapeKey frozenKey;
+  java.util.function.BiConsumer<
+      org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer,
+      Integer> containerObserver;
+
+  void recordContainer(
+      org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer container, int index) {
+    if (buffer != null
+        && container.getClass()
+            != org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer.class) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
+    if (containerObserver != null) {
+      containerObserver.accept(container, index);
+    }
+  }
+
+  Object lookupKey() {
+    requireLease();
+    return buffer == null ? compactKey() : buffer;
+  }
+
+  private final List<Runnable> harvest;
+
+  List<NativeHasOperands> nativeOperands;
+  boolean orderedExpandAbsent;
+  int propertyMapBulkingCapacity;
+
+  GremlinShapeExtractor.Extraction extraction() {
+    GremlinShapeBuffer.count(counters -> counters.extractions++);
+    return new GremlinShapeExtractor.Extraction(buffer == null ? compactKey() : null, Map.of(),
+        complete, List.of(), nativeOperands, orderedExpandAbsent, propertyMapBulkingCapacity, this);
+  }
+
+  private List<NativeHasOperands> frozenNativeOperands;
+
+  List<NativeHasOperands> nativeOperands(List<NativeHasOperands> operands) {
+    harvest();
+    if (frozenNativeOperands == null) {
+      frozenNativeOperands = List.copyOf(operands);
+    }
+    return frozenNativeOperands;
+  }
+
+  private boolean harvested;
+  private Map<Object, Object> frozenBindings;
+  private List<HasBindingContext.Contribution> frozenContributions;
+
+  void deferHarvest(Runnable action) {
+    if (buffer == null) {
+      harvest.add(action);
+    } else {
+      buffer.defer(action);
+    }
+  }
+
+  void harvest() {
+    requireLease();
+    if (!harvested) {
+      harvested = true;
+      if (buffer == null) {
+        harvest.forEach(Runnable::run);
+        harvest.clear();
+      } else {
+        buffer.replay();
+      }
+      frozenBindings = bindings == null ? Map.of() : Map.copyOf(bindings);
+      frozenContributions = hasContributions == null ? List.of() : List.copyOf(hasContributions);
+    }
+  }
+
+  boolean harvested() {
+    return harvested;
+  }
+
+  GremlinShapeKey compactKey() {
+    requireLease();
+    if (frozenKey == null) {
+      frozenKey = buffer == null ? new GremlinShapeKey(tokens) : buffer.freeze();
+    }
+    return frozenKey;
+  }
+
+  private void appendRaw(String token) {
+    frozenKey = null;
+    if (buffer == null) {
+      tokens.add(token);
+    } else {
+      buffer.append(token);
+    }
+  }
+
+  private void appendCount(int count) {
+    frozenKey = null;
+    if (buffer == null) {
+      tokens.add(count);
+    } else {
+      buffer.append(count);
+    }
+  }
+
+  @Nullable private LinkedHashMap<Object, Object> bindings;
 
   @Nullable private final Schema schema;
 
@@ -41,9 +150,9 @@ final class GremlinShapeEncoder {
 
   private HasBindingContext hasBindingContext;
 
-  private final List<HasBindingContext.Slot> hasSlots = new ArrayList<>();
+  private List<HasBindingContext.Slot> hasSlots;
 
-  private final List<HasBindingContext.Contribution> hasContributions = new ArrayList<>();
+  private List<HasBindingContext.Contribution> hasContributions;
 
   void setHasBindingContext(HasBindingContext context) {
     hasBindingContext = context;
@@ -54,40 +163,70 @@ final class GremlinShapeEncoder {
   }
 
   int hasSlotCount() {
-    return hasSlots.size();
+    return hasSlots == null ? 0 : hasSlots.size();
   }
 
   void recordHasSlot(HasBindingContext.Slot slot) {
+    if (hasSlots == null) {
+      hasSlots = new ArrayList<>();
+    }
     hasSlots.add(slot);
   }
 
   void recordHasContribution(HasBindingContext context, int fromSlot) {
+    if (hasContributions == null) {
+      hasContributions = new ArrayList<>();
+    }
+    GremlinShapeBuffer.count(counters -> counters.contributions++);
     hasContributions.add(new HasBindingContext.Contribution(context,
-        hasSlots.subList(fromSlot, hasSlots.size())));
+        hasSlots == null ? List.of() : hasSlots.subList(fromSlot, hasSlots.size())));
   }
 
   List<HasBindingContext.Contribution> hasContributions() {
-    return List.copyOf(hasContributions);
+    return frozenContributions == null
+        ? (hasContributions == null ? List.of() : List.copyOf(hasContributions))
+        : frozenContributions;
   }
 
   GremlinShapeEncoder(@Nullable Schema schema) {
-    this(schema, null);
+    this(schema, null, null);
   }
 
-  GremlinShapeEncoder(@Nullable Schema schema,
+  GremlinShapeEncoder(@Nullable Schema schema, GremlinShapeBuffer buffer) {
+    this(schema, buffer, null);
+  }
+
+  GremlinShapeEncoder(@Nullable Schema schema, GremlinShapeBuffer buffer,
       @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
     this.schema = schema;
     this.runtimeRidStart = runtimeRidStart;
+    this.buffer = buffer;
+    leaseEpoch = buffer == null ? 0 : buffer.epoch();
+    tokens = buffer == null ? new ArrayList<>(96) : null;
+    harvest = buffer == null ? new ArrayList<>() : null;
   }
+
+  private int runtimeRidSlot = -1;
 
   @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
     return runtimeRidStart;
   }
 
-  /** The marker separates runtime and literal shapes without retaining the RID value. */
   void appendRuntimeRidStart() {
     appendToken("rrs");
+    if (runtimeRidStart.idContainer() == null) {
+      deferHarvest(this::bindRuntimeRidStart);
+    }
+  }
+
+  void bindRuntimeRidStart() {
+    runtimeRidSlot = bindings == null ? 0 : bindings.size();
     bindParam(runtimeRidStart.rid());
+  }
+
+  int runtimeRidSlot() {
+    harvest();
+    return runtimeRidSlot;
   }
 
   @Nullable Schema schema() {
@@ -108,37 +247,47 @@ final class GremlinShapeEncoder {
    * and does not store a template.
    */
   void markIncomplete() {
+    if (buffer != null) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
     complete = false;
   }
 
   @Nonnull
   String key() {
-    return sb.toString();
+    return compactKey().toString();
   }
 
   @Nonnull
   Map<Object, Object> bindings() {
-    return Map.copyOf(bindings);
+    return frozenBindings == null
+        ? (bindings == null ? Map.of() : Map.copyOf(bindings)) : frozenBindings;
   }
 
   void appendToken(String token) {
-    sb.append(token.length()).append(':').append(token);
+    appendCount(token.length());
+    appendRaw(token);
   }
 
   void appendToken(String label, String token) {
-    sb.append(label).append(':');
+    appendRaw(label);
+    appendRaw(":");
     appendToken(token);
   }
 
   void appendStringSeq(String label, String[] keys) {
-    sb.append(label).append(':').append(keys.length).append(':');
+    appendRaw(label);
+    appendRaw(":");
+    appendCount(keys.length);
     for (String key : keys) {
       appendToken(key == null ? "" : key);
     }
   }
 
   void appendStringSeq(String label, Collection<String> keys) {
-    sb.append(label).append(':').append(keys.size()).append(':');
+    appendRaw(label);
+    appendRaw(":");
+    appendCount(keys.size());
     for (String key : keys) {
       appendToken(key == null ? "" : key);
     }
@@ -150,6 +299,22 @@ final class GremlinShapeEncoder {
    * typed pattern structure, not rebound slots.
    */
   void appendPredicate(@Nullable P<?> predicate, boolean valuesAreStructural) {
+    if (buffer != null && predicate != null) {
+      // The audited fast subset uses scalar leaves. Connectives and custom predicates restart
+      // on the complete encoder before invoking conversions or walking their containers.
+      var type = predicate.getClass();
+      if (type != P.class && type != org.apache.tinkerpop.gremlin.process.traversal.TextP.class) {
+        throw GremlinShapeBuffer.UNSUPPORTED;
+      }
+      var operator = predicate.getBiPredicate();
+      if (!(operator instanceof org.apache.tinkerpop.gremlin.process.traversal.Compare
+          || operator instanceof org.apache.tinkerpop.gremlin.process.traversal.Contains
+          || operator instanceof Text
+          || (operator != null && operator.getClass() == Text.RegexPredicate.class))
+          || predicate.getValue() instanceof Collection<?>) {
+        throw GremlinShapeBuffer.UNSUPPORTED;
+      }
+    }
     if (predicate == null) {
       appendToken("P", "-");
       return;
@@ -157,17 +322,17 @@ final class GremlinShapeEncoder {
     if (predicate instanceof NotP<?> notP) {
       // NotP has no public getter for the wrapped predicate; negate() returns it (see
       // GremlinPredicateAdapter.translate).
-      sb.append("NOT:");
+      appendRaw("NOT:");
       appendPredicate(notP.negate(), valuesAreStructural);
       return;
     }
     if (predicate instanceof AndP<?> andP) {
-      sb.append("AND:");
+      appendRaw("AND:");
       appendPredicateList(andP.getPredicates(), valuesAreStructural);
       return;
     }
     if (predicate instanceof OrP<?> orP) {
-      sb.append("OR:");
+      appendRaw("OR:");
       appendPredicateList(orP.getPredicates(), valuesAreStructural);
       return;
     }
@@ -206,18 +371,26 @@ final class GremlinShapeEncoder {
   }
 
   private void appendPredicateList(List<? extends P<?>> children, boolean valuesAreStructural) {
-    sb.append(children.size()).append(':');
+    appendCount(children.size());
     for (var child : children) {
       appendPredicate(child, valuesAreStructural);
     }
   }
 
   void appendStructuralValue(@Nullable Object value) {
-    appendStructuralValue(value, new IdentityHashMap<>());
+    if (buffer != null && value != null && !(value instanceof String)
+        && !(value instanceof Integer) && !(value instanceof Long)
+        && !(value instanceof Boolean) && !(value instanceof Double)
+        && !(value instanceof Float) && !(value instanceof Short)
+        && !(value instanceof Byte) && !(value instanceof Character)) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
+    // Only collections need cycle tracking. Fast mode admits scalars only.
+    appendStructuralValue(value, value instanceof Collection<?> ? new IdentityHashMap<>() : null);
   }
 
   private void appendStructuralValue(@Nullable Object value,
-      IdentityHashMap<Collection<?>, Boolean> activeCollections) {
+      @Nullable IdentityHashMap<Collection<?>, Boolean> activeCollections) {
     // A value that prints like a String must not reuse an accepted String-label plan. Include the
     // type at every level so null, scalar values and nested collections also stay distinct.
     appendToken("sc", value == null ? "N" : value.getClass().getName());
@@ -229,7 +402,8 @@ final class GremlinShapeEncoder {
         appendToken("cycle");
         return;
       }
-      sb.append("C:").append(collection.size()).append(':');
+      appendRaw("C:");
+      appendCount(collection.size());
       for (var element : collection) {
         appendStructuralValue(element, activeCollections);
       }
@@ -240,12 +414,16 @@ final class GremlinShapeEncoder {
   }
 
   void appendValueClass(@Nullable Object value) {
+    if (buffer != null && value instanceof Collection<?>) {
+      throw GremlinShapeBuffer.UNSUPPORTED;
+    }
     if (value == null) {
       appendToken("vc", "N");
       return;
     }
     if (value instanceof Collection<?> collection) {
-      sb.append("VC:").append(collection.size()).append(':');
+      appendRaw("VC:");
+      appendCount(collection.size());
       for (var element : collection) {
         appendToken(element == null ? "N" : element.getClass().getName());
       }
@@ -255,8 +433,13 @@ final class GremlinShapeEncoder {
   }
 
   private SQLPositionalParameter bindParam(Object value) {
+    if (bindings == null) {
+      GremlinShapeBuffer.count(counters -> counters.bindingMaps++);
+      bindings = new LinkedHashMap<>();
+    }
     var slot = bindings.size();
     bindings.put(slot, value);
-    return SQLPositionalParameter.forSlot(slot);
+    // Harvest consumes only values and slot order, never the parameter AST.
+    return null;
   }
 }

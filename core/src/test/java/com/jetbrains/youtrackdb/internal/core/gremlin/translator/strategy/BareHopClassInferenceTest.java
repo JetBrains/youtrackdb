@@ -25,6 +25,10 @@ import org.junit.Test;
  */
 public class BareHopClassInferenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /**
    * One message with sixty replies. {@code REPLY_OF} declares both endpoint LINKs, which is what
    * makes the inference possible, and {@code Comment.creationDate} carries the ordered index.

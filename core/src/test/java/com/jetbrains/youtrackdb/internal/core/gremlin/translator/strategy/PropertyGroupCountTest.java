@@ -31,6 +31,10 @@ import org.junit.Test;
 /** Direct-count engagement and native parity, including the complete grouping shape. */
 public class PropertyGroupCountTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
 

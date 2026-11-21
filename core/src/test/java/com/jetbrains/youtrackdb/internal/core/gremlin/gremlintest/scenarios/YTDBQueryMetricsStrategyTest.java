@@ -48,6 +48,10 @@ import org.junit.runner.RunWith;
 @RunWith(GremlinProcessRunner.class)
 public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private static long wallClockAllowanceMillis;
 
   @BeforeClass

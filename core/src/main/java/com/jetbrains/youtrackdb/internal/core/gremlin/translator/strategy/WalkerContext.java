@@ -289,7 +289,7 @@ final class WalkerContext implements RecognitionContext {
       // Production demands derive from the walked traversal, never an extraction verdict.
       mergeFacts = walkedTraversal == null
           ? new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(), Map.of())
-          : TraverserMergeFacts.from(walkedTraversal);
+          : TraverserMergeFacts.from(walkedTraversal, environment);
     }
     return mergeFacts;
   }
@@ -349,6 +349,9 @@ final class WalkerContext implements RecognitionContext {
    *  re-typing; a {@code null} schema resolves every property as "not a declared String" and every
    *  class check as false. */
   @Nullable private final Schema schema;
+
+  // Owned by this walk, never attached to the traversal or its shared strategies.
+  @Nullable TranslationEnvironment environment;
 
   /** The recogniser registry a {@link #walkChild} sub-walk drives child sub-traversals against — the
    *  same registry the walker dispatches the top-level walk with, so a child dispatches identically.

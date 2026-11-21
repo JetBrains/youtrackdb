@@ -17,6 +17,9 @@ import org.junit.Test;
  */
 public class GremlinTranslationTelemetryTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final ForceMatchTranslationRule forceMatch = new ForceMatchTranslationRule();
+
   private GremlinTranslationMetrics metrics() {
     return GremlinTranslationMetrics.of(graphSession());
   }

@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext.InternalVariable;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalContextVariableSuffix;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchAliasModifier;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.MatchedVariableModifier;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -161,14 +163,16 @@ public final class ProjectionExpressionFactories {
   public static SQLExpression aliasProperty(String alias, String propertyKey) {
     requireNonBlank(alias, "alias");
     requireNonBlank(propertyKey, "property key");
-    return new SQLExpression(new SQLIdentifier(alias), propertyModifier(propertyKey));
+    return new SQLExpression(new SQLIdentifier(alias),
+        aliasModifier(alias, propertyModifier(propertyKey), false));
   }
 
   /** {@code alias.@rid} / {@code alias.@class} — a record-attribute access on the alias node. */
   public static SQLExpression aliasRecordAttribute(String alias, String attribute) {
     requireNonBlank(alias, "alias");
     requireNonBlank(attribute, "record attribute");
-    return new SQLExpression(new SQLIdentifier(alias), recordAttributeModifier(attribute));
+    return new SQLExpression(new SQLIdentifier(alias),
+        aliasModifier(alias, recordAttributeModifier(attribute), "@rid".equalsIgnoreCase(attribute)));
   }
 
   /**
@@ -190,10 +194,14 @@ public final class ProjectionExpressionFactories {
     for (var segment : segments) {
       requireNonBlank(segment, "segment");
       var modifier = segmentModifier(segment);
+      if (tail == first) {
+        modifier = aliasModifier(alias, modifier, "@rid".equalsIgnoreCase(segment));
+      }
       tail.next = modifier;
       tail = modifier;
     }
-    return internalVariable(InternalVariable.MATCHED, first);
+    return internalVariable(InternalVariable.MATCHED,
+        new MatchedVariableModifier(first.suffix, (MatchAliasModifier) first.next));
   }
 
   /**
@@ -228,7 +236,8 @@ public final class ProjectionExpressionFactories {
       String alias, String propertyKey, boolean ascending) {
     requireNonBlank(alias, "alias");
     requireNonBlank(propertyKey, "property key");
-    var item = orderByItem(alias, propertyModifier(propertyKey), ascending);
+    var item = orderByItem(alias,
+        aliasModifier(alias, propertyModifier(propertyKey), false), ascending);
     item.setGremlinToMatchTranslatorProduced(true);
     return item;
   }
@@ -238,7 +247,9 @@ public final class ProjectionExpressionFactories {
       String alias, String attribute, boolean ascending) {
     requireNonBlank(alias, "alias");
     requireNonBlank(attribute, "record attribute");
-    return orderByItem(alias, recordAttributeModifier(attribute), ascending);
+    return orderByItem(alias,
+        aliasModifier(alias, recordAttributeModifier(attribute), "@rid".equalsIgnoreCase(attribute)),
+        ascending);
   }
 
   /**
@@ -306,6 +317,11 @@ public final class ProjectionExpressionFactories {
     item.modifier = modifier;
     item.setType(ascending ? SQLOrderByItem.ASC : SQLOrderByItem.DESC);
     return item;
+  }
+
+  private static SQLModifier aliasModifier(String alias, SQLModifier modifier,
+      boolean identityOnly) {
+    return new MatchAliasModifier(alias, modifier.suffix, identityOnly);
   }
 
   private static SQLModifier propertyModifier(String propertyKey) {

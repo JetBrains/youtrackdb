@@ -50,6 +50,11 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
     this.filterCollectionIds = filterCollectionIds;
   }
 
+  /** Snapshot of the source collection restriction for typed access comparison. */
+  public int[] getFilterCollectionIds() {
+    return filterCollectionIds == null ? null : filterCollectionIds.toIntArray();
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
 
@@ -60,8 +65,7 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
     return resultSet.filter(this::filterMap);
   }
 
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     var finalVal = result.getProperty("rid");
     if (filterCollectionIds != null) {
       if (!(finalVal instanceof Identifiable id)) {
@@ -84,7 +88,7 @@ public class GetValueFromIndexEntryStep extends AbstractExecutionStep {
     if (finalVal instanceof Identifiable identifiable) {
       return new ResultInternal(ctx.getDatabaseSession(), identifiable);
 
-    // The index entry already contains a full result (e.g. from a subquery index).
+      // The index entry already contains a full result (e.g. from a subquery index).
     } else if (finalVal instanceof Result res) {
       return res;
     }
