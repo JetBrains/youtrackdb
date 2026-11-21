@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.OrderByNullsUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.Reason;
 import java.util.ArrayList;
 import java.util.List;
@@ -840,7 +841,7 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
 
   /** A later cold MATCH decision replaces an earlier native decision at the same generation. */
   @Test
-  public void overlappingColdProofsReuseTheWinningResidentDecision() {
+  public void laterColdMatchPublicationReplacesEarlierNativeDecision() {
     createRoutingIndex();
     var proofs = new AtomicInteger();
     var winner = countingStrategy(new AtomicInteger(), new AtomicInteger());
@@ -862,6 +863,41 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
     late.apply(warm);
     assertThat(TranslatorEquivalenceSupport.countBoundarySteps(warm)).isEqualTo(1);
     assertThat(proofs.get()).isEqualTo(2);
+  }
+
+  /** A cold native publisher adopts the newer MATCH resident installed before its read-back. */
+  @Test
+  public void coldPublisherAdoptsNewerResidentDecision() {
+    createRoutingIndex();
+    var cache = GremlinPlanCache.instance(db);
+    var key = GremlinStepWalker.extractShape(indexedRoute(), db).key();
+    var reachedPublication = new AtomicInteger();
+    var strategy = new GremlinToMatchStrategy(GremlinToMatchTranslator::translate,
+        GremlinToMatchStrategy::buildPlanEntry, true, GremlinToMatchStrategy::assertAgreement,
+        () -> {
+          reachedPublication.incrementAndGet();
+          // Install the competing caller after A writes, but before A reads its resident.
+          cache.afterTranslationPublication = () -> {
+            cache.afterTranslationPublication = null;
+            var own = (GremlinTranslationTemplate.Translate) cache.getTranslationInternal(key, db);
+            assertThat(own.decision().plain()).isTrue();
+            var competing = new GremlinTranslationTemplate.Translate(own.planTemplate(),
+                own.boundaryAlias(), own.outputType(), own.returnClass(), own.shaping(),
+                own.bindingCount(), own.hasContributions(),
+                PlainPlanDecision.rejected(Reason.NATIVE_PROOF_ERROR, null),
+                own.runtimeRidSlot());
+            GremlinPlanCache.putTranslation(key, competing, db, cache.getGeneration());
+          };
+        });
+    try {
+      var raw = indexedRoute();
+      strategy.apply(raw);
+      assertThat(reachedPublication.get()).isEqualTo(1);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
+      assertThat(raw.toList()).hasSize(1);
+    } finally {
+      cache.afterTranslationPublication = null;
+    }
   }
 
   /** Schema-local changes bypass native evidence and rollback restores ordinary cache access. */
@@ -941,11 +977,14 @@ public class GremlinEngineRoutingTest extends GraphBaseTest {
       proofs.incrementAndGet();
       return NativeStartProof.prove(traversal, session);
     };
+    var metrics = GremlinTranslationMetrics.of(db);
+    var errors = metrics.getErrors();
     for (int call = 0; call < 2; call++) {
       var raw = indexedRoute();
       strategy.apply(raw);
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
     }
+    assertThat(metrics.getErrors()).isEqualTo(errors + 2);
     assertThat(failures).containsExactly("Cold translation binding agreement failed",
         "Cold translation binding agreement failed");
     assertThat(proofs.get()).isZero();

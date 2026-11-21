@@ -88,6 +88,17 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
       new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
 
+  /** The production warning remains observable when the assertion is bypassed as with -da. */
+  @Test
+  public void agreementFailureWarnsWithoutAssertions() {
+    try (var logs = com.jetbrains.youtrackdb.internal.LogRecordCollector
+        .attachTo(GremlinToMatchStrategy.class)) {
+      GremlinToMatchStrategy.assertAgreement("test disagreement", false);
+      assertThat(logs.warnedWithAll("Gremlin translation agreement failed")).isTrue();
+      assertThat(logs.messages()).noneMatch(message -> message.contains("test disagreement"));
+    }
+  }
+
   /** Equality-source evidence is invocation-local and does not authorize another value or tail. */
   @Test
   public void nativeIndexedSourceRequiresCompleteNativeEvidence() {

@@ -23,6 +23,73 @@ import org.openjdk.jmh.annotations.Param;
 /** Verifies workload selection for the IC2 and pre-valueMap bulking benchmark identities. */
 public class LdbcGremlinBenchmarkWiringTest {
 
+  /** Maven combines workflow exclusions with the default and supports an empty manual override. */
+  @Test
+  public void launcherDefaultExcludesBulkingButKeepsRidBenchmarks() throws Exception {
+    var pom = java.nio.file.Files.readString(java.nio.file.Path.of("pom.xml"));
+    var defaults = launcherDefaults(pom);
+    assertSelection(defaults, 0, 5);
+    assertSelection("", 7, 5);
+    // Exercise both wiring mutations against the same assertion used for the real POM.
+    assertThrows(AssertionError.class, () -> launcherDefaults(
+        pom.replace("-e gremlin_bulking", "")));
+    assertThrows(AssertionError.class, () -> launcherDefaults(
+        pom.replace(" ${jmh.defaultExcludes}</argument>", "</argument>")));
+  }
+
+  private static String launcherDefaults(String pom) throws Exception {
+    var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+    factory.setFeature(javax.xml.XMLConstants.FEATURE_SECURE_PROCESSING, true);
+    factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+    factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+    var document = factory.newDocumentBuilder().parse(new org.xml.sax.InputSource(
+        new java.io.StringReader(pom)));
+    var defaults = document.getElementsByTagName("jmh.defaultExcludes").item(0)
+        .getTextContent().trim();
+    var plugins = document.getElementsByTagName("plugin");
+    String launcher = null;
+    for (int i = 0; i < plugins.getLength(); i++) {
+      var plugin = (org.w3c.dom.Element) plugins.item(i);
+      if (plugin.getElementsByTagName("artifactId").item(0).getTextContent()
+          .equals("exec-maven-plugin")) {
+        var arguments = plugin.getElementsByTagName("argument");
+        for (int j = 0; j < arguments.getLength(); j++) {
+          var argument = arguments.item(j).getTextContent();
+          if (argument.contains("org.openjdk.jmh.Main")) {
+            launcher = argument;
+          }
+        }
+      }
+    }
+    assertNotNull(launcher);
+    assertTrue(launcher.contains("${jmh.args} ${jmh.defaultExcludes}"));
+    // Check semantics as well as the launcher reference. Clearing the default must fail.
+    assertSelection(defaults, 0, 5);
+    return defaults;
+  }
+
+  private static void assertSelection(String defaults, long expectedBulking, long expectedRid)
+      throws Exception {
+    var arguments = new java.util.ArrayList<>(List.of("-e", "BothE|pagelock"));
+    if (!defaults.isBlank()) {
+      arguments.addAll(List.of(defaults.split("\\s+")));
+    }
+    // Use JMH's parser so repeated -e handling is the launcher's actual behavior.
+    var options = new org.openjdk.jmh.runner.options.CommandLineOptions(
+        arguments.toArray(String[]::new));
+    var excludes = options.getExcludes().stream()
+        .map(java.util.regex.Pattern::compile).toList();
+    var selected = Arrays.stream(LdbcGremlinTranslatorBenchmark.class.getDeclaredMethods())
+        .filter(method -> method.isAnnotationPresent(Benchmark.class))
+        .map(java.lang.reflect.Method::getName)
+        .filter(name -> excludes.stream().noneMatch(pattern -> pattern.matcher(name).find()))
+        .toList();
+    assertEquals(expectedBulking,
+        selected.stream().filter(name -> name.startsWith("gremlin_bulking")).count());
+    assertEquals(expectedRid,
+        selected.stream().filter(name -> name.startsWith("gremlin_rid")).count());
+  }
+
   private static final Date CURATED_DATE = new Date(1000);
   private static final Date LIVE_DATE = new Date(2000);
 

@@ -45,8 +45,8 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       subclass-expanded under polymorphic mode). Disjoint trees under {@code V} keep the {@code V}
  *       root and the IN filter alone. Two conflicting {@code ~label} containers decline (one MATCH
  *       node has one class);
- *   <li>an eligible root {@code ~id} container ({@code T.id} accessor) binds its RID as parameter
- *       slot zero. It adds no {@code @rid IN} filter and does not call {@code markRidBearing}.
+ *   <li>an eligible root {@code ~id} container ({@code T.id} accessor) binds its RID at its container position
+ *       in the parameter sequence. It adds no {@code @rid IN} filter and does not call {@code markRidBearing}.
  *       Its runtime-start plan may be cached. Other {@code ~id} containers contribute an
  *       {@code @rid IN [...]} filter via the builder shared with {@link StartStepRecogniser}.
  *       {@code hasId} is set

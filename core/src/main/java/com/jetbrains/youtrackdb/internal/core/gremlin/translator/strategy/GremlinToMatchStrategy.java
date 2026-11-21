@@ -355,7 +355,21 @@ public final class GremlinToMatchStrategy
   }
 
   static void assertAgreement(String reason) {
-    assert false : reason;
+    assertAgreement(reason, true);
+  }
+
+  /** Test seam bypasses only the assertion, not the production warning. */
+  static void assertAgreement(String reason, boolean assertEnabled) {
+    // Reasons are fixed structural descriptions. Never log bindings or predicate values.
+    LOGGER.warn("Gremlin translation agreement failed");
+    if (assertEnabled) {
+      assert false : reason;
+    }
+  }
+
+  private void reportAgreementFailure(String reason, DatabaseSessionEmbedded session) {
+    GremlinTranslationMetrics.of(session).recordError(null);
+    agreementFailure.accept(reason);
   }
 
   /** Singleton accessor — the strategy is stateless and cheap to share. */
@@ -465,7 +479,12 @@ public final class GremlinToMatchStrategy
     var cache = GremlinPlanCache.instance(session);
     cache.prepare(session);
     var generation = cache.getInvalidationCounter();
-    var runtimeStart = cache.isRuntimeRidStartEnabled()
+    var runtimeStartEnabled = cache.isRuntimeRidStartEnabled();
+    // ID-free buffered starts need no eligibility scan unless emission declines (for hasId).
+    var evaluateRuntimeStart = !populateTranslationCache || !cache.isEnabled()
+        || session.getTxSchemaState() != null
+        || ((GraphStep<?, ?>) traversal.getStartStep()).getIds().length > 0;
+    var runtimeStart = runtimeStartEnabled && evaluateRuntimeStart
         ? RuntimeRidStartEligibility.evaluate(traversal, true) : null;
     var eligible = session.getTxSchemaState() == null && cache.isEnabled();
     // Resolve all order settings once for this compilation. The shape key below and the walk
@@ -497,6 +516,9 @@ public final class GremlinToMatchStrategy
               new GremlinShapeEncoder(session.getSchema(), lease, runtimeStart));
         } catch (GremlinShapeBuffer.Unsupported unsupported) {
           GremlinShapeBuffer.count(counters -> counters.fallbacks++);
+          if (runtimeStartEnabled && !evaluateRuntimeStart) {
+            runtimeStart = RuntimeRidStartEligibility.evaluate(traversal, true);
+          }
           extraction = GremlinStepWalker.extractShape(traversal, session, orderIncludesMissingKey,
               orderByNullsPlacements, polymorphic, environment, runtimeStart);
         }
@@ -539,7 +561,7 @@ public final class GremlinToMatchStrategy
             metrics.recordSuccess();
             return;
           }
-          agreementFailure.accept("Translation cache binding agreement failed");
+          reportAgreementFailure("Translation cache binding agreement failed", session);
         }
       }
       extraction = extraction == null ? emitted.extraction() : extraction;
@@ -764,7 +786,7 @@ public final class GremlinToMatchStrategy
       boolean absenceAgrees = !extraction.orderedExpandAbsent()
           || !OrderedFilterBinding.hasOrderedExpand(translation.shaping());
       if (!absenceAgrees) {
-        agreementFailure.accept("Ordered expand contradicts extraction absence");
+        reportAgreementFailure("Ordered expand contradicts extraction absence", session);
       }
       boolean retentionEligible = populateTranslationCache && cacheScope.eligible
           && planned.generation == cacheScope.generation
@@ -778,7 +800,7 @@ public final class GremlinToMatchStrategy
                 == translation.shaping().propertyMapBulkingCapacity()
             && OrderedFilterBinding.fromExtraction(translation.shaping(), extraction) != null;
         if (!bindingsAgree) {
-          agreementFailure.accept("Cold translation binding agreement failed");
+          reportAgreementFailure("Cold translation binding agreement failed", session);
         }
       }
       var decision = PlainBoundaryClassifier.classify(plan, translation);

@@ -682,8 +682,8 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
         walker.verify(() -> GremlinStepWalker.hasDuplicateStepLabels(warmA));
         walker.verify(() -> GremlinStepWalker.selectCollidesWithSideEffect(warmA));
       }
-      // Admission scans once for a runtime start, then fast emission scans the structure once.
-      org.mockito.Mockito.verify(has, org.mockito.Mockito.times(2)).getHasContainers();
+      // ID-free fast emission scans the structure only once.
+      org.mockito.Mockito.verify(has, org.mockito.Mockito.times(1)).getHasContainers();
       assertThat(counters.leases).isEqualTo(1);
       assertThat(counters.emissions).isEqualTo(1);
       assertThat(counters.hits).isEqualTo(1);
@@ -832,6 +832,25 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     var second = cache.getTranslationInternal(new GremlinShapeKey(new Object[] {1}), db);
     assertThat(first).isNotNull().isNotSameAs(second);
     assertThat(second).isNotNull();
+
+    // Fix the order under the same forced collision. A newer write must replace the resident
+    // and be returned even to the earlier publisher before its final read.
+    var key = new GremlinShapeKey(new Object[] {0});
+    var later = new GremlinTranslationTemplate.Decline();
+    cache.afterTranslationPublication = () -> {
+      cache.afterTranslationPublication = null;
+      assertThat(cache.putTranslationInternal(key, later, db, cache.getGeneration()))
+          .isSameAs(later);
+    };
+    try {
+      assertThat(cache.putTranslationInternal(key, publications.get(0), db, cache.getGeneration()))
+          .isSameAs(later);
+      assertThat(cache.getTranslationInternal(key, db)).isSameAs(later);
+      assertThat(cache.getTranslationInternal(new GremlinShapeKey(new Object[] {1}), db))
+          .isSameAs(second);
+    } finally {
+      cache.afterTranslationPublication = null;
+    }
   }
 
   /** An exception after emission clears every retained reference before the next compilation. */
