@@ -1000,6 +1000,11 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       if (logicalFiles != null) {
+        // Name-only booking takes the id from the canonical name.
+        // It reuses RESERVED or DELETED ids.
+        // The supplied-id overload refuses both unless reconstructAuxiliary is true.
+        // That flag also limits booking to rebuildable auxiliary roles.
+        // Delegating to that overload would change this method's behavior.
         var identity = PageFileNames.parseLayout28(fileName).orElseThrow(
             () -> new StorageException(storageName,
                 "Not a canonical layout 28 logical name: " + fileName));
