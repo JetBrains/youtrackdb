@@ -113,7 +113,7 @@ public final class IndexOrderedPlanner {
   // multiple source rows, which the single-source path cannot handle (it reads
   // only the first upstream row), so those fall through to a multi-source mode.
   private final Map<String, List<SQLRid>> aliasPinnedRids;
-  /** At-most-one source proofs used only while probing a runtime-start plan. */
+  /** At-most-one source proofs for planning an edge rooted at a runtime RID slot. */
   private final Set<String> runtimeSingleSources;
   @Nullable private final SQLOrderBy orderBy;
   @Nullable private final SQLSkip skip;
@@ -381,7 +381,7 @@ public final class IndexOrderedPlanner {
     // 9. Determine multi-source mode (null = single-source).
     // Single-source is safe when the source produces at most one row:
     //   (a) explicit singleton RID constraint ({rid: #X:Y}),
-    //   (b) a runtime RID source (detection probe only), or
+    //   (b) a runtime RID source, or
     //   (c) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
     // With class + non-unique WHERE, the estimator may undercount
     // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,

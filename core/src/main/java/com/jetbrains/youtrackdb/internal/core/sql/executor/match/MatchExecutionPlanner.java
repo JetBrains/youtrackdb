@@ -726,7 +726,7 @@ public class MatchExecutionPlanner {
             .filter(x -> !dependsOnExecutionContext(x.getKey()))
             .map(Entry::getKey)
             .collect(Collectors.toSet())
-        : Set.<String>of();
+        : new HashSet<String>();
 
     // Short-circuit: if any non-optional alias has zero estimated records, the query
     // is guaranteed to produce no results, so skip pattern scheduling and return an empty plan.
@@ -770,8 +770,12 @@ public class MatchExecutionPlanner {
       observeRootPlanning(estimatedRootEntries, aliasesToPrefetch, probeEdges);
       indexOrderedCandidate = detectIndexOrderedCandidate(
           probeEdges, context, estimatedRootEntries);
-      if (indexOrderedCandidate != null && !runtimeRidStarts.isEmpty()) {
-        throw new RuntimeRidStartPlanningException("Index-ordered MATCH requires a literal start");
+      if (indexOrderedCandidate != null && !runtimeRidStarts.isEmpty()
+          && (!runtimeRidStarts.containsKey(indexOrderedCandidate.sourceAlias())
+              || indexOrderedCandidate.edgeTraversal() != probeEdges.getFirst())) {
+        // Only the first scheduled edge has the runtime slot as its singleton root.
+        throw new RuntimeRidStartPlanningException(
+            "Index-ordered MATCH requires the runtime RID start as its single root");
       }
       // Edge-free literal root: delegate property ordering to SELECT.
       if (indexOrderedCandidate == null && runtimeRidStarts.isEmpty()) {
