@@ -757,7 +757,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
   public void unusedAllocationDoesNotEmitRecord() throws IOException {
     var op = createOperationWithWAL();
     long fileId = composeFileId(60, STORAGE_ID);
-    when(writeCache.bookFileId("unused.dat")).thenReturn(fileId);
+    when(writeCache.bookFileIdWithOwnership("unused.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+        }));
     op.addFile("unused.dat");
     op.allocatePageForWrite(fileId, 0);
 
@@ -840,7 +842,9 @@ public class AtomicOperationBinaryTrackingWALSkipTest {
       throws IOException {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
 
     long fileId = op.addFile(fileName, nonDurable);
 

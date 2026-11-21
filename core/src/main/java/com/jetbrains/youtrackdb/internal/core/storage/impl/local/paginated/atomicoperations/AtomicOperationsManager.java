@@ -560,9 +560,11 @@ public class AtomicOperationsManager {
           }
         }
 
+      } catch (IOException | RuntimeException | Error failure) {
+        currentError = failure;
+        throw failure;
       } finally {
-        releaseLocks(operation);
-        operation.deactivate();
+        finishOperation(operation, currentError);
       }
 
       // Re-raise a prerequisite or persist failure captured above. Must run after
@@ -597,6 +599,39 @@ public class AtomicOperationsManager {
       }
     } finally {
       writeOperationsFreezer.endOperation();
+    }
+  }
+
+  private void finishOperation(AtomicOperation operation, Throwable primary) {
+    Throwable failure = primary;
+    // Each finalizer must run even when an earlier one fails. Preserve the commit failure.
+    Runnable[] finalizers = {
+        () -> {
+          if (operation instanceof AtomicOperationBinaryTracking tracking) {
+            tracking.releaseFileBookings();
+          }
+        },
+        () -> releaseLocks(operation),
+        operation::deactivate
+    };
+    for (var finalizer : finalizers) {
+      try {
+        finalizer.run();
+      } catch (RuntimeException | Error secondary) {
+        if (failure == null) {
+          failure = secondary;
+        } else {
+          suppressCleanupFailure(failure, secondary);
+        }
+      }
+    }
+    if (primary == null) {
+      if (failure instanceof RuntimeException runtime) {
+        throw runtime;
+      }
+      if (failure != null) {
+        throw (Error) failure;
+      }
     }
   }
 

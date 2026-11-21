@@ -85,7 +85,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final int storageId;
   @Nullable private AbstractStorage creationStorage;
   private boolean suppliedFileCreated;
-  // Retain ownership after a pending supplied creation is deleted, so only its exact
+  private final ArrayList<Runnable> bookingReleases = new ArrayList<>();
+  // Retain the pair after a pending supplied creation is deleted, so only its exact
   // name and internal id can reuse the booking without weakening cache conflict checks.
   private final Object2LongOpenHashMap<String> suppliedBookings = new Object2LongOpenHashMap<>();
 
@@ -885,10 +886,36 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       deletedFiles.remove(fileId);
       isNew = false;
     } else {
-      fileId = writeCache.bookFileId(fileName);
+      var booking = writeCache.bookFileIdWithOwnership(fileName, null, false);
+      bookingReleases.add(booking.release());
+      fileId = booking.fileId();
       isNew = true;
     }
     return bufferNewFile(fileName, fileId, nonDurable, isNew);
+  }
+
+  // Finalization runs before component locks drain, but need not hold creation exclusion.
+  // Cache releases use filesLock and reservation identity to protect newer or published state.
+  void releaseFileBookings() {
+    Throwable failure = null;
+    for (var release : bookingReleases) {
+      try {
+        release.run();
+      } catch (RuntimeException | Error secondary) {
+        if (failure == null) {
+          failure = secondary;
+        } else if (failure != secondary) {
+          failure.addSuppressed(secondary);
+        }
+      }
+    }
+    bookingReleases.clear();
+    if (failure instanceof RuntimeException runtime) {
+      throw runtime;
+    }
+    if (failure != null) {
+      throw (Error) failure;
+    }
   }
 
   private void validateReuseDurability(long fileId, boolean nonDurable) {
@@ -978,7 +1005,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             throw identityConflict(fileName, expectedId);
           }
         }
-        fileId = writeCache.bookFileId(fileName, expectedId, reconstructAuxiliary);
+        var booking = writeCache.bookFileIdWithOwnership(fileName, expectedId,
+            reconstructAuxiliary);
+        bookingReleases.add(booking.release());
+        fileId = booking.fileId();
         suppliedBookings.put(fileName, fileId);
         isNew = true;
       }

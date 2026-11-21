@@ -223,7 +223,9 @@ public class AllocatePageForWriteTest {
   public void freshBookedFileSkipsReadCacheUntilCommit() throws IOException {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
 
-    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    when(writeCache.bookFileIdWithOwnership("fresh.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+        }));
     op.addFile("fresh.dat");
 
     var entry = (CacheEntryChanges) op.allocatePageForWrite(fileId, 0);
@@ -261,7 +263,9 @@ public class AllocatePageForWriteTest {
   @Test
   public void secondCallReturnsExistingOverlayOnFreshBookedFile() throws IOException {
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    when(writeCache.bookFileIdWithOwnership("fresh.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+        }));
     op.addFile("fresh.dat");
 
     var first = op.allocatePageForWrite(fileId, 0);
@@ -294,7 +298,9 @@ public class AllocatePageForWriteTest {
     // interaction until commitChanges) — the bookkeeping under test is the
     // pageChangesMap insert + maxNewPageIndex bump, both of which happen on
     // that branch regardless of the engine.
-    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    when(writeCache.bookFileIdWithOwnership("fresh.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+        }));
     op.addFile("fresh.dat");
 
     op.allocatePageForWrite(fileId, 0);
@@ -617,7 +623,9 @@ public class AllocatePageForWriteTest {
     final var inMemoryOp = newInMemoryOp(inMemoryCache);
 
     long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
-    when(writeCache.bookFileId("fresh.dat")).thenReturn(fileId);
+    when(writeCache.bookFileIdWithOwnership("fresh.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+        }));
     var pointer = stubPointer(fileId, 0L);
     when(inMemoryCache.loadOrAdd(fileId, 0L, false)).thenReturn(pointer);
 

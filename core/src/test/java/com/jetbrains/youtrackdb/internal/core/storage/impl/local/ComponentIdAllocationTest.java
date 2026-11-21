@@ -782,20 +782,21 @@ public class ComponentIdAllocationTest {
   public void maplessColdOpenIgnoresLeftoversButBookingProtectsTheirBytes() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
     final int[] counters;
-    try (var session = open()) {
-      counters = counters(session.getStorage());
-    }
-    ytdb.close();
     var database = Path.of(directory, "counters");
     var leftovers = new HashMap<PageFileIdentity, byte[]>();
-    for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
-        PageFileRole.CONFIG_DATA}) {
-      var identity = new PageFileIdentity(role, counters[role.kind().ordinal()] + 1);
-      var bytes = new byte[com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE];
-      java.util.Arrays.fill(bytes, (byte) 42);
-      Files.write(database.resolve(PageFileNames.layout28DiskName(identity)), bytes);
-      leftovers.put(identity, bytes);
+    try (var session = open()) {
+      var cache = session.getStorage().getWriteCache();
+      counters = counters(session.getStorage());
+      // Cache creation without a configuration commit models a lost creating unit.
+      for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
+          PageFileRole.CONFIG_DATA}) {
+        var identity = new PageFileIdentity(role, counters[role.kind().ordinal()] + 1);
+        cache.addFile(PageFileNames.layout28(identity), identity.internalId());
+        leftovers.put(identity, Files.readAllBytes(
+            database.resolve(PageFileNames.layout28DiskName(identity))));
+      }
     }
+    ytdb.close();
     StorageBirthTestSupport.removeNameIdMaps(database);
     ytdb = (YouTrackDBImpl) YourTracks.instance(directory);
     try (var session = open()) {
@@ -819,7 +820,11 @@ public class ComponentIdAllocationTest {
         int next = allocate(storage, identity.kind());
         assertEquals(identity.componentId() + 1, next);
         var retry = new PageFileIdentity(identity.role(), next);
-        wc.bookFileId(PageFileNames.layout28(retry), retry.internalId(), false);
+        var retryName = PageFileNames.layout28(retry);
+        wc.bookFileId(retryName, retry.internalId(), false);
+        wc.addFile(retryName, retry.internalId());
+        assertTrue(wc.exists(retryName));
+        assertTrue(Files.exists(database.resolve(PageFileNames.layout28DiskName(retry))));
       }
     }
   }
@@ -1921,7 +1926,7 @@ public class ComponentIdAllocationTest {
     }
   }
 
-  // A rollback after physical creation restores the persistent counter, but not the live watermark.
+  // A rollback of buffered creation restores the persistent counter, but not the live watermark.
   @Test
   public void rolledBackCollectionCreationBurnsItsComponentId() throws Exception {
     create(StorageFormat.LAYOUT_28, DatabaseType.DISK);

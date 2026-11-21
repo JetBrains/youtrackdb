@@ -485,10 +485,11 @@ public class WOWCacheNonDurableFileTrackingTest {
         wowCache.delete();
       }
       createNewCache(callFsync, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
-      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 42);
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, callFsync ? 43 : 42);
       wowCache.addFile(PageFileNames.layout28(identity), identity.internalId());
       final var map = storagePath.resolve("name_id_map_v3.cm");
-      final var bytes = Files.readAllBytes(map);
+      final var bytes = new byte[] {7, 2, 8};
+      Files.write(map, bytes);
       assertTrue(bytes.length > 0);
       final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
       Files.createDirectory(backup);
@@ -535,7 +536,8 @@ public class WOWCacheNonDurableFileTrackingTest {
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 42);
     final var fileId = wowCache.addFile(PageFileNames.layout28(identity), identity.internalId());
     final var map = storagePath.resolve("name_id_map_v3.cm");
-    final var bytes = Files.readAllBytes(map);
+    final var bytes = new byte[] {7, 2, 8};
+    Files.write(map, bytes);
     final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
     Files.createDirectory(backup);
     final var real = files.remove(fileId);
@@ -1091,7 +1093,7 @@ public class WOWCacheNonDurableFileTrackingTest {
     long id = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()), true);
     wowCache.close();
     // Model a crash image with a persisted registry but no identity-map evidence.
-    Files.delete(storagePath.resolve("name_id_map_v3.cm"));
+    StorageBirthTestSupport.removeNameIdMaps(storagePath);
     createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
     assertTrue(wowCache.isNonDurable(id));
     var readCache = createReadCache();
@@ -1134,7 +1136,8 @@ public class WOWCacheNonDurableFileTrackingTest {
     var namesBefore = java.util.Map.copyOf(names);
     var idsBefore = java.util.Map.copyOf(ids);
     var registry = storagePath.resolve("name_id_map_v3.cm");
-    var registryBefore = Files.readAllBytes(registry);
+    byte[] registryBefore = {3, 5, 8};
+    Files.write(registry, registryBefore);
     // Seed live logical state without restoring a physical handle.
     wowCache.logicalFiles().register(name, identity.internalId(), false);
     wowCache.deleteFile(id);

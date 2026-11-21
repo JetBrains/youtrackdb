@@ -151,7 +151,9 @@ public class CommitChangesPageApplyHookTest {
       AtomicOperationBinaryTracking op, String fileName, int pageCount) throws IOException {
     long internalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(internalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile(fileName);
 
     for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {

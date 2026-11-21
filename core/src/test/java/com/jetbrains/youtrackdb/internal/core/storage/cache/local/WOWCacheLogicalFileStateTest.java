@@ -79,22 +79,22 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // Stale canonical records cannot install handles, even when their backing files survive.
-  // Mutation appends create a missing map, while lifecycle close leaves its bytes unchanged.
+  // Explicit stale map evidence survives cold open without installing an unknown file.
   @Test
-  public void staleCanonicalMapIsIgnoredAndMutationBridgeCreatesMissingMap() throws Exception {
+  public void staleCanonicalMapIsIgnoredAndCreationLeavesMapAbsent() throws Exception {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9070);
       var name = PageFileNames.layout28(identity);
-      long id = cache.externalFileId(identity.internalId());
-      var field = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
-      field.setAccessible(true);
-      var map = (Path) field.get(cache);
+      long id = cache.addFile(name);
+      var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
       assertFalse(Files.exists(map));
-      cache.addFile(name, id);
+      var writer = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
+          NameFileIdEntry.class, boolean.class);
+      writer.setAccessible(true);
+      writer.invoke(cache, new NameFileIdEntry(name, identity.internalId(),
+          PageFileNames.layout28DiskName(identity)), true);
       var bytes = Files.readAllBytes(map);
       cache.close();
-      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
       cache.loadRegisteredFiles();
       assertAbsent(cache, identity);
       var handlesField = WOWCache.class.getDeclaredField("files");
@@ -103,22 +103,92 @@ public class WOWCacheLogicalFileStateTest {
       var handles = (ClosableLinkedContainer<Long, ?>) handlesField.get(cache);
       assertNull(handles.get(id));
       org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
-      cache.close();
-      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
       Files.delete(map);
-      cache.loadRegisteredFiles();
-      assertTrue(cache.admitExpectedFile(identity));
-      assertFalse(Files.exists(map));
-      var recovered = new PageFileIdentity(PageFileRole.RECORD_DATA, 9071);
-      cache.resolveRecoveryFile(PageFileNames.layout28(recovered),
-          cache.externalFileId(recovered.internalId()),
-          com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.REPLAY_CREATE);
-      assertFalse(Files.exists(map));
-      assertLive(cache, recovered, false);
-      var created = new PageFileIdentity(PageFileRole.RECORD_DATA, 9072);
-      cache.addFile(PageFileNames.layout28(created), cache.externalFileId(created.internalId()));
-      assertTrue(Files.exists(map));
-      assertLive(cache, created, false);
+      Files.createDirectory(map);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        assertTrue(cache.admitExpectedFile(identity));
+        var created = new PageFileIdentity(PageFileRole.RECORD_DATA, 9072);
+        var createdName = PageFileNames.layout28(created);
+        assertEquals(cache.externalFileId(created.internalId()), cache.bookFileId(createdName));
+        cache.addFile(createdName);
+        assertLive(cache, created, false);
+        assertTrue(Files.exists(cache.getRootDirectory()
+            .resolve(PageFileNames.layout28DiskName(created))));
+      }
+      assertTrue(Files.isDirectory(map));
+      Files.delete(map);
+    });
+  }
+
+  // Both entry kinds reject unadmitted leftovers and paths that appear after booking.
+  @Test
+  public void freshCreationRefusesExistingPathsWithoutChangingBytes() throws Exception {
+    withStandaloneCache(cache -> {
+      var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
+      Files.createDirectory(map);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        for (boolean booked : new boolean[] {false, true}) {
+          var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, booked ? 9074 : 9073);
+          var name = PageFileNames.layout28(identity);
+          long id = cache.externalFileId(identity.internalId());
+          if (booked) {
+            assertEquals(id, cache.bookFileId(name, id, false));
+          }
+          var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+          byte[] bytes = {1, 4, 9};
+          Files.write(disk, bytes);
+          assertThrows(StorageException.class, () -> cache.addFile(name, id));
+          assertThrows(StorageException.class, () -> cache.addFile(name));
+          assertThrows(StorageException.class, () -> cache.bookFileId(name));
+          org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(disk));
+          assertFalse(cache.exists(id));
+          assertEquals(booked, cache.logicalFiles().reserved(identity.internalId()));
+        }
+      }
+      Files.delete(map);
+    });
+  }
+
+  // Exclusive creation refuses a path that wins the race, without opening or shrinking it.
+  @Test
+  public void exclusiveCreateNeverFallsBackToOpeningAnExistingFile() throws Exception {
+    var file = mock(com.jetbrains.youtrackdb.internal.core.storage.fs.File.class);
+    var failure = new java.nio.file.FileAlreadyExistsException("raced");
+    org.mockito.Mockito.doThrow(failure).when(file).create();
+    var create = WOWCache.class.getDeclaredMethod("createFile",
+        com.jetbrains.youtrackdb.internal.core.storage.fs.File.class,
+        boolean.class, boolean.class);
+    create.setAccessible(true);
+    var thrown = assertThrows(java.lang.reflect.InvocationTargetException.class,
+        () -> create.invoke(null, file, true, true));
+    org.junit.Assert.assertSame(failure, thrown.getCause());
+    verify(file, never()).exists();
+    verify(file, never()).open();
+    verify(file, never()).shrink(0);
+  }
+
+  // A handle-free tombstone rejects strict booking. Reconstruction owns only its new reservation.
+  @Test
+  public void releasedReconstructionDoesNotRestoreDeletedStateOrRemoveLiveState() throws Exception {
+    withStandaloneCache(cache -> {
+      var identity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9075);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      cache.deleteFile(id);
+      assertDeleted(cache, identity);
+      assertThrows(StorageException.class, () -> cache.bookFileId(name, id, false));
+      var owner = cache.bookFileIdWithOwnership(name, id, true);
+      var borrower = cache.bookFileIdWithOwnership(name, id, true);
+      borrower.release().run();
+      assertReserved(cache, identity);
+      owner.release().run();
+      assertAbsent(cache, identity);
+      var next = cache.bookFileIdWithOwnership(name, null, false);
+      owner.release().run();
+      assertReserved(cache, identity);
+      cache.addFile(name);
+      next.release().run();
+      assertLive(cache, identity, false);
     });
   }
 
@@ -748,9 +818,7 @@ public class WOWCacheLogicalFileStateTest {
           () -> cache.addFile("alias.pcl", wrongId, true),
           () -> cache.bookFileId("alias.pcl"),
           () -> cache.bookFileId("alias.pcl", wrongId, false),
-          () -> cache.bookFileId("alias.pcl", wrongId, true),
-          () -> cache.addFile(PageFileNames.layout28(b)),
-          () -> cache.bookFileId(PageFileNames.layout28(b)))) {
+          () -> cache.bookFileId("alias.pcl", wrongId, true))) {
         assertRejectedUnchanged(cache, registration);
         assertReserved(cache, a);
       }
@@ -817,9 +885,9 @@ public class WOWCacheLogicalFileStateTest {
     });
   }
 
-  // A failed name-id write leaves a live map entry but must not invent non-durable membership.
+  // A blocked map path cannot prevent eager creation or change durability classification.
   @Test
-  public void failedNameIdWriteKeepsShadowDurabilityAlignedWithRegistry() throws Exception {
+  public void blockedNameIdPathDoesNotAffectDurabilityRegistry() throws Exception {
     var directory = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-failure";
     var manager = (YouTrackDBImpl) YourTracks.instance(directory);
     try {
@@ -839,12 +907,12 @@ public class WOWCacheLogicalFileStateTest {
         try {
           // A directory cannot be opened as the writable name-id registry file.
           pathField.set(cache, ((DiskStorage) session.getStorage()).getStoragePath());
-          assertThrows(IOException.class, () -> cache.addFile(name, id, true));
+          cache.addFile(name, id, true);
         } finally {
           pathField.set(cache, originalPath);
         }
-        assertFalse(cache.isNonDurable(id));
-        assertLive(cache, identity, false);
+        assertTrue(cache.isNonDurable(id));
+        assertLive(cache, identity, true);
         assertFalse(cache.logicalFiles().reserved(identity.internalId()));
         cache.deleteFile(id);
         cache.addFile(name, id, true);
@@ -1060,7 +1128,7 @@ public class WOWCacheLogicalFileStateTest {
     var pathField = WOWCache.class.getDeclaredField("nameIdMapHolderPath");
     pathField.setAccessible(true);
     var path = (Path) pathField.get(cache);
-    var registry = Files.readAllBytes(path);
+    var registry = Files.exists(path) ? Files.readAllBytes(path) : null;
     java.util.Set<Path> files;
     try (var entries = Files.list(path.getParent())) {
       files = entries.collect(java.util.stream.Collectors.toSet());
@@ -1077,7 +1145,8 @@ public class WOWCacheLogicalFileStateTest {
     assertEquals(names, snapshot(cache, "nameIdMap"));
     assertEquals(ids, snapshot(cache, "idNameMap"));
     assertEquals(states, snapshot(cache.logicalFiles(), "states"));
-    org.junit.Assert.assertArrayEquals(registry, Files.readAllBytes(path));
+    org.junit.Assert.assertArrayEquals(registry,
+        Files.exists(path) ? Files.readAllBytes(path) : null);
     try (var entries = Files.list(path.getParent())) {
       assertEquals(files, entries.collect(java.util.stream.Collectors.toSet()));
     }

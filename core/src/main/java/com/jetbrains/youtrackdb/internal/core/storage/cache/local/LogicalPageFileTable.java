@@ -168,6 +168,16 @@ final class LogicalPageFileTable {
     return state != null && state.kind() == Kind.LIVE ? state : null;
   }
 
+  State reservation(int internalId) {
+    var state = states.get(internalId);
+    return state != null && state.kind() == Kind.RESERVED ? state : null;
+  }
+
+  // Identity comparison prevents a late owner from removing a replacement reservation or LIVE.
+  void releaseReservation(int internalId, State owned) {
+    states.computeIfPresent(internalId, (key, current) -> current == owned ? null : current);
+  }
+
   boolean reserved(int internalId) {
     var state = states.get(internalId);
     return state != null && state.kind() == Kind.RESERVED;

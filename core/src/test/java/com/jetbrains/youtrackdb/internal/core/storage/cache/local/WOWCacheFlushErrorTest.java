@@ -80,6 +80,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testFailedWriteDrainsAllFilesBeforeReleaseAndKeepsCacheWritable() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var firstFile = mock(File.class);
@@ -155,6 +156,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testResultAndReleaseFailuresKeepFirstErrorAndReleaseEveryFile() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var firstFile = mock(File.class);
@@ -197,6 +199,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testReleaseFailuresKeepFirstErrorWithoutSelfSuppression() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var firstFile = mock(File.class);
@@ -225,6 +228,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testDuplicateSubmissionAndDrainErrorIsNotSelfSuppressed() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var firstFile = mock(File.class);
@@ -251,6 +255,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testInterruptedWriteWaitDrainsOtherResultAndRestoresFlag() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var firstFile = mock(File.class);
@@ -393,6 +398,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void testSynchronousWriteFailureReleasesFile() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
     final var files = mock(ClosableLinkedContainer.class);
     setField(cache, "files", files);
     final var file = mock(File.class);
@@ -586,6 +592,7 @@ public class WOWCacheFlushErrorTest {
         final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
         setField(cache, "files", container);
         setField(cache, "storageName", "second-owner");
+        setField(cache, "pageSize", 1);
         final var writes = new Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>>();
         writes.put(2L, new ArrayList<>(java.util.List.of(
             new RawPairLongObject<>(0L, ByteBuffer.wrap(new byte[] {9})))));

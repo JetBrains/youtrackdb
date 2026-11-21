@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1291,9 +1293,11 @@ public class AtomicOperationSnapshotProxyTest {
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
-    // addNewFile returns a composed fileId with storageId in upper 32 bits
+    // Booking returns a composed fileId with storageId in upper 32 bits
     long composedFileId = (1L << 32) | 99;
-    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1351,7 +1355,9 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 99;
-    when(writeCache.addFile(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1416,7 +1422,9 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 42;
-    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1437,7 +1445,9 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 77;
-    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1488,7 +1498,9 @@ public class AtomicOperationSnapshotProxyTest {
     var readCache = mock(ReadCache.class);
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
-    when(writeCache.bookFileId(anyString())).thenReturn((1L << 32) | 10);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking((1L << 32) | 10, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1528,7 +1540,9 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 55;
-    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1552,7 +1566,9 @@ public class AtomicOperationSnapshotProxyTest {
     var writeCache = mock(WriteCache.class);
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long composedFileId = (1L << 32) | 66;
-    when(writeCache.bookFileId(anyString())).thenReturn(composedFileId);
+    when(writeCache.bookFileIdWithOwnership(anyString(), isNull(), eq(false)))
+        .thenReturn(new WriteCache.FileBooking(composedFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,
@@ -1618,8 +1634,12 @@ public class AtomicOperationSnapshotProxyTest {
     when(writeCache.getStorageName()).thenReturn("test-storage");
     long durableFileId = (1L << 32) | 10;
     long nonDurableFileId = (1L << 32) | 20;
-    when(writeCache.bookFileId("durable.dat")).thenReturn(durableFileId);
-    when(writeCache.bookFileId("nondurable.dat")).thenReturn(nonDurableFileId);
+    when(writeCache.bookFileIdWithOwnership("durable.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(durableFileId, () -> {
+        }));
+    when(writeCache.bookFileIdWithOwnership("nondurable.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(nonDurableFileId, () -> {
+        }));
 
     var op = new AtomicOperationBinaryTracking(
         readCache, writeCache, null, 1,

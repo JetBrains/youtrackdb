@@ -48,6 +48,19 @@ public interface WriteCache {
 
   long bookFileId(String fileName);
 
+  /** A booking and an idempotent release of only the reservation acquired by this call. */
+  record FileBooking(long fileId, Runnable release) {
+  }
+
+  /** Legacy and memory caches keep their existing session-scoped booking lifecycle. */
+  default FileBooking bookFileIdWithOwnership(String name, @Nullable Long suppliedId,
+      boolean reconstructAuxiliary) {
+    long booked = suppliedId == null ? bookFileId(name)
+        : bookFileId(name, suppliedId, reconstructAuxiliary);
+    return new FileBooking(booked, () -> {
+    });
+  }
+
   /**
    * Books a positive supplied internal id without creating or changing a backing file.
    * The caller holds storage creation exclusion through insertion. Normal creation rejects

@@ -112,7 +112,7 @@ public class LostFileCreationWALRecoveryTest {
           var wal = storage.getWALInstance();
           var source = directory.resolve("source");
           var copy = Files.createDirectory(directory.resolve("recovered"));
-          var baselineMap = Files.readAllBytes(source.resolve(NAME_ID_MAP));
+          var baselineMap = layout28 ? null : Files.readAllBytes(source.resolve(NAME_ID_MAP));
           var baselineFiles = new HashMap<String, byte[]>();
           var baselineNames = new HashSet<>(cache.files().keySet());
           for (var id : cache.files().values()) {
@@ -163,7 +163,9 @@ public class LostFileCreationWALRecoveryTest {
           // Restore the registry too. A negative booked-id entry would enable restoreFileById
           // and hide a missing pending-create consult. Restore every baseline page to exclude
           // already-flushed effects of the later transaction. No double-write log is retained.
-          Files.write(copy.resolve(NAME_ID_MAP), baselineMap);
+          if (!layout28) {
+            Files.write(copy.resolve(NAME_ID_MAP), baselineMap);
+          }
           for (var nativeName : newFiles.values()) {
             Files.deleteIfExists(copy.resolve(nativeName));
             assertFalse(Files.exists(copy.resolve(nativeName)));
@@ -171,7 +173,9 @@ public class LostFileCreationWALRecoveryTest {
           for (var entry : baselineFiles.entrySet()) {
             Files.write(copy.resolve(entry.getKey()), entry.getValue());
           }
-          assertArrayEquals(baselineMap, Files.readAllBytes(copy.resolve(NAME_ID_MAP)));
+          if (!layout28) {
+            assertArrayEquals(baselineMap, Files.readAllBytes(copy.resolve(NAME_ID_MAP)));
+          }
         });
       }
     }

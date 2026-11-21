@@ -509,6 +509,12 @@ public class WOWCacheLoadOrAddTest {
     wowCache.deleteFile(deleted);
     wowCache.bookFileId(bookedName, bookedIdentity.internalId(), false);
     final long live = wowCache.addFile(liveName, liveIdentity.internalId());
+    // Seed independent stale live evidence so cold open must not install its handle.
+    final var liveWriter = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
+        NameFileIdEntry.class, boolean.class);
+    liveWriter.setAccessible(true);
+    liveWriter.invoke(wowCache, new NameFileIdEntry(liveName, liveIdentity.internalId(),
+        PageFileNames.layout28DiskName(liveIdentity)), true);
     assertEquals(java.util.Set.of(deletedName, bookedName),
         new java.util.HashSet<>(wowCache.deletedFiles()));
     // Booking is session-only. Seed the negative record that a legacy close would persist.

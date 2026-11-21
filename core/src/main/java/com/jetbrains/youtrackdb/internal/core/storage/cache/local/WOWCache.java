@@ -999,6 +999,21 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
+      if (logicalFiles != null) {
+        var identity = PageFileNames.parseLayout28(fileName).orElseThrow(
+            () -> new StorageException(storageName,
+                "Not a canonical layout 28 logical name: " + fileName));
+        int internalId = identity.internalId();
+        if (logicalFiles.live(internalId) != null
+            || backingFileMayExist(fileName, internalId)) {
+          throw new StorageException(storageName,
+              "File " + fileName + " has already been added or its backing path exists");
+        }
+        if (!logicalFiles.reserved(internalId)) {
+          logicalFiles.reserve(fileName, internalId);
+        }
+        return composeFileId(id, internalId);
+      }
       final var fileId = nameIdMap.get(fileName);
       if (fileId != null) {
         if (fileId < 0) {
@@ -1038,6 +1053,20 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireWriteLock();
     try {
       checkForClose();
+      if (logicalFiles != null) {
+        if (logicalFiles.live(intId) != null
+            || (!reconstructAuxiliary
+                && (logicalFiles.reserved(intId) || logicalFiles.deleted(intId)))
+            || files.get(composeFileId(id, intId)) != null
+            || backingFileMayExist(fileName, intId)) {
+          throw new StorageException(storageName,
+              "Conflicting registration or backing file for " + fileName + " and id " + intId);
+        }
+        if (!logicalFiles.reserved(intId)) {
+          logicalFiles.reserve(fileName, intId);
+        }
+        return composeFileId(id, intId);
+      }
       final var registered = nameIdMap.get(fileName);
       final var liveName = idNameMap.get(intId);
       final var bookedOrDeletedName = idNameMap.get(-intId);
@@ -1057,6 +1086,37 @@ public final class WOWCache extends AbstractWriteCache
       idNameMap.put(-intId, fileName);
       mirrorReservation(fileName, intId);
       return composeFileId(id, intId);
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  @Override
+  public FileBooking bookFileIdWithOwnership(String name, Long suppliedId,
+      boolean reconstructAuxiliary) {
+    if (logicalFiles == null) {
+      return WriteCache.super.bookFileIdWithOwnership(name, suppliedId, reconstructAuxiliary);
+    }
+    filesLock.acquireWriteLock();
+    try {
+      int internalId = PageFileNames.parseLayout28(name).orElseThrow(
+          () -> new StorageException(storageName,
+              "Not a canonical layout 28 logical name: " + name))
+          .internalId();
+      var previous = logicalFiles.reservation(internalId);
+      long booked = suppliedId == null ? bookFileId(name)
+          : bookFileId(name, suppliedId, reconstructAuxiliary);
+      var owned = previous == null ? logicalFiles.reservation(internalId) : null;
+      return new FileBooking(booked, () -> {
+        if (owned != null) {
+          filesLock.acquireWriteLock();
+          try {
+            logicalFiles.releaseReservation(internalId, owned);
+          } finally {
+            filesLock.releaseWriteLock();
+          }
+        }
+      });
     } finally {
       filesLock.releaseWriteLock();
     }
@@ -1228,6 +1288,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long addFile(final String fileName) throws IOException {
+    if (logicalFiles != null) {
+      var identity = PageFileNames.parseLayout28(fileName).orElseThrow(
+          () -> new StorageException(storageName,
+              "Not a canonical layout 28 logical name: " + fileName));
+      return addFile(fileName, identity.internalId());
+    }
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -1370,8 +1436,6 @@ public final class WOWCache extends AbstractWriteCache
 
       File fileClassic;
 
-      final var existingFileId = nameIdMap.get(fileName);
-
       final var intId = extractFileId(fileId);
       // Replay preservation suppresses tracker clearing, not file-ID validation.
       if (intId <= 0) {
@@ -1379,6 +1443,10 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       validateLogicalRegistration(fileName, intId);
+      if (logicalFiles != null) {
+        return createLogicalFile(fileName, intId, nonDurable);
+      }
+      final var existingFileId = nameIdMap.get(fileName);
       if (existingFileId != null && existingFileId >= 0) {
         if (existingFileId == intId) {
           throw new StorageException(storageName,
@@ -1454,6 +1522,34 @@ public final class WOWCache extends AbstractWriteCache
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  // Fresh creation never opens an existing path. File.create uses exclusive filesystem creation,
+  // including when a path appears after the presence check. Keep handle publication before LIVE.
+  private long createLogicalFile(String name, int internalId, boolean nonDurable)
+      throws IOException, java.lang.InterruptedException {
+    long externalId = composeFileId(id, internalId);
+    if (logicalFiles.live(internalId) != null || files.get(externalId) != null) {
+      throw new StorageException(storageName, "File with name " + name + " already exists");
+    }
+    var file = createFileHandle(name, internalId);
+    if (file.exists()) {
+      throw new StorageException(storageName, "Backing file already exists for " + name);
+    }
+    createFile(file, callFsync, true);
+    if (!startupReplayPreservation) {
+      changedPageTracker.resetFile(internalId);
+    }
+    files.add(externalId, file);
+    registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId));
+    if (nonDurable) {
+      var updated = new IntOpenHashSet(nonDurableFileIds);
+      updated.add(internalId);
+      nonDurableFileIds = updated;
+      registerLogicalFile(name, internalId, true);
+      writeNonDurableRegistry();
+    }
+    return externalId;
   }
 
   @Override
@@ -3278,8 +3374,13 @@ public final class WOWCache extends AbstractWriteCache
 
   private static void createFile(final File fileClassic, final boolean callFsync)
       throws IOException {
+    createFile(fileClassic, callFsync, false);
+  }
+
+  private static void createFile(final File fileClassic, final boolean callFsync,
+      final boolean exclusive) throws IOException {
     try {
-      if (!fileClassic.exists()) {
+      if (exclusive || !fileClassic.exists()) {
         fileClassic.create();
       } else {
         if (!fileClassic.isOpen()) {
