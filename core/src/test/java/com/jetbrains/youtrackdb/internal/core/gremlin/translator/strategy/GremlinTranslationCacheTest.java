@@ -1277,6 +1277,50 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         .isEqualTo(1);
   }
 
+  /** Invalidation during warm binding harvest walks again without an agreement warning or error. */
+  @Test
+  public void invalidationBetweenWarmGenerationChecksFallsBackSilently() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    Supplier<GraphTraversal<?, ?>> query =
+        () -> graph.traversal().V().hasLabel("Person").has("name", "Bob").values("name");
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    assertThat(runCountedHop(query, strategy)).containsExactly("Bob");
+    assertThat(walks).hasValue(1);
+    var db = graphSession();
+    var cache = GremlinPlanCache.instance(db);
+    var generation = cache.getGeneration();
+    var hits = cache.getTranslationHits();
+    var metrics = GremlinTranslationMetrics.of(db);
+    var errors = metrics.getErrors();
+    var invalidations = new AtomicInteger();
+    strategy.extractionObserver = extraction -> {
+      assertThat(extraction.encoder().harvested()).isFalse();
+      // This existing deferred-harvest seam runs after lookup and the first generation check.
+      extraction.encoder().deferHarvest(() -> {
+        assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+        invalidations.incrementAndGet();
+        cache.invalidate();
+      });
+    };
+    try (var logs = com.jetbrains.youtrackdb.internal.LogRecordCollector
+        .attachTo(GremlinToMatchStrategy.class)) {
+      var raw = query.get().asAdmin();
+      strategy.apply(raw);
+      assertThat(invalidations).hasValue(1);
+      assertThat(cache.getGeneration()).isGreaterThan(generation);
+      assertThat(walks).as("a stale warm template must fall back to a fresh walk").hasValue(2);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
+      assertThat(metrics.getErrors()).isEqualTo(errors);
+      assertThat(logs.warnedWithAll("Gremlin translation agreement failed")).isFalse();
+      assertThat(raw.toList().stream().map(String::valueOf).toList()).containsExactly("Bob");
+    } finally {
+      strategy.extractionObserver = null;
+    }
+  }
+
   /** A compiled regex must be reconstructed, not have only its P value replaced. */
   @Test
   public void orderedHopRegexAlternation_rebuildsCompiledPatternsOnWarmHit() {

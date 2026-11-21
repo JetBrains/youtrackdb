@@ -561,7 +561,10 @@ public final class GremlinToMatchStrategy
             metrics.recordSuccess();
             return;
           }
-          reportAgreementFailure("Translation cache binding agreement failed", session);
+          // Invalidation can race binding harvest. Stale generations are ordinary misses.
+          if (boundShaping == null) {
+            reportAgreementFailure("Translation cache binding agreement failed", session);
+          }
         }
       }
       extraction = extraction == null ? emitted.extraction() : extraction;
