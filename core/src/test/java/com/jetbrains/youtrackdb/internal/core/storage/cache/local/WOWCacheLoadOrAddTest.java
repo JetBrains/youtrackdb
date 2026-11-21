@@ -494,6 +494,96 @@ public class WOWCacheLoadOrAddTest {
     assertThrows(StorageException.class, () -> wowCache.bookFileId(AUX, deleted, false));
   }
 
+  /** Layout 28 cold open ignores stale live, deleted and booked map records until admission. */
+  @Test
+  public void layout28ColdOpenDoesNotHydrateMapInventory() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var deletedIdentity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 42);
+    final var bookedIdentity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 43);
+    final var liveIdentity = new PageFileIdentity(PageFileRole.RECORD_DATA, 44);
+    final var deletedName = PageFileNames.layout28(deletedIdentity);
+    final var bookedName = PageFileNames.layout28(bookedIdentity);
+    final var liveName = PageFileNames.layout28(liveIdentity);
+    final long deleted = wowCache.addFile(deletedName, deletedIdentity.internalId());
+    wowCache.deleteFile(deleted);
+    wowCache.bookFileId(bookedName, bookedIdentity.internalId(), false);
+    final long live = wowCache.addFile(liveName, liveIdentity.internalId());
+    assertEquals(java.util.Set.of(deletedName, bookedName),
+        new java.util.HashSet<>(wowCache.deletedFiles()));
+    // Booking is session-only. Seed the negative record that a legacy close would persist.
+    final var bookedRecord =
+        new NameFileIdEntry(bookedName, -bookedIdentity.internalId(), bookedName);
+    final var writer = WOWCache.class.getDeclaredMethod("writeNameIdEntry",
+        NameFileIdEntry.class, boolean.class);
+    writer.setAccessible(true);
+    writer.invoke(wowCache, bookedRecord, true);
+    final var map = storagePath.resolve("name_id_map_v3.cm");
+    final var reader = WOWCache.class.getDeclaredMethod("readNextNameIdEntryV3", FileChannel.class);
+    reader.setAccessible(true);
+    try (var channel = FileChannel.open(map)) {
+      NameFileIdEntry last = null;
+      NameFileIdEntry entry;
+      while ((entry = (NameFileIdEntry) reader.invoke(wowCache, channel)) != null) {
+        last = entry;
+      }
+      assertEquals(bookedRecord, last);
+    }
+    final var bytes = Files.readAllBytes(map);
+    assertTrue(bytes.length > 0);
+    wowCache.close();
+    assertArrayEquals(bytes, Files.readAllBytes(map));
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    wowCache.loadRegisteredFiles();
+    assertTrue(wowCache.files().isEmpty());
+    assertTrue(wowCache.deletedFiles().isEmpty());
+    assertNull(wowCache.registeredFileId(deletedName));
+    assertNull(wowCache.registeredFileId(bookedName));
+    assertNull(wowCache.registeredFileId(liveName));
+    assertFalse(wowCache.exists(live));
+    // Logical inventory alone cannot reveal legacy replay opening the persisted live file.
+    assertEquals(0, files.openFilesCount());
+    assertNull(files.get(live));
+    assertFalse(wowCache.admitExpectedFile(deletedIdentity));
+    assertTrue(wowCache.admitExpectedFile(liveIdentity));
+    assertEquals(Map.of(liveName, live), wowCache.files());
+    assertArrayEquals(bytes, Files.readAllBytes(map));
+  }
+
+  /** Crash-style layout 28 reopen ignores an appended tombstone and permits explicit booking. */
+  @Test
+  public void layout28CrashReopenDoesNotReplayMapDeletion() throws Exception {
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 42);
+    final var name = PageFileNames.layout28(identity);
+    final var fileId = wowCache.addFile(name, identity.internalId());
+    wowCache.deleteFile(fileId);
+    final var map = storagePath.resolve("name_id_map_v3.cm");
+    final var bytes = Files.readAllBytes(map);
+    assertTrue(bytes.length > 0);
+    final var abandoned = wowCache;
+    files = new ClosableLinkedContainer<>(1024);
+    wowCache = newCache();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    try {
+      wowCache.loadRegisteredFiles();
+      assertNull(wowCache.registeredFileId(name));
+      assertTrue(wowCache.deletedFiles().isEmpty());
+      assertFalse(wowCache.exists(fileId));
+      assertArrayEquals(bytes, Files.readAllBytes(map));
+    } finally {
+      abandoned.close();
+    }
+    assertEquals(fileId, wowCache.bookFileId(name, fileId, false));
+    wowCache.addFile(name, fileId);
+    assertTrue(wowCache.exists(fileId));
+  }
+
   /** All normal conflicts, including identical live and negative pairs, reject without mutation. */
   @Test
   public void suppliedBookingRejectsLiveAndNegativeConflicts() throws Exception {

@@ -476,6 +476,87 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertCleanCloseRegistryForces(true, 1);
   }
 
+  /** Layout 28 close neither serializes nor forces the map, with either fsync setting. */
+  @Test
+  public void layout28CleanCloseLeavesMapBytesAndBackupPathUntouched() throws Exception {
+    for (boolean callFsync : new boolean[] {false, true}) {
+      if (wowCache != null) {
+        wowCache.delete();
+      }
+      createNewCache(callFsync, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 42);
+      wowCache.addFile(PageFileNames.layout28(identity), identity.internalId());
+      final var map = storagePath.resolve("name_id_map_v3.cm");
+      final var bytes = Files.readAllBytes(map);
+      assertTrue(bytes.length > 0);
+      final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
+      Files.createDirectory(backup);
+      // A legacy close cannot open this nonempty directory as its backup channel.
+      final var marker = backup.resolve("untouched");
+      Files.write(marker, new byte[] {3, 1, 4});
+      wowCache.close();
+      wowCache = null;
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+      org.junit.Assert.assertArrayEquals(new byte[] {3, 1, 4}, Files.readAllBytes(marker));
+      Files.delete(marker);
+      Files.delete(backup);
+    }
+  }
+
+  /** Layout 28 open ignores corrupt legacy variants and never creates a migrated V3 map. */
+  @Test
+  public void layout28OpenDoesNotMigrateLegacyMaps() throws Exception {
+    wowCache.delete();
+    final var bytes = new byte[] {9, 2, 6, 5};
+    final var legacy = storagePath.resolve("name_id_map.cm");
+    final var v2 = storagePath.resolve("name_id_map_v2.cm");
+    Files.write(legacy, bytes);
+    Files.write(v2, bytes);
+    final var v3 = storagePath.resolve("name_id_map_v3.cm");
+    createNewCache(true, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    assertTrue(wowCache.files().isEmpty());
+    assertFalse(Files.exists(v3));
+    assertFalse(Files.exists(storagePath.resolve("name_id_map_v3_t.cm")));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(legacy));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(v2));
+    wowCache.close();
+    wowCache = null;
+    assertFalse(Files.exists(v3));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(legacy));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(v2));
+  }
+
+  /** Skipping map close does not hide a required file-close failure or lose its retry owner. */
+  @Test
+  public void layout28CloseReportsFileFailureWithoutAccessingMapBackup() throws Exception {
+    wowCache.delete();
+    createNewCache(true, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 42);
+    final var fileId = wowCache.addFile(PageFileNames.layout28(identity), identity.internalId());
+    final var map = storagePath.resolve("name_id_map_v3.cm");
+    final var bytes = Files.readAllBytes(map);
+    final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
+    Files.createDirectory(backup);
+    final var real = files.remove(fileId);
+    real.close();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    when(file.getName()).thenReturn(PageFileNames.layout28DiskName(identity));
+    final var failure = new StorageException(storageName, "required layout 28 file close failed");
+    doThrow(failure).doNothing().when(file).close();
+    files.add(fileId, file);
+    org.junit.Assert.assertSame(failure, assertThrows(StorageException.class, wowCache::close));
+    org.junit.Assert.assertSame(file, files.get(fileId));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+    wowCache.close();
+    assertEquals(null, files.get(fileId));
+    wowCache = null;
+    verify(file, org.mockito.Mockito.times(2)).close();
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+    assertTrue(Files.isDirectory(backup));
+    Files.delete(backup);
+  }
+
   private void assertCleanCloseRegistryForces(boolean callFsync, long expectedForces)
       throws Exception {
     wowCache.delete();
