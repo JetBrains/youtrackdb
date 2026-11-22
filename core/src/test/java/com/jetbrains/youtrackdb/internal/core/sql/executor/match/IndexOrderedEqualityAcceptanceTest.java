@@ -24,7 +24,7 @@ import java.util.Map;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
-/** Query-level equivalence and work bounds for indexed equality with LIMIT. */
+/** Query-level equivalence and work bounds for indexed equality traversal. */
 @Category(SequentialTest.class)
 public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
 
@@ -53,6 +53,252 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     session.commit();
     session.getIndex("Message_tag").analyzeHistogram(session);
     session.begin();
+  }
+
+  /** Unbounded equality returns every edge, with the same null and RID ordering as plain MATCH. */
+  @Test
+  public void noLimitEqualityPreservesAllRowsAndOrdering() {
+    seed();
+    session.execute("UPDATE Message SET date = 7 WHERE date >= 990 AND date < 995").close();
+    session.execute("UPDATE Message SET date = null WHERE date >= 995").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'rare' AND date = 7)").close();
+    session.execute("CREATE CLASS replyOf EXTENDS E").close();
+    session.execute("CREATE EDGE replyOf FROM (SELECT FROM Message WHERE date = 7)"
+        + " TO (SELECT FROM Author)").close();
+    for (var direction : List.of("ASC", "DESC")) {
+      for (var nulls : List.of("FIRST", "LAST")) {
+        var sql = query(direction).replace(" LIMIT 20", "")
+            .replace("m.date " + direction, "m.date " + direction + " NULLS " + nulls);
+        var all = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+        assertThat(all.rids()).hasSize(15);
+        assertThat(all.step().lastScanConsumedEntries()).isEqualTo(-1);
+        var rejected = equivalent(sql.replace(" RETURN", ".out('replyOf'){as:z} RETURN"),
+            "rare", IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+        assertThat(rejected.rids()).hasSize(10);
+        assertThat(rejected.step().lastScanConsumedEntries()).isEqualTo(-1);
+      }
+    }
+  }
+
+  /** A common key uses the ordinary prefiltered LinkBag path, never the ordering index. */
+  @Test
+  public void noLimitCommonUsesLinkBagAndUnfilteredStillSkips() {
+    seed();
+    var sql = query("ASC").replace(" LIMIT 20", "");
+    // Even an artificially cheap ordered scan must not compete without LIMIT.
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000000001)) {
+      var common = equivalent(sql, "common", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+      assertThat(common.rids()).hasSize(990);
+      assertThat(common.step().lastScanConsumedEntries()).isEqualTo(-1);
+    }
+    for (var shape : List.of(sql.replace(", where: (tag = :tag)", ""),
+        sql.replace("name = 'one'", "name LIKE '%'"))) {
+      try (var rows = session.query(shape, Map.of("tag", "rare"))) {
+        assertThat(find(rows.getExecutionPlan().getSteps())).isNull();
+      }
+    }
+  }
+
+  /** Exhaustion and unsupported candidate bags end at a complete unbounded LinkBag load. */
+  @Test
+  public void noLimitFailedEqualityLoadsAllRowsWithoutOrderingScan() {
+    seed();
+    try (var rows = session.query("SELECT FROM Message WHERE date = 990")) {
+      ((EntityImpl) rows.next().asEntityOrNull())
+          .setPropertyInternal("in_wrote", new ArrayList<>());
+    }
+    var sql = query("ASC").replace(" LIMIT 20", "");
+    var unsupported = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+    assertThat(unsupported.rids()).hasSize(10);
+    assertIncompleteEquality(unsupported.step());
+    assertThat(unsupported.step().lastScanConsumedEntries()).isEqualTo(-1);
+    session.execute("UPDATE Message SET tag = 'rare' WHERE date < 990").close();
+    var exhausted = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+    assertThat(exhausted.rids()).hasSize(1000);
+    assertIncompleteEquality(exhausted.step());
+    assertThat(exhausted.step().lastScanConsumedEntries()).isEqualTo(-1);
+  }
+
+  /** A refused equality cap retains ordinary class and equality RID filtering before loads. */
+  @Test
+  public void noLimitLoadRetainsPlainPrefilterAndClassRejection() {
+    seed();
+    session.execute("CREATE CLASS Other EXTENDS V").close();
+    session.execute("CREATE VERTEX Other").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author) TO (SELECT FROM Other)").close();
+    try (var cap = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES, 0)) {
+      var loaded = equivalent(query("ASC").replace(" LIMIT 20", ""), "rare",
+          IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+      assertThat(loaded.rids()).hasSize(10);
+      assertThat(loaded.step().lastScanConsumedEntries()).isEqualTo(-1);
+      assertThat(loaded.step().executionTraversal().getPreFilterRidSetSize()).isEqualTo(10);
+      assertThat(loaded.step().executionTraversal().getPreFilterTotalFiltered()).isPositive();
+    }
+  }
+
+  /** Many global hits but no linked hits must not trigger global candidate record loads. */
+  @Test
+  public void noLimitPricesTheAdmittedPrefilterRatherThanEveryLinkedRecord() {
+    seed(" WHERE date >= 200");
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 180").close();
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+    var sql = query("ASC").replace(" LIMIT 20", "");
+    var many = equivalent(sql, "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+    assertThat(many.rids()).isEmpty();
+    assertThat(many.step().lastEqualityObservation()).isNull();
+    assertThat(many.step().executionTraversal().getPreFilterRidSetSize()).isEqualTo(180);
+    assertThat(many.step().executionTraversal().getPreFilterTotalFiltered()).isEqualTo(800);
+    var rare = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+    assertThat(rare.rids()).hasSize(10);
+    assertThat(rare.step().lastEqualityObservation().complete()).isTrue();
+  }
+
+  /** Rare unbounded fetch must not build the load's RID set or scan the large source bag. */
+  @Test
+  public void noLimitRareFetchDoesNotPrepareTheLoadAlternative() {
+    seed();
+    // Grow only common links, leaving the ten rare candidates and their reverse bags small.
+    for (int i = 0; i < 20; i++) {
+      session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+          + " TO (SELECT FROM Message WHERE tag = 'common')").close();
+    }
+    var rare = equivalent(query("ASC").replace(" LIMIT 20", ""), "rare",
+        IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+    assertThat(rare.rids()).hasSize(10);
+    assertThat(rare.step().lastEqualityObservation().entries()).isEqualTo(10);
+    assertThat(rare.step().lastScanConsumedEntries()).isEqualTo(-1);
+    var traversal = rare.step().executionTraversal();
+    assertThat(traversal.getPreFilterRidSetSize()).isZero();
+    assertThat(traversal.getPreFilterAppliedCount()).isZero();
+    assertThat(traversal.getPreFilterTotalProbed()).isZero();
+  }
+
+  /** SKIP alone retains the full global sort before dropping the requested prefix. */
+  @Test
+  public void noLimitSkipMatchesPlain() {
+    seed();
+    assertThat(equivalent(query("ASC").replace(" LIMIT 20", " SKIP 3"), "rare",
+        IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH).rids()).hasSize(7);
+  }
+
+  /** DISTINCT removes parallel-edge duplicates only after the full unbounded traversal. */
+  @Test
+  public void noLimitDistinctMatchesPlain() {
+    seed();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'rare')").close();
+    var sql = query("DESC").replace("RETURN m.", "RETURN DISTINCT m.").replace(" LIMIT 20", "");
+    var actual = run(sql, "rare", true);
+    var plain = "SELECT DISTINCT rid FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+        + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d DESC, rid DESC";
+    assertThat(actual.rids()).containsExactlyElementsOf(run(plain, "rare", false).rids());
+    assertThat(actual.rids()).hasSize(10);
+    assertThat(actual.step().getChosenRuntimePath())
+        .isEqualTo(IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+  }
+
+  /** A non-RID second key must order primary ties, rather than taking PRE_SORTED pass-through. */
+  @Test
+  public void noLimitSecondaryPropertyMatchesPlain() {
+    seed();
+    session.execute("CREATE PROPERTY Message.secondary INTEGER").close();
+    session.execute("UPDATE Message SET secondary = date").close();
+    session.execute("UPDATE Message SET date = 7 WHERE tag = 'rare'").close();
+    var sql = query("ASC").replace(", m.@rid ASC", ", m.secondary DESC, m.@rid ASC")
+        .replace(" LIMIT 20", "");
+    var actual = run(sql, "rare", true);
+    var plain = "SELECT FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+        + " RETURN m.@rid AS rid, m.date AS d, m.secondary AS s)"
+        + " ORDER BY d ASC, s DESC, rid ASC";
+    assertThat(actual.rids()).containsExactlyElementsOf(run(plain, "rare", false).rids());
+    assertThat(actual.rids()).hasSize(10);
+    assertThat(actual.step().getChosenRuntimePath())
+        .isEqualTo(IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+  }
+
+  /** An admitted parameterized LIMIT template keeps clause semantics for negative and zero copies. */
+  @Test
+  public void equalityLimitTemplateRebindsNegativeAndZero() {
+    seed();
+    var sql = query("ASC").replace("LIMIT 20", "LIMIT :n");
+    var build = new BasicCommandContext(session);
+    build.setInputParameters(Map.of("tag", "rare", "n", 20));
+    var template = ((SQLMatchStatement) SQLEngine.parse(sql, session))
+        .createExecutionPlanNoCache(build, false);
+    try {
+      assertThat(find(template.getSteps())).isNotNull();
+      for (int n : List.of(-1, 0)) {
+        var ctx = new BasicCommandContext(session);
+        ctx.setInputParameters(Map.of("tag", "rare", "n", n));
+        var copy = template.copy(ctx);
+        var actual = new ArrayList<String>();
+        try {
+          var stream = copy.start();
+          try {
+            while (stream.hasNext(ctx)) {
+              actual.add(stream.next(ctx).getProperty("rid").toString());
+            }
+          } finally {
+            stream.close(ctx);
+          }
+          var plain = "SELECT FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+              + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d ASC, rid ASC LIMIT " + n;
+          assertThat(actual).containsExactlyElementsOf(run(plain, "rare", false).rids());
+          assertThat(actual).hasSize(n < 0 ? 10 : 0);
+          assertThat(find(copy.getSteps()).getChosenRuntimePath())
+              .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+        } finally {
+          copy.close();
+        }
+      }
+    } finally {
+      template.close();
+    }
+  }
+
+  /** Wrong-class links are rejected before record loads even when the RID prefilter is disabled. */
+  @Test
+  public void multiSourceLoadRejectsOtherClassesBeforeLoading() {
+    severalSources();
+    session.execute("CREATE CLASS Other EXTENDS V").close();
+    session.execute("CREATE VERTEX Other").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author) TO (SELECT FROM Other)").close();
+    try (var cap = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES, 1);
+        var minimum = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 100000)) {
+      var result = equivalent(severalQuery("ASC", true), "rare",
+          IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+      assertThat(result.step().lastMultiSourceLoadCalls()).isEqualTo(2010);
+    }
+  }
+
+  /** A frozen root schedule repeats the unique source and must reject wrong-class links early. */
+  @Test
+  public void noLimitRepeatedPinnedSourceMatchesPlain() {
+    seed();
+    session.execute("CREATE CLASS Root EXTENDS V").close();
+    session.execute("CREATE CLASS members EXTENDS E").close();
+    session.execute("CREATE VERTEX Root").close();
+    session.execute("CREATE VERTEX Root").close();
+    session.execute("CREATE EDGE members FROM (SELECT FROM Root)"
+        + " TO (SELECT FROM Author)").close();
+    session.execute("CREATE CLASS Other EXTENDS V").close();
+    session.execute("CREATE VERTEX Other").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author) TO (SELECT FROM Other)").close();
+    var sql = query("ASC").replace("MATCH {class: Author",
+        "MATCH {class: Root, as: r}.out('members'){class: Author").replace(" LIMIT 20", "");
+    try (var minimum = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 100000)) {
+      var result = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+      assertThat(result.rids()).hasSize(20);
+      assertThat(result.step().lastMultiSourceLoadCalls()).isEqualTo(1000);
+    }
   }
 
   private String query(String direction) {
@@ -107,7 +353,7 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
 
   private void assertPlainMatch(String sql, String tag) {
     // SubQueryStep does not expose its plan. Plan the reference's inner MATCH directly.
-    var inner = sql.substring("SELECT FROM (".length(), sql.lastIndexOf(')'));
+    var inner = sql.substring(sql.indexOf('(') + 1, sql.lastIndexOf(')'));
     var context = new BasicCommandContext(session);
     context.setInputParameters(Map.of("tag", tag));
     var plan = ((SQLMatchStatement) SQLEngine.parse(inner, session))

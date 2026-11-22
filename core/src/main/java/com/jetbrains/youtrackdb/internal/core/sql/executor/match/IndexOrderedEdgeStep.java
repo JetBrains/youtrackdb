@@ -460,8 +460,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
     long estimate = targetIndexDescriptor == null ? -1 : targetIndexDescriptor.estimateHits(ctx);
-    if (!edgeTraversal && rowTarget > 0 && estimate >= 0) {
+    if (!edgeTraversal && estimate >= 0
+        && (rowTarget > 0 || (limitClause == null && multiEqualityEligible))) {
       return equalityDispatch(upstreamRow, sourceRid, linkBag, indexSize, histogram, estimate, ctx);
+    }
+    // A singleton with no LIMIT clause never scans the ordering index.
+    // Parameterized LIMIT plans retain their existing runtime-bound behavior.
+    if (limitClause == null) {
+      return terminalLoad(linkBag, upstreamRow, ctx);
     }
     if (shouldUseIndexScan(linkBag.size(), indexSize, histogram)) {
       // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
@@ -494,6 +500,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       Result upstream, RID source, LinkBag bag, long indexSize,
       EquiDepthHistogram histogram, long estimate, CommandContext context) {
     var account = new IndexOrderedCostModel.WorkAccount(bag.size());
+    java.util.function.Supplier<ExecutionStream> load = () -> {
+      if (limitClause != null) {
+        return terminalLoad(bag, upstream, context);
+      }
+      chosenRuntimePath = RuntimePath.LOAD_UNSORTED;
+      return loadFromLinkBag(bag, context, upstream);
+    };
     // Stored statistics are approximate and do not walk pending transaction operations.
     var statistics = targetIndexDescriptor.getIndex().getStatistics(context.getDatabaseSession());
     var population = statistics == null ? indexSize : statistics.totalCount();
@@ -502,6 +515,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var costs = IndexOrderedCostModel.equalityCosts(
           bag.size(), bag.size(), indexSize, population, rowTarget, estimate, memory,
           histogram, orderAsc);
+      // Without LIMIT the baseline is plain MATCH plus a full sort, never an ordered scan.
+      if (limitClause == null) {
+        costs = new IndexOrderedCostModel.EqualityCosts(
+            Double.POSITIVE_INFINITY, costs.equalityFetch(),
+            predictsLoadPrefilter(bag.size(), estimate, context)
+                ? IndexOrderedCostModel.prefilteredLoadCost(bag.size(), estimate, population)
+                : costs.linkBagLoad());
+      }
       switch (account.choose(costs)) {
         case EQUALITY -> {
           var attempt = readEqualityCandidates(
@@ -513,7 +534,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
             return equalityRows(attempt.candidates(), upstream, context);
           }
           if (attempt.requiresLinkBagLoad()) {
-            return terminalLoad(bag, upstream, context);
+            return load.get();
           }
           // A refused next read raises the estimate before the remaining paths are priced.
           estimate = Math.max(estimate, attempt.observedEntries() + 1);
@@ -527,10 +548,39 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           }
         }
         case LOAD -> {
-          return terminalLoad(bag, upstream, context);
+          return load.get();
         }
       }
     }
+  }
+
+  /**
+   * Predicts a fresh singleton's IndexLookup admission without advancing its amortization state.
+   * Execution still uses resolveLoadPrefilter, including its runtime build guards. Statistics
+   * drift or a composite descriptor can change that decision without changing load semantics.
+   */
+  private boolean predictsLoadPrefilter(int links, long estimate, CommandContext context) {
+    if (executionTraversal == null || estimate < 0
+        || estimate > TraversalPreFilterHelper.maxRidSetSize()
+        || links < TraversalPreFilterHelper.minLinkBagSize()) {
+      return false;
+    }
+    double selectivity = targetIndexDescriptor.estimateSelectivity(context);
+    if (!Double.isFinite(selectivity) || selectivity < 0
+        || selectivity > TraversalPreFilterHelper.indexLookupMaxSelectivity()) {
+      return false;
+    }
+    double minimum = EdgeTraversal.computeMinNeighborsForBuild(
+        (int) estimate, EdgeTraversal.currentLoadToScanRatio(), selectivity);
+    long roots = executionTraversal.getRootSourceRows();
+    long forecast = executionTraversal.getForecastN();
+    if (roots >= EdgeTraversal.MIN_FOR_CLT && forecast > (long) Math.ceil(minimum)) {
+      return true;
+    }
+    double trigger = roots >= 0 && roots < EdgeTraversal.MIN_FOR_CLT
+        ? minimum * EdgeTraversal.CLT_FAIL_M_SAFETY_MULTIPLIER
+        : Math.max(2.0 * Math.max(0, forecast), minimum);
+    return links >= (long) Math.ceil(trigger);
   }
 
   private ExecutionStream terminalLoad(LinkBag bag, Result upstream, CommandContext context) {
@@ -775,9 +825,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private ExecutionStream loadFromLinkBag(
       LinkBag linkBag, CommandContext ctx, Result upstreamRow) {
+    var prefilter = resolveLoadPrefilter(linkBag, ctx);
     var session = ctx.getDatabaseSession();
     var targetClass = resolveTargetClass(ctx);
-    var membership = new LoadMembership(resolveLoadPrefilter(linkBag, ctx));
+    var membership = new LoadMembership(prefilter);
     var iter = linkBag.iterator();
     return ExecutionStream.resultIterator(new Iterator<Result>() {
       private Result pending;
@@ -1431,7 +1482,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     try (var membership = new LoadMembership(resolveLoadPrefilter(linkBag, ctx))) {
       for (RidPair pair : linkBag) {
         var rid = ridFromPair(pair);
-        if (!membership.accepts(rid)) {
+        if (targetClass == null
+            || !targetClass.hasPolymorphicCollectionId(rid.getCollectionId())
+            || !membership.accepts(rid)) {
           continue;
         }
         lastMultiSourceLoadCalls++;

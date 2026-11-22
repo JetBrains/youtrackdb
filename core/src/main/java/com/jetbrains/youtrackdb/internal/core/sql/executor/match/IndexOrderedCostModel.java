@@ -60,8 +60,8 @@ final class IndexOrderedCostModel {
   }
 
   /**
-   * Single-source prices in ordered-index-entry units. The load price never applies predicate
-   * selectivity: even a selective filter must load every member of the source LinkBag.
+   * Single-source prices in ordered-index-entry units. LIMIT paths price an unfiltered load.
+   * Unbounded singleton dispatch substitutes the admitted prefiltered load price.
    */
   record EqualityCosts(double orderedScan, double equalityFetch, double linkBagLoad) {
   }
@@ -114,6 +114,22 @@ final class IndexOrderedCostModel {
           + equalityMatches * equalitySortFactor * CostModel.perRowCpuCost() / perEntry;
     }
     return new EqualityCosts(scan, equality, load);
+  }
+
+  /**
+   * Plain MATCH's admitted RID prefilter reads index entries, probes every source link and loads
+   * only members. Estimate the intersection under independence, capped by both inputs.
+   * No source links or equality entries are read to price this alternative.
+   */
+  static double prefilteredLoadCost(int links, long indexMatches, long population) {
+    double linkedMatches = Math.min(Math.min(indexMatches, links),
+        (double) links * indexMatches / Math.max(1, population));
+    double sortFactor = linkedMatches <= 1 ? 0 : Math.log(linkedMatches) / Math.log(2);
+    return indexSeekEntryUnits() + indexMatches
+    // Each membership probe visits the source link and checks the RID bitmap.
+        + 2.0 * links * reverseEdgeEntryUnits()
+        + linkedMatches * recordReadEntryUnits()
+        + linkedMatches * sortFactor * reverseEdgeEntryUnits();
   }
 
   /** Record loads and cursor advances have different costs in the shared work account. */

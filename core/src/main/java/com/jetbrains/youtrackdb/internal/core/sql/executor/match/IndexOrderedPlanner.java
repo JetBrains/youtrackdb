@@ -292,16 +292,15 @@ public final class IndexOrderedPlanner {
         matchedEdge.out ? matchedEdge.edge.out.alias : matchedEdge.edge.in.alias;
     var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
 
-    // 7a. Early exit: if LIMIT is absent and the source alias has a WHERE
-    //     filter or RID constraint, this query can only land in single-source,
-    //     FILTERED_BOUND, or FILTERED_UNBOUND mode — all of which require LIMIT
-    //     at step 10b. Returning here skips the expensive schema/index lookup
-    //     below — planner setup that does not pay back when the scan cannot
-    //     cut on LIMIT). UNFILTERED_* modes still proceed because they require
-    //     source to have no filter and no RID constraint.
+    // 7a. Filtered no-LIMIT queries need a singleton proof before index lookup.
+    // The target equality gate requires an indexed equality. Runtime costs decide selectivity.
+    var sourcePins = aliasPinnedRids.get(sourceAlias);
+    var sourceHasRidConstraint = runtimeSingleSources.contains(sourceAlias)
+        || (sourcePins != null && sourcePins.size() == 1)
+        || hasSingleRowGuarantee(sourceAlias, aliasClasses, aliasFilters, context);
     var earlyLimitSize = limit != null && limit.getValue(context) >= 0
         ? limit.getValue(context) : -1;
-    if (earlyLimitSize < 0
+    if (earlyLimitSize < 0 && (!sourceHasRidConstraint || limit != null)
         && (aliasFilters.get(sourceAlias) != null
             || aliasPinnedRids.get(sourceAlias) != null
             || runtimeSingleSources.contains(sourceAlias))) {
@@ -393,11 +392,6 @@ public final class IndexOrderedPlanner {
     // safe. A multi-RID pin (@rid IN [...]) means multiple source rows, which
     // must NOT go single-source (see aliasPinnedRids field doc); leave those to
     // a multi-source mode below.
-    var sourcePins = aliasPinnedRids.get(sourceAlias);
-    var sourceHasRidConstraint = runtimeSingleSources.contains(sourceAlias)
-        || (sourcePins != null && sourcePins.size() == 1)
-        || hasSingleRowGuarantee(
-            sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
     if (!sourceHasRidConstraint) {
       // Verify reverse field can exist on target class. The in_/out_ LinkBag
@@ -492,24 +486,17 @@ public final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
 
-    // 10b. Require LIMIT for single-source and FILTERED multi-source modes.
-    // Without LIMIT, all source rows' edges must be scanned regardless of
-    // order, so the only saving is sort elision — which for small linkBags
-    // is negligible compared to the planner setup + per-source RidSet build
-    // + index cursor init overhead on small LinkBags without a LIMIT cut.
-    // UNFILTERED modes scan the whole index anyway — they stay enabled
-    // without LIMIT (see testIndexOrderedMatchNoLimitAllResults,
-    // testIndexOrderedMatchUnfilteredBoundNoLimit).
+    var targetFilter = filter != null ? filter.getFilter() : null;
+    // 10b. A singleton may fetch indexed equality candidates without LIMIT.
+    // Filtered several-source queries still require LIMIT. Whole-class modes are unchanged.
     if (queryLimit < 0
-        && (multiSourceMode == null
+        && ((multiSourceMode == null
+            && (limit != null || isEdgeTraversal
+                || indexedEquality(targetFilter, targetClassName, context) == null))
             || multiSourceMode == MultiSourceMode.FILTERED_BOUND
             || multiSourceMode == MultiSourceMode.FILTERED_UNBOUND)) {
       return null;
     }
-
-    // Extract target WHERE filter from the edge's path item filter.
-    // filter is the SQLMatchFilterItem; filter.getFilter() is the WHERE clause.
-    var targetFilter = filter != null ? filter.getFilter() : null;
 
     // A trailing record identifier item on the ordered alias describes exactly what the scan
     // already produces, so it does not make the sort a multi-field one — see

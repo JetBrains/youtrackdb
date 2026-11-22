@@ -22,6 +22,45 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class IndexOrderedEdgeStepCostTest {
 
+  /** Independence-priced linked hits cap stale speculation below the full bag load price. */
+  @Test
+  public void prefilteredLoadBoundsStaleEqualityWork() {
+    var load = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000);
+    var old = IndexOrderedCostModel.equalityCosts(
+        800, 800, 1000, 1000, -1, 180, 1000, null, true);
+    assertTrue(old.equalityFetch() < old.linkBagLoad());
+    var costs = new IndexOrderedCostModel.EqualityCosts(
+        Double.POSITIVE_INFINITY, old.equalityFetch(), load);
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+        new IndexOrderedCostModel.WorkAccount(800).choose(costs));
+    // A stale tiny estimate can start equality, but every read remains capped by the new price.
+    var stale = new IndexOrderedCostModel.EqualityCosts(Double.POSITIVE_INFINITY, 1, load);
+    var account = new IndexOrderedCostModel.WorkAccount(800);
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(stale));
+    assertEquals(load, account.allowance(stale), 0);
+    assertTrue(account.spend(load));
+    assertFalse(account.spend(1));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(costs));
+    assertTrue(IndexOrderedCostModel.prefilteredLoadCost(800, 180, 800) > load);
+  }
+
+  /** Estimate-only load pricing includes the build, cheap probes and the expected intersection. */
+  @Test
+  public void prefilteredLoadUsesIndependenceAndCapsIntersection() {
+    double seek = IndexOrderedCostModel.indexSeekEntryUnits();
+    double edge = IndexOrderedCostModel.reverseEdgeEntryUnits();
+    double record = IndexOrderedCostModel.recordReadEntryUnits();
+    assertEquals(seek + 200 * edge,
+        IndexOrderedCostModel.prefilteredLoadCost(100, 0, 1000), 0.00001);
+    assertEquals(seek + 10 + 200 * edge + record,
+        IndexOrderedCostModel.prefilteredLoadCost(100, 10, 1000), 0.00001);
+    double capped = seek + 10 + 200 * edge + 10 * record
+        + 10 * (Math.log(10) / Math.log(2)) * edge;
+    assertEquals(capped, IndexOrderedCostModel.prefilteredLoadCost(100, 10, 1), 0.00001);
+    assertEquals(seek + 100 + 2 * edge + record,
+        IndexOrderedCostModel.prefilteredLoadCost(1, 100, 0), 0.00001);
+  }
+
   /** A miss prices a full ordering scan but only the equality-index seek for equality fetch. */
   @Test
   public void equalityMissPrefersEqualityFetch() {

@@ -118,7 +118,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
   }
 
   /**
-   * Q1's ordered limit publishes one template per literal limit, not per RID or equality value.
+   * Terminal order, with or without a limit, publishes one template per slice shape, not per RID.
    * Tiny and hub starts share that template with empty, deleted and wrong-class starts.
    * Duplicate scores, null keys and subclass labels expose ordering and class-guard mistakes.
    */
@@ -172,7 +172,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
       var templates = new java.util.HashMap<String, InternalExecutionPlan>();
       for (var direction : List.of(org.apache.tinkerpop.gremlin.process.traversal.Order.asc,
           org.apache.tinkerpop.gremlin.process.traversal.Order.desc)) {
-        for (long limit : List.of(1L, 5L, 0L)) {
+        for (long limit : List.of(1L, 5L, 0L, -1L)) {
           var starts = List.of(tiny.id(), hub.id(), hub.id(), empty.id(), missing, wrong.id());
           for (int route = 0; route < starts.size(); route++) {
             var id = starts.get(route);
@@ -189,7 +189,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
                 key -> boundary.getPlan());
             assertThat(boundary.getPlan()).as("direction %s limit %s route %s runs %s",
                 direction, limit, route, runs.get()).isSameAs(template);
-            if (limit > 0) {
+            if (limit != 0) {
               assertThat(template.prettyPrint(0, 2))
                   .contains("FETCH FROM RID PARAMETER", "INDEX ORDERED MATCH");
             }
@@ -201,19 +201,37 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
             }
             var rows = query.toList();
             assertThat(boundary.getPlan()).isNotSameAs(template);
-            if (limit > 0 && route < 3) {
+            if (limit != 0 && route < 3) {
               var executed = boundary.getPlan().getSteps().stream()
                   .filter(IndexOrderedEdgeStep.class::isInstance)
                   .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
               // The same template must reprice both adjacency size and equality selectivity.
               var expected = switch (route) {
                 case 0 -> IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED;
-                case 1 -> IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN;
+                case 1 -> limit < 0 ? IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED
+                    : IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN;
                 default -> IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH;
               };
               assertThat(executed.getChosenRuntimePath())
                   .as("direction %s limit %s route %s", direction, limit, route)
                   .isEqualTo(expected);
+            }
+            if (limit < 0) {
+              var sql = "SELECT FROM (MATCH {class:LimitStart, as:s, where:(@rid IN ["
+                  + id + "])}.in('limitLink'){class:LimitTarget, as:t, where:(tag = :tag)}"
+                  + " RETURN t.score AS score) ORDER BY score " + direction;
+              try (var reference = db(graph).query(sql, java.util.Map.of("tag", tag))) {
+                assertThat(reference.stream().map(row -> row.getProperty("score")).toList())
+                    .isEqualTo(rows.stream()
+                        .map(row -> ((org.apache.tinkerpop.gremlin.structure.Vertex) row)
+                            .property("score").orElse(null))
+                        .toList());
+              }
+              var executed = boundary.getPlan().getSteps().stream()
+                  .filter(IndexOrderedEdgeStep.class::isInstance)
+                  .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
+              assertThat(executed.getChosenRuntimePath())
+                  .isNotEqualTo(IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
             }
             assertThat(rows).isEqualTo(orderedLimit(
                 source.withoutStrategies(GremlinToMatchStrategy.class), id, tag, direction, limit)
@@ -221,7 +239,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
             if (limit == 0 || route >= 3) {
               assertThat(rows).isEmpty();
             } else {
-              assertThat(rows).hasSize(route == 1 ? (int) limit : 1);
+              assertThat(rows).hasSize(route == 1 ? (limit < 0 ? 200 : (int) limit) : 1);
             }
             cache.setRuntimeRidStartEnabled(false);
             try {
@@ -238,12 +256,12 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
           }
         }
       }
-      assertThat(templates.values()).doesNotHaveDuplicates().hasSize(6);
+      assertThat(templates.values()).doesNotHaveDuplicates().hasSize(8);
       // Reopen every entry after both directions are cached. A direction-key collision or
       // eviction would lose template identity or cause another planning run.
       for (var direction : List.of(org.apache.tinkerpop.gremlin.process.traversal.Order.asc,
           org.apache.tinkerpop.gremlin.process.traversal.Order.desc)) {
-        for (long limit : List.of(0L, 1L, 5L)) {
+        for (long limit : List.of(0L, 1L, 5L, -1L)) {
           var query = orderedLimit(graph.traversal(), hub.id(), "common", direction, limit)
               .asAdmin();
           query.applyStrategies();
@@ -254,7 +272,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
               limit).toList());
         }
       }
-      assertThat(runs.get()).isEqualTo(6);
+      assertThat(runs.get()).isEqualTo(8);
     } finally {
       cache.beforeUncachedPlanning = null;
       cache.setRuntimeRidStartEnabled(true);
@@ -266,8 +284,9 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource source,
           Object id, String tag, org.apache.tinkerpop.gremlin.process.traversal.Order direction,
           long limit) {
-    return source.V(id).hasLabel("LimitStart").in("limitLink").has("tag", tag)
-        .hasLabel("LimitTarget").order().by("score", direction).limit(limit);
+    var ordered = source.V(id).hasLabel("LimitStart").in("limitLink").has("tag", tag)
+        .hasLabel("LimitTarget").order().by("score", direction);
+    return limit < 0 ? ordered : ordered.limit(limit);
   }
 
   /** Producer-class ci, mixed and unknown comparisons retain exact order on both warm routes. */
