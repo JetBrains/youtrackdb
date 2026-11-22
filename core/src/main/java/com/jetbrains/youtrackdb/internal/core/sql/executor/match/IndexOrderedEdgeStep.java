@@ -566,6 +566,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * drift or a composite descriptor can change that decision without changing load semantics.
    */
   private boolean predictsLoadPrefilter(int links, long estimate, CommandContext context) {
+    return executionTraversal != null && predictsLoadPrefilter(links, estimate,
+        executionTraversal.getRootSourceRows(), executionTraversal.getForecastN(), context);
+  }
+
+  private boolean predictsLoadPrefilter(
+      long links, long estimate, long roots, long forecast, CommandContext context) {
     if (executionTraversal == null || estimate < 0
         || estimate > TraversalPreFilterHelper.maxRidSetSize()
         || links < TraversalPreFilterHelper.minLinkBagSize()) {
@@ -578,8 +584,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
     double minimum = EdgeTraversal.computeMinNeighborsForBuild(
         (int) estimate, EdgeTraversal.currentLoadToScanRatio(), selectivity);
-    long roots = executionTraversal.getRootSourceRows();
-    long forecast = executionTraversal.getForecastN();
     if (roots >= EdgeTraversal.MIN_FOR_CLT && forecast > (long) Math.ceil(minimum)) {
       return true;
     }
@@ -1228,10 +1232,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var memory = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsLong();
     var costs = IndexOrderedCostModel.equalityCosts(
         edges, edges, indexSize, population, rowTarget, estimate, memory, histogram, orderAsc);
-    // Use the real total already used by equality pricing, not the scan sampler. Requiring
-    // admission for each nonempty bag is conservative about deferred multi-source builds.
-    boolean prefiltered = !unsupportedStorage && sourceSizes.values().stream()
-        .filter(size -> size > 0).allMatch(size -> predictsLoadPrefilter(size, estimate, context));
+    // Plain MATCH accumulates links across roots and caches one build for the traversal.
+    // Use the materialized source count and real edge total, not the scan sampler or
+    // independent per-bag triggers. This prediction neither advances admission nor builds RIDs.
+    long admissionLinks = sourceSizes.values().stream()
+        .filter(size -> size >= TraversalPreFilterHelper.minLinkBagSize())
+        .mapToLong(Integer::longValue).sum();
+    boolean prefiltered = !unsupportedStorage && admissionLinks > 0 && predictsLoadPrefilter(
+        admissionLinks, estimate, sources.size(), realEdges, context);
     if (prefiltered) {
       double loadPrice = IndexOrderedCostModel.prefilteredLoadCost(
           edges, estimate, population, rowTarget);
@@ -1707,8 +1715,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * is small (avoids union build cost).
    *
    * <p>Each index entry loads a record, so the runtime budget is the real
-   * source-edge count — one entry costs about one fallback record, not the
-   * cheap filtered-cursor conversion used by union scans.
+   * source-edge count, further capped by the predicted prefiltered load price converted
+   * to record-plus-cursor units. Union scans instead count cheap filtered-cursor advances.
    */
   private ExecutionStream indexScanGlobal(
       Map<RID, List<Result>> sourceMap, CommandContext ctx) {
@@ -1720,7 +1728,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexStream = fullScan.internalStart(ctx);
 
     return scanUnderBudget(
-        fullScan, indexStream, ctx, Math.min(realEdgeCount, multiSourcePrefilterBudget),
+        fullScan, indexStream, ctx, Math.min(realEdgeCount,
+            (long) (multiSourcePrefilterBudget
+                / (1.0 + IndexOrderedCostModel.recordReadEntryUnits()))),
         (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx),
         () -> loadFromSourcesUnsorted(sourceMap, ctx));
   }

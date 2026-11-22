@@ -206,6 +206,61 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     }
   }
 
+  /** A large root admits one cached prefilter even when the next bag misses its build trigger. */
+  @Test
+  public void limitPricesPrefilterForMixedThousandLinkBag() {
+    assertMixedBagPrefilter(1000);
+  }
+
+  /** A ten-link root cannot force global equality loads after a large root admits the build. */
+  @Test
+  public void limitPricesPrefilterForMixedTenLinkBag() {
+    assertMixedBagPrefilter(10);
+  }
+
+  private void assertMixedBagPrefilter(int secondBagSize) {
+    seed(" WHERE date < 0");
+    try (var authors = session.query("SELECT FROM Author")) {
+      var one = authors.next().asVertexOrNull();
+      var two = session.newVertex("Author");
+      two.setProperty("name", "two");
+      try (var messages = session.query("SELECT FROM Message")) {
+        while (messages.hasNext()) {
+          var message = messages.next().asVertexOrNull();
+          message.setProperty("tag", "medium");
+          if ((int) message.getProperty("date") < 10) {
+            one.addEdge(message, "wrote");
+          }
+        }
+      }
+      for (int i = 1000; i < 38000; i++) {
+        var message = session.newVertex("Message");
+        message.setProperty("date", i);
+        message.setProperty("tag", i < 18000 ? "medium" : "common");
+        if (i >= 18000 && i < 37990) {
+          one.addEdge(message, "wrote");
+        }
+        if (i >= 18000 && i < 18000 + secondBagSize) {
+          two.addEdge(message, "wrote");
+        }
+      }
+    }
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+    for (var bound : List.of(false, true)) {
+      var result = equivalent(severalQuery("ASC", bound).replace("LIMIT 40", "LIMIT 10000"),
+          "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+      assertThat(result.rids()).hasSize(10);
+      assertThat(result.step().lastEqualitySourceEdges()).isEqualTo(20000 + secondBagSize);
+      assertThat(result.step().lastEqualityObservation()).isNull();
+      assertThat(result.step().executionTraversal().getPreFilterRidSetSize()).isEqualTo(18000);
+      // The ten-link bag is below the ordinary minimum and loads its ten nonmembers.
+      assertThat(result.step().lastMultiSourceLoadCalls())
+          .isEqualTo(secondBagSize == 10 ? 20 : 10);
+    }
+  }
+
   /** Rare unbounded fetch must not build the load's RID set or scan the large source bag. */
   @Test
   public void noLimitRareFetchDoesNotPrepareTheLoadAlternative() {
@@ -575,6 +630,22 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       assertThat(result.rids()).hasSize(20);
       assertIncompleteEquality(result.step());
       assertThat(result.step().lastScanConsumedEntries()).isZero();
+    }
+  }
+
+  /** Without load prefiltering, an incomplete equality attempt retries ordering before emission. */
+  @Test
+  public void incompleteEqualityRetriesOrderedBeforeEmission() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'rare' WHERE date < 990").close();
+    try (var minimum = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 100000);
+        var bias = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.02)) {
+      var result = equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+      assertThat(result.rids()).hasSize(20);
+      assertIncompleteEquality(result.step());
+      assertThat(result.step().lastScanConsumedEntries()).isPositive();
     }
   }
 
@@ -1022,6 +1093,38 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     }
   }
 
+  /** A global scan charges each loaded record, not just its cheap cursor advance. */
+  @Test
+  public void multiSourceGlobalScanConvertsPrefilterBudgetToRecordReads() {
+    severalSources(" WHERE date >= 700");
+    session.execute("CREATE CLASS Root EXTENDS V").close();
+    session.execute("CREATE PROPERTY Root.name STRING").close();
+    session.execute("CREATE INDEX Root_name ON Root (name) UNIQUE").close();
+    session.execute("CREATE CLASS members EXTENDS E").close();
+    session.execute("CREATE VERTEX Root SET name = 'root'").close();
+    session.execute("CREATE EDGE members FROM (SELECT FROM Root)"
+        + " TO (SELECT FROM Author)").close();
+    var sql = severalQuery("ASC", true).replace("LIMIT 40", "LIMIT 1")
+        .replace("MATCH {class: Author",
+            "MATCH {class: Root, as: r, where: (name = 'root')}.out('members'){class: Author");
+    try (var cpu = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, 1000);
+        var memory = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES, 0);
+        var bias = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000000001)) {
+      var result = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT);
+      long expectedBudget = (long) ((long) IndexOrderedCostModel.prefilteredLoadCost(
+          610, 10, 1000, 1) / (1.0 + IndexOrderedCostModel.recordReadEntryUnits()));
+      assertThat(result.step().lastScanBudget()).as(result.step().prettyPrint(0, 2))
+          .isEqualTo(expectedBudget);
+      assertThat(result.step().lastScanConsumedEntries()).isBetween(expectedBudget,
+          expectedBudget + 1);
+      assertThat(result.step().lastMultiSourceLoadCalls()).isEqualTo(30);
+      assertThat(result.rids()).hasSize(1);
+    }
+  }
+
   /** Indexed edge predicates cannot open the vertex-only equality admission branch. */
   @Test
   public void edgeTraversalDoesNotUseEqualityAdmission() {
@@ -1191,6 +1294,24 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     assertThat(step.lastEqualityObservation()).isNotNull();
     assertThat(step.lastEqualityObservation().complete()).isFalse();
     assertThat(step.lastEqualityObservation().entries()).isPositive();
+  }
+
+  /** An exhausted ordered buffer is discarded before a complete equality retry emits any row. */
+  @Test
+  public void exhaustedOrderedScanRetriesEqualityBeforeEmission() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'rare' WHERE date = 0").close();
+    try (var minimum = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_PREFILTER_MIN_LINKBAG_SIZE, 100000);
+        var bias = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0001)) {
+      var result =
+          equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+      assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 989L);
+      assertThat(result.step().lastOrderedBufferedRows()).isPositive();
+      assertThat(result.rids()).hasSize(11);
+      assertThat(result.step().lastEqualityObservation().complete()).isTrue();
+    }
   }
 
   /** An optimistic ordered price discards its buffer before the selective load fallback. */

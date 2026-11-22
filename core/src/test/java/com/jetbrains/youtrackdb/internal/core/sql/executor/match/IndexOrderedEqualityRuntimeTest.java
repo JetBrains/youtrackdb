@@ -226,7 +226,7 @@ public class IndexOrderedEqualityRuntimeTest extends DbTestBase {
 
   /** Observe sorted load itself so OrderByStep cannot repair missing local rows or sorting. */
   @Test
-  public void downstreamEqualityEmitsEveryRowInLocalOrder() {
+  public void downstreamLoadSortEmitsEveryRowInLocalOrder() {
     seedDownstream();
     var context = new BasicCommandContext(session);
     context.setInputParameters(Map.of("tag", "rare"));
