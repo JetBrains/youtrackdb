@@ -60,8 +60,8 @@ final class IndexOrderedCostModel {
   }
 
   /**
-   * Single-source prices in ordered-index-entry units. LIMIT paths price an unfiltered load.
-   * Unbounded singleton dispatch substitutes the admitted prefiltered load price.
+   * Prices in ordered-index-entry units. Dispatch substitutes the admitted prefiltered load
+   * price when plain MATCH's admission rules predict a RID prefilter.
    */
   record EqualityCosts(double orderedScan, double equalityFetch, double linkBagLoad) {
   }
@@ -122,9 +122,15 @@ final class IndexOrderedCostModel {
    * No source links or equality entries are read to price this alternative.
    */
   static double prefilteredLoadCost(int links, long indexMatches, long population) {
+    return prefilteredLoadCost(links, indexMatches, population, -1);
+  }
+
+  /** A positive row target prices the downstream bounded heap instead of a full local sort. */
+  static double prefilteredLoadCost(int links, long indexMatches, long population, long rowTarget) {
     double linkedMatches = Math.min(Math.min(indexMatches, links),
         (double) links * indexMatches / Math.max(1, population));
-    double sortFactor = linkedMatches <= 1 ? 0 : Math.log(linkedMatches) / Math.log(2);
+    double sorted = rowTarget > 0 ? Math.min(linkedMatches, rowTarget) : linkedMatches;
+    double sortFactor = sorted <= 1 ? 0 : Math.log(sorted) / Math.log(2);
     return indexSeekEntryUnits() + indexMatches
     // Each membership probe visits the source link and checks the RID bitmap.
         + 2.0 * links * reverseEdgeEntryUnits()
@@ -166,7 +172,11 @@ final class IndexOrderedCostModel {
     private EqualityPath chosen;
 
     WorkAccount(int linkBagSize) {
-      remaining = entriesWorthTheLoadAlternative(linkBagSize);
+      this((double) entriesWorthTheLoadAlternative(linkBagSize));
+    }
+
+    WorkAccount(double loadPrice) {
+      remaining = loadPrice;
     }
 
     /**

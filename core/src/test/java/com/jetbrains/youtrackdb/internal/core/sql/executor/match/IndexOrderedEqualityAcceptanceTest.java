@@ -158,6 +158,54 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     assertThat(rare.step().lastEqualityObservation().complete()).isTrue();
   }
 
+  /** LIMIT prices selective RID probes instead of loading every source or global candidate. */
+  @Test
+  public void limitPricesPrefilterForSingleSource() {
+    seed(" WHERE date >= 200");
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 180 OR date >= 998").close();
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+    var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 2"), "medium",
+        IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+    assertThat(result.rids()).hasSize(2);
+    assertThat(result.step().lastEqualityObservation()).isNull();
+    assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 300L);
+    var traversal = result.step().executionTraversal();
+    assertThat(traversal.getPreFilterRidSetSize()).isEqualTo(182);
+    // Every link is probed, but only the two members reach the record loader, as in plain MATCH.
+    assertThat(traversal.getPreFilterTotalProbed()
+        - traversal.getPreFilterTotalFiltered()).isEqualTo(2);
+    equivalent(query("ASC").replace("LIMIT 20", "LIMIT 2"), "rare",
+        IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+  }
+
+  /** Filtered several-source LIMIT avoids global record loads in both source-binding modes. */
+  @Test
+  public void limitPricesPrefilterForSeveralSources() {
+    severalSources(" WHERE date >= 200");
+    // Keep global selectivity low and the combined source bags smaller than the population.
+    for (int i = 1000; i < 4000; i++) {
+      session.execute("CREATE VERTEX Message SET date = " + i + ", tag = 'common'").close();
+    }
+    session.execute("UPDATE Message SET tag = 'medium'"
+        + " WHERE date < 180 OR (date >= 998 AND date < 1000)").close();
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 1000000)) {
+      for (var bound : List.of(false, true)) {
+        var result = equivalent(severalQuery("ASC", bound).replace("LIMIT 40", "LIMIT 4"),
+            "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+        assertThat(result.rids()).hasSize(4);
+        assertThat(result.step().lastEqualityObservation()).isNull();
+        assertThat(result.step().lastMultiSourceLoadCalls()).isEqualTo(6);
+        assertThat(result.step().executionTraversal().getPreFilterRidSetSize()).isEqualTo(182);
+      }
+    }
+  }
+
   /** Rare unbounded fetch must not build the load's RID set or scan the large source bag. */
   @Test
   public void noLimitRareFetchDoesNotPrepareTheLoadAlternative() {
@@ -515,18 +563,18 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
         .rids()).hasSize(9);
   }
 
-  /** Underestimated equality exhausts its attempt before an ordered retry succeeds. */
+  /** Underestimated equality exhausts the selective load account before an ordered retry. */
   @Test
-  public void incompleteEqualityRetriesOrderedBeforeEmission() {
+  public void incompleteEqualityEndsAtPrefilteredLoadBeforeEmission() {
     seed();
     session.execute("UPDATE Message SET tag = 'rare' WHERE date < 990").close();
     var bias = GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS;
     try (var ignored = GlobalConfigurationScope.capture(bias)) {
       bias.setValue(0.02);
-      var result = equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+      var result = equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
       assertThat(result.rids()).hasSize(20);
       assertIncompleteEquality(result.step());
-      assertThat(result.step().lastScanConsumedEntries()).isBetween(20L, 40L);
+      assertThat(result.step().lastScanConsumedEntries()).isZero();
     }
   }
 
@@ -1145,9 +1193,9 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     assertThat(step.lastEqualityObservation().entries()).isPositive();
   }
 
-  /** A deliberately optimistic ordered price must discard its scan before equality fetch. */
+  /** An optimistic ordered price discards its buffer before the selective load fallback. */
   @Test
-  public void exhaustedOrderedScanRetriesEqualityBeforeEmission() {
+  public void exhaustedOrderedScanEndsAtPrefilteredLoadBeforeEmission() {
     seed();
     // One early match makes the abandoned ordered buffer nonempty.
     session.execute("UPDATE Message SET tag = 'rare' WHERE date = 0").close();
@@ -1155,11 +1203,11 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     try (var ignored = GlobalConfigurationScope.capture(bias)) {
       bias.setValue(0.0001);
       var result =
-          equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+          equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
       assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 989L);
       assertThat(result.step().lastOrderedBufferedRows()).isPositive();
       assertThat(result.rids()).hasSize(11);
-      assertThat(result.step().lastEqualityObservation().complete()).isTrue();
+      assertIncompleteEquality(result.step());
       result.step().reset();
       assertThat(result.step().lastEqualityObservation()).isNull();
       assertThat(result.step().lastOrderedBufferedRows()).isZero();

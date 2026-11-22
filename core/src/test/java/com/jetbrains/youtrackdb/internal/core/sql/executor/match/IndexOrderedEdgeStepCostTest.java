@@ -61,6 +61,24 @@ public class IndexOrderedEdgeStepCostTest {
         IndexOrderedCostModel.prefilteredLoadCost(1, 100, 0), 0.00001);
   }
 
+  /** LIMIT uses top-K comparison work, while downstream local sorting still prices all hits. */
+  @Test
+  public void prefilteredLimitPricesTopKAndBoundsTheWholeAccount() {
+    double full = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000);
+    double top = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000, 2);
+    double edge = IndexOrderedCostModel.reverseEdgeEntryUnits();
+    assertEquals(144 * (Math.log(144) / Math.log(2) - 1) * edge, full - top, 0.00001);
+    assertEquals(full, IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000, 200), 0);
+    var account = new IndexOrderedCostModel.WorkAccount(top);
+    var first = new IndexOrderedCostModel.EqualityCosts(1, 100, top);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED, account.choose(first));
+    assertTrue(account.spend(100));
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(first));
+    assertEquals(top - 100, account.allowance(first), 0);
+    assertTrue(account.spend(top - 100));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(first));
+  }
+
   /** A miss prices a full ordering scan but only the equality-index seek for equality fetch. */
   @Test
   public void equalityMissPrefersEqualityFetch() {

@@ -160,6 +160,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private boolean multiEqualityEligible;
   private int lastEqualitySourceEdges = -1;
   private long lastMultiSourceLoadCalls;
+  private long multiSourcePrefilterBudget = Long.MAX_VALUE;
 
   /** Target load calls made by the eager multi-source LinkBag fallback, excluding scan work. */
   long lastMultiSourceLoadCalls() {
@@ -247,6 +248,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     lastEqualityObservation = null;
     lastEqualitySourceEdges = -1;
     lastMultiSourceLoadCalls = 0;
+    multiSourcePrefilterBudget = Long.MAX_VALUE;
     lastOrderedBufferedRows = 0;
     executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
@@ -499,7 +501,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private ExecutionStream equalityDispatch(
       Result upstream, RID source, LinkBag bag, long indexSize,
       EquiDepthHistogram histogram, long estimate, CommandContext context) {
-    var account = new IndexOrderedCostModel.WorkAccount(bag.size());
+    IndexOrderedCostModel.WorkAccount account = null;
     java.util.function.Supplier<ExecutionStream> load = () -> {
       if (limitClause != null) {
         return terminalLoad(bag, upstream, context);
@@ -515,13 +517,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       var costs = IndexOrderedCostModel.equalityCosts(
           bag.size(), bag.size(), indexSize, population, rowTarget, estimate, memory,
           histogram, orderAsc);
-      // Without LIMIT the baseline is plain MATCH plus a full sort, never an ordered scan.
-      if (limitClause == null) {
-        costs = new IndexOrderedCostModel.EqualityCosts(
-            Double.POSITIVE_INFINITY, costs.equalityFetch(),
-            predictsLoadPrefilter(bag.size(), estimate, context)
-                ? IndexOrderedCostModel.prefilteredLoadCost(bag.size(), estimate, population)
-                : costs.linkBagLoad());
+      // Local downstream ordering needs every row. Otherwise OrderByStep uses a bounded heap.
+      double loadPrice = predictsLoadPrefilter(bag.size(), estimate, context)
+          ? IndexOrderedCostModel.prefilteredLoadCost(bag.size(), estimate, population,
+              limitClause != null && downstreamEdgeCount == 0 ? rowTarget : -1)
+          : costs.linkBagLoad();
+      costs = new IndexOrderedCostModel.EqualityCosts(
+          limitClause == null ? Double.POSITIVE_INFINITY : costs.orderedScan(),
+          costs.equalityFetch(), loadPrice);
+      if (account == null) {
+        account = limitClause == null ? new IndexOrderedCostModel.WorkAccount(bag.size())
+            : new IndexOrderedCostModel.WorkAccount(loadPrice);
       }
       switch (account.choose(costs)) {
         case EQUALITY -> {
@@ -555,7 +561,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Predicts a fresh singleton's IndexLookup admission without advancing its amortization state.
+   * Predicts a fresh source's IndexLookup admission without advancing its amortization state.
    * Execution still uses resolveLoadPrefilter, including its runtime build guards. Statistics
    * drift or a composite descriptor can change that decision without changing load semantics.
    */
@@ -1222,8 +1228,26 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var memory = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsLong();
     var costs = IndexOrderedCostModel.equalityCosts(
         edges, edges, indexSize, population, rowTarget, estimate, memory, histogram, orderAsc);
-    var account = new IndexOrderedCostModel.WorkAccount(edges);
-    if (account.choose(costs) != IndexOrderedCostModel.EqualityPath.EQUALITY) {
+    // Use the real total already used by equality pricing, not the scan sampler. Requiring
+    // admission for each nonempty bag is conservative about deferred multi-source builds.
+    boolean prefiltered = !unsupportedStorage && sourceSizes.values().stream()
+        .filter(size -> size > 0).allMatch(size -> predictsLoadPrefilter(size, estimate, context));
+    if (prefiltered) {
+      double loadPrice = IndexOrderedCostModel.prefilteredLoadCost(
+          edges, estimate, population, rowTarget);
+      costs = new IndexOrderedCostModel.EqualityCosts(
+          costs.orderedScan(), costs.equalityFetch(), loadPrice);
+      multiSourcePrefilterBudget = (long) loadPrice;
+    }
+    var account = prefiltered ? new IndexOrderedCostModel.WorkAccount(costs.linkBagLoad())
+        : new IndexOrderedCostModel.WorkAccount(edges);
+    var choice = account.choose(costs);
+    if (choice != IndexOrderedCostModel.EqualityPath.EQUALITY) {
+      if (prefiltered && choice == IndexOrderedCostModel.EqualityPath.LOAD) {
+        chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
+        context.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+        return loadFromSourcesUnsorted(sources, context);
+      }
       return null;
     }
     var rows = new ArrayList<Result>();
@@ -1400,8 +1424,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     chosenRuntimePath = RuntimePath.UNION_SCAN;
     signalIndexOrderedOutput(ctx);
     var indexDesc = new IndexSearchDescriptor(index);
-    var entryBudget =
-        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    var entryBudget = Math.min(multiSourcePrefilterBudget,
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size()));
     if (entryBudget <= 0) {
       chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
@@ -1658,10 +1682,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     // Scan index filtered by union RidSet (seqRead per entry, bitmap check).
-    // Budget = entriesWorthTheLoadAlternative: filtered cursor advances are cheap.
+    // Filtered cursor advances are cheap. Equality dispatch can lower the load alternative.
     var indexDesc = new IndexSearchDescriptor(index);
-    var entryBudget =
-        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size());
+    var entryBudget = Math.min(multiSourcePrefilterBudget,
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(unionRidSet.size()));
     if (entryBudget <= 0) {
       chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
@@ -1696,7 +1720,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var indexStream = fullScan.internalStart(ctx);
 
     return scanUnderBudget(
-        fullScan, indexStream, ctx, realEdgeCount,
+        fullScan, indexStream, ctx, Math.min(realEdgeCount, multiSourcePrefilterBudget),
         (indexResult, mapCtx) -> matchTargetToSources(indexResult, sourceMap, mapCtx),
         () -> loadFromSourcesUnsorted(sourceMap, ctx));
   }

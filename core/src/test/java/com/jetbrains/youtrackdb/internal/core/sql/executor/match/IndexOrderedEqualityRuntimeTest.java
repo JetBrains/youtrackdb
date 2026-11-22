@@ -180,21 +180,21 @@ public class IndexOrderedEqualityRuntimeTest extends DbTestBase {
         + " TO (SELECT FROM Author)").close();
   }
 
-  private List<Integer> dates(String sql, boolean equality) {
+  private List<Integer> dates(String sql, boolean orderedLoad) {
     try (var rows = session.query(sql, Map.of("tag", "rare"))) {
       var values = new ArrayList<Integer>();
       while (rows.hasNext()) {
         values.add(rows.next().getProperty("d"));
       }
-      if (equality) {
+      if (orderedLoad) {
         assertThat(find(rows.getExecutionPlan().getSteps()).getChosenRuntimePath())
-            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
       }
       return values;
     }
   }
 
-  /** LIMIT must not discard the only candidate accepted by a later MATCH edge. */
+  /** A stale equality count reaches sorted load without losing the later accepted candidate. */
   @Test
   public void downstreamRejectionRetainsLaterEqualityRows() {
     seedDownstream();
@@ -203,7 +203,7 @@ public class IndexOrderedEqualityRuntimeTest extends DbTestBase {
     assertThat(dates(sql.replace(" LIMIT 1", ""), false)).containsExactly(160);
   }
 
-  /** A secondary key must see all tied primary keys, even when LIMIT is one. */
+  /** Sorted load retains all primary ties for the secondary key when LIMIT is one. */
   @Test
   public void downstreamSecondaryOrderRetainsPrimaryTies() {
     seedDownstream();
@@ -217,14 +217,14 @@ public class IndexOrderedEqualityRuntimeTest extends DbTestBase {
       assertThat(rows.next().<String>getProperty("n")).isEqualTo("b");
       assertThat(rows.hasNext()).isFalse();
       assertThat(find(rows.getExecutionPlan().getSteps()).getChosenRuntimePath())
-          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
     }
     try (var rows = session.query(sql.replace(" LIMIT 1", ""), Map.of("tag", "rare"))) {
       assertThat(rows.next().<String>getProperty("n")).isEqualTo("b");
     }
   }
 
-  /** Observe the step itself: OrderByStep cannot repair missing local sorting in this check. */
+  /** Observe sorted load itself so OrderByStep cannot repair missing local rows or sorting. */
   @Test
   public void downstreamEqualityEmitsEveryRowInLocalOrder() {
     seedDownstream();
@@ -242,7 +242,7 @@ public class IndexOrderedEqualityRuntimeTest extends DbTestBase {
           values.add(stream.next(context).getEntity("m").getProperty("date"));
         }
         assertThat(step.getChosenRuntimePath())
-            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_SORT);
         assertThat((Object) context.getSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED))
             .isEqualTo(Boolean.TRUE);
         assertThat(values).containsExactly(150, 150, 160);
