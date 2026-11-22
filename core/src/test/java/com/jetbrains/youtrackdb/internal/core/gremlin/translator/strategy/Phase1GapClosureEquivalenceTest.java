@@ -28,6 +28,10 @@ import org.junit.Test;
  */
 public class Phase1GapClosureEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
 

@@ -107,6 +107,10 @@ import org.junit.Test;
  */
 public class GremlinStepWalkerTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
 
   /**
@@ -206,7 +210,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
             continue;
           }
           for (boolean hasId : List.of(false, true)) {
-            String previous = null;
+            GremlinShapeKey previous = null;
             for (var rid : List.of(new RecordId(25, 7), new RecordId(25, 8))) {
               var start = hasId ? graph.traversal().V().hasId(rid) : graph.traversal().V(rid);
               var hop = start.hasLabel("StructuralPerson").to(direction, labels);
@@ -237,7 +241,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
               assertThat(shape.bindings().get(0)).isSameAs(decision.rid());
               assertThat(result.inputs().runtimeRidStarts().get(BOUNDARY_ALIAS).parameterSlot())
                   .isZero();
-              assertThat(shape.key()).doesNotContain(rid.toString());
+              assertThat(shape.key().toString()).doesNotContain(rid.toString());
               if (previous != null) {
                 assertThat(shape.key()).isEqualTo(previous);
               }
@@ -292,7 +296,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     for (boolean poly : List.of(false, true)) {
       for (boolean hasId : List.of(false, true)) {
         for (boolean edge : List.of(false, true)) {
-          String previous = null;
+          GremlinShapeKey previous = null;
           for (int value = 1; value <= 2; value++) {
             var rid = new RecordId(25, value);
             var start = hasId ? graph.traversal().V().has("before", "value" + value)
@@ -345,7 +349,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
             assertThat(literal.inputParameters()).isEqualTo(withoutRid);
             assertThat(GremlinToMatchStrategy.matchingLayout(
                 shape.hasContributions(), runtime.hasContributions())).isTrue();
-            assertThat(shape.key()).doesNotContain(rid.toString(), "value" + value,
+            assertThat(shape.key().toString()).doesNotContain(rid.toString(), "value" + value,
                 "member" + value);
             if (previous != null) {
               assertThat(shape.key()).isEqualTo(previous);
@@ -373,8 +377,10 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
           .out("knows").asAdmin();
       assertThat(RuntimeRidStartEligibility.evaluate(admin, true)).isNull();
       var nulls = YTDBStrategyUtil.orderByNullsPlacements(admin);
-      var shape = GremlinStepWalker.extractShape(admin, db, false, nulls, true, null);
-      var result = GremlinToMatchTranslator.translate(admin, false, nulls, true, null);
+      var shape = GremlinStepWalker.extractShape(admin, db, false, nulls, true,
+          (RuntimeRidStartEligibility.EligibleStart) null);
+      var result = GremlinToMatchTranslator.translate(admin, false, nulls, true,
+          (RuntimeRidStartEligibility.EligibleStart) null);
       assertThat(result).isNotNull();
       assertThat(shape.bindings()).isEqualTo(Map.of(0, "A", 1, 10, 2, 20))
           .isEqualTo(result.inputParameters());
@@ -441,7 +447,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var shape = GremlinStepWalker.extractShape(query, db);
     var translated = GremlinToMatchTranslator.translate(query);
     assertThat(translated).isNotNull();
-    assertThat(shape.key()).contains("localChild", "childEnd");
+    assertThat(shape.key().toString()).contains("localChild", "childEnd");
     assertThat(shape.bindings()).isEqualTo(translated.inputParameters())
         .isEqualTo(Map.of(0, 1));
     assertThat(translated.inputs().runtimeRidStarts()).isEmpty();

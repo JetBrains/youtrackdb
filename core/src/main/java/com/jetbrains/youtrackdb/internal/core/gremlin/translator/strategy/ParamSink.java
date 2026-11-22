@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
+import javax.annotation.Nullable;
 
 /**
  * Allocates positional-parameter slots ({@code ?}) during predicate AST emission and during shape
@@ -17,5 +18,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
 @FunctionalInterface
 interface ParamSink {
 
-  SQLPositionalParameter bindParam(Object value);
+  /** Harvest-only sinks return null. AST-emitting sinks return the allocated parameter. */
+  @Nullable SQLPositionalParameter bindParam(Object value);
 }

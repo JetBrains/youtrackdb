@@ -56,6 +56,12 @@ import org.junit.Test;
  */
 public class GremlinPlanCacheTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
+  private static final GremlinShapeKey repairKey = new GremlinShapeKey(new Object[] {"repair"});
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::graphSession);
 
@@ -65,11 +71,76 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     GremlinPlanCache.instance(graphSession()).invalidate();
   }
 
-  /**
-   * Every start spelling, class mode, direction and hop-label variant must plan once, then reuse
-   * the same closed runtime template for a second RID with different nonempty native multisets.
-   * Translation-map bypass must hit the plan map instead. A silent retry or native fallback fails.
-   */
+  /** Capacity-one translation eviction must lose the old shape and admit its fresh replacement. */
+  @Test
+  public void translationEntriesEvictAndCanBeRebuilt() {
+    var cache = new GremlinPlanCache(1);
+    var firstKey = new GremlinShapeKey(new Object[] {"first"});
+    var secondKey = new GremlinShapeKey(new Object[] {"second"});
+    var first = new GremlinTranslationTemplate.Decline();
+    var second = new GremlinTranslationTemplate.Decline();
+    var generation = cache.getGeneration();
+    cache.putTranslationInternal(firstKey, first, graphSession(), generation);
+    cache.putTranslationInternal(secondKey, second, graphSession(), generation);
+    assertThat(cache.containsTranslation(firstKey)).isFalse();
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isNull();
+    assertThat(cache.getTranslationInternal(secondKey, graphSession())).isSameAs(second);
+    var rebuilt = new GremlinTranslationTemplate.Decline();
+    assertThat(cache.putTranslationInternal(firstKey, rebuilt, graphSession(), generation))
+        .isSameAs(rebuilt);
+    assertThat(cache.getTranslationInternal(firstKey, graphSession())).isSameAs(rebuilt);
+    assertThat(cache.containsTranslation(secondKey)).isFalse();
+  }
+
+  /** Same-generation publication replaces the resident and returns the stored engine decision. */
+  @Test
+  public void laterSameGenerationPublicationReplacesResident() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    var rejected = new GremlinTranslationTemplate.Decline();
+    var fresh = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation(repairKey, rejected, graphSession(), generation);
+    assertThat(GremlinPlanCache.putTranslation(repairKey, fresh, graphSession(), generation))
+        .isSameAs(fresh);
+    assertThat(GremlinPlanCache.putTranslation(repairKey, fresh, graphSession(), generation))
+        .isSameAs(fresh);
+    assertThat(GremlinPlanCache.getTranslation(repairKey, graphSession())).isSameAs(fresh);
+  }
+
+  /** Each same-generation publication replaces the previous identity holder. */
+  @Test
+  public void laterPublicationReturnsTheNewResident() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    var rejected = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation(repairKey, rejected, graphSession(), generation);
+    var winner = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation(repairKey, winner, graphSession(), generation);
+    var later = new GremlinTranslationTemplate.Decline();
+    assertThat(GremlinPlanCache.putTranslation(repairKey, later, graphSession(), generation))
+        .isSameAs(later);
+    assertThat(GremlinPlanCache.getTranslation(repairKey, graphSession())).isSameAs(later);
+  }
+
+  /** Invalidation forbids an old repair from publishing into an empty or a newer generation. */
+  @Test
+  public void obsoleteRepairCannotPublishOrReplaceCurrentEntry() {
+    var cache = GremlinPlanCache.instance(graphSession());
+    var generation = cache.getGeneration();
+    GremlinPlanCache.putTranslation(repairKey, new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation);
+    cache.invalidate();
+    assertThat(GremlinPlanCache.putTranslation(repairKey, new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation)).isNull();
+    assertThat(cache.containsTranslation(repairKey)).isFalse();
+    var current = new GremlinTranslationTemplate.Decline();
+    GremlinPlanCache.putTranslation(repairKey, current, graphSession(), cache.getGeneration());
+    assertThat(GremlinPlanCache.putTranslation(repairKey, new GremlinTranslationTemplate.Decline(),
+        graphSession(), generation)).isNull();
+    assertThat(GremlinPlanCache.getTranslation(repairKey, graphSession())).isSameAs(current);
+  }
+
+  /** {@code eq(null)} (bare {@code IS NULL}) and scalar {@code eq(v)} ({@code = ?}) differ in fingerprint. */
   @Test
   public void runtimeRidFirstFamilyWarmReuseGrid() {
     var a = graph.addVertex(T.label, "Person", "name", "A");
@@ -1417,7 +1488,10 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
         tx.getDatabaseSession().getMetadata().getSchema().createClass("ReaderNewSchema");
         tx.commit();
         var fresh = graph.traversal().V().has("age", 40).has("age", 40).asAdmin();
-        GremlinToMatchStrategy.instance().apply(fresh);
+        ForceMatchTranslationRule.callWithMatch(() -> {
+          GremlinToMatchStrategy.instance().apply(fresh);
+          return null;
+        });
         assertThat(fresh.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
         assertThat(cache.containsTranslation(shape)).isTrue();
         assertThat(cache.contains(fp)).isTrue();

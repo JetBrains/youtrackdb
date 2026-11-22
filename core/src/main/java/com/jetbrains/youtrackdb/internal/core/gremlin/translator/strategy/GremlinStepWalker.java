@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWh
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -435,20 +434,36 @@ final class GremlinStepWalker {
       ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphic) {
     return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
-        polymorphic, null);
+        polymorphic, TranslationEnvironment.resolve(traversal, session));
   }
 
-  /** Null selects literal encoding. The caller owns the one eligibility/snapshot decision. */
   static GremlinShapeExtractor.Extraction extractShape(
-      Traversal.Admin<?, ?> traversal,
-      DatabaseSessionEmbedded session,
+      Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session,
       @Nullable Boolean orderIncludesMissingKey,
-      ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements, @Nullable Boolean polymorphic,
+      TranslationEnvironment environment) {
+    return extractShape(traversal, session, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphic, environment, null);
+  }
+
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session,
+      @Nullable Boolean orderIncludesMissingKey,
+      ResolvedOrderByNullsPlacement orderByNullsPlacements, @Nullable Boolean polymorphic,
+      TranslationEnvironment environment,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeStart) {
+    return GremlinShapeExtractor.extract(PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal,
+        orderIncludesMissingKey, orderByNullsPlacements, polymorphic, environment,
+        new GremlinShapeEncoder(session.getSchema(), null, runtimeStart));
+  }
+
+  static GremlinShapeExtractor.Extraction extractShape(
+      Traversal.Admin<?, ?> traversal, DatabaseSessionEmbedded session,
+      @Nullable Boolean missing, ResolvedOrderByNullsPlacement nulls,
       @Nullable Boolean polymorphic,
-      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
-    return GremlinShapeExtractor.extract(
-        PRODUCTION_RECOGNISERS, TRANSPARENT_STEPS, traversal, session,
-        orderIncludesMissingKey, orderByNullsPlacements, polymorphic, runtimeRidStart);
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeStart) {
+    return extractShape(traversal, session, missing, nulls, polymorphic,
+        TranslationEnvironment.resolve(traversal, session), runtimeStart);
   }
 
   /**
@@ -514,19 +529,36 @@ final class GremlinStepWalker {
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
       @Nullable Boolean polymorphicSetting) {
-    return walk(traversal, childScopeBoundary, orderIncludesMissingKey,
-        orderByNullsPlacements, polymorphicSetting, true, null);
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphicSetting, null);
   }
 
-  /** Explicit decisions. Non-root walks stay literal regardless of supplied provenance. */
   @Nullable GremlinToMatchTranslator.TranslationResult walk(
-      Traversal.Admin<?, ?> traversal,
-      int childScopeBoundary,
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
       @Nullable Boolean orderIncludesMissingKey,
       @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
-      @Nullable Boolean polymorphicSetting,
-      boolean rootWalk,
+      @Nullable Boolean polymorphicSetting, @Nullable TranslationEnvironment environment) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphicSetting, true, null, environment);
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting, boolean rootWalk,
       @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart) {
+    return walk(traversal, childScopeBoundary, orderIncludesMissingKey, orderByNullsPlacements,
+        polymorphicSetting, rootWalk, runtimeRidStart, null);
+  }
+
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(
+      Traversal.Admin<?, ?> traversal, int childScopeBoundary,
+      @Nullable Boolean orderIncludesMissingKey,
+      @Nullable ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable Boolean polymorphicSetting, boolean rootWalk,
+      @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart,
+      @Nullable TranslationEnvironment environment) {
     // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to translate
     // and could never pin a boundary, so decline it here rather than let it fall through to the
     // terminator invariant below — an empty traversal is a normal shape, not a recogniser bug.
@@ -569,26 +601,26 @@ final class GremlinStepWalker {
     // Resolve the EdgeLabelVerificationStrategy presence once too, so resolveEdgeLabel reads a
     // boolean instead of scanning the strategy list per hop.
     boolean edgeLabelVerification =
-        traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent();
+        environment != null ? environment.edgeLabelVerification()
+            : traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class)
+                .isPresent();
 
-    // Resolve the schema snapshot once for the has(...) recogniser's non-String Text type gate. The
-    // isPolymorphic resolution above already proved an attached YTDB session (it returns null
-    // otherwise, declining the walk), so the session resolves here too; a null schema is a defensive
-    // fallback that disables the type gate, translating string predicates best-effort.
-    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    // Reuse the translator's borrowed session. Direct callers resolve their own session here.
+    // A null schema disables the has(...) recogniser's declared-String type gate.
+    var session = environment != null ? environment.session()
+        : YTDBStrategyUtil.resolveYtdbSession(traversal);
     Schema schema = session != null ? session.getSchema() : null;
 
     var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     ctx.setWalkedTraversal(traversal);
+    ctx.environment = environment;
     ctx.runtimeRidStart = rootWalk ? runtimeRidStart : null;
     // Resolve ProductiveByStrategy's productive-key set once, for the same reason the two flags
     // above are resolved once: every by(...) modulator would otherwise re-scan the strategy list.
     ctx.setProductiveByKeys(
-        traversal
-            .getStrategies()
-            .getStrategy(ProductiveByStrategy.class)
-            .map(ProductiveByStrategy::getProductiveKeys)
-            .orElse(null));
+        environment != null ? environment.productiveKeys()
+            : traversal.getStrategies().getStrategy(ProductiveByStrategy.class)
+                .map(ProductiveByStrategy::getProductiveKeys).orElse(null));
     // Resolve order behavior through the same entry points used by native execution.
     ctx.setOrderIncludesMissingKey(
         Boolean.TRUE.equals(
@@ -636,6 +668,10 @@ final class GremlinStepWalker {
     if (childScopeBoundary != NO_CHILD_SCOPE || ctx.shaping().emitGroupEntries()
         || !ctx.shaping().accumulateMap()) {
       ctx.shaping = ctx.shaping().withPropertyGroupCount(null);
+    }
+    if (childScopeBoundary == NO_CHILD_SCOPE) {
+      ctx.shaping = ctx.shaping().withPropertyMapBulkingCapacity(
+          PropertyMapBulkingAdmission.capacity(traversal, environment));
     }
     return buildResult(ctx);
   }
@@ -1338,14 +1374,16 @@ final class GremlinStepWalker {
    * the traversal tree, including separate branches and detached filter children.
    */
   static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal) {
-    return hasDuplicateStepLabels(traversal, new HashSet<>());
+    try (var labels = LabelScanScratch.acquire()) {
+      return hasDuplicateStepLabels(traversal, labels);
+    }
   }
 
   private static boolean hasDuplicateStepLabels(Traversal.Admin<?, ?> traversal,
-      Set<String> labels) {
+      LabelScanScratch labels) {
     for (Step<?, ?> step : traversal.getSteps()) {
-      for (var label : GremlinStepLabels.userLabels(step)) {
-        if (!labels.add(label)) {
+      for (var label : step.getLabels()) {
+        if (label != null && !labels.add(label)) {
           return true;
         }
       }
@@ -1383,14 +1421,20 @@ final class GremlinStepWalker {
       java.util.Set<String> keys) {
     for (Step<?, ?> step : traversal.getSteps()) {
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectOneStep<?,
-          ?> one
-          && one.getScopeKeys().stream().anyMatch(keys::contains)) {
-        return true;
+          ?> one) {
+        for (var key : one.getScopeKeys()) {
+          if (keys.contains(key)) {
+            return true;
+          }
+        }
       }
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.map.SelectStep<?,
-          ?> many
-          && many.getSelectKeys().stream().anyMatch(keys::contains)) {
-        return true;
+          ?> many) {
+        for (var key : many.getSelectKeys()) {
+          if (keys.contains(key)) {
+            return true;
+          }
+        }
       }
       if (step instanceof org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent parent) {
         for (var child : parent.getLocalChildren()) {
