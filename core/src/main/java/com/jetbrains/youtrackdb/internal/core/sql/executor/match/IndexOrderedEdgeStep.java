@@ -562,16 +562,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Predicts a fresh source's IndexLookup admission without advancing its amortization state.
+   * Links is one bag or the summed admitted bags of all sources. The mode uses the plan-time
+   * rootSourceRows and forecastN, as EdgeTraversal.checkIndexLookupAmortization does.
    * Execution still uses resolveLoadPrefilter, including its runtime build guards. Statistics
    * drift or a composite descriptor can change that decision without changing load semantics.
    */
-  private boolean predictsLoadPrefilter(int links, long estimate, CommandContext context) {
-    return executionTraversal != null && predictsLoadPrefilter(links, estimate,
-        executionTraversal.getRootSourceRows(), executionTraversal.getForecastN(), context);
-  }
-
-  private boolean predictsLoadPrefilter(
-      long links, long estimate, long roots, long forecast, CommandContext context) {
+  private boolean predictsLoadPrefilter(long links, long estimate, CommandContext context) {
     if (executionTraversal == null || estimate < 0
         || estimate > TraversalPreFilterHelper.maxRidSetSize()
         || links < TraversalPreFilterHelper.minLinkBagSize()) {
@@ -584,6 +580,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
     double minimum = EdgeTraversal.computeMinNeighborsForBuild(
         (int) estimate, EdgeTraversal.currentLoadToScanRatio(), selectivity);
+    long roots = executionTraversal.getRootSourceRows();
+    long forecast = executionTraversal.getForecastN();
     if (roots >= EdgeTraversal.MIN_FOR_CLT && forecast > (long) Math.ceil(minimum)) {
       return true;
     }
@@ -1232,14 +1230,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var memory = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsLong();
     var costs = IndexOrderedCostModel.equalityCosts(
         edges, edges, indexSize, population, rowTarget, estimate, memory, histogram, orderAsc);
-    // Plain MATCH accumulates links across roots and caches one build for the traversal.
-    // Use the materialized source count and real edge total, not the scan sampler or
-    // independent per-bag triggers. This prediction neither advances admission nor builds RIDs.
+    // Plain MATCH decides the mode once from the planner's root lineage and forecast, then
+    // accumulates admitted links across sources and caches one build. Sum the distinct sources'
+    // bags of at least minLinkBagSize and apply the same plan-time mode and trigger.
+    // This prediction neither advances admission nor builds RIDs.
     long admissionLinks = sourceSizes.values().stream()
         .filter(size -> size >= TraversalPreFilterHelper.minLinkBagSize())
         .mapToLong(Integer::longValue).sum();
     boolean prefiltered = !unsupportedStorage && admissionLinks > 0 && predictsLoadPrefilter(
-        admissionLinks, estimate, sources.size(), realEdges, context);
+        admissionLinks, estimate, context);
     if (prefiltered) {
       double loadPrice = IndexOrderedCostModel.prefilteredLoadCost(
           edges, estimate, population, rowTarget);

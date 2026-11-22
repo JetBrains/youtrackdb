@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -206,10 +207,120 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     }
   }
 
-  /** A large root admits one cached prefilter even when the next bag misses its build trigger. */
+  /**
+   * {@code authorCount} authors, two of kind x. The unindexed kind filter plans half the
+   * authors as roots. With 100 authors that is 50 roots and a forecast of 450 links, so plain
+   * MATCH builds eagerly (50 >= 30 and 450 > m = 62) although only two sources materialize.
+   * Their 710 + 190 links stay below the CLT-fail trigger 15m = 922. 1,000 messages: dates
+   * below 860 are medium, so the RID set holds 860 members.
+   */
+  private void seedPlanRootGate(int authorCount) {
+    seed(" WHERE date < 0");
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 860").close();
+    session.execute("UPDATE Message SET tag = 'common' WHERE date >= 860").close();
+    var messages = new ArrayList<Vertex>();
+    try (var rows = session.query("SELECT FROM Message ORDER BY date")) {
+      while (rows.hasNext()) {
+        messages.add(rows.next().asVertexOrNull());
+      }
+    }
+    var authors = new ArrayList<Vertex>();
+    try (var rows = session.query("SELECT FROM Author")) {
+      authors.add(rows.next().asVertexOrNull());
+    }
+    authors.get(0).setProperty("kind", "x");
+    for (int i = 1; i < authorCount; i++) {
+      var author = session.newVertex("Author");
+      author.setProperty("name", "a" + i);
+      author.setProperty("kind", i == 1 ? "x" : "y");
+      authors.add(author);
+    }
+    // Ten medium links plus each of the 140 commons five times: 710 links.
+    for (int i = 0; i < 10; i++) {
+      authors.get(0).addEdge(messages.get(i), "wrote");
+    }
+    for (int round = 0; round < 5; round++) {
+      for (int i = 860; i < 1000; i++) {
+        authors.get(0).addEdge(messages.get(i), "wrote");
+      }
+    }
+    // Each common once plus fifty commons again: 190 links.
+    for (int i = 860; i < 1000; i++) {
+      authors.get(1).addEdge(messages.get(i), "wrote");
+    }
+    for (int i = 860; i < 910; i++) {
+      authors.get(1).addEdge(messages.get(i), "wrote");
+    }
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+  }
+
+  private String planRootGateQuery(boolean bound) {
+    return severalQuery("ASC", bound).replace("name IN ['one', 'two']", "kind = 'x'")
+        .replace("LIMIT 40", "LIMIT 10");
+  }
+
+  /**
+   * Plan roots pass the CLT gate while fewer than 30 sources materialize. Plain MATCH builds
+   * the RID set eagerly, so the step must price the prefiltered load and use it.
+   */
   @Test
-  public void limitPricesPrefilterForMixedThousandLinkBag() {
-    assertMixedBagPrefilter(1000);
+  public void limitPricesPrefilterWhenPlanRootsPassTheCltGate() {
+    seedPlanRootGate(100);
+    // Remove ordered alternatives so equality fetch competes only with the LinkBag load.
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 1000000)) {
+      for (var bound : List.of(false, true)) {
+        var result = equivalent(planRootGateQuery(bound), "medium",
+            IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+        assertThat(result.rids()).hasSize(10);
+        assertThat(result.step().lastEqualitySourceEdges()).isEqualTo(900);
+        assertThat(result.step().lastEqualityObservation()).isNull();
+        var traversal = result.step().executionTraversal();
+        assertThat(traversal.getRootSourceRows()).isEqualTo(50);
+        assertThat(traversal.getForecastN()).isEqualTo(450);
+        assertThat(traversal.getPreFilterRidSetSize()).isEqualTo(860);
+        assertThat(traversal.getPreFilterAppliedCount()).isEqualTo(2);
+        assertThat(traversal.getPreFilterTotalProbed()).isEqualTo(900);
+        assertThat(result.step().lastMultiSourceLoadCalls()).isEqualTo(10);
+      }
+    }
+  }
+
+  /**
+   * Negative control with the same sources and links: 50 authors plan 25 roots, below the CLT
+   * gate. Plain MATCH defers and its 900 accumulated links never reach 15m = 922, so no RID
+   * set is built and equality fetch remains the cheaper choice.
+   */
+  @Test
+  public void limitKeepsEqualityWhenPlanRootsFailTheCltGate() {
+    seedPlanRootGate(50);
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 1000000)) {
+      for (var bound : List.of(false, true)) {
+        var result = equivalent(planRootGateQuery(bound), "medium",
+            IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+        assertThat(result.rids()).hasSize(10);
+        assertThat(result.step().lastEqualityObservation().complete()).isTrue();
+        assertThat(result.step().lastEqualityObservation().entries()).isEqualTo(860);
+        var traversal = result.step().executionTraversal();
+        assertThat(traversal.getRootSourceRows()).isEqualTo(25);
+        assertThat(traversal.getForecastN()).isEqualTo(450);
+        assertThat(traversal.getPreFilterRidSetSize()).isZero();
+        assertThat(traversal.getPreFilterAppliedCount()).isZero();
+      }
+    }
+  }
+
+  /**
+   * A large root admits one cached prefilter even when the next 100-link bag misses its own
+   * build trigger. Plan roots 1 fail the CLT gate, so the trigger is 15m = ceil(15 * 900 /
+   * (100 * (1 - 900 / 1900))) = 257 accumulated links. The first bag alone crosses it.
+   */
+  @Test
+  public void limitPricesPrefilterForMixedHundredLinkBag() {
+    assertMixedBagPrefilter(100);
   }
 
   /** A ten-link root cannot force global equality loads after a large root admits the build. */
@@ -218,6 +329,10 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     assertMixedBagPrefilter(10);
   }
 
+  /**
+   * 1,900 messages, 900 tagged medium. Author one links the ten mediums dated 0..9 and 990
+   * commons. Author two links {@code secondBagSize} of the same commons. Ten rows match.
+   */
   private void assertMixedBagPrefilter(int secondBagSize) {
     seed(" WHERE date < 0");
     try (var authors = session.query("SELECT FROM Author")) {
@@ -227,21 +342,22 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       try (var messages = session.query("SELECT FROM Message")) {
         while (messages.hasNext()) {
           var message = messages.next().asVertexOrNull();
-          message.setProperty("tag", "medium");
-          if ((int) message.getProperty("date") < 10) {
+          int date = message.getProperty("date");
+          message.setProperty("tag", date < 900 ? "medium" : "common");
+          if (date < 10 || date >= 900) {
             one.addEdge(message, "wrote");
+          }
+          if (date >= 900 && date < 900 + secondBagSize) {
+            two.addEdge(message, "wrote");
           }
         }
       }
-      for (int i = 1000; i < 38000; i++) {
+      for (int i = 1000; i < 1900; i++) {
         var message = session.newVertex("Message");
         message.setProperty("date", i);
-        message.setProperty("tag", i < 18000 ? "medium" : "common");
-        if (i >= 18000 && i < 37990) {
+        message.setProperty("tag", "common");
+        if (i < 1890) {
           one.addEdge(message, "wrote");
-        }
-        if (i >= 18000 && i < 18000 + secondBagSize) {
-          two.addEdge(message, "wrote");
         }
       }
     }
@@ -249,13 +365,16 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     session.getIndex("Message_tag").analyzeHistogram(session);
     session.begin();
     for (var bound : List.of(false, true)) {
-      var result = equivalent(severalQuery("ASC", bound).replace("LIMIT 40", "LIMIT 10000"),
+      var result = equivalent(severalQuery("ASC", bound).replace("LIMIT 40", "LIMIT 500"),
           "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
       assertThat(result.rids()).hasSize(10);
-      assertThat(result.step().lastEqualitySourceEdges()).isEqualTo(20000 + secondBagSize);
+      assertThat(result.step().lastEqualitySourceEdges()).isEqualTo(1000 + secondBagSize);
       assertThat(result.step().lastEqualityObservation()).isNull();
-      assertThat(result.step().executionTraversal().getPreFilterRidSetSize()).isEqualTo(18000);
+      var traversal = result.step().executionTraversal();
+      assertThat(traversal.getRootSourceRows()).isLessThan(EdgeTraversal.MIN_FOR_CLT);
+      assertThat(traversal.getPreFilterRidSetSize()).isEqualTo(900);
       // The ten-link bag is below the ordinary minimum and loads its ten nonmembers.
+      assertThat(traversal.getPreFilterAppliedCount()).isEqualTo(secondBagSize == 10 ? 1 : 2);
       assertThat(result.step().lastMultiSourceLoadCalls())
           .isEqualTo(secondBagSize == 10 ? 20 : 10);
     }
@@ -645,7 +764,7 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       var result = equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
       assertThat(result.rids()).hasSize(20);
       assertIncompleteEquality(result.step());
-      assertThat(result.step().lastScanConsumedEntries()).isPositive();
+      assertThat(result.step().lastScanConsumedEntries()).isBetween(20L, 40L);
     }
   }
 
@@ -1114,8 +1233,13 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
         var bias = GlobalConfigurationScope.set(
             GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000000001)) {
       var result = equivalent(sql, "rare", IndexOrderedEdgeStep.RuntimePath.SCAN_BUDGET_BAILOUT);
-      long expectedBudget = (long) ((long) IndexOrderedCostModel.prefilteredLoadCost(
-          610, 10, 1000, 1) / (1.0 + IndexOrderedCostModel.recordReadEntryUnits()));
+      // Scan CPU factor 1000: one entry costs 1/200 + 1000 * 0.01 = 10.005. A record read is
+      // 4.01 / 10.005 = 0.4008 entries, a link probe 0.01 / 10.005, a seek 16 / 10.005.
+      // Prefiltered load for 610 links, 10 matches, population 1000, LIMIT 1: linked matches
+      // min(10, 610, 6.1) = 6.1, so 1.5992 + 10 + 2 * 610 * 0.0009995 + 6.1 * 0.4008 = 15.26.
+      // The stored budget truncates to 15 entries. One global-scan entry costs a cursor
+      // advance plus a record read, 1.4008 entries, so the cap is (long) (15 / 1.4008) = 10.
+      long expectedBudget = 10;
       assertThat(result.step().lastScanBudget()).as(result.step().prettyPrint(0, 2))
           .isEqualTo(expectedBudget);
       assertThat(result.step().lastScanConsumedEntries()).isBetween(expectedBudget,
@@ -1311,6 +1435,9 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       assertThat(result.step().lastOrderedBufferedRows()).isPositive();
       assertThat(result.rids()).hasSize(11);
       assertThat(result.step().lastEqualityObservation().complete()).isTrue();
+      result.step().reset();
+      assertThat(result.step().lastEqualityObservation()).isNull();
+      assertThat(result.step().lastOrderedBufferedRows()).isZero();
     }
   }
 
