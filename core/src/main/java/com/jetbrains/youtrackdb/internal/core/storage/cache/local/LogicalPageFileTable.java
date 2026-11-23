@@ -146,10 +146,13 @@ final class LogicalPageFileTable {
     states.compute(expectedId, (key, previous) -> {
       boolean refresh = previous != null && previous.kind() == Kind.LIVE;
       var extents = refresh ? previous.extents() : new Extents(logicalExtent, diskExtent);
-      // Metadata refresh and completion share this atomic update. Neither can undo the other's
-      // disk-presence publication, even when refresh starts before completion.
-      return new State(identity, extents,
-          refresh ? previous.diskPresent() || (!metadataOnly && diskPresent) : diskPresent,
+      // Metadata refresh and completion share this atomic update. Preserve published disk
+      // presence on refresh. Only an explicit refresh can add disk presence.
+      boolean publishedDiskPresent = diskPresent;
+      if (refresh) {
+        publishedDiskPresent = previous.diskPresent() || (!metadataOnly && diskPresent);
+      }
+      return new State(identity, extents, publishedDiskPresent,
           nonDurable, Kind.LIVE, refresh ? previous.creationLsn() : creationLsn);
     });
     if (liveNames.put(name, expectedId) == null) {
