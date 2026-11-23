@@ -19,13 +19,16 @@
  */
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
+import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
 
 /**
- * Ordered coverage for each live incarnation. Callers hold the file stripe through the cache
- * mutation. Lookup takes the same stripe, so insertion, eviction and purge are linearizable.
+ * Ordered coverage for each live incarnation. Callers hold the exclusive file partition lock
+ * through the cache mutation. Lookup takes the shared lock, so insertion, eviction and purge are
+ * linearizable. This manager is separate from the page-key manager to preserve lock order.
  */
 final class CachedPageCoverage {
 
@@ -33,29 +36,31 @@ final class CachedPageCoverage {
   }
 
   private final Map<Integer, Coverage> files = new ConcurrentHashMap<>();
-  private final Object[] locks = new Object[256];
+  private final PartitionedLockManager<Integer> locks = new PartitionedLockManager<>();
 
-  CachedPageCoverage() {
-    java.util.Arrays.setAll(locks, index -> new Object());
-  }
-
-  Object lock(int fileId) {
-    return locks[Integer.hashCode(fileId) & (locks.length - 1)];
+  Lock acquireExclusiveLock(int fileId) {
+    return locks.acquireExclusiveLock(fileId);
   }
 
   void add(int fileId, long page, LogicalPageFileTable.Extents token) {
-    synchronized (lock(fileId)) {
+    // Reentrant acquisition also supports callers that hold the lock through a cache mutation.
+    final var lock = acquireExclusiveLock(fileId);
+    try {
       var coverage = files.get(fileId);
       if (coverage == null || coverage.token() != token) {
         coverage = new Coverage(token, new TreeSet<>());
         files.put(fileId, coverage);
       }
       coverage.pages().add(page);
+    } finally {
+      lock.unlock();
     }
   }
 
   void remove(int fileId, long page) {
-    synchronized (lock(fileId)) {
+    // Re-enter the caller's exclusive lock when removing a cached image and its coverage.
+    final var lock = acquireExclusiveLock(fileId);
+    try {
       var coverage = files.get(fileId);
       if (coverage != null) {
         coverage.pages().remove(page);
@@ -63,14 +68,19 @@ final class CachedPageCoverage {
           files.remove(fileId);
         }
       }
+    } finally {
+      lock.unlock();
     }
   }
 
   boolean covers(int fileId, long page, LogicalPageFileTable.Extents token) {
-    synchronized (lock(fileId)) {
+    final var lock = locks.acquireSharedLock(fileId);
+    try {
       var coverage = files.get(fileId);
       return coverage != null && coverage.token() == token
           && coverage.pages().ceiling(page) != null;
+    } finally {
+      lock.unlock();
     }
   }
 }

@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
+import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
@@ -1675,9 +1676,53 @@ public class WOWCacheLoadOrAddTest {
     assertFalse(Files.exists(pendingPath(id)));
   }
 
-  // A lookup cannot observe cache insertion without its coverage while a file stripe is held.
+  // A store cannot publish its cache entry while a coverage lookup holds the shared file lock.
   @Test
-  public void coverageLookupAndStoreShareFileStripe() throws Exception {
+  public void storeWaitsForSharedCoverageLockBeforeCacheInsertion() throws Exception {
+    final long id = preparePendingPage(92991, null);
+    wowCache.close(id, false);
+    final int internal = wowCache.internalFileId(id);
+    final var pointer = wowCache.loadOrAdd(id, 2, false);
+    final var coverage = cachedCoverage();
+    final var locksField = CachedPageCoverage.class.getDeclaredField("locks");
+    locksField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final var locks = (PartitionedLockManager<Integer>) locksField.get(coverage);
+    final var pagesField = WOWCache.class.getDeclaredField("writeCachePages");
+    pagesField.setAccessible(true);
+    final var pages = (Map<?, ?>) pagesField.get(wowCache);
+    final var shared = locks.acquireSharedLock(internal);
+    final var started = new CountDownLatch(1);
+    final var store = asyncFileExecutor.submit(() -> {
+      final long stamp = pointer.acquireExclusiveLock();
+      try {
+        started.countDown();
+        wowCache.store(id, 2, pointer);
+      } finally {
+        pointer.releaseExclusiveLock(stamp);
+      }
+    });
+    try {
+      assertTrue(started.await(10, TimeUnit.SECONDS));
+      assertThrows(java.util.concurrent.TimeoutException.class,
+          () -> store.get(100, TimeUnit.MILLISECONDS));
+      assertFalse(pages.containsKey(new PageKey(internal, 2)));
+      assertFalse(coverage.covers(internal, 2, wowCache.lifetimeToken(internal)));
+    } finally {
+      shared.unlock();
+      try {
+        store.get(10, TimeUnit.SECONDS);
+      } finally {
+        pointer.decrementReadersReferrer();
+      }
+    }
+    assertTrue(pages.containsKey(new PageKey(internal, 2)));
+    assertTrue(coverage.covers(internal, 2, wowCache.lifetimeToken(internal)));
+  }
+
+  // A lookup waits until the store publishes both the cached image and its coverage.
+  @Test
+  public void coverageLookupAndStoreShareFilePartition() throws Exception {
     final long id = preparePendingPage(9264, null);
     wowCache.close(id, false);
     final int internal = wowCache.internalFileId(id);

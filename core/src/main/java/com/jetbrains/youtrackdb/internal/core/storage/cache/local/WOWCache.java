@@ -1944,11 +1944,14 @@ public final class WOWCache extends AbstractWriteCache
       new ConcurrentHashMap<>();
 
   private void doPutInCache(final CachePointer dataPointer, final PageKey pageKey) {
-    synchronized (cachedPageCoverage.lock(pageKey.fileId)) {
+    final var coverageLock = cachedPageCoverage.acquireExclusiveLock(pageKey.fileId);
+    try {
       writeCachePages.put(pageKey, dataPointer);
       if (logicalFiles != null) {
         cachedPageCoverage.add(pageKey.fileId, pageKey.pageIndex, lifetimeToken(pageKey.fileId));
       }
+    } finally {
+      coverageLock.unlock();
     }
 
     writeCacheSize.incrementAndGet();
@@ -4838,9 +4841,12 @@ public final class WOWCache extends AbstractWriteCache
           // modifications to this page key.
           pagePointer.decrementWritersReferrer();
 
-          synchronized (cachedPageCoverage.lock(pageKey.fileId)) {
+          final var coverageLock = cachedPageCoverage.acquireExclusiveLock(pageKey.fileId);
+          try {
             entryIterator.remove();
             cachedPageCoverage.remove(pageKey.fileId, pageKey.pageIndex);
+          } finally {
+            coverageLock.unlock();
           }
         } finally {
           groupLock.unlock();
@@ -5694,9 +5700,12 @@ public final class WOWCache extends AbstractWriteCache
             if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)
                 && isPagePublished(pointer)) {
               final CachePointer removed;
-              synchronized (cachedPageCoverage.lock(pageKey.fileId)) {
+              final var coverageLock = cachedPageCoverage.acquireExclusiveLock(pageKey.fileId);
+              try {
                 removed = writeCachePages.remove(pageKey);
                 cachedPageCoverage.remove(pageKey.fileId, pageKey.pageIndex);
+              } finally {
+                coverageLock.unlock();
               }
               if (removed == null) {
                 throw new IllegalStateException("Page is not found in write cache");
