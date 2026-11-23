@@ -1,8 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
 
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
@@ -13,10 +19,19 @@ import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.LinkCollectionsBTreeManagerShared;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -25,12 +40,15 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Spliterator;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -237,7 +255,7 @@ public class SharedLinkBagBTreeOptimisticReadTest {
   }
 
   private enum AnchorChange {
-    NONE, DELETE, REPLACE
+    NONE, DELETE, COMMITTED_DELETE, REPLACE
   }
 
   @Test
@@ -256,6 +274,12 @@ public class SharedLinkBagBTreeOptimisticReadTest {
   }
 
   @Test
+  public void forwardOptimisticRefillUsesTheInsertionSlotOfACommittedDeletedAnchor()
+      throws Exception {
+    assertResumeAcrossLeafBoundary(true, AnchorChange.COMMITTED_DELETE);
+  }
+
+  @Test
   public void backwardRefillResumesAtThePreviousLeafAfterPhysicalDelete() throws Exception {
     assertResumeAcrossLeafBoundary(false, AnchorChange.DELETE);
   }
@@ -271,14 +295,21 @@ public class SharedLinkBagBTreeOptimisticReadTest {
       var keys = orderedKeys(forward);
       int boundary = firstSiblingOffset(keys, op);
       var anchor = keys.get(boundary - 1);
-      var cursor = bTree.spliteratorEntriesBetween(
-          forward ? keys.get(boundary - 10) : reference.firstKey(), true,
-          forward ? reference.lastKey() : keys.get(boundary - 10), true, forward, op);
+      var probe = forward ? new RefillProbe(bTree, op) : null;
+      var cursor = forward
+          ? new SpliteratorForward(bTree, keys.get(boundary - 10), reference.lastKey(),
+              true, true, probe.operation)
+          : bTree.spliteratorEntriesBetween(reference.firstKey(), true, keys.get(boundary - 10),
+              true, false, op);
       var seen = new ArrayList<EdgeKey>();
       for (int i = 0; i < 10; i++) {
         Assert.assertTrue(cursor.tryAdvance(pair -> seen.add(pair.first())));
       }
       Assertions.assertThat(seen).containsExactlyElementsOf(keys.subList(boundary - 10, boundary));
+      if (forward) {
+        probe.assertOptimistic();
+        Assert.assertEquals(1, probe.validations);
+      }
       var anchorPosition = search(anchor, op);
       long anchorPage = anchorPosition.getPageIndex();
       Assert.assertTrue(anchorPosition.getItemIndex() >= 0);
@@ -301,6 +332,13 @@ public class SharedLinkBagBTreeOptimisticReadTest {
             anchor.ridBagId, anchor.targetCollection, anchor.targetPosition).first());
       } else if (change == AnchorChange.DELETE) {
         Assert.assertNotNull(bTree.remove(op, anchor));
+      } else if (change == AnchorChange.COMMITTED_DELETE) {
+        try (var executor = Executors.newSingleThreadExecutor()) {
+          var removed =
+              executor.submit(() -> atomicOperationsManager.calculateInsideAtomicOperation(
+                  writer -> bTree.remove(writer, anchor))).get(30, TimeUnit.SECONDS);
+          Assert.assertEquals(reference.get(anchor), removed);
+        }
       }
       if (change != AnchorChange.NONE) {
         var missing = search(anchor, op);
@@ -315,6 +353,14 @@ public class SharedLinkBagBTreeOptimisticReadTest {
       Assertions.assertThat(seen)
           .containsExactlyElementsOf(keys.subList(boundary - 10, keys.size()));
       Assert.assertFalse(cursor.tryAdvance(pair -> Assert.fail("Exhausted cursor emitted data")));
+      if (forward) {
+        if (change == AnchorChange.DELETE) {
+          Assert.assertTrue(probe.ownChangedLoads > 0);
+        } else {
+          Assert.assertTrue(probe.validations > 1);
+          probe.assertOptimistic();
+        }
+      }
     });
   }
 
@@ -345,6 +391,11 @@ public class SharedLinkBagBTreeOptimisticReadTest {
       var fired = new AtomicBoolean();
       var startingLeafLoads = new AtomicInteger();
       var reader = spy(op);
+      if (forward) {
+        var scope = spy(op.getOptimisticReadScope());
+        doReturn(scope).when(reader).getOptimisticReadScope();
+        doThrow(OptimisticReadFailedException.INSTANCE).when(scope).validateOrThrow();
+      }
       var cursor = bTree.spliteratorEntriesBetween(
           forward ? keys.get(start) : reference.firstKey(), true,
           forward ? reference.lastKey() : keys.get(start), true, forward, reader);
@@ -455,6 +506,572 @@ public class SharedLinkBagBTreeOptimisticReadTest {
         Assertions.assertThat(seen.subList(10, seen.size())).containsExactlyElementsOf(beyondGap);
       }
     });
+  }
+
+  @Test
+  public void forwardRangeMatchesLockedRefillsForAllBoundsAndValidatesEndOfData()
+      throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var keys = orderedKeys(true);
+      int boundary = firstSiblingOffset(keys, op);
+      for (boolean present : new boolean[] {true, false}) {
+        for (boolean inclusiveFrom : new boolean[] {true, false}) {
+          for (boolean inclusiveTo : new boolean[] {true, false}) {
+            var from = keys.get(boundary - 10);
+            var to = keys.get(boundary + 11);
+            if (!present) {
+              from = new EdgeKey(from.ridBagId, from.targetCollection, from.targetPosition, -1);
+              to = new EdgeKey(to.ridBagId, to.targetCollection, to.targetPosition, -1);
+            }
+            var optimistic = new RefillProbe(bTree, op);
+            var cursor = new SpliteratorForward(bTree, from, to, inclusiveFrom, inclusiveTo,
+                optimistic.operation);
+            var actual = drain(cursor);
+            Assert.assertFalse(cursor.tryAdvance(pair -> Assert.fail("End of data was not kept")));
+            optimistic.assertOptimistic();
+            Assert.assertEquals((actual.size() + 9) / 10 + 1, optimistic.validations);
+
+            var locked = new RefillProbe(bTree, op);
+            var expected = lockedRange(bTree, from, inclusiveFrom, to, inclusiveTo, locked);
+            Assert.assertTrue(locked.pinnedLoads > 0);
+            Assert.assertEquals(0, locked.validations);
+            Assertions.assertThat(actual).containsExactlyElementsOf(expected);
+            Assertions.assertThat(actual.stream().map(RawPair::first).toList())
+                .containsExactlyElementsOf(reference.subMap(from, inclusiveFrom, to, inclusiveTo)
+                    .keySet());
+          }
+        }
+      }
+
+      var probe = new RefillProbe(bTree, op);
+      var empty = new SpliteratorForward(bTree, keys.getFirst(), keys.getFirst(), false, false,
+          probe.operation);
+      Assertions.assertThat(drain(empty)).isEmpty();
+      probe.assertOptimistic();
+      Assert.assertEquals(1, probe.validations);
+    });
+  }
+
+  @Test
+  public void failedFinalValidationDiscardsTheStagedBatchAndRestartsAtTheSameKey()
+      throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var probe = new RefillProbe(bTree, op);
+      var cursor = boundedForward(probe);
+      var seen = advanceTen(cursor);
+      probe.assertOptimistic();
+      probe.beforeValidation = () -> {
+        throw OptimisticReadFailedException.INSTANCE;
+      };
+      Assert.assertTrue(cursor.tryAdvance(seen::add));
+      Assert.assertEquals("The second refill must reach final validation", 2, probe.validations);
+      Assert.assertTrue(probe.pinnedLoads > 0);
+      Assert.assertTrue(probe.pinnedUnderLock);
+      probe.beforeValidation = () -> {
+      };
+      cursor.forEachRemaining(seen::add);
+      assertReference(seen);
+    });
+  }
+
+  @Test
+  public void writerBetweenRefillsKeepsTheSnapshotValueAndUsesThePhysicalContinuation()
+      throws Exception {
+    assertWriterDuringIteration(false);
+  }
+
+  @Test
+  public void writerAtFinalValidationInvalidatesTheAttemptAndKeepsTheSnapshotValue()
+      throws Exception {
+    assertWriterDuringIteration(true);
+  }
+
+  private void assertWriterDuringIteration(boolean duringValidation) throws Exception {
+    try (var executor = Executors.newSingleThreadExecutor()) {
+      atomicOperationsManager.executeInsideAtomicOperation(op -> {
+        var keys = orderedKeys(true);
+        var probe = new RefillProbe(bTree, op);
+        var cursor = boundedForward(probe);
+        var seen = advanceTen(cursor);
+        probe.assertOptimistic();
+
+        // Replace the tenth entry of the next batch, not the previous batch's anchor.
+        var old = keys.get(19);
+        var newer = new ArrayList<EdgeKey>();
+        Runnable commit = () -> {
+          try {
+            newer.add(executor.submit(() -> atomicOperationsManager.calculateInsideAtomicOperation(
+                writer -> {
+                  var key = new EdgeKey(old.ridBagId, old.targetCollection, old.targetPosition,
+                      writer.getCommitTs());
+                  bTree.put(writer, key, new LinkBagValue(999, 0, 0, false));
+                  return key;
+                })).get(30, TimeUnit.SECONDS));
+          } catch (Exception failure) {
+            throw new IllegalStateException("Writer did not commit", failure);
+          }
+        };
+        if (duringValidation) {
+          probe.beforeValidation = commit;
+        } else {
+          commit.run();
+        }
+        Assert.assertTrue(cursor.tryAdvance(seen::add));
+        probe.beforeValidation = () -> {
+        };
+        Assert.assertEquals(1, newer.size());
+        Assert.assertEquals(2, probe.validations);
+        Assert.assertEquals(duringValidation ? 1 : 0, probe.invalidations);
+        Assert.assertEquals(duringValidation, probe.pinnedLoads > 0);
+        cursor.forEachRemaining(seen::add);
+        keys.set(19, newer.getFirst());
+        Assertions.assertThat(seen.stream().map(RawPair::first).toList())
+            .containsExactlyElementsOf(keys);
+        Assertions.assertThat(seen.stream().map(RawPair::second).toList())
+            .containsExactlyElementsOf(reference.values());
+      });
+    }
+  }
+
+  @Test
+  public void evictionAtFinalValidationForcesALockedRefillWithoutGaps() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var probe = new RefillProbe(bTree, op);
+      var cursor = boundedForward(probe);
+      var seen = advanceTen(cursor);
+      probe.assertOptimistic();
+      var cache = storage.getReadCache();
+      var victim = cache.getCacheEntryOptimistic(bTree.getFileId(),
+          search(orderedKeys(true).get(9), op).getPageIndex());
+      Assert.assertNotNull(victim);
+      Assert.assertTrue(victim.isAlive());
+      probe.beforeValidation = cache::clear;
+      Assert.assertTrue(cursor.tryAdvance(seen::add));
+      probe.beforeValidation = () -> {
+      };
+      Assert.assertFalse(victim.isAlive());
+      Assert.assertEquals(1, probe.invalidations);
+      Assert.assertTrue(probe.pinnedLoads > 0);
+      cursor.forEachRemaining(seen::add);
+      assertReference(seen);
+    });
+  }
+
+  @Test
+  public void staleIdentityOfAnEarlierPageForcesALockedRefill() throws Exception {
+    var recordedEntries = OptimisticReadScope.class.getDeclaredField("entries");
+    recordedEntries.setAccessible(true);
+    var recordedStamps = OptimisticReadScope.class.getDeclaredField("stamps");
+    recordedStamps.setAccessible(true);
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var probe = new RefillProbe(bTree, op);
+      var cursor = boundedForward(probe);
+      probe.beforeValidation = () -> {
+        try {
+          Assert.assertTrue(probe.scope.count() > 1);
+          var entries = (CacheEntry[]) recordedEntries.get(probe.scope);
+          var stamps = (long[]) recordedStamps.get(probe.scope);
+          var frame = probe.scope.getFrame(0);
+          Assert.assertTrue(frame.validate(stamps[0]));
+          Assert.assertNotSame(entries[0], entries[probe.scope.count() - 1]);
+          // Simulate eviction of only the first recorded identity without recycling its frame.
+          var staleEntry = mock(CacheEntry.class, delegatesTo(entries[0]));
+          doReturn(false).when(staleEntry).isAlive();
+          entries[0] = staleEntry;
+          probe.scope.validateLastOrThrow();
+        } catch (ReflectiveOperationException failure) {
+          throw new IllegalStateException(failure);
+        }
+      };
+      var seen = advanceTen(cursor);
+      Assert.assertEquals(1, probe.validations);
+      Assert.assertEquals(1, probe.invalidations);
+      Assert.assertTrue(probe.lockedRefillLoads > 0);
+      probe.beforeValidation = () -> {
+      };
+      cursor.forEachRemaining(seen::add);
+      assertReference(seen);
+    });
+  }
+
+  @Test
+  public void pageBudgetFallsBackInsteadOfPublishingEndOfDataAcrossInvisibleLeaves()
+      throws Exception {
+    long bag = RID_BAG_ID + 2;
+    long future = Long.MAX_VALUE - 1;
+    int gap = 8192;
+    var first = new EdgeKey(bag, 0, 0, future);
+    var visible = new EdgeKey(bag, 0, gap, 0);
+    var value = new LinkBagValue(1, 0, 0, false);
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      for (int i = 0; i < gap; i++) {
+        bTree.put(op, new EdgeKey(bag, 0, i, future), value);
+      }
+      bTree.put(op, visible, value);
+    });
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      // Warm the pages and select a short invisible range that spans three leaves.
+      var pages = new HashSet<Long>();
+      EdgeKey shortEnd = null;
+      for (int i = 0; i < gap; i += 32) {
+        var key = new EdgeKey(bag, 0, i, future);
+        pages.add(search(key, op).getPageIndex());
+        if (pages.size() == 3 && shortEnd == null) {
+          shortEnd = key;
+        }
+      }
+      search(visible, op);
+      Assert.assertTrue("The invisible gap must exceed the page budget", pages.size() > 8);
+      Assert.assertNotNull(shortEnd);
+
+      var shortScan = new RefillProbe(bTree, op);
+      Assertions.assertThat(drain(new SpliteratorForward(bTree, first, shortEnd, true, true,
+          shortScan.operation))).isEmpty();
+      shortScan.assertOptimistic();
+      Assert.assertTrue(shortScan.scope.count() >= 4);
+
+      var longScan = new RefillProbe(bTree, op);
+      var cursor = new SpliteratorForward(bTree, first, visible, true, true, longScan.operation);
+      var seen = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+      Assert.assertTrue("Budget exhaustion must not end the cursor", cursor.tryAdvance(seen::add));
+      Assert.assertEquals(1, longScan.attempts);
+      Assert.assertEquals(8, longScan.speculativeLoads);
+      Assert.assertEquals(8, longScan.scope.count());
+      Assert.assertEquals(0, longScan.validations);
+      Assert.assertTrue(longScan.lockedRefillLoads > 0);
+      Assert.assertFalse(cursor.tryAdvance(seen::add));
+      Assertions.assertThat(seen).containsExactly(new RawPair<>(visible, value));
+    });
+  }
+
+  @Test
+  public void clearReadsOwnChangesUnderTheLockAndCommitsAnEmptyBag() throws Exception {
+    var observedTree = spy(bTree);
+    var bag = new IsolatedLinkBagBTreeImpl(observedTree,
+        AbstractWriteCache.extractFileId(bTree.getFileId()), RID_BAG_ID + 3, null,
+        LinkBagValueSerializer.INSTANCE);
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      for (int i = 0; i < 33; i++) {
+        bag.put(op, new RecordId(0, i), new LinkBagValue(1, 0, 0, false));
+      }
+      var probe = new RefillProbe(observedTree, op);
+      probe.observeWriteRefills(observedTree);
+      bag.clear(probe.operation);
+      Assert.assertTrue("At least one refill must start an attempt", probe.refillAttempts > 0);
+      Assert.assertEquals(probe.refillAttempts, probe.ownChangeFallbacks);
+    });
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var first = new EdgeKey(RID_BAG_ID + 3, 0, 0, 0);
+      Assertions.assertThat(drain(new SpliteratorForward(bTree, first, null, true, true, op)))
+          .isEmpty();
+      Assert.assertEquals(reference.get(reference.firstKey()), bTree.get(reference.firstKey(), op));
+    });
+  }
+
+  @Test
+  public void managerDeleteResumesAfterPhysicallyRemovingAnchorsAndKeepsTheOtherBag()
+      throws Exception {
+    var manager = new LinkCollectionsBTreeManagerShared(storage);
+    int collection = 12345;
+    var inserted = new ArrayList<EdgeKey>();
+    var pointers = atomicOperationsManager.calculateInsideAtomicOperation(op -> {
+      var target = manager.createBTree(collection, op, null);
+      var neighbor = manager.createBTree(collection, op, null);
+      var bag = manager.loadIsolatedBTree(target);
+      for (int i = 0; i < 33; i++) {
+        bag.put(op, new RecordId(0, i), new LinkBagValue(i + 1, 0, 0, false));
+        inserted.add(new EdgeKey(target.linkBagId(), 0, i, op.getCommitTs()));
+      }
+      manager.loadIsolatedBTree(neighbor)
+          .put(op, new RecordId(0, 0), new LinkBagValue(42, 0, 0, false));
+      return List.of(target, neighbor);
+    });
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var tree = manager.getComponentByCollectionId(collection, op);
+      var target = pointers.getFirst();
+      // Warm the manager's tree before the delete. Its later refills must see own removals.
+      Assert.assertNotNull(manager.loadIsolatedBTree(target).get(new RecordId(0, 0), op));
+      op.getCommitTs();
+      var observedTree = spy(tree);
+      var probe = new RefillProbe(observedTree, op);
+      probe.observeWriteRefills(observedTree);
+      var passes = new ArrayList<List<EdgeKey>>();
+      doAnswer(call -> {
+        var keys = new ArrayList<EdgeKey>();
+        passes.add(keys);
+        @SuppressWarnings("unchecked")
+        var stream = (Stream<RawPair<EdgeKey, LinkBagValue>>) call.callRealMethod();
+        return stream.peek(pair -> {
+          if (passes.size() == 1 && keys.size() == 10) {
+            Assert.assertEquals("The first continuation must use the locked refill",
+                1, probe.ownChangeFallbacks);
+          }
+          keys.add(pair.first());
+        });
+      }).when(observedTree).streamEntriesBetween(any(), eq(true), any(), eq(true), eq(true),
+          eq(probe.operation));
+      var components = LinkCollectionsBTreeManagerShared.class.getDeclaredField("fileIdBTreeMap");
+      components.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var trees = (ConcurrentHashMap<Integer, SharedLinkBagBTree>) components.get(manager);
+      int fileId = AbstractWriteCache.extractFileId(target.fileId());
+      Assert.assertSame(tree, trees.put(fileId, observedTree));
+      try {
+        Assert.assertTrue(manager.delete(probe.operation, target, storage.getName()));
+      } finally {
+        trees.put(fileId, tree);
+      }
+      Assertions.assertThat(passes).containsExactly(inserted, List.of());
+    });
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var tree = manager.getComponentByCollectionId(collection, op);
+      var first = new EdgeKey(pointers.getFirst().linkBagId(), 0, 0, 0);
+      Assertions.assertThat(drain(new SpliteratorForward(tree, first, null, true, true, op)))
+          .isEmpty();
+      Assert.assertEquals(42, manager.loadIsolatedBTree(pointers.getLast())
+          .get(new RecordId(0, 0), op).counter());
+      manager.deleteComponentByCollectionId(op, collection);
+    });
+  }
+
+  @Test
+  public void memoryCacheTakesTheLockedPathWithoutAnOptimisticAttempt() throws Exception {
+    try (var memory = (YouTrackDBImpl) YourTracks.instance(buildDirectory + "/memory")) {
+      var name = DB_NAME + "Memory";
+      memory.create(name, DatabaseType.MEMORY,
+          new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+      try (var session = memory.open(name, "admin", "admin")) {
+        var memoryStorage = session.getStorage();
+        var tree = new SharedLinkBagBTree(memoryStorage, "forwardMemory", ".sbc");
+        var manager = memoryStorage.getAtomicOperationsManager();
+        manager.executeInsideAtomicOperation(op -> {
+          tree.create(op);
+          reference.forEach((key, value) -> tree.put(op, key, value));
+        });
+        manager.executeInsideAtomicOperation(op -> {
+          Assert.assertFalse(memoryStorage.getReadCache().supportsOptimisticReads());
+          var probe = new RefillProbe(tree, op);
+          assertReference(drain(new SpliteratorForward(tree, reference.firstKey(), null, true,
+              true, probe.operation)));
+          Assert.assertEquals("The in-memory refill must not start an optimistic attempt",
+              0, probe.attempts);
+          Assert.assertEquals(0, probe.validations);
+          Assert.assertEquals(0, probe.scope.count());
+          Assert.assertTrue(probe.pinnedLoads > 0);
+          Assert.assertTrue(probe.pinnedUnderLock);
+        });
+      }
+    }
+  }
+
+  @Test
+  public void enclosingAttemptUsesLockedRefillAfterConsumingTheBufferedEntry() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(op -> {
+      var cursor = new SpliteratorForward(bTree, reference.firstKey(), null, true, true, op);
+      var seen = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+      for (int i = 0; i < 9; i++) {
+        Assert.assertTrue(cursor.tryAdvance(seen::add));
+      }
+
+      var keys = orderedKeys(true);
+      var scope = op.getOptimisticReadScope();
+      scope.beginAttempt(new ApplyPhaseEpoch());
+      try {
+        Assert.assertTrue(cursor.tryAdvance(seen::add));
+        Assert.assertEquals(keys.get(9), seen.getLast().first());
+        Assert.assertEquals(0, scope.count());
+        Assert.assertTrue(cursor.tryAdvance(seen::add));
+        Assert.assertEquals(keys.get(10), seen.getLast().first());
+        Assert.assertFalse(scope.isFailed());
+        Assert.assertTrue(scope.count() > 0);
+        for (int i = 0; i < scope.count(); i++) {
+          Assert.assertTrue("The enclosing scope must see only pinned loads", scope.isPinned(i));
+        }
+        scope.validateOrThrow();
+      } finally {
+        scope.endAttempt();
+      }
+
+      while (seen.size() < 21) {
+        Assert.assertTrue(cursor.tryAdvance(seen::add));
+      }
+      Assert.assertEquals(keys.get(20), seen.getLast().first());
+      Assert.assertTrue(scope.count() > 0);
+      for (int i = 0; i < scope.count(); i++) {
+        Assert.assertFalse("The next refill must return to optimistic loads", scope.isPinned(i));
+      }
+      cursor.forEachRemaining(seen::add);
+      assertReference(seen);
+    });
+  }
+
+  @Test
+  public void emptyRangeOnWarmTreeRejectsAnInactiveOperation() throws Exception {
+    var cursor = atomicOperationsManager.calculateInsideAtomicOperation(op -> {
+      var beyondLast = new EdgeKey(RID_BAG_ID + 1, 0, 0, 0);
+      var lastPage = search(beyondLast, op).getPageIndex();
+      Assert.assertNotNull(storage.getReadCache().getCacheEntryOptimistic(bTree.getFileId(),
+          lastPage));
+      return new SpliteratorForward(bTree, beyondLast, null, true, true, op);
+    });
+    var failure = Assert.assertThrows(DatabaseException.class,
+        () -> cursor.tryAdvance(pair -> Assert.fail("The range has no entries")));
+    Assert.assertTrue(failure.getMessage().contains("Atomic operation is not active"));
+  }
+
+  private static List<RawPair<EdgeKey, LinkBagValue>> lockedRange(SharedLinkBagBTree tree,
+      EdgeKey from, boolean fromInclusive, EdgeKey to, boolean toInclusive, RefillProbe probe) {
+    var result = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+    var batch = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+    EdgeKey last = null;
+    do {
+      batch.clear();
+      tree.readCursorBatch(from, fromInclusive, to, toInclusive, true, last, probe.operation,
+          batch);
+      result.addAll(batch);
+      if (!batch.isEmpty()) {
+        last = batch.getLast().first();
+      }
+    } while (!batch.isEmpty());
+    return result;
+  }
+
+  private SpliteratorForward boundedForward(RefillProbe probe) {
+    return new SpliteratorForward(bTree, reference.firstKey(), reference.lastKey(), true, true,
+        probe.operation);
+  }
+
+  private static ArrayList<RawPair<EdgeKey, LinkBagValue>> advanceTen(
+      Spliterator<RawPair<EdgeKey, LinkBagValue>> cursor) {
+    var seen = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+    for (int i = 0; i < 10; i++) {
+      Assert.assertTrue(cursor.tryAdvance(seen::add));
+    }
+    return seen;
+  }
+
+  private static List<RawPair<EdgeKey, LinkBagValue>> drain(
+      Spliterator<RawPair<EdgeKey, LinkBagValue>> cursor) {
+    var entries = new ArrayList<RawPair<EdgeKey, LinkBagValue>>();
+    cursor.forEachRemaining(entries::add);
+    return entries;
+  }
+
+  private void assertReference(List<RawPair<EdgeKey, LinkBagValue>> entries) {
+    Assertions.assertThat(entries.stream().map(RawPair::first).toList())
+        .containsExactlyElementsOf(reference.keySet());
+    Assertions.assertThat(entries.stream().map(RawPair::second).toList())
+        .containsExactlyElementsOf(reference.values());
+  }
+
+  private static final class RefillProbe {
+
+    final AtomicOperation operation;
+    final OptimisticReadScope scope;
+    Runnable beforeValidation = () -> {
+    };
+    int attempts;
+    int refillAttempts;
+    int speculativeLoads;
+    int validations;
+    int invalidations;
+    int pinnedLoads;
+    int lockedRefillLoads;
+    int ownChangedLoads;
+    int ownChangeFallbacks;
+    Long rejectedPage;
+    long localChangesBefore;
+    boolean inRefill;
+    boolean pinnedUnderLock = true;
+    boolean optimisticWithoutLockOrPin = true;
+
+    RefillProbe(SharedLinkBagBTree tree, AtomicOperation original) throws IOException {
+      long fileId = tree.getFileId();
+      operation = spy(original);
+      scope = spy(original.getOptimisticReadScope());
+      doReturn(scope).when(operation).getOptimisticReadScope();
+      doAnswer(call -> {
+        attempts++;
+        if (inRefill) {
+          refillAttempts++;
+        }
+        rejectedPage = null;
+        return call.callRealMethod();
+      }).when(scope).beginAttempt(any());
+      // This check runs immediately before the speculative cache lookup.
+      doAnswer(call -> {
+        boolean changed = (boolean) call.callRealMethod();
+        if (scope.isAttemptActive()) {
+          speculativeLoads++;
+          optimisticWithoutLockOrPin &= !tree.isSharedOwner() && !tree.isExclusiveOwner();
+          if (inRefill && changed) {
+            rejectedPage = call.getArgument(1);
+            localChangesBefore = OptimisticReadFailureCounters.count(
+                OptimisticReadFailureCounters.Cause.LOCAL_CHANGES);
+          }
+        }
+        return changed;
+      }).when(operation).hasChangesForPage(eq(fileId), anyLong());
+      doAnswer(call -> {
+        optimisticWithoutLockOrPin = false;
+        return call.callRealMethod();
+      }).when(scope).recordPinned(any(), anyLong(), any());
+      doAnswer(call -> {
+        validations++;
+        optimisticWithoutLockOrPin &= !tree.isSharedOwner() && !tree.isExclusiveOwner();
+        for (int i = 0; i < scope.count(); i++) {
+          optimisticWithoutLockOrPin &= !scope.isPinned(i);
+        }
+        beforeValidation.run();
+        try {
+          return call.callRealMethod();
+        } catch (OptimisticReadFailedException failure) {
+          invalidations++;
+          throw failure;
+        }
+      }).when(scope).validateOrThrow();
+      doAnswer(call -> {
+        pinnedLoads++;
+        pinnedUnderLock &= tree.isSharedOwner() || tree.isExclusiveOwner();
+        if (!scope.isAttemptActive() && (tree.isSharedOwner() || tree.isExclusiveOwner())) {
+          lockedRefillLoads++;
+          if (inRefill && rejectedPage != null && rejectedPage.equals(call.getArgument(1))
+              && OptimisticReadFailureCounters
+                  .count(OptimisticReadFailureCounters.Cause.LOCAL_CHANGES)
+                  > localChangesBefore) {
+            ownChangeFallbacks++;
+            rejectedPage = null;
+          }
+        }
+        if (original.hasChangesForPage(fileId, call.getArgument(1))) {
+          ownChangedLoads++;
+        }
+        return call.callRealMethod();
+      }).when(operation).loadPageForRead(eq(fileId), anyLong());
+    }
+
+    void observeWriteRefills(SharedLinkBagBTree tree) {
+      // The write and its locked refill can both run under exclusive ownership.
+      doAnswer(call -> {
+        inRefill = true;
+        try {
+          return call.callRealMethod();
+        } finally {
+          inRefill = false;
+          rejectedPage = null;
+        }
+      }).when(tree).readForwardCursorBatch(any(), anyBoolean(), any(), anyBoolean(), any(),
+          eq(operation), any());
+    }
+
+    void assertOptimistic() {
+      Assert.assertTrue("A refill must reach final validation", validations > 0);
+      Assert.assertTrue("A refill must access pages speculatively", speculativeLoads > 0);
+      Assert.assertTrue("Speculative page access must hold no tree lock or pin",
+          optimisticWithoutLockOrPin);
+      Assert.assertEquals(0, invalidations);
+      Assert.assertEquals(0, pinnedLoads);
+    }
   }
 
   private List<EdgeKey> orderedKeys(boolean forward) {

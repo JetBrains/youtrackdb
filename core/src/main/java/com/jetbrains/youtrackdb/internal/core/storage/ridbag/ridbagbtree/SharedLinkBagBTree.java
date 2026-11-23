@@ -8,9 +8,11 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
@@ -35,6 +37,12 @@ public final class SharedLinkBagBTree extends StorageComponent {
   private static final int ENTRY_POINT_INDEX = 0;
   private static final int ROOT_INDEX = 1;
   static final int CURSOR_BATCH_SIZE = 10;
+
+  // Share the budget between seek and scan. Eight pages fit the scope's initial capacity.
+  private static final int FORWARD_CURSOR_PAGE_LIMIT = 8;
+  // Bucket header: free pointer, size, leaf flag, and two sibling pointers.
+  private static final int CURSOR_BUCKET_HEADER_SIZE =
+      DurablePage.NEXT_FREE_POSITION + 2 * Integer.BYTES + 1 + 2 * Long.BYTES;
 
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
@@ -1766,6 +1774,138 @@ public final class SharedLinkBagBTree extends StorageComponent {
         atomicOperation);
   }
 
+  void readForwardCursorBatch(EdgeKey startKey, boolean startInclusive, EdgeKey endKey,
+      boolean endInclusive, EdgeKey lastKey, AtomicOperation atomicOperation,
+      List<RawPair<EdgeKey, LinkBagValue>> batch) {
+    var seekKey = lastKey != null ? lastKey : startKey;
+    // An enclosing attempt uses the existing locked refill and owns page validation.
+    if (seekKey == null || atomicOperation == null || !atomicOperation.isActive()
+        || !readCache.supportsOptimisticReads()
+        || atomicOperation.getOptimisticReadScope().isAttemptActive()) {
+      readCursorBatch(startKey, startInclusive, endKey, endInclusive, true, lastKey,
+          atomicOperation, batch);
+      return;
+    }
+
+    try {
+      executeOptimisticStorageRead(atomicOperation,
+          () -> scanForwardOptimistic(seekKey, lastKey == null && startInclusive,
+              endKey, endInclusive, atomicOperation, batch),
+          () -> {
+            batch.clear();
+            readCursorBatchLocked(startKey, startInclusive, endKey, endInclusive, true,
+                lastKey, atomicOperation, batch);
+          });
+    } catch (IOException e) {
+      throw cursorReadFailure(e);
+    }
+  }
+
+  private void scanForwardOptimistic(EdgeKey seekKey, boolean seekInclusive, EdgeKey endKey,
+      boolean endInclusive, AtomicOperation op, List<RawPair<EdgeKey, LinkBagValue>> batch) {
+    var scope = op.getOptimisticReadScope();
+    long pageIndex = ROOT_INDEX;
+    boolean seeking = true;
+    for (int pages = 0; pages < FORWARD_CURSOR_PAGE_LIMIT; pages++) {
+      if (pageIndex < ROOT_INDEX || pageIndex > Integer.MAX_VALUE
+          || (seeking && pages >= MAX_PATH_LENGTH)) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+      var view = loadPageOptimistic(op, fileId, pageIndex);
+      var bucket = new Bucket(view);
+      boolean leaf = bucket.isLeaf();
+      int size = bucket.size();
+      int free = bucket.getFreePointer();
+      if (free < CURSOR_BUCKET_HEADER_SIZE || free > view.buffer().limit()
+          || size < 0 || size > (free - CURSOR_BUCKET_HEADER_SIZE) / Integer.BYTES
+          || (!leaf && (!seeking || size == 0))) {
+        throw OptimisticReadFailedException.INSTANCE;
+      }
+
+      int start = 0;
+      if (seeking) {
+        int slot = findCursorSlot(view, bucket, size, free, leaf, seekKey);
+        int insertionSlot = slot >= 0 ? slot : -slot - 1;
+        if (!leaf) {
+          boolean right = slot >= 0 || insertionSlot == size;
+          int childSlot = insertionSlot == size ? size - 1 : insertionSlot;
+          int offset = cursorEntryOffset(view, bucket, childSlot, free);
+          pageIndex = view.buffer().getInt(offset + (right ? Integer.BYTES : 0));
+          scope.validateLastOrThrow();
+          continue;
+        }
+        start = slot >= 0 && !seekInclusive ? slot + 1 : insertionSlot;
+        seeking = false;
+      }
+
+      for (int i = start; i < size; i++) {
+        int offset = cursorEntryOffset(view, bucket, i, free);
+        var key = EdgeKeySerializer.INSTANCE.deserializeFromByteBufferObject(
+            serializerFactory, offset, view.buffer());
+        if (pastForwardEnd(key, endKey, endInclusive)) {
+          return;
+        }
+
+        int keySize = EdgeKeySerializer.INSTANCE.getObjectSizeInByteBuffer(
+            serializerFactory, offset, view.buffer());
+        var value = LinkBagValueSerializer.INSTANCE.deserializeFromByteBufferObject(
+            serializerFactory, offset + keySize, view.buffer());
+        if (appendVisibleCursorEntry(key, value, op, batch)) {
+          return;
+        }
+      }
+      pageIndex = bucket.getRightSibling();
+      scope.validateLastOrThrow();
+      if (pageIndex == -1) {
+        return;
+      }
+    }
+    // A budget stop is not the end of the range, even if no visible entry was found.
+    throw OptimisticReadFailedException.INSTANCE;
+  }
+
+  private int findCursorSlot(PageView view, Bucket bucket, int size, int free, boolean leaf,
+      EdgeKey seekKey) {
+    int low = 0;
+    int high = size - 1;
+    while (low <= high) {
+      int mid = (low + high) >>> 1;
+      int offset = cursorEntryOffset(view, bucket, mid, free);
+      if (!leaf) {
+        offset += 2 * Integer.BYTES;
+      }
+      var key = EdgeKeySerializer.INSTANCE.deserializeFromByteBufferObject(
+          serializerFactory, offset, view.buffer());
+      int cmp = key.compareTo(seekKey);
+      if (cmp < 0) {
+        low = mid + 1;
+      } else if (cmp > 0) {
+        high = mid - 1;
+      } else {
+        return mid;
+      }
+    }
+    return -low - 1;
+  }
+
+  private static int cursorEntryOffset(PageView view, Bucket bucket, int slot, int free) {
+    // Slots fit the validated table geometry. Keep the decoded offset local so a
+    // concurrent change cannot replace it between the check and the entry read.
+    int offset = bucket.getPointer(slot);
+    if (offset < free || offset >= view.buffer().limit()) {
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+    return offset;
+  }
+
+  private static boolean pastForwardEnd(EdgeKey key, EdgeKey endKey, boolean inclusive) {
+    if (endKey == null) {
+      return false;
+    }
+    int cmp = key.compareTo(endKey);
+    return cmp > 0 || (cmp == 0 && !inclusive);
+  }
+
   // The caller supplies empty staging space for up to ten visible entries in physical key
   // order. The cursor publishes the batch only after success. An empty result means the
   // range or tree is exhausted, not just that one leaf has no visible entries.
@@ -1779,36 +1919,47 @@ public final class SharedLinkBagBTree extends StorageComponent {
       List<RawPair<EdgeKey, LinkBagValue>> batch) {
     acquireSharedLock();
     try {
-      long pageIndex;
-      int itemIndex;
-      if (lastKey != null || startKey != null) {
-        var position = findBucket(lastKey != null ? lastKey : startKey, atomicOperation);
-        pageIndex = position.getPageIndex();
-        itemIndex = position.getItemIndex();
-        if (itemIndex < 0) {
-          // A missing key gives the insertion slot. Backward scans start just before it.
-          itemIndex = -itemIndex - (forward ? 1 : 2);
-        } else if (lastKey != null || !startInclusive) {
-          itemIndex += forward ? 1 : -1;
-        }
-      } else {
-        var boundary = forward ? firstItem(atomicOperation) : lastItem(atomicOperation);
-        if (boundary.isEmpty()) {
-          return;
-        }
-        var position = boundary.get();
-        pageIndex = position.getPageIndex();
-        itemIndex = position.getItemIndex();
-      }
-
-      scanCursorLeaves(pageIndex, itemIndex, endKey, endInclusive, forward, atomicOperation, batch);
+      readCursorBatchLocked(startKey, startInclusive, endKey, endInclusive, forward, lastKey,
+          atomicOperation, batch);
     } catch (IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(), "Error during entity iteration"),
-          e, storage.getName());
+      throw cursorReadFailure(e);
     } finally {
       releaseSharedLock();
     }
+  }
+
+  private BaseException cursorReadFailure(IOException e) {
+    return BaseException.wrapException(
+        new StorageException(storage.getName(), "Error during entity iteration"),
+        e, storage.getName());
+  }
+
+  private void readCursorBatchLocked(EdgeKey startKey, boolean startInclusive, EdgeKey endKey,
+      boolean endInclusive, boolean forward, EdgeKey lastKey, AtomicOperation atomicOperation,
+      List<RawPair<EdgeKey, LinkBagValue>> batch) throws IOException {
+    long pageIndex;
+    int itemIndex;
+    if (lastKey != null || startKey != null) {
+      var position = findBucket(lastKey != null ? lastKey : startKey, atomicOperation);
+      pageIndex = position.getPageIndex();
+      itemIndex = position.getItemIndex();
+      if (itemIndex < 0) {
+        // A missing key gives the insertion slot. Backward scans start just before it.
+        itemIndex = -itemIndex - (forward ? 1 : 2);
+      } else if (lastKey != null || !startInclusive) {
+        itemIndex += forward ? 1 : -1;
+      }
+    } else {
+      var boundary = forward ? firstItem(atomicOperation) : lastItem(atomicOperation);
+      if (boundary.isEmpty()) {
+        return;
+      }
+      var position = boundary.get();
+      pageIndex = position.getPageIndex();
+      itemIndex = position.getItemIndex();
+    }
+
+    scanCursorLeaves(pageIndex, itemIndex, endKey, endInclusive, forward, atomicOperation, batch);
   }
 
   private void scanCursorLeaves(long pageIndex, int itemIndex, EdgeKey endKey,
@@ -1830,18 +1981,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
             }
           }
 
-          // Use the resolved value but keep the physical key, even when an older
-          // version supplies the value. The next seek must skip this tree entry.
-          var value = entry.getValue();
-          if (atomicOperation != null) {
-            var visible = resolveVisibleEntry(key, value, atomicOperation);
-            if (visible == null) {
-              continue;
-            }
-            value = visible.second();
-          }
-          batch.add(new RawPair<>(key, value));
-          if (batch.size() == CURSOR_BATCH_SIZE) {
+          if (appendVisibleCursorEntry(key, entry.getValue(), atomicOperation, batch)) {
             return;
           }
         }
@@ -1850,5 +1990,19 @@ public final class SharedLinkBagBTree extends StorageComponent {
         itemIndex = forward ? 0 : Integer.MAX_VALUE;
       }
     }
+  }
+
+  private boolean appendVisibleCursorEntry(EdgeKey key, LinkBagValue value, AtomicOperation op,
+      List<RawPair<EdgeKey, LinkBagValue>> batch) {
+    if (op != null) {
+      var visible = resolveVisibleEntry(key, value, op);
+      if (visible == null) {
+        return false;
+      }
+      value = visible.second();
+    }
+    // Keep the physical key even when an older version supplies the value.
+    batch.add(new RawPair<>(key, value));
+    return batch.size() == CURSOR_BATCH_SIZE;
   }
 }

@@ -50,7 +50,7 @@ public final class SpliteratorForward implements Spliterator<RawPair<EdgeKey, Li
       batch.clear();
       nextEntry = 0;
       try {
-        bTree.readCursorBatch(fromKey, fromKeyInclusive, toKey, toKeyInclusive, true,
+        bTree.readForwardCursorBatch(fromKey, fromKeyInclusive, toKey, toKeyInclusive,
             lastKey, atomicOperation, batch);
       } catch (RuntimeException | Error failure) {
         batch.clear();
