@@ -5058,7 +5058,11 @@ public final class WOWCache extends AbstractWriteCache
         final var protectedKeys =
             precedingCachedPages(pageKeysToFlush, pagesFlushLimit - chunksSize);
         pageKeysToFlush.clear();
-        protectedKeys.stream().limit(pagesFlushLimit - chunksSize).forEach(pageKeysToFlush::add);
+        for (final var protectedKeysIterator = protectedKeys.iterator();
+            protectedKeysIterator.hasNext()
+                && pageKeysToFlush.size() < pagesFlushLimit - chunksSize;) {
+          pageKeysToFlush.add(protectedKeysIterator.next());
+        }
       }
       for (final var pageKey : pageKeysToFlush) {
         if (lastFileId == -1) {
@@ -5158,12 +5162,18 @@ public final class WOWCache extends AbstractWriteCache
             continue;
           }
           var fileSize = fileForSize.getUnderlyingFileSize();
+          // A commit is changing this page, so the flush could not get its read lock.
+          // The flush does not wait, so one page cannot stop all background flushing.
+          // Below diskExtent, the page already has a valid disk copy and can be skipped.
+          // It stays in the write cache. A later flush cycle writes it.
+          // For a durable page, the WAL keeps the change until then.
+          // A non-durable page has no WAL protection.
+          // At or above diskExtent, the page has no valid disk copy yet. Higher pages
+          // could be written but not published, so stop and try again next cycle.
+          // Layout 27 also stops at the physical file end to avoid holes.
           if ((logicalFiles != null
               && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent())
               || pageKey.pageIndex * pageSize >= fileSize) {
-            // Do not pass a locked unpublished page in layout 28 or a physical gap in
-            // layout 27. Either barrier must be written before higher pages can advance.
-
             break flushCycle;
           }
         }
@@ -6066,8 +6076,12 @@ public final class WOWCache extends AbstractWriteCache
             }
 
             flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
-            // Layout 28 plans a contiguous prefix once. A missing cached barrier must not
-            // restart the plan and count unpublished upper copies as flush progress.
+            // Layout 27 restarts selection to avoid holes. Layout 28 does not restart.
+            // Its write path initializes uncached gap pages and publishes a page only
+            // when no page below it is missing. A restart would copy and write pages
+            // again that were written but not published, then count them as progress.
+            // This could keep the flush in a loop. The next background flush continues
+            // the work.
             if (logicalFiles != null) {
               break flushCycle;
             }
@@ -6200,6 +6214,14 @@ public final class WOWCache extends AbstractWriteCache
               }
             }
 
+            // A commit is changing this page, so the flush could not get its read lock.
+            // The flush does not wait, so one page cannot stop all background flushing.
+            // Below diskExtent, the page already has a valid disk copy and can be skipped.
+            // It stays in the write cache. A later flush cycle writes it.
+            // For a durable page, the WAL keeps the change until then.
+            // A non-durable page has no WAL protection.
+            // At or above diskExtent, the page has no valid disk copy yet. Higher pages
+            // could be written but not published, so stop and try again next cycle.
             if (logicalFiles != null
                 && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent()) {
               break flushCycle;
@@ -6485,6 +6507,11 @@ public final class WOWCache extends AbstractWriteCache
         if (ewcSize >= 0) {
           flushExclusiveWriteCache(null, Math.min(ewcSize, 4L * chunkSize));
 
+          // Pages left in the exclusive write cache make the next background flush
+          // run after 1 ms. Layout 28 does this only if this flush made the cache smaller.
+          // A page waiting for a lower page can keep the cache from shrinking. Without
+          // this rule, the flush would run every 1 ms and do no useful work.
+          // Layout 27 schedules the next flush after 1 ms whenever pages remain.
           if (exclusiveWriteCacheSize.get() > 0
               && (logicalFiles == null || exclusiveWriteCacheSize.get() < ewcSize)) {
             flushInterval = 1;
