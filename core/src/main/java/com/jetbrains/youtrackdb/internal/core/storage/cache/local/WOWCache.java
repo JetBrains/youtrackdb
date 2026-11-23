@@ -969,11 +969,21 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void classifySelectedPageFile(int fileId,
+  /**
+   * Returns physical size in layout 27 and published size in layout 28, never the size
+   * of an unpublished sink-owned handle. Pending live files are selectable at extent zero.
+   * Returns -1 for an absent layout 27 handle or a non-live/obsolete layout 28 lifetime.
+   */
+  private long selectedFileSize(int fileId,
       ArrayList<ArrayList<WritePageContainer>> chunks,
-      ArrayList<WritePageContainer> chunk) throws PageFileFailure {
+      ArrayList<WritePageContainer> chunk) throws IOException {
+    if (logicalFiles == null) {
+      final var file = files.get(externalFileId(fileId));
+      return file == null ? -1 : file.getUnderlyingFileSize();
+    }
     try {
-      classifyPageFile(fileId, lifetimeToken(fileId));
+      final var state = classifyPageFile(fileId, lifetimeToken(fileId));
+      return state == null ? -1 : state.diskExtent() * pageSize;
     } catch (PageFileFailure failure) {
       abandonSelectedPages(chunks, chunk);
       throw failure;
@@ -5073,6 +5083,9 @@ public final class WOWCache extends AbstractWriteCache
     convertSharedDirtyPagesToLocal();
 
     var copiedPages = 0;
+    // Copying removes dirty entries, but images stay cached until the final write. Exclude
+    // those images from later segment passes that probe cached publication barriers.
+    final var selectedPages = new HashSet<PageKey>();
 
     var chunks = new ArrayList<ArrayList<WritePageContainer>>(16);
     var chunk = new ArrayList<WritePageContainer>(16);
@@ -5115,17 +5128,10 @@ public final class WOWCache extends AbstractWriteCache
         var fileSize = fileIdSizeMap.get(fileId);
 
         if (fileSize == -1) {
-          var fileForSize = files.get(externalFileId(fileId));
-          // A pending file stays unselected. A lost materialized registration is fatal.
-          if (fileForSize == null) {
-            if (logicalFiles != null) {
-              classifySelectedPageFile(fileId, chunks, chunk);
-            }
+          fileSize = selectedFileSize(fileId, chunks, chunk);
+          if (fileSize < 0) {
             continue;
           }
-          final var state = logicalState(fileId);
-          fileSize = state == null ? fileForSize.getUnderlyingFileSize()
-              : state.diskExtent() * pageSize;
 
           if (logicalFiles == null && (fileSize & (pageSize - 1)) != 0) {
             throw new StorageException(storageName,
@@ -5165,7 +5171,7 @@ public final class WOWCache extends AbstractWriteCache
 
       if (logicalFiles != null) {
         final var protectedKeys =
-            precedingCachedPages(pageKeysToFlush, pagesFlushLimit - chunksSize);
+            precedingCachedPages(pageKeysToFlush, pagesFlushLimit - chunksSize, selectedPages);
         pageKeysToFlush.clear();
         for (final var protectedKeysIterator = protectedKeys.iterator();
             protectedKeysIterator.hasNext()
@@ -5225,6 +5231,7 @@ public final class WOWCache extends AbstractWriteCache
 
             writeAttempt = removeFromDirtyPagesForWrite(pageKey, pointer);
 
+            selectedPages.add(pageKey);
             copiedPages++;
           } finally {
             pointer.releaseSharedLock(sharedStamp);
@@ -5265,12 +5272,10 @@ public final class WOWCache extends AbstractWriteCache
           lastPageIndex = -1;
           lastFileId = -1;
 
-          var fileForSize = files.get(externalFileId(pageKey.fileId));
-          // File may have been deleted concurrently — skip this page.
-          if (fileForSize == null) {
+          final var fileSize = selectedFileSize(pageKey.fileId, chunks, chunk);
+          if (fileSize < 0) {
             continue;
           }
-          var fileSize = fileForSize.getUnderlyingFileSize();
           // A commit is changing this page, so the flush could not get its read lock.
           // The flush does not wait, so one page cannot stop all background flushing.
           // Below diskExtent, the page already has a valid disk copy and can be skipped.
@@ -5280,9 +5285,7 @@ public final class WOWCache extends AbstractWriteCache
           // At or above diskExtent, the page has no valid disk copy yet. Higher pages
           // could be written but not published, so stop and try again next cycle.
           // Layout 27 also stops at the physical file end to avoid holes.
-          if ((logicalFiles != null
-              && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent())
-              || pageKey.pageIndex * pageSize >= fileSize) {
+          if (pageKey.pageIndex * pageSize >= fileSize) {
             break flushCycle;
           }
         }
@@ -6134,7 +6137,8 @@ public final class WOWCache extends AbstractWriteCache
    * Includes cached publication barriers in the protected copy phase, even when the read cache
    * still owns them or their WAL segment is newer than the selected upper page.
    */
-  private TreeSet<PageKey> precedingCachedPages(Iterable<PageKey> selected, long limit) {
+  private TreeSet<PageKey> precedingCachedPages(Iterable<PageKey> selected, long limit,
+      Set<PageKey> alreadySelected) {
     final var result = new TreeSet<PageKey>();
     final var upperByFile = new Int2LongOpenHashMap();
     for (final var key : selected) {
@@ -6149,7 +6153,7 @@ public final class WOWCache extends AbstractWriteCache
       final int fileId = entry.getIntKey();
       for (long page = logicalState(fileId).diskExtent(); page < entry.getLongValue(); page++) {
         final var key = new PageKey(fileId, page);
-        if (writeCachePages.containsKey(key)) {
+        if (!alreadySelected.contains(key) && writeCachePages.containsKey(key)) {
           result.add(key);
         }
       }
@@ -6208,7 +6212,7 @@ public final class WOWCache extends AbstractWriteCache
     long lastPageIndex = -1;
 
     var iterator = (logicalFiles == null ? exclusiveWritePages
-        : precedingCachedPages(exclusiveWritePages, pagesToFlushLimit)).iterator();
+        : precedingCachedPages(exclusiveWritePages, pagesToFlushLimit, Set.of())).iterator();
     flushCycle : while (flushedPages < pagesToFlushLimit) {
       // if nothing to flush we should add the last gathered chunk and stop cycle.
       if (!iterator.hasNext()) {
@@ -6223,17 +6227,10 @@ public final class WOWCache extends AbstractWriteCache
       final var pageKeyToFlush = iterator.next();
       var fileSize = fileSizeMap.get(pageKeyToFlush.fileId);
       if (fileSize < 0) {
-        var file = files.get(externalFileId(pageKeyToFlush.fileId));
-        // File may have been deleted (e.g., during backup restore). Skip pages for
-        // deleted files — they will be cleaned up by doRemoveCachePages or the next
-        // flush cycle.
-        if (file == null) {
-          if (logicalFiles != null) {
-            classifySelectedPageFile(pageKeyToFlush.fileId, chunks, chunk);
-          }
+        fileSize = selectedFileSize(pageKeyToFlush.fileId, chunks, chunk);
+        if (fileSize < 0) {
           continue;
         }
-        fileSize = file.getUnderlyingFileSize();
         fileSizeMap.put(pageKeyToFlush.fileId, fileSize);
       }
 
@@ -6261,12 +6258,11 @@ public final class WOWCache extends AbstractWriteCache
         // between exclusiveWritePages and writeCachePages. We treat writeCachePages as source of
         // truth.
         if (pointer == null) {
-          var file = files.get(externalFileId(pageKey.fileId));
-          // File may have been deleted — skip pages for deleted files.
-          if (file == null) {
+          final var publishedSize = selectedFileSize(pageKey.fileId, chunks, chunk);
+          if (publishedSize < 0) {
             continue;
           }
-          if (file.getUnderlyingFileSize() < (pageKey.pageIndex + 1) * pageSize) {
+          if (publishedSize < (pageKey.pageIndex + 1) * pageSize) {
             // A missing image beyond the physical extent cannot advance this plan.
             // Layout 28 leaves uncached initialization to the write sink. Layout 27 must
             // select the physical gap before higher pages to keep recovery data valid.
@@ -6396,12 +6392,10 @@ public final class WOWCache extends AbstractWriteCache
               chunk = new ArrayList<>(16);
             }
 
-            var fileForSize = files.get(externalFileId(pageKey.fileId));
-            // File may have been deleted — skip pages for deleted files.
-            if (fileForSize == null) {
+            final var underlyingFileSize = selectedFileSize(pageKey.fileId, chunks, chunk);
+            if (underlyingFileSize < 0) {
               continue;
             }
-            var underlyingFileSize = fileForSize.getUnderlyingFileSize();
             // chunk size is reached flush limit, or we have a risk to have a hole in the file
             // that will lead to error during restore after crash process
             // we need to check only prevChunksSize because current chunk is empty
@@ -6425,8 +6419,9 @@ public final class WOWCache extends AbstractWriteCache
             // A non-durable page has no WAL protection.
             // At or above diskExtent, the page has no valid disk copy yet. Higher pages
             // could be written but not published, so stop and try again next cycle.
+            // The sink cannot publish past this locked barrier. Use the pre-flush extent.
             if (logicalFiles != null
-                && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent()) {
+                && pageKey.pageIndex * pageSize >= underlyingFileSize) {
               break flushCycle;
             }
             if (underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
