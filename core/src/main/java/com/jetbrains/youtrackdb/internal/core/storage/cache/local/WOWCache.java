@@ -976,14 +976,6 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  /** Fatal identity or materialization failure, unlike retryable non-durable data I/O. */
-  static final class PageFileFailure extends IOException {
-
-    PageFileFailure(String message) {
-      super(message);
-    }
-  }
-
   /**
    * Classifies absence independently of handle capacity. Callers keep lifecycle state stable
    * from token capture through completed I/O. A token check is not lifecycle exclusion.
@@ -5909,8 +5901,13 @@ public final class WOWCache extends AbstractWriteCache
       }
       if (!state.diskPresent()) {
         // The retained changed image supplies all uncached initialization below it.
-        final boolean covered = writeCachePages.keySet().stream()
-            .anyMatch(key -> key.fileId == internalId && key.pageIndex >= pageIndex);
+        boolean covered = false;
+        for (final var key : writeCachePages.keySet()) {
+          if (key.fileId == internalId && key.pageIndex >= pageIndex) {
+            covered = true;
+            break;
+          }
+        }
         if (!covered) {
           throw pageFileFailure("Pending blank has no covering changed image: " + internalId
               + ":" + pageIndex);

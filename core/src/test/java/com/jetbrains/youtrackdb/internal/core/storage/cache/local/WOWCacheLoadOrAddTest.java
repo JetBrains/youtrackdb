@@ -810,7 +810,7 @@ public class WOWCacheLoadOrAddTest {
         }
         assertNotNull(errorField.get(wowCache));
         final var first = (Throwable) errorField.get(wowCache);
-        assertTrue(first instanceof WOWCache.PageFileFailure);
+        assertTrue(first instanceof PageFileFailure);
         assertTrue(first.getMessage(), first.getMessage().contains(
             Integer.toString(wowCache.internalFileId(fileId))));
         assertEquals(List.of(first), notifications);
@@ -820,7 +820,7 @@ public class WOWCacheLoadOrAddTest {
         assertCause(assertThrows(Exception.class, () -> wowCache.flush(healthyId)), first);
         final var latch = WOWCache.class.getDeclaredMethod("latchFlushError", Throwable.class);
         latch.setAccessible(true);
-        latch.invoke(wowCache, new WOWCache.PageFileFailure("distinct later failure"));
+        latch.invoke(wowCache, new PageFileFailure("distinct later failure"));
         assertEquals(List.of(first), notifications);
         assertEquals(Long.valueOf(3), earliestRetainedSegment());
         assertThrows(Exception.class, () -> wowCache.flush());
@@ -985,7 +985,7 @@ public class WOWCacheLoadOrAddTest {
               }
             });
         assertTrue("selector " + selector + ": " + failure.getCause(),
-            failure.getCause() instanceof WOWCache.PageFileFailure);
+            failure.getCause() instanceof PageFileFailure);
         final var acquired = org.mockito.ArgumentCaptor.forClass(
             com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.class);
         Mockito.verify(pool, Mockito.atLeastOnce()).acquireDirect(Mockito.eq(false),
@@ -1120,7 +1120,7 @@ public class WOWCacheLoadOrAddTest {
     try {
       final var failure = assertThrows(Exception.class, () -> wowCache.flush(fileId));
       assertEquals(1, reported.size());
-      assertTrue(reported.getFirst() instanceof WOWCache.PageFileFailure);
+      assertTrue(reported.getFirst() instanceof PageFileFailure);
       assertCause(failure, reported.getFirst());
       assertCause(assertThrows(Exception.class, () -> wowCache.flush(fileId)), reported.getFirst());
       assertEquals(Long.valueOf(3), earliestRetainedSegment());

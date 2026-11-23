@@ -187,7 +187,7 @@ public class WOWCacheFlushErrorTest {
     try {
       final var failure = executor.submit(() -> invokePageWrites(cache,
           pageBuffers(identity.internalId()))).get(5, TimeUnit.SECONDS);
-      assertTrue(failure instanceof WOWCache.PageFileFailure);
+      assertTrue(failure instanceof PageFileFailure);
       assertEquals(failure, readFlushError(cache));
       verify(files).tryAcquire(anyLong());
       verify(file, Mockito.never()).write(Mockito.anyList());
@@ -235,7 +235,7 @@ public class WOWCacheFlushErrorTest {
       return null;
     }).when(files).release(entry);
     final var failure = invokePageWrites(cache, buffers);
-    assertTrue(failure instanceof WOWCache.PageFileFailure);
+    assertTrue(failure instanceof PageFileFailure);
     assertEquals(failure, readFlushError(cache));
     assertTrue(drained.get());
     verify(file).write(Mockito.anyList());
@@ -264,8 +264,8 @@ public class WOWCacheFlushErrorTest {
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
             .layout28(identity),
         identity.internalId(), false, 1, 0, false);
-    assertTrue(invokePageWrites(cache, pageBuffers(id)) instanceof WOWCache.PageFileFailure);
-    assertTrue(readFlushError(cache) instanceof WOWCache.PageFileFailure);
+    assertTrue(invokePageWrites(cache, pageBuffers(id)) instanceof PageFileFailure);
+    assertTrue(readFlushError(cache) instanceof PageFileFailure);
     Mockito.verifyNoInteractions(files);
   }
 
@@ -273,7 +273,7 @@ public class WOWCacheFlushErrorTest {
   @Test
   public void firstFlushFailureIsVisibleToListenerAndNeverReplaced() throws Exception {
     final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
-    final var first = new WOWCache.PageFileFailure("first");
+    final var first = new PageFileFailure("first");
     final var notifications = new AtomicInteger();
     final BackgroundExceptionListener listener = failure -> {
       try {
@@ -289,7 +289,7 @@ public class WOWCacheFlushErrorTest {
     final var method = WOWCache.class.getDeclaredMethod("latchFlushError", Throwable.class);
     method.setAccessible(true);
     method.invoke(cache, first);
-    method.invoke(cache, new WOWCache.PageFileFailure("second"));
+    method.invoke(cache, new PageFileFailure("second"));
     assertEquals(first, readFlushError(cache));
     assertEquals(1, notifications.get());
   }
