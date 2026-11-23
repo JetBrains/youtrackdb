@@ -682,6 +682,27 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     }
   }
 
+  /** Unbounded loads retain checked targets through sorting and direct alias projection. */
+  @Test
+  public void noLimitLoadRetainsCheckedRecordEvidence() {
+    seed();
+    var sql = query("ASC").replace(" LIMIT 20", "")
+        .replace("m.@rid AS rid", "m");
+    try (var rows = session.query(sql, Map.of("tag", "common"))) {
+      int count = 0;
+      while (rows.hasNext()) {
+        var row = (ResultInternal) rows.next();
+        assertThat(row.getReusableRecord("m")).isNotNull();
+        assertThat(row.getReusableRecord("m").getIdentity())
+            .isEqualTo(row.getProperty("m"));
+        count++;
+      }
+      assertThat(count).isEqualTo(990);
+      assertThat(find(rows.getExecutionPlan().getSteps()).getChosenRuntimePath())
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+    }
+  }
+
   /** Exhaustion and unsupported candidate bags end at a complete unbounded LinkBag load. */
   @Test
   public void noLimitFailedEqualityLoadsAllRowsWithoutOrderingScan() {

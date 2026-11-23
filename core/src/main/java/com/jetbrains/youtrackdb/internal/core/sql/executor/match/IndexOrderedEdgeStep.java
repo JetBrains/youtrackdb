@@ -2415,7 +2415,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       if (rec == null) {
         return null;
       }
-      return new ResultInternal(session, rec);
+      return ResultInternal.fromLoadedRecord(session, rec);
     } catch (Exception e) {
       logger.debug("Failed to load record {}: {}", rid, e.getMessage(), e);
       return null;
