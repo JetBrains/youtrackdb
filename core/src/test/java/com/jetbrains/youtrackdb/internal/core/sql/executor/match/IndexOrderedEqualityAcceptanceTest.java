@@ -214,8 +214,8 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       assertThat(actual).containsExactlyElementsOf(run(plain, "medium", false).rids());
       assertThat(step.getChosenRuntimePath())
           .isEqualTo(IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
-      assertThat(step.lastCandidateLoads()).isEqualTo(360);
-      assertCandidatePrice(step, 180, 180, 1000, 20);
+      assertThat(step.lastCandidateLoads()).isEqualTo(previousLoads + 180);
+      assertCandidatePrice(step, 180, 180, 20);
     }
   }
 
@@ -243,11 +243,11 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
   }
 
   private static void assertCandidatePrice(
-      IndexOrderedEdgeStep step, long records, long links, long probes, long target) {
+      IndexOrderedEdgeStep step, long records, long links, long target) {
     double sorted = target > 0 ? Math.min(links, target) : links;
     double sort = sorted <= 1 ? 0 : links * Math.log(sorted) / Math.log(2);
     double expected = records * IndexOrderedCostModel.recordReadEntryUnits()
-        + (2 * probes + sort) * IndexOrderedCostModel.reverseEdgeEntryUnits();
+        + sort * IndexOrderedCostModel.reverseEdgeEntryUnits();
     assertThat(step.lastCandidateLoadPrice())
         .isCloseTo(expected, org.assertj.core.data.Offset.offset(0.000001));
   }
@@ -362,26 +362,251 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
   private Observed candidateProbe(String sql, int candidates) {
     try (var bias = GlobalConfigurationScope.set(
         GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
-      var result = equivalent(sql, "medium", candidates == 0
-          ? IndexOrderedEdgeStep.RuntimePath.CANDIDATE_EMPTY
-          : IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
+      var result = equivalent(sql, "medium", null);
       var step = result.step();
       assertThat(step.lastCandidateCount()).isEqualTo(candidates);
       assertThat(step.lastScanConsumedEntries()).isBetween(1L, step.lastScanBudget());
-      assertThat(step.lastCandidateLoads()).isEqualTo(candidates);
-      // Fixture counts price probes, distinct loads and every sorted link row independently.
+      assertThat(step.getChosenRuntimePath()).isIn(
+          IndexOrderedEdgeStep.RuntimePath.CANDIDATE_EMPTY,
+          IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD,
+          IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+      assertThat(step.lastCandidateLoads()).isEqualTo(
+          step.getChosenRuntimePath() == IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN
+              ? 0 : candidates);
+      // Only remaining distinct loads and sorted link rows contribute to the price.
       long links = sql.contains("SKIP 3") ? 2L * candidates : candidates;
-      long probes = sourceBagSize() - (candidates == 181 ? 1 : 0);
       var limit = java.util.regex.Pattern.compile("LIMIT (\\d+)").matcher(sql);
       assertThat(limit.find()).isTrue();
       long target = Long.parseLong(limit.group(1)) + (sql.contains("SKIP 3") ? 3 : 0);
-      assertCandidatePrice(step, candidates, links, probes,
+      assertCandidatePrice(step, candidates, links,
           sql.contains("replyOf") ? -1 : target);
       assertThat(step.executionTraversal().getPreFilterAppliedCount()).isEqualTo(1);
       assertThat(step.executionTraversal().getPreFilterTotalProbed())
           .isBetween((long) candidates, (long) sourceBagSize());
       return result;
     }
+  }
+
+  /** Prefix handoff preserves duplicate rows, null placement and SKIP in both directions. */
+  @Test
+  public void candidateScanPreservesPlainMatchRows() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    session.execute("UPDATE Message SET date = null WHERE date >= 990").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'medium')").close();
+    analyzeCandidates();
+    try (var cpu = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, 0.01);
+        var bias = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
+      for (var direction : List.of("ASC", "DESC")) {
+        for (var nulls : List.of("FIRST", "LAST")) {
+          var sql = query(direction).replace("LIMIT 20", "SKIP 3 LIMIT 200")
+              .replace("m.date " + direction, "m.date " + direction + " NULLS " + nulls);
+          var result = equivalent(sql, "medium", IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+          var step = result.step();
+          assertCandidatePrice(step, 180, 360, 203);
+          var scan = step.lastCandidateScanObservation();
+          long entries = direction.equals("ASC") ? 922 : 102;
+          assertThat(scan.entries()).isEqualTo(entries);
+          assertThat(scan.loads()).isEqualTo(102);
+          assertThat(scan.buffered()).isEqualTo(203);
+          assertThat(scan.exhausted()).isFalse();
+          assertScanWork(step, entries, 102);
+        }
+      }
+    }
+  }
+
+  /** EOF before the target returns the complete result and pays its final reservation. */
+  @Test
+  public void candidateScanCompletesBeforeRowTarget() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'medium')").close();
+    analyzeCandidates();
+    try (var cpu = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, 0.01);
+        var bias = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
+      var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 400"), "medium",
+          IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+      var scan = result.step().lastCandidateScanObservation();
+      assertThat(scan.buffered()).isEqualTo(360);
+      assertThat(scan.entries()).isEqualTo(1000);
+      assertThat(scan.loads()).isEqualTo(180);
+      assertThat(scan.exhausted()).isFalse();
+      assertScanWork(result.step(), 1001, 180);
+    }
+  }
+
+  /** Late members make load cheaper, and later edges exclude even an artificially cheap scan. */
+  @Test
+  public void candidateLoadPriceAndLaterEdgesExcludeScan() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var load = candidateProbe(query("ASC").replace("LIMIT 20", "LIMIT 200"), 180).step();
+    assertThat(load.lastCandidateScanObservation().work()).isZero();
+    session.execute("CREATE CLASS replyOf EXTENDS E").close();
+    session.execute("CREATE EDGE replyOf FROM (SELECT FROM Message WHERE date >= 995)"
+        + " TO (SELECT FROM Author)").close();
+    try (var cpu = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, 0.01)) {
+      var later = candidateProbe(query("ASC")
+          .replace(" RETURN", ".out('replyOf'){as:z} RETURN"), 180).step();
+      assertThat(later.lastCandidateScanObservation().work()).isZero();
+    }
+  }
+
+  /** An underestimated order index exhausts phase 2 after buffering real rows, then loads all. */
+  @Test
+  public void candidateScanDiscardsPrefixBeforeFinalLoad() throws Exception {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date = 0 OR date >= 821").close();
+    analyzeCandidates();
+    session.execute("CREATE PROPERTY Message.keep BOOLEAN").close();
+    session.execute("UPDATE Message SET keep = true WHERE date = 0 OR date >= 995").close();
+    var sql = query("ASC").replace("LIMIT 20", "LIMIT 100")
+        .replace("tag = :tag", "tag = :tag AND keep = true");
+    var context = new BasicCommandContext(session);
+    context.setInputParameters(Map.of("tag", "medium"));
+    var plan = ((SQLMatchStatement) SQLEngine.parse(sql, session))
+        .createExecutionPlanNoCache(context, false);
+    var step = find(plan.getSteps());
+    var real = session.getIndex("Message_date");
+    var stale = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.index.Index.class,
+        org.mockito.AdditionalAnswers.delegatesTo(real));
+    org.mockito.Mockito.doReturn(1L).when(stale).estimateEntryCount(session);
+    setStepField(step, "index", stale);
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
+      var stream = plan.start();
+      var actual = new ArrayList<String>();
+      try {
+        while (stream.hasNext(context)) {
+          actual.add(stream.next(context).getProperty("rid").toString());
+        }
+      } finally {
+        stream.close(context);
+        plan.close();
+      }
+      var plain = "SELECT FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+          + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d ASC, rid ASC LIMIT 100";
+      assertThat(actual).containsExactlyElementsOf(run(plain, "medium", false).rids());
+      assertThat(step.getChosenRuntimePath())
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
+      assertCandidatePrice(step, 180, 180, 100);
+      var scan = step.lastCandidateScanObservation();
+      assertThat(scan.exhausted()).isTrue();
+      assertThat(scan.buffered()).isPositive().isLessThan(180);
+      // One early member is buffered. The rest start at entry 822 and fail the residual.
+      double read = IndexOrderedCostModel.recordReadEntryUnits();
+      double seek = IndexOrderedCostModel.indexSeekEntryUnits();
+      double limit = 180 * read + 180 * Math.log(100) / Math.log(2)
+          * IndexOrderedCostModel.reverseEdgeEntryUnits();
+      long paidLoads = (long) Math.floor((limit - seek - 821) / (read + 1));
+      assertThat(scan.buffered()).isEqualTo(1);
+      assertThat(scan.loads()).isEqualTo(paidLoads);
+      assertThat(scan.entries()).isEqualTo(821 + paidLoads);
+      double charged = IndexOrderedCostModel.indexSeekEntryUnits() + scan.entries()
+          + scan.loads() * IndexOrderedCostModel.recordReadEntryUnits();
+      assertThat(scan.work()).isCloseTo(charged,
+          org.assertj.core.data.Offset.offset(1.000001));
+      double bound = 180 * IndexOrderedCostModel.recordReadEntryUnits()
+          + (180 * Math.log(100) / Math.log(2))
+              * IndexOrderedCostModel.reverseEdgeEntryUnits();
+      assertThat(scan.work()).isLessThanOrEqualTo(bound);
+      assertThat(step.lastCandidateLoads()).isEqualTo(180);
+    }
+  }
+
+  private static void assertScanWork(IndexOrderedEdgeStep step, long entries, long records) {
+    double expected = IndexOrderedCostModel.indexSeekEntryUnits() + entries
+        + records * IndexOrderedCostModel.recordReadEntryUnits();
+    assertThat(step.lastCandidateScanObservation().work())
+        .isCloseTo(expected, org.assertj.core.data.Offset.offset(0.000001));
+    assertThat(expected).isLessThanOrEqualTo(step.lastCandidateLoadPrice());
+  }
+
+  /** Default costs choose phase 2 and stop after one early candidate, not the whole index. */
+  @Test
+  public void candidateScanStopsAtSmallLimitWithDefaultCosts() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 200 AND date < 380")
+        .close();
+    analyzeCandidates();
+    var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 1"), "medium",
+        IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+    var scan = result.step().lastCandidateScanObservation();
+    assertThat(scan.entries()).isEqualTo(201);
+    assertThat(scan.loads()).isEqualTo(1);
+    assertThat(scan.buffered()).isEqualTo(1);
+    assertScanWork(result.step(), 201, 1);
+    assertCandidatePrice(result.step(), 180, 180, 1);
+  }
+
+  /** Rejected superset members do not fill the row target. Ties need the cursor after handoff. */
+  @Test
+  public void candidateScanRechecksResidualAndContinuesForRidTies() {
+    seed();
+    session.execute("CREATE PROPERTY Message.keep BOOLEAN").close();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 200 AND date < 380")
+        .close();
+    session.execute("UPDATE Message SET keep = true WHERE date >= 210").close();
+    session.execute("UPDATE Message SET date = 200 WHERE tag = 'medium'").close();
+    session.execute("UPDATE Message SET date = 199 WHERE tag = 'medium' AND keep IS NULL")
+        .close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'medium')").close();
+    analyzeCandidates();
+    var sql = query("ASC").replace("tag = :tag", "tag = :tag AND keep = true")
+        .replace(", m.@rid ASC", ", m.@rid DESC")
+        .replace("LIMIT 20", "SKIP 3 LIMIT 2");
+    var result = equivalent(sql, "medium", IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+    assertThat(result.rids()).hasSize(2);
+    var scan = result.step().lastCandidateScanObservation();
+    assertThat(scan.buffered()).isEqualTo(5);
+    assertThat(scan.loads()).isEqualTo(13);
+    assertThat(scan.entries()).isEqualTo(213);
+    assertScanWork(result.step(), 213, 13);
+
+  }
+
+  /**
+   * Opposite RID ordering needs the tied rows after handoff. The highest-RID candidate
+   * fails the residual there, so skipping the continuation recheck changes the LIMIT result.
+   */
+  @Test
+  public void candidateScanRechecksResidualAfterHandoffForRidTies() {
+    seed();
+    session.execute("CREATE PROPERTY Message.keep BOOLEAN").close();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 200 AND date < 380")
+        .close();
+    session.execute("UPDATE Message SET keep = true WHERE tag = 'medium'").close();
+    // Records span collections, so insertion order does not determine the greatest RID.
+    try (var rows = session.query(
+        "SELECT FROM Message WHERE tag = 'medium' ORDER BY @rid DESC LIMIT 1")) {
+      var rejected = rows.next().getIdentity();
+      session.execute("UPDATE Message SET keep = false WHERE @rid = " + rejected).close();
+    }
+    session.execute("UPDATE Message SET date = 200 WHERE tag = 'medium'").close();
+    analyzeCandidates();
+    var sql = query("ASC").replace("tag = :tag", "tag = :tag AND keep = true")
+        .replace(", m.@rid ASC", ", m.@rid DESC")
+        .replace("LIMIT 20", "LIMIT 1");
+    var result = equivalent(sql, "medium", IndexOrderedEdgeStep.RuntimePath.CANDIDATE_SCAN);
+    assertThat(result.rids()).hasSize(1);
+    var scan = result.step().lastCandidateScanObservation();
+    // Entry 201 fills the prefix. The remaining 179 tied candidates include one rejection.
+    assertThat(scan.buffered()).isEqualTo(1);
+    assertThat(scan.loads()).isEqualTo(1);
+    assertThat(scan.entries()).isEqualTo(201);
+    assertScanWork(result.step(), 201, 1);
+    assertCandidatePrice(result.step(), 180, 180, 1);
   }
 
   private void seed() {
@@ -525,7 +750,7 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 2"), "medium",
         IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
     assertThat(result.rids()).hasSize(2);
-    assertCandidatePrice(result.step(), 2, 2, 800, 2);
+    assertCandidatePrice(result.step(), 2, 2, 2);
     assertThat(result.step().lastEqualityObservation()).isNull();
     assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 300L);
     var traversal = result.step().executionTraversal();
@@ -961,7 +1186,9 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
         + sql.substring(sql.indexOf("ORDER BY")).replace("m.date", "d").replace("m.@rid", "rid");
     var expected = run(plain, tag, false);
     assertThat(actual.rids()).containsExactlyElementsOf(expected.rids());
-    assertThat(actual.step().getChosenRuntimePath()).isEqualTo(path);
+    if (path != null) {
+      assertThat(actual.step().getChosenRuntimePath()).isEqualTo(path);
+    }
     return actual;
   }
 
@@ -1809,7 +2036,7 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
       var result =
           equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
       assertThat(result.step().lastCandidateCount()).isEqualTo(11);
-      assertCandidatePrice(result.step(), 11, 11, 1000, 20);
+      assertCandidatePrice(result.step(), 11, 11, 20);
       assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 989L);
       assertThat(result.step().lastOrderedBufferedRows()).isPositive();
       assertThat(result.rids()).hasSize(11);

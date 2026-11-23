@@ -553,7 +553,7 @@ traversal's cached prefilter for the terminal LinkBag load. The global OrderBySt
 sort and LIMIT, including when later MATCH edges reject rows. Several-source queries without
 LIMIT retain their ordinary planning gates.
 
-### Final candidate load for one source with LIMIT
+### Candidate scan or final load for one source with LIMIT
 
 Phase 1 retains the ordinary equality and ordered attempts and their shared work account.
 Only when its dispatcher selects the final LinkBag load can phase 2 begin.
@@ -572,8 +572,31 @@ and bound alias. It preserves parallel-edge rows. Downstream edges receive every
 in local primary order. Otherwise the ordinary ORDER BY step owns sorting and LIMIT,
 including SKIP. No speculative prefix is emitted.
 
-The candidate-load price includes membership probes, record reads and sorting every link row.
-It is recorded as the phase-2 limit for the later candidate scan.
+The candidate-load price includes record reads and sorting every link row.
+It is the phase-2 scan limit. Both alternatives exclude the already-paid RID-set build
+and intersection probes. Without later edges, phase 2 prices an order-index prefix
+against that load. Its expected length uses the candidate count, index size and row target.
+The price includes a seek, expected entries and candidate record reads.
+A complete scan also prices the EOF reservation.
+
+A cheaper scan buffers up to SKIP plus LIMIT rows before reporting `candidate-scan`.
+Duplicate edges count as rows. The superset membership test precedes each record load.
+The full target filter and bound alias are rechecked before buffering.
+
+Every speculative cursor advance and candidate load must fit the separate phase-2 account.
+If the account or row buffer fills before the row target, the scan closes its cursor
+and discards all buffered rows. It then uses `candidate-load` once.
+Later edges always use the candidate load.
+
+After the row target, the scan hands off a lazy continuation, including remaining duplicate
+rows in the current entry. The ordinary ORDER BY step can read ties or the whole population
+for its slice mode or a withdrawn pre-sorted signal. The continuation rechecks the full
+target filter and bound alias for each candidate. It is not capped.
+Cursor exhaustion before the row target returns the complete buffered result.
+
+The scan entries, record loads, buffer size, exhaustion and work describe only the capped attempt.
+They are execution-local. Model units bound work, not wall time.
+
 The final candidate load is terminal and is never truncated.
 Without later edges, candidate records stream lazily into the ordinary ORDER BY heap.
 All decisions and observations belong to the execution copy, not a cached plan template.

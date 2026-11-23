@@ -22,6 +22,44 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class IndexOrderedEdgeStepCostTest {
 
+  /** The candidate scan pays its own seek and reads, but never repeats the RID-set setup. */
+  @Test
+  public void candidateScanPricesOnlyItsOwnWork() {
+    double seek = IndexOrderedCostModel.indexSeekEntryUnits();
+    double read = IndexOrderedCostModel.recordReadEntryUnits();
+    assertEquals(seek + 112 + 20 * read,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 20), 0);
+    assertEquals(seek + 1001 + 180 * read,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 200), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(180, 0, 20), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(0, 1000, 20), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 0), 0);
+    assertTrue(IndexOrderedCostModel.candidateScanCost(5000, 100000, 1)
+        < IndexOrderedCostModel.candidateLoadCost(5000, 5000, 1));
+    // The final load price contains no already-paid intersection probes.
+    assertEquals(180 * read + 180 * Math.log(20) / Math.log(2)
+        * IndexOrderedCostModel.reverseEdgeEntryUnits(),
+        IndexOrderedCostModel.candidateLoadCost(180, 180, 20), 0.000001);
+  }
+
+  /** Exact-bound charges pass, overflow and invalid charges do not replenish the scan cap. */
+  @Test
+  public void candidateScanAccountRejectsUnfundedReads() {
+    var account = new IndexOrderedCostModel.CandidateScanAccount(100);
+    assertTrue(account.spend(40));
+    assertFalse(account.spend(61));
+    assertFalse(account.spend(Double.NaN));
+    assertFalse(account.spend(Double.POSITIVE_INFINITY));
+    assertFalse(account.spend(0));
+    assertFalse(account.spend(-1));
+    assertTrue(account.spend(60));
+    assertFalse(account.spend(1));
+    assertEquals(100, account.spent(), 0);
+  }
+
   /** Independence-priced linked hits cap stale speculation below the full bag load price. */
   @Test
   public void prefilteredLoadBoundsStaleEqualityWork() {

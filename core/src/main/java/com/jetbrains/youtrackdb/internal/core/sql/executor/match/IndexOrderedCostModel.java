@@ -139,10 +139,46 @@ final class IndexOrderedCostModel {
   }
 
   /** Candidate RIDs are loaded once, while sorting accounts for every parallel link row. */
-  static double candidateLoadCost(long records, long links, long probedLinks, long rowTarget) {
+  static double candidateLoadCost(long records, long links, long rowTarget) {
     double sorted = rowTarget > 0 ? Math.min(links, rowTarget) : links;
-    return 2.0 * probedLinks * reverseEdgeEntryUnits()
-        + records * recordReadEntryUnits() + links * log2(sorted) * reverseEdgeEntryUnits();
+    return records * recordReadEntryUnits() + links * log2(sorted) * reverseEdgeEntryUnits();
+  }
+
+  /**
+   * Prices the expected prefix under uniform membership. Assume one row per candidate, so
+   * parallel edges can only shorten it. Include the EOF reservation for a complete scan.
+   * Phase-1 setup and intersection probes are already paid by both alternatives.
+   */
+  static double candidateScanCost(long records, long indexEntries, long rowTarget) {
+    if (records <= 0 || indexEntries <= 0 || rowTarget <= 0) {
+      return Double.POSITIVE_INFINITY;
+    }
+    double reached = Math.min(records, rowTarget);
+    double entries = Math.ceil(indexEntries * (reached / records));
+    return indexSeekEntryUnits() + entries + (rowTarget >= records ? 1 : 0)
+        + reached * recordReadEntryUnits();
+  }
+
+  /** A separate phase-2 account. The final candidate load is outside this cap. */
+  static final class CandidateScanAccount {
+    private final double limit;
+    private double spent;
+
+    CandidateScanAccount(double limit) {
+      this.limit = limit;
+    }
+
+    boolean spend(double units) {
+      if (!Double.isFinite(units) || units <= 0 || units > limit - spent) {
+        return false;
+      }
+      spent += units;
+      return true;
+    }
+
+    double spent() {
+      return spent;
+    }
   }
 
   /** Record loads and cursor advances have different costs in the shared work account. */

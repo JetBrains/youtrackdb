@@ -181,11 +181,26 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private long lastCandidateCount = -1;
   private double lastCandidateLoadPrice;
   private long lastCandidateLoads;
+  private long lastCandidateScanEntries;
+  private long lastCandidateScanLoads;
+  private int lastCandidateScanBuffered;
+  private boolean lastCandidateScanExhausted;
+  private double lastCandidateScanWork;
+
+  record CandidateScanObservation(
+      long entries, long loads, int buffered, boolean exhausted, double work) {
+  }
+
+  CandidateScanObservation lastCandidateScanObservation() {
+    return new CandidateScanObservation(lastCandidateScanEntries, lastCandidateScanLoads,
+        lastCandidateScanBuffered, lastCandidateScanExhausted, lastCandidateScanWork);
+  }
 
   long lastCandidateCount() {
     return lastCandidateCount;
   }
 
+  /** Remaining record-read and sort price, excluding all paid setup and intersection probes. */
   double lastCandidateLoadPrice() {
     return lastCandidateLoadPrice;
   }
@@ -218,6 +233,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     EQUALITY_FETCH("equality-fetch"),
     /** Final load of the admitted prefilter intersected with completed source membership. */
     CANDIDATE_LOAD("candidate-load"),
+    /** Candidate-filtered ordering scan with a buffered prefix and lazy continuation, or EOF. */
+    CANDIDATE_SCAN("candidate-scan"),
     /** The admitted intersection contains no linked target RID. */
     CANDIDATE_EMPTY("candidate-empty"),
     /** Single-source load LinkBag + local sort ({@code loadSortFromLinkBag}). */
@@ -283,6 +300,11 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     lastCandidateCount = -1;
     lastCandidateLoadPrice = 0;
     lastCandidateLoads = 0;
+    lastCandidateScanEntries = 0;
+    lastCandidateScanLoads = 0;
+    lastCandidateScanBuffered = 0;
+    lastCandidateScanExhausted = false;
+    lastCandidateScanWork = 0;
     executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
 
@@ -645,8 +667,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Final-load-only phase 2. Intersect the completed bitmap, never walk the edges again.
-   * Record the candidate-load price as the limit for the later candidate scan.
+   * Phase-2 scan/load choice. Intersect the completed bitmap, never walk the edges again.
+   * Choose a bounded prefix scan or the terminal load after completing the intersection.
    * The final candidate load is terminal and is never truncated.
    */
   @Nullable private ExecutionStream candidateLoad(
@@ -682,11 +704,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     membership.close();
     lastCandidateCount = members.size();
     lastCandidateLoadPrice = IndexOrderedCostModel.candidateLoadCost(
-        members.size(), links, membership.probedLinks,
+        members.size(), links,
         downstreamEdgeCount == 0 ? rowTarget : -1);
     if (members.isEmpty()) {
       chosenRuntimePath = RuntimePath.CANDIDATE_EMPTY;
       return ExecutionStream.empty();
+    }
+    // Both alternatives exclude the already-paid prefilter and membership build.
+    if (downstreamEdgeCount == 0
+        && IndexOrderedCostModel.candidateScanCost(
+            members.size(), index.estimateEntryCount(context.getDatabaseSession()), rowTarget)
+            < lastCandidateLoadPrice) {
+      var scanned = candidateScan(members, duplicates, upstream, context);
+      if (scanned != null) {
+        chosenRuntimePath = RuntimePath.CANDIDATE_SCAN;
+        signalIndexOrderedOutput(context);
+        return scanned;
+      }
     }
     // Only RIDs and sparse counts survive setup. Without later edges, load one record at a time.
     var candidates = java.util.stream.StreamSupport.stream(members.spliterator(), false)
@@ -701,6 +735,87 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         }).filter(java.util.Objects::nonNull);
     chosenRuntimePath = RuntimePath.CANDIDATE_LOAD;
     return equalityRows(candidates, upstream, context);
+  }
+
+  /**
+   * Buffer to the row target before fixing the final path. After handoff the ordinary
+   * ORDER BY consumer can read ties or the whole population through the lazy continuation.
+   */
+  @Nullable private ExecutionStream candidateScan(
+      RidSet members, Map<RID, Integer> duplicates, Result upstream, CommandContext context) {
+    var account = new IndexOrderedCostModel.CandidateScanAccount(lastCandidateLoadPrice);
+    var buffered = new ArrayList<Result>();
+    lastCandidateScanExhausted = true;
+    try {
+      if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
+        return null;
+      }
+      var scan = new FetchFromIndexStep(
+          new IndexSearchDescriptor(index), orderAsc, nullsFirst(), context, profilingEnabled);
+      var cursor = scan.internalStart(context);
+      boolean handedOff = false;
+      try {
+        while (true) {
+          // Reserve before hasNext because the Java stream iterator reads ahead there.
+          // EOF also reserves one entry, so the recorded work is a conservative bound.
+          if (!account.spend(1)) {
+            return null;
+          }
+          if (!cursor.hasNext(context)) {
+            lastCandidateScanExhausted = false;
+            return ExecutionStream.resultIterator(buffered.iterator());
+          }
+          var entry = cursor.next(context);
+          lastCandidateScanEntries++;
+          var rid = (RID) entry.getProperty("rid");
+          if (!members.contains(rid)) {
+            continue;
+          }
+          if (!account.spend(IndexOrderedCostModel.recordReadEntryUnits())) {
+            return null;
+          }
+          lastCandidateScanLoads++;
+          var rows = orderedEqualityRows(entry, duplicates, upstream, context);
+          try {
+            while (rows.hasNext(context)) {
+              if (buffered.size() >= maxBufferedRows(rowTarget)) {
+                return null;
+              }
+              buffered.add(rows.next(context));
+              if (buffered.size() >= rowTarget) {
+                // No speculative row escapes until the path is fixed. Keep duplicate rows
+                // left in this entry as well as future entries for ties and distinct slices.
+                lastCandidateScanExhausted = false;
+                handedOff = true;
+                return batchedStream(List.<Supplier<ExecutionStream>>of(
+                    () -> ExecutionStream.resultIterator(buffered.iterator()),
+                    () -> rows,
+                    () -> cursor
+                        .flatMap((next, c) -> members.contains((RID) next.getProperty("rid"))
+                            ? orderedEqualityRows(next, duplicates, upstream, c)
+                            : ExecutionStream.empty()))
+                    .iterator(), Supplier::get)
+                    .onClose(c -> {
+                      rows.close(c);
+                      cursor.close(c);
+                    });
+              }
+            }
+          } finally {
+            if (!handedOff) {
+              rows.close(context);
+            }
+          }
+        }
+      } finally {
+        if (!handedOff) {
+          cursor.close(context);
+        }
+      }
+    } finally {
+      lastCandidateScanBuffered = buffered.size();
+      lastCandidateScanWork = account.spent();
+    }
   }
 
   private ExecutionStream terminalLoad(LinkBag bag, Result upstream, CommandContext context) {
@@ -1010,7 +1125,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   private final class LoadMembership implements AutoCloseable {
     @Nullable private final RidSet accepted;
     private long probed;
-    private long probedLinks;
     private long filtered;
 
     private LoadMembership(@Nullable RidSet accepted) {
@@ -1026,7 +1140,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return true;
       }
       probed += links;
-      probedLinks += links;
       if (accepted.contains(rid)) {
         return true;
       }
