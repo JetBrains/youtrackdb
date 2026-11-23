@@ -146,6 +146,14 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
+  public long addFile(String fileName, long fileId, WriteCache writeCache, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
+    assert fileId >= 0;
+    fileId = AbstractWriteCache.checkFileIdCompatibility(writeCache.getId(), fileId);
+    return writeCache.addFile(fileName, fileId, nonDurable, creationLsn);
+  }
+
+  @Override
   public CacheEntry loadOrAddForWrite(
       final long fileId,
       final long pageIndex,

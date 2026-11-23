@@ -1382,11 +1382,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             // readCache.addFile call would throw "File with id ... already exists" from
             // DirectMemoryOnlyDiskCache.addFile.
             if (!fileChanges.eagerlyInstalledInCache) {
-              readCache.addFile(
-                  fileChanges.fileName,
-                  newFileNamesId.getLong(fileChanges.fileName),
-                  writeCache,
-                  nonDurable);
+              if (writeCache.supportsIdentityRecovery()) {
+                readCache.addFile(fileChanges.fileName,
+                    newFileNamesId.getLong(fileChanges.fileName), writeCache, nonDurable, txEndLsn);
+              } else {
+                readCache.addFile(fileChanges.fileName,
+                    newFileNamesId.getLong(fileChanges.fileName), writeCache, nonDurable);
+              }
             }
           }
 

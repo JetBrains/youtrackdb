@@ -56,6 +56,192 @@ import org.junit.function.ThrowingRunnable;
 
 public class WOWCacheLogicalFileStateTest {
 
+  // Growth and metadata refresh after token capture must survive completion of a shorter prefix.
+  @Test
+  public void completionMergesGrowthAndCurrentMetadataWithinOneLifetime() throws Exception {
+    var table = new LogicalPageFileTable();
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9080);
+    var name = PageFileNames.layout28(identity);
+    int id = identity.internalId();
+    var dependency =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber(
+            7, 42);
+    table.register(name, id, false, 5, 0, false, dependency);
+    var captured = table.live(id);
+    var capturedLatch = new java.util.concurrent.CountDownLatch(1);
+    var refreshed = new java.util.concurrent.CountDownLatch(1);
+    var executor = Executors.newSingleThreadExecutor();
+    try {
+      var completion = executor.submit(() -> {
+        capturedLatch.countDown();
+        assertTrue(refreshed.await(10, TimeUnit.SECONDS));
+        assertTrue(table.isCurrent(id, captured.extents()));
+        return table.publishCompleted(id, captured.extents(), 3);
+      });
+      assertTrue(capturedLatch.await(10, TimeUnit.SECONDS));
+      captured.extents().allocateThrough(11);
+      table.register(name, id, true);
+      refreshed.countDown();
+      assertTrue(completion.get(10, TimeUnit.SECONDS));
+      var current = table.live(id);
+      assertEquals(11, current.logicalExtent());
+      assertEquals(3, current.diskExtent());
+      assertTrue(current.diskPresent());
+      assertTrue(current.nonDurable());
+      org.junit.Assert.assertSame(dependency, current.creationLsn());
+      org.junit.Assert.assertSame(captured.extents(), current.extents());
+      assertTrue(table.publishCompleted(id, captured.extents(), 2));
+      assertEquals(3, table.live(id).diskExtent());
+      table.register(name, id, false);
+      assertTrue(table.live(id).diskPresent());
+      assertFalse(table.live(id).nonDurable());
+      org.junit.Assert.assertSame(dependency, table.live(id).creationLsn());
+    } finally {
+      refreshed.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  // Refresh attempts the same entry after publication reads it. It must either wait for the
+  // atomic update or finish before a broken get-then-put publisher overwrites its metadata.
+  @Test
+  public void completionSerializesRefreshInsideItsReadWriteWindow() throws Exception {
+    var table = new LogicalPageFileTable();
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9082);
+    var name = PageFileNames.layout28(identity);
+    int id = identity.internalId();
+    table.register(name, id, false, 5, 0, false);
+    var token = table.live(id).extents();
+    var startRefresh = new java.util.concurrent.CountDownLatch(1);
+    var finished = new java.util.concurrent.CountDownLatch(1);
+    var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+    var refresher = new Thread(() -> {
+      try {
+        assertTrue(startRefresh.await(10, TimeUnit.SECONDS));
+        token.allocateThrough(11);
+        table.register(name, id, true);
+      } catch (Throwable thrown) {
+        failure.set(thrown);
+      } finally {
+        finished.countDown();
+      }
+    }, "logical-file-refresh");
+    refresher.start();
+    try {
+      assertTrue(table.publishCompleted(id, token, 3, () -> {
+        startRefresh.countDown();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (finished.getCount() != 0 && refresher.getState() != Thread.State.BLOCKED) {
+          assertTrue("refresh must reach the update window", System.nanoTime() < deadline);
+          Thread.onSpinWait();
+        }
+      }));
+      assertTrue(finished.await(10, TimeUnit.SECONDS));
+      assertNull(failure.get());
+      assertEquals(11, table.live(id).logicalExtent());
+      assertTrue(table.live(id).nonDurable());
+      assertTrue(table.live(id).diskPresent());
+      assertEquals(3, table.live(id).diskExtent());
+    } finally {
+      startRefresh.countDown();
+      refresher.join(TimeUnit.SECONDS.toMillis(10));
+      assertFalse(refresher.isAlive());
+    }
+  }
+
+  // Explicit extents refresh keeps published presence and the same lifetime, even at prefix zero.
+  @Test
+  public void explicitRefreshCannotUndoPublishedDiskPresence() {
+    var table = new LogicalPageFileTable();
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9083);
+    var name = PageFileNames.layout28(identity);
+    int id = identity.internalId();
+    table.register(name, id, false, 5, 0, false);
+    var token = table.live(id).extents();
+    assertTrue(table.publishCompleted(id, token, 0));
+    table.register(name, id, true, 0, 0, false);
+    assertTrue(table.live(id).diskPresent());
+    org.junit.Assert.assertSame(token, table.live(id).extents());
+  }
+
+  // Every terminal transition invalidates queued work before its simulated creation action.
+  @Test
+  public void staleLifetimeCannotCreateOrPublishIntoReplacement() {
+    for (int transition = 0; transition < 3; transition++) {
+      var table = new LogicalPageFileTable();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9081);
+      var name = PageFileNames.layout28(identity);
+      int id = identity.internalId();
+      table.register(name, id, false, 8, 0, false);
+      var token = table.live(id).extents();
+      switch (transition) {
+        case 0 -> table.delete(name, id);
+        case 1 -> table.forget(id);
+        default -> table.clear();
+      }
+      assertFalse(table.isCurrent(id, token));
+      assertFalse(table.publishCompleted(id, token, 8));
+      table.register(name, id, true, 2, 0, false);
+      var replacement = table.live(id);
+      var creates = new java.util.concurrent.atomic.AtomicInteger();
+      if (table.isCurrent(id, token)) {
+        creates.incrementAndGet();
+      }
+      assertEquals(0, creates.get());
+      assertFalse(table.publishCompleted(id, token, 8));
+      org.junit.Assert.assertSame(replacement, table.live(id));
+      assertFalse(replacement.diskPresent());
+      assertEquals(0, replacement.diskExtent());
+    }
+  }
+
+  // Actual eager, replay and restore creation notify once, before the header exists.
+  // Booking, misses, existing-file admission, repeated resolution and reopen never notify.
+  @Test
+  public void creationRosterNotifiesOnlyForNewDirectoryEntries() throws Exception {
+    withStandaloneCache(cache -> {
+      var notifications = new java.util.ArrayList<Integer>();
+      try (var maps = StorageBirthTestSupport.poisonSessionMaps(cache);
+          var observer = cache.observePhysicalCreation(id -> {
+            notifications.add(id);
+            var identity = PageFileIdentity.decode(id);
+            try {
+              assertEquals(0, Files.size(cache.getRootDirectory()
+                  .resolve(PageFileNames.layout28DiskName(identity))));
+            } catch (IOException e) {
+              throw new java.io.UncheckedIOException(e);
+            }
+          })) {
+        for (int route = 0; route < 3; route++) {
+          var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9082 + route);
+          var name = PageFileNames.layout28(identity);
+          long id = cache.externalFileId(identity.internalId());
+          cache.bookFileId(name, id, false);
+          assertEquals(route, notifications.size());
+          assertFalse(cache.admitExpectedFile(identity));
+          assertFalse(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.OPEN_ONLY));
+          if (route == 0) {
+            cache.addFile(name, id);
+          } else {
+            cache.resolveRecoveryFile(name, id, route == 1
+                ? RecoveryFilePermission.REPLAY_CREATE : RecoveryFilePermission.RESTORE);
+          }
+          assertEquals(route + 1, notifications.size());
+          assertEquals(Integer.valueOf(identity.internalId()), notifications.get(route));
+          assertTrue(cache.admitExpectedFile(identity));
+          cache.resolveRecoveryFile(name, id, RecoveryFilePermission.REPLAY_CREATE);
+          assertThrows(StorageException.class, () -> cache.addFile(name, id));
+          assertEquals(route + 1, notifications.size());
+        }
+        cache.close();
+        cache.loadRegisteredFiles();
+        assertTrue(cache.admitExpectedFile(
+            new PageFileIdentity(PageFileRole.RECORD_DATA, 9082)));
+        assertEquals(3, notifications.size());
+      }
+    });
+  }
+
   // Every map variant can be unreadable without affecting layout 28 open or close.
   // No mutation runs between the two lifecycle operations.
   @Test
@@ -885,6 +1071,8 @@ public class WOWCacheLogicalFileStateTest {
           com.jetbrains.youtrackdb.internal.core.storage.fs.File>) field.get(cache);
       var handle = org.mockito.Mockito.spy(handles.remove(id));
       handles.add(id, handle);
+      // Model a new disk-absent lifetime while retaining a handle to expose bad routing.
+      cache.logicalFiles().forget(identity.internalId());
       cache.logicalFiles().register(name, identity.internalId(), false, 0, 0, false);
       var fsync = WOWCache.class.getDeclaredField("callFsync");
       fsync.setAccessible(true);
@@ -894,7 +1082,7 @@ public class WOWCacheLogicalFileStateTest {
       var verification = new StringBuilder();
       assertEquals(0, cache.checkStoredPages(verification::append).length);
       assertFalse(verification.toString().contains(name));
-      cache.logicalFiles().register(name, identity.internalId(), false);
+      cache.logicalFiles().register(name, identity.internalId(), false, 0, 0, true);
     });
   }
 

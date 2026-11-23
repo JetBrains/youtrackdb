@@ -97,6 +97,62 @@ public class AsyncFileTest {
     FileUtils.deleteRecursively(buildDirectoryPath.toFile());
   }
 
+  // A real create followed by a failed header write still notifies once and reports that failure.
+  @Test
+  public void creationNotificationPrecedesHeaderFailureAndNeverRunsOnOpen() throws Exception {
+    var notifications = new AtomicInteger();
+    var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, false,
+        () -> {
+          notifications.incrementAndGet();
+          Assert.assertTrue(Files.exists(buildDirectoryPath));
+        });
+    var channel = mock(AsynchronousFileChannel.class);
+    var failure = new java.io.IOException("header write failed");
+    org.mockito.Mockito.when(channel.size()).thenReturn(0L);
+    org.mockito.Mockito.when(channel.write(any(ByteBuffer.class), anyLong()))
+        .thenReturn(java.util.concurrent.CompletableFuture.failedFuture(failure));
+    try (var channels = mockStatic(AsynchronousFileChannel.class)) {
+      channels.when(() -> AsynchronousFileChannel.open(
+          org.mockito.ArgumentMatchers.eq(buildDirectoryPath),
+          org.mockito.ArgumentMatchers.<Set<? extends java.nio.file.OpenOption>>any(),
+          org.mockito.ArgumentMatchers.eq(executor))).thenReturn(channel);
+      var thrown = Assert.assertThrows(StorageException.class, file::create);
+      Assert.assertSame(failure, thrown.getCause().getCause());
+      Assert.assertEquals(1, notifications.get());
+      verify(channel).close();
+    }
+    file.open();
+    Assert.assertEquals(1, notifications.get());
+    file.close();
+    Assert.assertThrows(java.nio.file.FileAlreadyExistsException.class, file::create);
+    Assert.assertEquals(1, notifications.get());
+  }
+
+  // Initialization stays primary when cleanup throws either an unchecked exception or an error.
+  @Test
+  public void headerFailureSuppressesUncheckedCloseFailures() throws Exception {
+    for (var closeFailure : new Throwable[] {
+        new IllegalStateException("close failed"), new AssertionError("close failed")}) {
+      Files.deleteIfExists(buildDirectoryPath);
+      var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME);
+      var channel = mock(AsynchronousFileChannel.class);
+      var failure = new java.io.IOException("header write failed");
+      org.mockito.Mockito.when(channel.size()).thenReturn(0L);
+      org.mockito.Mockito.when(channel.write(any(ByteBuffer.class), anyLong()))
+          .thenReturn(java.util.concurrent.CompletableFuture.failedFuture(failure));
+      org.mockito.Mockito.doThrow(closeFailure).when(channel).close();
+      try (var channels = mockStatic(AsynchronousFileChannel.class)) {
+        channels.when(() -> AsynchronousFileChannel.open(
+            org.mockito.ArgumentMatchers.eq(buildDirectoryPath),
+            org.mockito.ArgumentMatchers.<Set<? extends java.nio.file.OpenOption>>any(),
+            org.mockito.ArgumentMatchers.eq(executor))).thenReturn(channel);
+        var thrown = Assert.assertThrows(StorageException.class, file::create);
+        Assert.assertSame(failure, thrown.getCause().getCause());
+        Assert.assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
+      }
+    }
+  }
+
   @Test
   public void testWrite() throws Exception {
     final AsyncFile file =

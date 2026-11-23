@@ -518,6 +518,11 @@ public final class WOWCache extends AbstractWriteCache
 
   private void registerLogicalFile(String name, int internalId, boolean nonDurable)
       throws IOException {
+    registerLogicalFile(name, internalId, nonDurable, null);
+  }
+
+  private void registerLogicalFile(String name, int internalId, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
     // Layout 28 validates explicit admissions and registrations, not persisted map records.
     // Layout 27 keeps registrations in maps and has no logical table.
     validateLogicalRegistration(name, internalId);
@@ -526,7 +531,8 @@ public final class WOWCache extends AbstractWriteCache
         final var file = files.get(composeFileId(id, internalId));
         final var allocated = file == null ? 0 : file.getFileSize() / pageSize;
         // Publish before sampling disk so a concurrent flush can record its completed write.
-        logicalFiles.register(name, internalId, nonDurable, allocated, 0, file != null);
+        logicalFiles.register(name, internalId, nonDurable, allocated, 0, file != null,
+            creationLsn);
         final var written = file == null ? 0 : file.getUnderlyingFileSize() / pageSize;
         recordWrittenExtent(internalId, written);
       } else {
@@ -1418,6 +1424,12 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public long addFile(final String fileName, long fileId, final boolean nonDurable)
       throws IOException {
+    return addFile(fileName, fileId, nonDurable, null);
+  }
+
+  @Override
+  public long addFile(String fileName, long fileId, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -1432,7 +1444,7 @@ public final class WOWCache extends AbstractWriteCache
 
       validateLogicalRegistration(fileName, intId);
       if (logicalFiles != null) {
-        return createLogicalFile(fileName, intId, nonDurable);
+        return createLogicalFile(fileName, intId, nonDurable, creationLsn);
       }
       final var existingFileId = nameIdMap.get(fileName);
       if (existingFileId != null && existingFileId >= 0) {
@@ -1514,7 +1526,8 @@ public final class WOWCache extends AbstractWriteCache
 
   // Fresh creation never opens an existing path. File.create uses exclusive filesystem creation,
   // including when a path appears after the presence check. Keep handle publication before LIVE.
-  private long createLogicalFile(String name, int internalId, boolean nonDurable)
+  private long createLogicalFile(String name, int internalId, boolean nonDurable,
+      LogSequenceNumber creationLsn)
       throws IOException, java.lang.InterruptedException {
     long externalId = composeFileId(id, internalId);
     if (logicalFiles.live(internalId) != null || files.get(externalId) != null) {
@@ -1529,7 +1542,7 @@ public final class WOWCache extends AbstractWriteCache
       changedPageTracker.resetFile(internalId);
     }
     files.add(externalId, file);
-    registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId));
+    registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId), creationLsn);
     if (nonDurable) {
       var updated = new IntOpenHashSet(nonDurableFileIds);
       updated.add(internalId);
@@ -3684,6 +3697,24 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  private volatile java.util.function.IntConsumer physicalCreationObserver;
+
+  // Scoped per-cache observation at the physical directory-entry creation boundary.
+  AutoCloseable observePhysicalCreation(java.util.function.IntConsumer observer) {
+    if (physicalCreationObserver != null) {
+      throw new IllegalStateException("Creation observer already installed");
+    }
+    physicalCreationObserver = observer;
+    return () -> physicalCreationObserver = null;
+  }
+
+  private void physicalFileCreated(int fileId) {
+    var observer = physicalCreationObserver;
+    if (observer != null) {
+      observer.accept(fileId);
+    }
+  }
+
   private File createFileHandle(final String fileName, final int fileId) {
     final var internalFileName = createInternalFileName(fileName, fileId);
     return new AsyncFile(
@@ -3692,7 +3723,9 @@ public final class WOWCache extends AbstractWriteCache
         logFileDeletion,
         this.executor,
         storageName,
-        callFsync);
+        callFsync,
+        logicalFiles == null ? () -> {
+        } : () -> physicalFileCreated(fileId));
   }
 
   private static String createInternalFileName(final String fileName, final int fileId) {

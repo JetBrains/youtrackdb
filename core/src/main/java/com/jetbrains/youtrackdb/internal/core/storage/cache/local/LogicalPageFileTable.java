@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +21,7 @@ final class LogicalPageFileTable {
   }
 
   record State(PageFileIdentity identity, Extents extents,
-      boolean diskPresent, boolean nonDurable, Kind kind) {
+      boolean diskPresent, boolean nonDurable, Kind kind, LogSequenceNumber creationLsn) {
 
     long logicalExtent() {
       return extents.logical.get();
@@ -124,25 +125,74 @@ final class LogicalPageFileTable {
   }
 
   void register(String name, int expectedId, boolean nonDurable) {
-    register(name, expectedId, nonDurable, 0, 0, true);
+    register(name, expectedId, nonDurable, 0, 0, true, null, true);
   }
 
   void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
       long diskExtent, boolean diskPresent) {
+    register(name, expectedId, nonDurable, logicalExtent, diskExtent, diskPresent, null);
+  }
+
+  void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
+      long diskExtent, boolean diskPresent, LogSequenceNumber creationLsn) {
+    register(name, expectedId, nonDurable, logicalExtent, diskExtent, diskPresent, creationLsn,
+        false);
+  }
+
+  private void register(String name, int expectedId, boolean nonDurable, long logicalExtent,
+      long diskExtent, boolean diskPresent, LogSequenceNumber creationLsn,
+      boolean metadataOnly) {
     var identity = resolve(name, expectedId);
-    var previous = live(expectedId);
-    // Repeated registration can update durability without discarding concurrent growth.
-    var extents = previous == null ? new Extents(logicalExtent, diskExtent) : previous.extents();
-    states.put(expectedId, new State(identity, extents, diskPresent, nonDurable, Kind.LIVE));
-    if (previous == null) {
-      liveNames.put(name, expectedId);
+    states.compute(expectedId, (key, previous) -> {
+      boolean refresh = previous != null && previous.kind() == Kind.LIVE;
+      var extents = refresh ? previous.extents() : new Extents(logicalExtent, diskExtent);
+      // Metadata refresh and completion share this atomic update. Neither can undo the other's
+      // disk-presence publication, even when refresh starts before completion.
+      return new State(identity, extents,
+          refresh ? previous.diskPresent() || (!metadataOnly && diskPresent) : diskPresent,
+          nonDurable, Kind.LIVE, refresh ? previous.creationLsn() : creationLsn);
+    });
+    if (liveNames.put(name, expectedId) == null) {
       invalidateInventory();
     }
   }
 
+  /** Extents identity is a lifetime token, not a snapshot of mutable metadata or growth. */
+  boolean isCurrent(int internalId, Extents token) {
+    var current = live(internalId);
+    return current != null && current.extents() == token;
+  }
+
+  /**
+   * Caller proves that every page below completedPrefix is initialized and orders lifecycle
+   * changes from the pre-creation token check through completion. Growth needs no exclusion.
+   * This is not a maximum-page-written API and must never be supplied a prefix with holes.
+   */
+  boolean publishCompleted(int internalId, Extents token, long completedPrefix) {
+    return publishCompleted(internalId, token, completedPrefix, () -> {
+    });
+  }
+
+  // The hook lets tests pause after reading current state while the atomic update is held.
+  boolean publishCompleted(int internalId, Extents token, long completedPrefix,
+      Runnable afterRead) {
+    var published = new boolean[1];
+    states.computeIfPresent(internalId, (key, current) -> {
+      if (current.kind() != Kind.LIVE || current.extents() != token) {
+        return current;
+      }
+      afterRead.run();
+      token.writtenThrough(completedPrefix);
+      published[0] = true;
+      return new State(current.identity(), token, true, current.nonDurable(), Kind.LIVE,
+          current.creationLsn());
+    });
+    return published[0];
+  }
+
   private void put(String name, int expectedId, boolean nonDurable, Kind kind) {
     var identity = resolve(name, expectedId);
-    var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind));
+    var previous = states.put(expectedId, new State(identity, null, false, nonDurable, kind, null));
     if (previous != null && previous.kind() == Kind.LIVE) {
       liveNames.remove(name);
       invalidateInventory();

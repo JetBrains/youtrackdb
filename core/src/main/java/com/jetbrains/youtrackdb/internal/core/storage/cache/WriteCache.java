@@ -135,6 +135,12 @@ public interface WriteCache {
     throw new UnsupportedOperationException("Identity recovery is not supported");
   }
 
+  /** Carries the complete creating-unit dependency. Legacy implementations keep eager routing. */
+  default long addFile(String fileName, long fileId, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
+    return addFile(fileName, fileId, nonDurable);
+  }
+
   long addFile(String fileName) throws IOException;
 
   long addFile(String fileName, long fileId) throws IOException;

@@ -1817,6 +1817,125 @@ public class ComponentIdAllocationTest {
     return field.get(collection);
   }
 
+  // A real collection creation registers the complete unit end, after both file creation and
+  // transactional configuration page changes that persist its newly allocated component counter.
+  @Test
+  public void creationDependencyIsTheCounterUnitsEndRecord() throws Exception {
+    create(StorageFormat.LAYOUT_28, DatabaseType.DISK);
+    try (var session = open()) {
+      var storage = session.getStorage();
+      var wal = storage.getWALInstance();
+      var before = wal.end();
+      int oldCounter = counter(storage, PageFileKind.COLLECTION);
+      // Resolve the counter property itself, not an arbitrary CONFIG_DATA mutation.
+      var btreeField = CollectionBasedStorageConfiguration.class.getDeclaredField("btree");
+      btreeField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      var btree =
+          (com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree<
+              String>) btreeField.get(config(storage));
+      long counterPosition = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> btree.get("collectionComponentIdCounter", op).getCollectionPosition());
+      var cache = (WOWCache) storage.getWriteCache();
+      var walField = WOWCache.class.getDeclaredField("writeAheadLog");
+      walField.setAccessible(true);
+      var manager = storage.getAtomicOperationsManager();
+      var managerWalField = manager.getClass().getDeclaredField("writeAheadLog");
+      managerWalField.setAccessible(true);
+      var storageWalField = AbstractStorage.class.getDeclaredField("writeAheadLog");
+      storageWalField.setAccessible(true);
+      assertSame(wal, walField.get(cache));
+      assertSame(wal, managerWalField.get(manager));
+      assertSame(wal, storageWalField.get(storage));
+      var observedWal = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+          org.mockito.AdditionalAnswers.delegatesTo(wal));
+      var foreground = Thread.currentThread();
+      var flushes = new java.util.concurrent.atomic.AtomicInteger();
+      org.mockito.Mockito.doAnswer(invocation -> {
+        if (Thread.currentThread() == foreground) {
+          flushes.incrementAndGet();
+        }
+        wal.flush();
+        return null;
+      }).when(observedWal).flush();
+      final int collectionId;
+      // Observe every WAL owner on the creation path. The manager supplies the same WAL to
+      // each new atomic operation and to commitChanges, including its upstream addFile branch.
+      // flush() is the WriteAheadLog interface force entry point. Background WAL activity is
+      // excluded, as are setup and teardown. This fixture has no foreground commit fsync.
+      try {
+        walField.set(cache, observedWal);
+        managerWalField.set(manager, observedWal);
+        storageWalField.set(storage, observedWal);
+        collectionId = session.addCollection("dependency");
+        assertEquals("dependency-carrying creation must not force WAL", 0, flushes.get());
+      } finally {
+        storageWalField.set(storage, wal);
+        managerWalField.set(manager, wal);
+        walField.set(cache, wal);
+      }
+      assertEquals(oldCounter + 1, counter(storage, PageFileKind.COLLECTION));
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA,
+          operationEntry(storage, collectionId).getComponentId());
+      var tableField = WOWCache.class.getDeclaredField("logicalFiles");
+      tableField.setAccessible(true);
+      var table = tableField.get(cache);
+      var live = table.getClass().getDeclaredMethod("live", int.class);
+      live.setAccessible(true);
+      var state = live.invoke(table, identity.internalId());
+      var accessor = state.getClass().getDeclaredMethod("creationLsn");
+      accessor.setAccessible(true);
+      var dependency =
+          (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber) accessor
+              .invoke(state);
+      assertNotNull(dependency);
+      var end =
+          (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord) wal
+              .read(dependency, 1).getFirst();
+      assertEquals(dependency, end.getLsn());
+      boolean created = false;
+      boolean counterPages = false;
+      var cursor = before;
+      while (cursor.compareTo(dependency) < 0) {
+        var batch = wal.next(cursor, 1000);
+        assertFalse(batch.isEmpty());
+        for (var record : batch) {
+          if (record.getLsn().compareTo(dependency) >= 0) {
+            break;
+          }
+          if (record instanceof com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord file
+              && file.getOperationUnitId() == end.getOperationUnitId()
+              && AbstractWriteCache.extractFileId(file.getFileId()) == identity.internalId()) {
+            created = true;
+          }
+          if (record instanceof com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageAppendRecordOp page
+              && PageFileIdentity.decode(AbstractWriteCache.extractFileId(page.getFileId()))
+                  .role() == PageFileRole.CONFIG_DATA) {
+            // A single-chunk integer property has type, length, logical position, value,
+            // first-chunk flag and next pointer. Match the property's key-resolved position.
+            var bytes = page.getRecord();
+            if (bytes.length == 1 + Integer.BYTES + Long.BYTES + Integer.BYTES + 1 + Long.BYTES
+                && com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+                    .deserializeNative(bytes, 1 + Integer.BYTES) == counterPosition
+                && com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
+                    .deserializeNative(bytes, 1) == Integer.BYTES) {
+              assertEquals(oldCounter + 1,
+                  com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer
+                      .deserializeNative(bytes, 1 + Integer.BYTES + Long.BYTES));
+              assertEquals("counter mutation must belong to the file-creating unit",
+                  end.getOperationUnitId(), page.getOperationUnitId());
+              counterPages = true;
+            }
+          }
+        }
+        cursor = batch.getLast().getLsn();
+      }
+      assertTrue("creating file record must precede its dependency", created);
+      assertTrue("counter configuration changes must precede the same unit end", counterPages);
+    }
+  }
+
   // Production creation and cold open use computed registrations for every ordinary role.
   @Test
   public void productionCollectionNamesRemainUnchangedAcrossColdReopen() throws Exception {

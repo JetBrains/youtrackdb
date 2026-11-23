@@ -639,7 +639,7 @@ public class AtomicOperationSuppliedIdTest {
       disk.setStorageFormat(StorageFormat.LAYOUT_28);
       disk.loadRegisteredFiles();
       var read = mock(ReadCache.class);
-      when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean()))
+      when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any()))
           .thenAnswer(invocation -> disk.addFile(invocation.getArgument(0),
               invocation.getArgument(1)));
       for (int scenario = 0; scenario < 6; scenario++) {
@@ -666,7 +666,7 @@ public class AtomicOperationSuppliedIdTest {
           var secondName = PageFileNames.layout28(second);
           long secondId = op.addFile(secondName, second.internalId(), false, false);
           var applied = new java.util.concurrent.atomic.AtomicInteger();
-          when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean()))
+          when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any()))
               .thenAnswer(invocation -> {
                 if (applied.incrementAndGet() == 2) {
                   throw new IOException("partial apply");

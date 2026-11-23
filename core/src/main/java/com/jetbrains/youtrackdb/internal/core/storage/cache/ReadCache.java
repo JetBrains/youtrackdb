@@ -44,6 +44,12 @@ public interface ReadCache {
    */
   int MIN_CACHE_SIZE = 256;
 
+  /** Carries the complete creating-unit dependency. Legacy implementations keep eager routing. */
+  default long addFile(String fileName, long fileId, WriteCache writeCache, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
+    return addFile(fileName, fileId, writeCache, nonDurable);
+  }
+
   long addFile(String fileName, WriteCache writeCache) throws IOException;
 
   long addFile(String fileName, long fileId, WriteCache writeCache) throws IOException;
