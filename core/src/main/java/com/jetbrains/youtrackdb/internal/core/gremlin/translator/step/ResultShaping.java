@@ -58,6 +58,7 @@ import javax.annotation.Nullable;
  *     bypasses the stage entirely (see {@link ListShapingOp} and {@link AbstractMatchPlanStep})
  * @param orderedSourceKeyColumns hidden RETURN columns for the sorted element and live aliases;
  *     non-empty only when an ordered-hop op projects rows after the source merge or source slice
+ * @param propertyMapBulkingCapacity native pre-map distinct-entry window capacity, or zero to bypass
  * @param propertyGroupCount direct property-count contract, or null for general grouped projection
  */
 public record ResultShaping(
@@ -77,7 +78,31 @@ public record ResultShaping(
     @Nullable String rowDedupAlias,
     @Nonnull List<ListShapingOp> listShapingOps,
     @Nonnull List<String> orderedSourceKeyColumns,
-    @Nullable PropertyGroupCount propertyGroupCount) {
+    @Nullable PropertyGroupCount propertyGroupCount,
+    int propertyMapBulkingCapacity) {
+
+  /** Existing projections have no pre-map bulking window. */
+  public ResultShaping(boolean dropNullRows, boolean dropOnAbsent,
+      List<String> presencePropertyKeys, List<AliasPropertyPresence> aliasPropertyPresences,
+      List<String> mapEmitColumnOrder, List<String> recordIdMapKeys, List<String> edgeMapKeys,
+      boolean wrapMapValuesInLists, boolean accumulateMap, boolean unwrapSingletonMap,
+      boolean elementMapTokens, boolean emitGroupEntries, boolean emptyBarrier,
+      String rowDedupAlias, List<ListShapingOp> listShapingOps,
+      List<String> orderedSourceKeyColumns, PropertyGroupCount propertyGroupCount) {
+    this(dropNullRows, dropOnAbsent, presencePropertyKeys, aliasPropertyPresences,
+        mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys, wrapMapValuesInLists, accumulateMap,
+        unwrapSingletonMap, elementMapTokens, emitGroupEntries, emptyBarrier, rowDedupAlias,
+        listShapingOps, orderedSourceKeyColumns, propertyGroupCount, 0);
+  }
+
+  /** This shaping with a proved native property-map barrier, or zero for the established path. */
+  public ResultShaping withPropertyMapBulkingCapacity(int capacity) {
+    return new ResultShaping(dropNullRows, dropOnAbsent, presencePropertyKeys,
+        aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
+        wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
+        emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, orderedSourceKeyColumns,
+        propertyGroupCount, capacity);
+  }
 
   /** Existing projections do not carry a direct property-count contract. */
   public ResultShaping(boolean dropNullRows, boolean dropOnAbsent,
@@ -99,7 +124,7 @@ public record ResultShaping(
         aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
         wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
         emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, orderedSourceKeyColumns,
-        counting);
+        counting, propertyMapBulkingCapacity);
   }
 
   /** Existing projections do not carry ordered-source identities. */
@@ -121,7 +146,7 @@ public record ResultShaping(
         aliasPropertyPresences, mapEmitColumnOrder, recordIdMapKeys, edgeMapKeys,
         wrapMapValuesInLists, accumulateMap, unwrapSingletonMap, elementMapTokens,
         emitGroupEntries, emptyBarrier, rowDedupAlias, listShapingOps, columns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -184,7 +209,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code dropOnAbsent} set to {@code value}. */
@@ -206,7 +231,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code presencePropertyKeys} replaced by {@code keys}. */
@@ -228,7 +253,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code aliasPropertyPresences} replaced by {@code presences}. */
@@ -251,7 +276,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -276,7 +301,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -301,7 +326,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -326,7 +351,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code wrapMapValuesInLists} set to {@code value}. */
@@ -348,7 +373,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code accumulateMap} set to {@code value}. */
@@ -370,7 +395,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code unwrapSingletonMap} set to {@code value}. */
@@ -392,7 +417,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code elementMapTokens} set to {@code value}. */
@@ -414,7 +439,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -439,7 +464,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /** This shaping with {@code emptyBarrier} set to {@code value}. */
@@ -461,7 +486,7 @@ public record ResultShaping(
         rowDedupAlias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -486,7 +511,7 @@ public record ResultShaping(
         alias,
         listShapingOps,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 
   /**
@@ -511,6 +536,6 @@ public record ResultShaping(
         rowDedupAlias,
         ops,
         orderedSourceKeyColumns,
-        propertyGroupCount);
+        propertyGroupCount, propertyMapBulkingCapacity);
   }
 }

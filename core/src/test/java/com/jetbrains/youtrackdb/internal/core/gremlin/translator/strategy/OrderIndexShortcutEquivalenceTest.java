@@ -52,6 +52,10 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class OrderIndexShortcutEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** Targets per fixture, four times the lowered cap. */
   private static final int TARGETS = 40;
 

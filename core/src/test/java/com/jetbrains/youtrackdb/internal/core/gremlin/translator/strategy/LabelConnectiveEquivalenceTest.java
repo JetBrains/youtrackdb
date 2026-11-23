@@ -16,6 +16,10 @@ import org.junit.Test;
 /** Exact native/translated rows and translation engagement for typed connective filters. */
 public class LabelConnectiveEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
 

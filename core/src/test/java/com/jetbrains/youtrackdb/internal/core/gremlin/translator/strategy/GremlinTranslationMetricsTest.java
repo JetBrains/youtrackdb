@@ -2,6 +2,10 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricsRegistry;
@@ -11,7 +15,7 @@ import org.junit.Test;
 
 /**
  * Unit tests for {@link GremlinTranslationMetrics}: lifetime counters and shares, shape-frequency
- * ranking, the soft cap on tracked shapes, and the three CoreMetrics Ratio sinks.
+ * ranking, the soft cap on tracked shapes, and the four CoreMetrics Ratio sinks.
  */
 public class GremlinTranslationMetricsTest {
 
@@ -32,6 +36,30 @@ public class GremlinTranslationMetricsTest {
     assertThat(metrics.successShare()).isCloseTo(0.25, within(1e-9));
     assertThat(metrics.declineShare()).isCloseTo(0.5, within(1e-9));
     assertThat(metrics.errorShare()).isCloseTo(0.25, within(1e-9));
+  }
+
+  /** Every outcome advances all four denominators and exactly one numerator. */
+  @Test
+  public void fourOutcomesFeedAllRatioDenominators() {
+    var registry = mock(MetricsRegistry.class);
+    var success = mock(Ratio.class);
+    var decline = mock(Ratio.class);
+    var error = mock(Ratio.class);
+    var nativeChoice = mock(Ratio.class);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO)).thenReturn(success);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO)).thenReturn(decline);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO)).thenReturn(error);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO))
+        .thenReturn(nativeChoice);
+    var metrics = new GremlinTranslationMetrics(registry);
+    metrics.recordSuccess();
+    metrics.recordDecline("unsupported");
+    metrics.recordError("failed");
+    metrics.recordRuleNative();
+    for (var ratio : java.util.List.of(success, decline, error, nativeChoice)) {
+      verify(ratio).record(1, 1);
+      verify(ratio, times(3)).record(0, 1);
+    }
   }
 
   /** topDeclinedShapes ranks by count descending and breaks ties by shape string. */
@@ -79,13 +107,14 @@ public class GremlinTranslationMetricsTest {
     assertThat(metrics.topDeclinedShapes(10)).isEmpty();
   }
 
-  /** Recording through a live registry feeds the three global Ratio definitions. */
+  /** Recording through a live registry feeds the four global Ratio definitions. */
   @Test
   public void recordThroughRegistry_feedsGlobalRatios() {
     var registry = new MetricsRegistry(new StubTicker(1));
     var metrics = new GremlinTranslationMetrics(registry);
 
     metrics.recordSuccess();
+    metrics.recordRuleNative();
     metrics.recordDecline("[GraphStep]");
     metrics.recordError("[GraphStep, HasStep]");
 
@@ -95,5 +124,71 @@ public class GremlinTranslationMetricsTest {
     assertThat(successes).isInstanceOf(Ratio.Impl.class);
     assertThat(declines).isInstanceOf(Ratio.Impl.class);
     assertThat(errors).isInstanceOf(Ratio.Impl.class);
+    Ratio nativeRatio = registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
+    assertThat(nativeRatio).isInstanceOf(Ratio.Impl.class);
+    assertThat(metrics.getRuleNative()).isEqualTo(1);
+    assertThat(metrics.getAttempts()).isEqualTo(4);
+    assertThat(metrics.ruleNativeShare()).isEqualTo(0.25);
+    assertThat(metrics.successShare()).isEqualTo(0.25);
+    assertThat(metrics.declineShare()).isEqualTo(0.25);
+    assertThat(metrics.errorShare()).isEqualTo(0.25);
+  }
+
+  /** Published names, percentage units, one-second flush and sixty-second expiry stay exact. */
+  @Test
+  public void metricDefinitionsKeepNamesFlushAndWindow() {
+    var definitions = java.util.List.of(CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO,
+        CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO, CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO,
+        CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
+    assertThat(definitions).extracting(d -> d.name()).containsExactly(
+        "GremlinTranslationSuccessRatio", "GremlinTranslationDeclineRatio",
+        "GremlinTranslationErrorRatio", "GremlinTranslationRuleNativeRatio");
+    assertThat(CoreMetrics.GREMLIN_PLAN_CACHE_HIT_RATE.name()).isEqualTo("GremlinPlanCacheHitRate");
+    assertThat(CoreMetrics.GREMLIN_PLAN_CACHE_MISS_RATE.name())
+        .isEqualTo("GremlinPlanCacheMissRate");
+    for (var definition : definitions) {
+      assertThat(definition.type()).extracting("collectPeriod").isEqualTo(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeInterval.of(
+              60, java.util.concurrent.TimeUnit.SECONDS));
+      assertThat(definition.type()).extracting("flushRate").isEqualTo(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeInterval.of(
+              1, java.util.concurrent.TimeUnit.SECONDS));
+      var ticker = new StubTicker(0, 1);
+      var ratio = definition.type().create(ticker);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      ticker.advanceTime(999, java.util.concurrent.TimeUnit.MILLISECONDS);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      assertThat(ratio.getRatio()).isZero();
+      ticker.advanceTime(1, java.util.concurrent.TimeUnit.MILLISECONDS);
+      for (int i = 0; i < 256; i++) {
+        ratio.record(1, 4);
+      }
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      ticker.advanceTime(58, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      // Reads rotate the two overlapping sixty-second buckets without recording new attempts.
+      ticker.advanceTime(1, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isEqualTo(25.0);
+      ticker.advanceTime(60, java.util.concurrent.TimeUnit.SECONDS);
+      assertThat(ratio.getRatio()).isZero();
+    }
+  }
+
+  /** A fresh holder has no native share and a native choice never enters decline frequencies. */
+  @Test
+  public void ruleNativeHasIndependentCounterAndNoDeclineShape() {
+    var metrics = new GremlinTranslationMetrics((MetricsRegistry) null);
+    assertThat(metrics.ruleNativeShare()).isZero();
+    metrics.recordRuleNative();
+    assertThat(metrics.getRuleNative()).isEqualTo(1);
+    assertThat(metrics.ruleNativeShare()).isEqualTo(1);
+    assertThat(metrics.getSuccesses()).isZero();
+    assertThat(metrics.getDeclines()).isZero();
+    assertThat(metrics.getErrors()).isZero();
+    assertThat(metrics.topDeclinedShapes(10)).isEmpty();
   }
 }

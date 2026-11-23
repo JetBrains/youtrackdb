@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.benchmarks.ldbc;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversal;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,7 @@ import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.BenchmarkParams;
 
 /**
  * Gremlin translator benchmarks over {@link GremlinTraversalShapes} on the LDBC schema.
@@ -53,7 +56,11 @@ import org.openjdk.jmh.annotations.Warmup;
  * {@code jmh-compare.py}, pass {@code --gremlin-arms both} to include off-arm rows in the markdown
  * comment.
  *
- * <h2>Two benchmark groups, read differently</h2>
+ * <h2>Routing groups, read differently</h2>
+ *
+ * <p>Proven plain shapes run native on both arms. Equality index starts use a first-call proof
+ * cached by shape and metadata generation. The ordered-page witness keeps MATCH when enabled.
+ * Translator-enabled permits translation. It does not force plain shapes into MATCH.
  *
  * <p><b>Translating shapes</b> — in CI, head-vs-base delta is MATCH throughput. In the optional
  * on/off A/B, delta is MATCH vs native on one commit.
@@ -96,6 +103,11 @@ import org.openjdk.jmh.annotations.Warmup;
 })
 public class LdbcGremlinTranslatorBenchmark {
 
+  /** JMH supplies a fully qualified benchmark name. Only RID methods need RID trial checks. */
+  static boolean requiresRidPreparation(String benchmarkName) {
+    return benchmarkName.substring(benchmarkName.lastIndexOf('.') + 1).startsWith("gremlin_rid");
+  }
+
   /**
    * Per-arm trial state: the kill-switch position, a RID pool for the by-id shape, the person and
    * message id pools the walk shapes rotate through, and a Gremlin-only IC2/IC9
@@ -122,7 +134,7 @@ public class LdbcGremlinTranslatorBenchmark {
     private static final int POOL_SIZE = 64;
 
     private long[] personIds;
-    private Object[] personRids;
+    Object[] personRids;
     private long[] messageIds;
     private String[] placeNames;
     /**
@@ -136,6 +148,62 @@ public class LdbcGremlinTranslatorBenchmark {
     private Date[] ic2MaxDates;
     private boolean flagBeforeTrial;
 
+    List<GremlinTraversalShapes.RidInput> ridKnows;
+    List<GremlinTraversalShapes.RidInput> ridWork;
+
+    // Installed only during trial checks. Timed invocations do not inspect plans.
+    java.util.function.Consumer<GremlinTraversalShapes.RidInvocation> ridObserver;
+
+    /** Bounded candidate probes, global rarity counts and native comparisons are trial-only. */
+    void buildRidFeeds(LdbcBenchmarkState state) {
+      var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED;
+      boolean before = flag.getValueAsBoolean();
+      ridKnows = new ArrayList<>();
+      ridWork = new ArrayList<>();
+      try {
+        flag.setValue(false);
+        state.traversal.executeInTx(t -> {
+          var first = t.V().hasLabel("Person").values("firstName").groupCount().next();
+          var candidates = new java.util.LinkedHashSet<Object>(List.of(personRids));
+          candidates.addAll(t.V().hasLabel("Person").order()
+              .by(com.jetbrains.youtrackdb.api.gremlin.__.out("KNOWS").count(),
+                  org.apache.tinkerpop.gremlin.process.traversal.Order.desc)
+              .by("id").limit(256).id().toList());
+          for (var rid : candidates) {
+            var friends = t.V(rid).out("KNOWS").hasLabel("Person").toList();
+            var names =
+                friends.stream().filter(v -> first.getOrDefault(v.value("firstName"), 0L) <= 10)
+                    .toList();
+            if (ridKnows.size() < POOL_SIZE && friends.size() > 1 && !names.isEmpty()) {
+              String f = names.getFirst().value("firstName");
+              long fm = friends.stream().filter(v -> f.equals(v.value("firstName"))).count();
+              if (fm < friends.size()) {
+                ridKnows.add(new GremlinTraversalShapes.RidInput(rid, f, null));
+                System.out.printf("RID KNOWS degree=%d firstNameMatches=%d%n", friends.size(), fm);
+              }
+            }
+            if (ridWork.size() < POOL_SIZE) {
+              var years = t.V(rid).outE("WORK_AT").<Integer>values("workFrom").toList();
+              if (!years.isEmpty()) {
+                Integer year = years.getFirst();
+                ridWork.add(new GremlinTraversalShapes.RidInput(rid, null, year));
+                System.out.printf("RID WORK_AT degree=%d matches=%d (low-degree case)%n",
+                    years.size(), years.stream().filter(year::equals).count());
+              }
+            }
+          }
+        });
+        System.out.printf("RID feed sizes: KNOWS=%d WORK_AT=%d%n",
+            ridKnows.size(), ridWork.size());
+        GremlinTraversalShapes.checkRidShapes(state.traversal, ridKnows, false, false);
+        GremlinTraversalShapes.checkRidShapes(state.traversal, ridWork, true, false);
+        GremlinTraversalShapes.checkRidBenchmarks(state.traversal, this,
+            new LdbcGremlinTranslatorBenchmark());
+      } finally {
+        flag.setValue(before);
+      }
+    }
+
     /**
      * Resolves the id and RID pools and proves the arm is really installed.
      *
@@ -145,7 +213,11 @@ public class LdbcGremlinTranslatorBenchmark {
      * suspiciously fast numbers on the first Hetzner run.
      */
     @Setup(Level.Trial)
-    public void setUp(LdbcBenchmarkState state) {
+    public void setUp(LdbcBenchmarkState state, BenchmarkParams params) {
+      setUp(state, requiresRidPreparation(params.getBenchmark()));
+    }
+
+    void setUp(LdbcBenchmarkState state, boolean prepareRid) {
       flagBeforeTrial =
           GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(translatorEnabled);
@@ -216,6 +288,9 @@ public class LdbcGremlinTranslatorBenchmark {
       buildIc2DatePool(state);
 
       checkArmInstalled(state);
+      if (prepareRid) {
+        buildRidFeeds(state);
+      }
     }
 
     /**
@@ -304,12 +379,12 @@ public class LdbcGremlinTranslatorBenchmark {
      */
     private void checkArmInstalled(LdbcBenchmarkState state) {
       state.traversal.executeInTx(t -> {
-        var translating = GremlinTraversalShapes.knowsFirstNames(t, personIds[0]).asAdmin();
+        var translating = GremlinTraversalShapes.knowsOrderedPage(t, personIds[0]).asAdmin();
         translating.applyStrategies();
         if (translatorEnabled) {
-          GremlinTraversalShapes.requireTranslated("knowsFirstNames", translating);
+          GremlinTraversalShapes.requireTranslated("knowsOrderedPage", translating);
         } else {
-          GremlinTraversalShapes.requireNotTranslated("knowsFirstNames", translating);
+          GremlinTraversalShapes.requireNotTranslated("knowsOrderedPage", translating);
         }
 
         // The anti-join is the highest decline-risk translating shape in this class: its edge-
@@ -336,6 +411,10 @@ public class LdbcGremlinTranslatorBenchmark {
     @TearDown(Level.Trial)
     public void restoreFlag() {
       GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(flagBeforeTrial);
+    }
+
+    long[] bulkingIds(GremlinTraversalShapes.BulkingForm form) {
+      return form == GremlinTraversalShapes.BulkingForm.ONE_ROW ? messageIds : personIds;
     }
 
     long personId(long idx) {
@@ -373,6 +452,207 @@ public class LdbcGremlinTranslatorBenchmark {
     }
   }
 
+  /** Each G6 benchmark validates only its own fixed form and parameter feed before timing. */
+  @State(Scope.Benchmark)
+  public abstract static class BulkingParameters {
+
+    final GremlinTraversalShapes.BulkingForm form;
+    final boolean crossLabel;
+    private long[] ids;
+
+    BulkingParameters(GremlinTraversalShapes.BulkingForm form) {
+      this(form, false);
+    }
+
+    BulkingParameters(GremlinTraversalShapes.BulkingForm form, boolean crossLabel) {
+      this.form = form;
+      this.crossLabel = crossLabel;
+    }
+
+    @Setup(Level.Trial)
+    public void setUp(LdbcBenchmarkState state, TranslatorArm arm) {
+      ids = arm.bulkingIds(form);
+      if (ids == null || ids.length == 0) {
+        throw new IllegalStateException("G6 " + form + ": empty parameter feed");
+      }
+      var flag = GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.getValueAsBoolean();
+      try {
+        // Check translation even for a native timed arm, then restore its installed flag.
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(true);
+        state.traversal.executeInTx(t -> {
+          var nativeSource = t.withoutStrategies(GremlinToMatchStrategy.class);
+          for (long id : Arrays.stream(ids).distinct().toArray()) {
+            GremlinTraversalShapes.checkBulkingForm(form, id,
+                form.traversal(t, id, crossLabel).asAdmin(),
+                form.traversal(nativeSource, id, crossLabel).asAdmin(), crossLabel);
+          }
+        });
+      } finally {
+        GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED.setValue(flag);
+      }
+    }
+
+    long id(long index) {
+      return ids[(int) (index % ids.length)];
+    }
+
+    List<Map<Object, Object>> run(LdbcBenchmarkState state) {
+      var id = id(state.nextIndex());
+      return state.traversal.computeInTx(t -> form.traversal(t, id, crossLabel).toList());
+    }
+  }
+
+  // Separate states isolate preflight failures and keep translatorEnabled as the only JMH param.
+  @State(Scope.Benchmark)
+  public static class BulkingDuplicateParameters extends BulkingParameters {
+
+    public BulkingDuplicateParameters() {
+      super(GremlinTraversalShapes.BulkingForm.DUPLICATE);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingOneRowParameters extends BulkingParameters {
+
+    public BulkingOneRowParameters() {
+      super(GremlinTraversalShapes.BulkingForm.ONE_ROW);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingUniqueParameters extends BulkingParameters {
+
+    public BulkingUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.UNIQUE);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingMostlyUniqueParameters extends BulkingParameters {
+
+    public BulkingMostlyUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.MOSTLY_UNIQUE);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereDuplicateParameters extends BulkingParameters {
+
+    public BulkingWhereDuplicateParameters() {
+      super(GremlinTraversalShapes.BulkingForm.DUPLICATE, true);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereOneRowParameters extends BulkingParameters {
+
+    public BulkingWhereOneRowParameters() {
+      super(GremlinTraversalShapes.BulkingForm.ONE_ROW, true);
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class BulkingWhereUniqueParameters extends BulkingParameters {
+
+    public BulkingWhereUniqueParameters() {
+      super(GremlinTraversalShapes.BulkingForm.UNIQUE, true);
+    }
+  }
+
+  /** LDBC: none. Duplicate friends-of-friends, excluding the labelled root. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereDuplicate(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereDuplicateParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. One message-author-location row with a cross-label predicate. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereOneRow(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereOneRowParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Unique friend messages with a cross-label predicate. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingWhereUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingWhereUniqueParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Duplicate two-hop KNOWS endpoints before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingDuplicate(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingDuplicateParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. One message-author-location row before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingOneRow(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingOneRowParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Unique friend-message endpoints before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingUniqueParameters parameters) {
+    return parameters.run(state);
+  }
+
+  /** LDBC: none. Mostly unique liked-message authors before valueMap. */
+  @Benchmark
+  public List<Map<Object, Object>> gremlin_bulkingMostlyUnique(
+      LdbcBenchmarkState state, TranslatorArm arm, BulkingMostlyUniqueParameters parameters) {
+    return parameters.run(state);
+  }
+
+  private List<?> ridWorkload(LdbcBenchmarkState state, TranslatorArm arm,
+      GremlinTraversalShapes.RidShape shape) {
+    long index = state.nextIndex();
+    var feed = shape == GremlinTraversalShapes.RidShape.WORK_FROM ? arm.ridWork : arm.ridKnows;
+    var input = feed.get((int) (index % feed.size()));
+    return state.traversal.computeInTx(t -> {
+      var traversal = shape.traversal(t, input, shape.hasId());
+      if (arm.ridObserver != null) {
+        arm.ridObserver.accept(new GremlinTraversalShapes.RidInvocation(
+            shape, input, shape.hasId(), traversal.asAdmin()));
+      }
+      return traversal.toList();
+    });
+  }
+
+  /** LDBC: none. Rotating persistent RID count workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    return ridWorkload(state, arm, GremlinTraversalShapes.RidShape.COUNT);
+  }
+
+  /** LDBC: none. Rotating persistent RID values workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridValues(LdbcBenchmarkState state, TranslatorArm arm) {
+    return ridWorkload(state, arm, GremlinTraversalShapes.RidShape.VALUES);
+  }
+
+  /** LDBC: none. Rotating persistent RID order workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridOrder(LdbcBenchmarkState state, TranslatorArm arm) {
+    return ridWorkload(state, arm, GremlinTraversalShapes.RidShape.ORDER);
+  }
+
+  /** LDBC: none. Rotating persistent RID first_name workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridFirstNameCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    return ridWorkload(state, arm, GremlinTraversalShapes.RidShape.FIRST_NAME);
+  }
+
+  /** LDBC: none. Rotating persistent RID work_from workload, fully materialized. */
+  @Benchmark
+  public List<?> gremlin_ridWorkFromCount(LdbcBenchmarkState state, TranslatorArm arm) {
+    return ridWorkload(state, arm, GremlinTraversalShapes.RidShape.WORK_FROM);
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Translating shapes. CI: head vs base with translator on. Optional A/B: MATCH vs native.
   // ---------------------------------------------------------------------------------------------
@@ -394,8 +674,8 @@ public class LdbcGremlinTranslatorBenchmark {
   }
 
   /**
-   * LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under {@code fold()}. A core that
-   * predates {@code FoldStep} declines the shape and both arms run natively.
+   * LDBC: none. {@link GremlinTraversalShapes#knowsFirstNames} under a neutral {@code fold()}.
+   * Proven plain access runs natively on both arms.
    */
   @Benchmark
   public List<String> gremlin_knowsFirstNamesFolded(LdbcBenchmarkState state, TranslatorArm arm) {

@@ -51,6 +51,57 @@ Each tier has single-threaded and multi-threaded concrete classes:
 
 Multi-threaded classes use `@Threads(Threads.MAX)` (one thread per available processor).
 
+## Persistent-start Gremlin workloads
+
+The `gremlin_rid*` methods start from a stored record identifier (RID).
+Each method rotates Person starts in a fixed order.
+Some methods use `g.V(rid)`.
+Others use `g.V().hasId(rid)`.
+Unit tests check both spellings against native Gremlin.
+
+The five methods measure one-hop link walks:
+- `gremlin_ridCount` counts Person neighbors reached through KNOWS.
+- `gremlin_ridValues` reads their firstName values.
+- `gremlin_ridOrder` returns them in id order without a row limit.
+- `gremlin_ridFirstNameCount` counts those with a selected firstName.
+- `gremlin_ridWorkFromCount` counts employers reached through WORK_AT for a selected workFrom year.
+
+Count and order use `g.V(rid)`.
+Values, first-name count and employment count use `g.V().hasId(rid)`.
+
+A translation entry stores a reusable plan template.
+Its cache key identifies the traversal structure and the runtime types of its values.
+A runtime RID plan reads the current RID from a parameter instead of storing a fixed RID.
+Template reuse means that calls with different RIDs use the same plan object.
+Each method reuses one entry as starts and values of the same type rotate.
+
+Only `gremlin_rid*` methods prepare RID feeds.
+A feed is the sequence of inputs used by a method.
+Setup checks native results, runtime RID plans and template reuse.
+It also checks the traversals selected by the benchmark methods.
+Result checks preserve duplicate rows and the full sequence for ordered results.
+Setup rejects feeds without distinct starts or distinct filter values.
+The first-name feed requires a selective name that occurs at most ten times in the data.
+Setup uses curated starts first.
+It adds candidates ranked by outgoing KNOWS edge count, with id as the tie-breaker.
+
+An arm is one value of the `translatorEnabled` parameter.
+The `translatorEnabled=false` arm runs native Gremlin without translation.
+The `true` arm runs the translator.
+
+New methods have no base score in the comparison job.
+A row marked new is not a speedup over the base revision.
+The two arms compare cached translation with native execution at the head revision.
+They do not compare cached and uncached translation.
+The job report is informational.
+It does not replace the required user decisions before merge.
+
+WORK_AT has low outgoing degree in the inspected data.
+Setup checks the loaded data rather than assuming fixed population counts.
+Dispatch `LDBC JMH Benchmark Compare` from `develop`.
+Set `queries=gremlin` and `gremlin_arms=both`.
+Enter the pull request number of the change under test.
+
 ## Execution Time
 
 Fork count and iteration length vary by tier to achieve stable results within a reasonable time budget. Parameter curation significantly reduces total runtime compared to the random-sampling approach.
@@ -70,6 +121,19 @@ Fork count and iteration length vary by tier to achieve stable results within a 
 A pull request head is its captured commit.
 A SHA is a full 40-character commit identifier.
 A Gremlin arm is one setting of the translator-enabled benchmark parameter.
+The enabled arm permits MATCH translation but does not force it. A supported traversal runs
+natively when its complete physical plan and boundary pass the plain-plan rule.
+Cache-eligible equality index starts can pass with a native-equivalent source proof.
+Each cold call proves access with its values and stores only the immutable routing decision
+in the translation entry. A later write in the same generation replaces the resident decision.
+Publication returns the resident decision after the write. Warm calls reuse that decision
+until another publication or metadata invalidation.
+Uncached index starts keep MATCH. Exact per-value reverses around at most one fold are neutral.
+Ordered pages remain a MATCH witness. Translator-enabled does not force plain shapes into MATCH.
+A filtered streaming scan or hop followed by a root slice keeps MATCH. The rule also keeps
+single-hop RID-start plans in MATCH. Translation telemetry separates rule-native choices
+from successful translations, capability declines, and errors. All four ratio metrics use
+the same attempts denominator.
 An attestation is a signed statement that identifies the trusted validator workflow.
 
 Dispatch `LDBC JMH Benchmark Compare` from `develop`.
@@ -306,10 +370,14 @@ build the uber-jar and launch Java separately. Run the commands below from the r
 ### Single command (recommended): `verify -P bench`
 
 The `bench` Maven profile binds `exec:exec` to the `verify` phase in `jmh-ldbc`, so
-packaging and launch happen automatically:
+packaging and launch happen automatically.
+The Maven launcher excludes the seven `gremlin_bulking` benchmarks by default.
+This exclusion also applies to benchmark lists and LDBC JMH compare runs.
+Clear it with `-Djmh.defaultExcludes=` to include these benchmarks.
+Direct `java -jar` runs do not use this Maven default.
 
 ```bash
-# Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
+# Run the default benchmarks (compiles core + jmh-ldbc, then launches JMH)
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
 
 # Run only single-threaded benchmarks (~22 min)
@@ -322,8 +390,12 @@ packaging and launch happen automatically:
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Djmh.args=".*is1_personProfile -f 1 -wi 1 -i 1 -r 1s"
 
-# List all available benchmarks without running them
+# List the default benchmarks without running them
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
+
+# Run the bulking benchmarks
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Djmh.args="gremlin_bulking" -Djmh.defaultExcludes=
 ```
 
 ### Two steps: `package -DskipTests`, then `java -jar`
