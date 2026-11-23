@@ -224,9 +224,8 @@ public final class LinkCollectionsBTreeManagerShared implements LinkCollectionsB
     // because link bag deletion is a whole-collection operation — no concurrent
     // readers can hold a snapshot of an already-dropped collection.
     //
-    // A single iterate-and-remove pass may miss entries when page modifications
-    // during removal invalidate the spliterator's LSN-based position tracking.
-    // Retry until no entries remain in the range.
+    // Each refill seeks past the last key even if removal deleted that key.
+    // Repeat the scan until a pass removes no entries.
     var lowerBound =
         new EdgeKey(linkBagId, Integer.MIN_VALUE, Long.MIN_VALUE, Long.MIN_VALUE);
     var upperBound =

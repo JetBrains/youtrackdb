@@ -34,6 +34,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   private static final int ENTRY_POINT_INDEX = 0;
   private static final int ROOT_INDEX = 1;
+  static final int CURSOR_BATCH_SIZE = 10;
 
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
@@ -369,9 +370,6 @@ public final class SharedLinkBagBTree extends StorageComponent {
    *   <li>Not visible → searches the snapshot index for the newest visible
    *       non-tombstone version, returns it or null</li>
    * </ul>
-   *
-   * <p>Package-private: also called from spliterator cache-fill methods
-   * (readKeysFromBucketsForward/Backward) for per-entry visibility resolution.
    *
    * @return visible entry as (EdgeKey, LinkBagValue), or null if no visible
    *     non-tombstone version exists
@@ -1768,72 +1766,43 @@ public final class SharedLinkBagBTree extends StorageComponent {
         atomicOperation);
   }
 
-  // Cursor fetch methods mutate spliterator state and cannot be safely retried,
-  // so we acquire the shared lock directly rather than using executeOptimisticStorageRead.
-  public void fetchNextCachePortionForward(SpliteratorForward iter,
-      AtomicOperation atomicOperation) {
-    final EdgeKey lastKey;
-    if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().getLast().first();
-    } else {
-      lastKey = null;
-    }
-
-    iter.clearCache();
-
+  // The caller supplies empty staging space for up to ten visible entries in physical key
+  // order. The cursor publishes the batch only after success. An empty result means the
+  // range or tree is exhausted, not just that one leaf has no visible entries.
+  // Resume strictly past the last physical key, including its version timestamp.
+  // Each scan page has its own pin (a hold that keeps the page resident).
+  // Unchecked load failures propagate unchanged. A checked IOException is the cause of
+  // a StorageException.
+  // Unbounded starts use firstItem or lastItem, whose failure handling is tracked by YTDB-1680.
+  void readCursorBatch(EdgeKey startKey, boolean startInclusive, EdgeKey endKey,
+      boolean endInclusive, boolean forward, EdgeKey lastKey, AtomicOperation atomicOperation,
+      List<RawPair<EdgeKey, LinkBagValue>> batch) {
     acquireSharedLock();
     try {
-      if (iter.getPageIndex() > -1) {
-        if (readKeysFromBucketsForward(iter, atomicOperation)) {
+      long pageIndex;
+      int itemIndex;
+      if (lastKey != null || startKey != null) {
+        var position = findBucket(lastKey != null ? lastKey : startKey, atomicOperation);
+        pageIndex = position.getPageIndex();
+        itemIndex = position.getItemIndex();
+        if (itemIndex < 0) {
+          // A missing key gives the insertion slot. Backward scans start just before it.
+          itemIndex = -itemIndex - (forward ? 1 : 2);
+        } else if (lastKey != null || !startInclusive) {
+          itemIndex += forward ? 1 : -1;
+        }
+      } else {
+        var boundary = forward ? firstItem(atomicOperation) : lastItem(atomicOperation);
+        if (boundary.isEmpty()) {
           return;
         }
+        var position = boundary.get();
+        pageIndex = position.getPageIndex();
+        itemIndex = position.getItemIndex();
       }
 
-      // this can only happen if page LSN does not equal to stored LSN or index of
-      // current iterated page equals to -1
-      // so we only started iteration
-      if (iter.getDataCache().isEmpty()) {
-        // iteration just started
-        if (lastKey == null) {
-          if (iter.getFromKey() != null) {
-            final var searchResult =
-                findBucket(iter.getFromKey(), atomicOperation);
-            iter.setPageIndex((int) searchResult.getPageIndex());
-
-            if (searchResult.getItemIndex() >= 0) {
-              if (iter.isFromKeyInclusive()) {
-                iter.setItemIndex(searchResult.getItemIndex());
-              } else {
-                iter.setItemIndex(searchResult.getItemIndex() + 1);
-              }
-            } else {
-              iter.setItemIndex(-searchResult.getItemIndex() - 1);
-            }
-          } else {
-            final var bucketSearchResult = firstItem(atomicOperation);
-            if (bucketSearchResult.isPresent()) {
-              final var searchResult = bucketSearchResult.get();
-              iter.setPageIndex((int) searchResult.getPageIndex());
-              iter.setItemIndex(searchResult.getItemIndex());
-            } else {
-              return;
-            }
-          }
-
-        } else {
-          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-          if (bucketSearchResult.getItemIndex() >= 0) {
-            iter.setItemIndex(bucketSearchResult.getItemIndex() + 1);
-          } else {
-            iter.setItemIndex(-bucketSearchResult.getItemIndex() - 1);
-          }
-        }
-        iter.setLastLSN(null);
-        readKeysFromBucketsForward(iter, atomicOperation);
-      }
-    } catch (final IOException e) {
+      scanCursorLeaves(pageIndex, itemIndex, endKey, endInclusive, forward, atomicOperation, batch);
+    } catch (IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(), "Error during entity iteration"),
           e, storage.getName());
@@ -1842,224 +1811,44 @@ public final class SharedLinkBagBTree extends StorageComponent {
     }
   }
 
-  private boolean readKeysFromBucketsForward(
-      SpliteratorForward iter, AtomicOperation atomicOperation) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
-    try {
-      var bucket = new Bucket(cacheEntry);
-      if (iter.getLastLSN() == null
-          || (bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null)) {
-        while (true) {
-          var bucketSize = bucket.size();
-          if (iter.getItemIndex() >= bucketSize) {
-            iter.setPageIndex((int) bucket.getRightSibling());
-
-            if (iter.getPageIndex() < 0) {
-              return true;
-            }
-
-            iter.setItemIndex(0);
-            cacheEntry.close();
-
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
-            bucket = new Bucket(cacheEntry);
-
-            bucketSize = bucket.size();
-          }
-
-          iter.setLastLSN(bucket.getLsn());
-
-          for (;
-              iter.getItemIndex() < bucketSize && iter.getDataCache().size() < 10;
-              iter.incrementItemIndex()) {
-            @SuppressWarnings("ObjectAllocationInLoop")
-            var entry = bucket.getEntry(iter.getItemIndex(), serializerFactory);
-
-            if (iter.getToKey() != null) {
-              if (iter.isToKeyInclusive()) {
-                if (entry.getKey().compareTo(iter.getToKey()) > 0) {
-                  return true;
-                }
-              } else if (entry.getKey().compareTo(iter.getToKey()) >= 0) {
-                return true;
-              }
-            }
-
-            // SI visibility: resolve entry, skip invisible/tombstone.
-            // When atomicOperation is null (non-transactional read),
-            // skip visibility resolution and add entry directly.
-            // IMPORTANT: cache entries must use the ORIGINAL B-tree key
-            // (not the resolved snapshot key) to preserve correct iteration
-            // position tracking. fetchNextCachePortionForward uses
-            // dataCache.getLast().first() (the last key) to re-position
-            // the iterator after cache exhaustion — a snapshot key with a
-            // lower ts would cause re-reading the same entry forever.
-            if (atomicOperation != null) {
-              @SuppressWarnings("ObjectAllocationInLoop")
-              var visible =
-                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
-              if (visible != null) {
-                //noinspection ObjectAllocationInLoop
-                iter.getDataCache()
-                    .add(new RawPair<>(entry.getKey(), visible.second()));
-              }
-            } else {
-              //noinspection ObjectAllocationInLoop
-              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
-            }
-          }
-
-          if (iter.getDataCache().size() >= 10) {
-            return true;
-          }
-        }
-      }
-    } finally {
-      cacheEntry.close();
-    }
-
-    return false;
-  }
-
-  // See comment on fetchNextCachePortionForward for why acquireSharedLock is used directly.
-  public void fetchNextCachePortionBackward(SpliteratorBackward iter,
-      AtomicOperation atomicOperation) {
-    final EdgeKey lastKey;
-    if (iter.getDataCache().isEmpty()) {
-      lastKey = null;
-    } else {
-      lastKey = iter.getDataCache().getLast().first();
-    }
-
-    iter.clearCache();
-
-    acquireSharedLock();
-    try {
-      if (iter.getPageIndex() > -1) {
-        if (readKeysFromBucketsBackward(iter, atomicOperation)) {
-          return;
-        }
-      }
-
-      // this can only happen if page LSN does not equal to stored LSN or index of
-      // current iterated page equals to -1
-      // so we only started iteration
-      if (iter.getDataCache().isEmpty()) {
-        // iteration just started
-        if (lastKey == null) {
-          if (iter.getToKey() != null) {
-            final var searchResult = findBucket(iter.getToKey(), atomicOperation);
-            iter.setPageIndex((int) searchResult.getPageIndex());
-
-            if (searchResult.getItemIndex() >= 0) {
-              if (iter.isToKeyInclusive()) {
-                iter.setItemIndex(searchResult.getItemIndex());
-              } else {
-                iter.setItemIndex(searchResult.getItemIndex() - 1);
-              }
-            } else {
-              iter.setItemIndex(-searchResult.getItemIndex() - 2);
-            }
-          } else {
-            final var bucketSearchResult = lastItem(atomicOperation);
-            if (bucketSearchResult.isPresent()) {
-              final var searchResult = bucketSearchResult.get();
-              iter.setPageIndex((int) searchResult.getPageIndex());
-              iter.setItemIndex(searchResult.getItemIndex());
-            } else {
+  private void scanCursorLeaves(long pageIndex, int itemIndex, EdgeKey endKey,
+      boolean endInclusive, boolean forward, AtomicOperation atomicOperation,
+      List<RawPair<EdgeKey, LinkBagValue>> batch) throws IOException {
+    int step = forward ? 1 : -1;
+    while (pageIndex >= 0) {
+      try (var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        var bucket = new Bucket(cacheEntry);
+        int size = bucket.size();
+        int start = forward ? itemIndex : Math.min(itemIndex, size - 1);
+        for (int i = start; i >= 0 && i < size; i += step) {
+          var entry = bucket.getEntry(i, serializerFactory);
+          var key = entry.getKey();
+          if (endKey != null) {
+            int cmp = forward ? key.compareTo(endKey) : endKey.compareTo(key);
+            if (cmp > 0 || (cmp == 0 && !endInclusive)) {
               return;
             }
           }
 
-        } else {
-          final var bucketSearchResult = findBucket(lastKey, atomicOperation);
-
-          iter.setPageIndex((int) bucketSearchResult.getPageIndex());
-          if (bucketSearchResult.getItemIndex() >= 0) {
-            iter.setItemIndex(bucketSearchResult.getItemIndex() - 1);
-          } else {
-            iter.setPageIndex(-bucketSearchResult.getItemIndex() - 2);
+          // Use the resolved value but keep the physical key, even when an older
+          // version supplies the value. The next seek must skip this tree entry.
+          var value = entry.getValue();
+          if (atomicOperation != null) {
+            var visible = resolveVisibleEntry(key, value, atomicOperation);
+            if (visible == null) {
+              continue;
+            }
+            value = visible.second();
+          }
+          batch.add(new RawPair<>(key, value));
+          if (batch.size() == CURSOR_BATCH_SIZE) {
+            return;
           }
         }
-        iter.setLastLSN(null);
-        readKeysFromBucketsBackward(iter, atomicOperation);
+        pageIndex = forward ? bucket.getRightSibling() : bucket.getLeftSibling();
+        // Backward scans enter a sibling at its last slot, once its size is known.
+        itemIndex = forward ? 0 : Integer.MAX_VALUE;
       }
-    } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new StorageException(storage.getName(), "Error during entity iteration"),
-          e, storage.getName());
-    } finally {
-      releaseSharedLock();
     }
-  }
-
-  private boolean readKeysFromBucketsBackward(
-      SpliteratorBackward iter, AtomicOperation atomicOperation) throws IOException {
-    var cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
-    try {
-      var bucket = new Bucket(cacheEntry);
-      if (iter.getLastLSN() == null
-          || (bucket.getLsn().equals(iter.getLastLSN()) && atomicOperation == null)) {
-        while (true) {
-          if (iter.getItemIndex() < 0) {
-            iter.setPageIndex((int) bucket.getLeftSibling());
-
-            if (iter.getPageIndex() < 0) {
-              return true;
-            }
-
-            cacheEntry.close();
-
-            cacheEntry = loadPageForRead(atomicOperation, fileId, iter.getPageIndex());
-            bucket = new Bucket(cacheEntry);
-            final var bucketSize = bucket.size();
-            iter.setItemIndex(bucketSize - 1);
-          }
-
-          iter.setLastLSN(bucket.getLsn());
-
-          for (; iter.getItemIndex() >= 0 && iter.getDataCache().size() < 10;
-              iter.decItemIndex()) {
-            @SuppressWarnings("ObjectAllocationInLoop")
-            var entry = bucket.getEntry(iter.getItemIndex(), serializerFactory);
-
-            if (iter.getFromKey() != null) {
-              if (iter.isFromKeyInclusive()) {
-                if (entry.getKey().compareTo(iter.getFromKey()) < 0) {
-                  return true;
-                }
-              } else if (entry.getKey().compareTo(iter.getFromKey()) <= 0) {
-                return true;
-              }
-            }
-
-            // SI visibility: resolve entry, skip invisible/tombstone.
-            // See forward method comment for why we use the original
-            // B-tree key instead of the resolved snapshot key.
-            if (atomicOperation != null) {
-              @SuppressWarnings("ObjectAllocationInLoop")
-              var visible =
-                  resolveVisibleEntry(entry.getKey(), entry.getValue(), atomicOperation);
-              if (visible != null) {
-                //noinspection ObjectAllocationInLoop
-                iter.getDataCache()
-                    .add(new RawPair<>(entry.getKey(), visible.second()));
-              }
-            } else {
-              //noinspection ObjectAllocationInLoop
-              iter.getDataCache().add(new RawPair<>(entry.getKey(), entry.getValue()));
-            }
-          }
-
-          if (iter.getDataCache().size() >= 10) {
-            return true;
-          }
-        }
-      }
-    } finally {
-      cacheEntry.close();
-    }
-
-    return false;
   }
 }

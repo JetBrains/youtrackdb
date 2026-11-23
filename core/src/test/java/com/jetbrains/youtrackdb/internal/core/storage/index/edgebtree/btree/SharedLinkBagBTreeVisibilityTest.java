@@ -789,6 +789,10 @@ public class SharedLinkBagBTreeVisibilityTest {
       var entries = bTree.streamEntriesBetween(
           fromKey, true, toKey, true, true, atomicOperation).toList();
 
+      // The tenth visible entry supplies the continuation. Its tree timestamp
+      // must survive even though the value comes from the snapshot.
+      assertThat(entries.get(9).first().ts).isEqualTo(futureTs);
+
       // All 15 entries visible (12 directly, 3 via snapshot fallback).
       // Verify count, ascending order, AND correct value resolution:
       // snapshot-fallback entries (i=5,10,14) should carry counter=i
@@ -803,8 +807,9 @@ public class SharedLinkBagBTreeVisibilityTest {
 
   @Test
   public void testBackwardIteration_cacheRefillWithSnapshotFallback() throws Exception {
-    // Same as forward test but iterating backward to exercise the backward
-    // cache-fill path's key-preservation invariant.
+    // Both timestamps lead to the same backward predecessor because the tree holds one
+    // physical key per edge and the snapshot timestamp is lower. The forward test
+    // distinguishes the seek anchors. This test checks the emitted key and value.
     final long futureTs = INVISIBLE_FUTURE_TS;
     final long linkBagId = 2900L;
 
@@ -814,7 +819,7 @@ public class SharedLinkBagBTreeVisibilityTest {
       for (int i = 1; i <= 15; i++) {
         int collection = i * 10;
         long position = i * 100L;
-        if (i == 5 || i == 10 || i == 14) {
+        if (i == 6 || i == 10 || i == 14) {
           bTree.put(atomicOperation,
               new EdgeKey(linkBagId, collection, position, futureTs),
               new LinkBagValue(i * 100, 0, 0, false));
@@ -836,6 +841,8 @@ public class SharedLinkBagBTreeVisibilityTest {
           linkBagId, Integer.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
       var entries = bTree.streamEntriesBetween(
           fromKey, true, toKey, true, false, atomicOperation).toList();
+
+      assertThat(entries.get(9).first().ts).isEqualTo(futureTs);
 
       // All 15 entries visible, in descending order with correct values
       var counters = entries.stream()
