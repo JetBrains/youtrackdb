@@ -409,7 +409,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
       var failure = new AtomicReference<Throwable>();
       var oldGeneration = new java.util.concurrent.atomic.AtomicLong(-1);
       var translation = new AtomicReference<GremlinToMatchTranslator.TranslationResult>();
-      var shapeKey = new AtomicReference<String>();
+      var shapeKey = new AtomicReference<GremlinShapeKey>();
       var returned = new AtomicReference<GremlinPlanCache.Entry<InternalExecutionPlan>>();
       var worker = new Thread(() -> {
         try (var reader = readerGraph()) {
@@ -1082,7 +1082,7 @@ public class RuntimeRidStartCacheIntegrationTest extends GraphBaseTest {
     cache.beforeUncachedPlanning = (input, context) -> runs.incrementAndGet();
     try {
       InternalExecutionPlan template = null;
-      String key = null;
+      GremlinShapeKey key = null;
       for (int route = 0; route < 3; route++) {
         var id = route == 0 ? a.id() : b.id();
         var hop = graph.traversal().V(id).out("crossKeyLink");

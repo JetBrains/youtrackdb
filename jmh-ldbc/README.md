@@ -121,6 +121,19 @@ Fork count and iteration length vary by tier to achieve stable results within a 
 A pull request head is its captured commit.
 A SHA is a full 40-character commit identifier.
 A Gremlin arm is one setting of the translator-enabled benchmark parameter.
+The enabled arm permits MATCH translation but does not force it. A supported traversal runs
+natively when its complete physical plan and boundary pass the plain-plan rule.
+Cache-eligible equality index starts can pass with a native-equivalent source proof.
+Each cold call proves access with its values and stores only the immutable routing decision
+in the translation entry. A later write in the same generation replaces the resident decision.
+Publication returns the resident decision after the write. Warm calls reuse that decision
+until another publication or metadata invalidation.
+Uncached index starts keep MATCH. Exact per-value reverses around at most one fold are neutral.
+Ordered pages remain a MATCH witness. Translator-enabled does not force plain shapes into MATCH.
+A filtered streaming scan or hop followed by a root slice keeps MATCH. The rule also keeps
+single-hop RID-start plans in MATCH. Translation telemetry separates rule-native choices
+from successful translations, capability declines, and errors. All four ratio metrics use
+the same attempts denominator.
 An attestation is a signed statement that identifies the trusted validator workflow.
 
 Dispatch `LDBC JMH Benchmark Compare` from `develop`.
@@ -357,10 +370,14 @@ build the uber-jar and launch Java separately. Run the commands below from the r
 ### Single command (recommended): `verify -P bench`
 
 The `bench` Maven profile binds `exec:exec` to the `verify` phase in `jmh-ldbc`, so
-packaging and launch happen automatically:
+packaging and launch happen automatically.
+The Maven launcher excludes the seven `gremlin_bulking` benchmarks by default.
+This exclusion also applies to benchmark lists and LDBC JMH compare runs.
+Clear it with `-Djmh.defaultExcludes=` to include these benchmarks.
+Direct `java -jar` runs do not use this Maven default.
 
 ```bash
-# Run all benchmarks (compiles core + jmh-ldbc, then launches JMH)
+# Run the default benchmarks (compiles core + jmh-ldbc, then launches JMH)
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests
 
 # Run only single-threaded benchmarks (~22 min)
@@ -373,8 +390,12 @@ packaging and launch happen automatically:
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
     -Djmh.args=".*is1_personProfile -f 1 -wi 1 -i 1 -r 1s"
 
-# List all available benchmarks without running them
+# List the default benchmarks without running them
 ./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests -Djmh.args="-l"
+
+# Run the bulking benchmarks
+./mvnw -pl jmh-ldbc -am verify -P bench -DskipTests \
+    -Djmh.args="gremlin_bulking" -Djmh.defaultExcludes=
 ```
 
 ### Two steps: `package -DskipTests`, then `java -jar`

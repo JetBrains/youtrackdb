@@ -53,6 +53,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTimeout;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -643,7 +644,8 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     if (info.distinct) {
-      result.chain(new DistinctExecutionStep(ctx, profilingEnabled));
+      result.chain(new DistinctExecutionStep(ctx, profilingEnabled,
+          info.matchDistinctSort && info.orderBy != null && info.limit != null));
     }
   }
 
@@ -2476,19 +2478,9 @@ public class SelectExecutionPlanner {
    * The clauses remain AST nodes because the plan is cacheable.
    * A parameterized bound must be read on every execution.
    *
-   * <p>The invalidating-operator list is intentionally incomplete.
-   * EXPAND and UNWIND multiply rows before sorting, so they remain unbounded.
-   * DISTINCT also invalidates the bound.
-   * Its step follows projection and sorting on the DISTINCT path.
-   * Duplicate rows can fill the bounded heap.
-   * DISTINCT can then return fewer rows than LIMIT requests.
-   * For {@code a, a, b, c}, the query {@code SELECT DISTINCT name FROM Person ORDER BY name LIMIT 2}
-   * returns {@code [a]} instead of {@code [a, b]}.
-   *
-   * <p>That defect predates per-execution bound resolution.
-   * The old code computed the same {@code skipSize + limitSize} with the same exceptions.
-   * This change does not fix the defect.
-   * The list names it so readers do not mistake the list for a safety guarantee.
+   * <p>EXPAND and UNWIND use an unbounded sort. For custom MATCH DISTINCT, a larger
+   * slice can use a distinct buffer only if the sort input already has the final visible
+   * shape. Otherwise the sort leaves projection and deduplication to the downstream steps.
    *
    * <p>For vertex targets, an {@code out_<alias>} LINKBAG is flagged only when the target has no
    * same-named scalar property. This preserves scalar ORDER BY semantics while allowing edge-label
@@ -2503,17 +2495,7 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var session = ctx.getDatabaseSession();
-    var skipSize = info.skip == null ? 0 : info.skip.getValue(ctx);
-    if (skipSize < 0) {
-      throw new CommandExecutionException(session, "Cannot execute a query with a negative SKIP");
-    }
-    // EXPAND and UNWIND multiply rows after the sort, so SKIP + LIMIT no longer bounds what
-    // the sort has to keep. Withholding the LIMIT clause keeps the step unbounded.
-    //
-    // DISTINCT belongs in this condition too and is deliberately absent: it runs after the sort
-    // and reduces rows, so a bounded heap can hand it duplicates and return fewer rows than the
-    // LIMIT. That is a pre-existing lost-row defect filed on its own, not a consequence of the
-    // bound being resolved per execution. See the method Javadoc.
+    validateSkip(info.skip, ctx);
     var boundedByLimit = !info.expand && info.unwind == null;
 
     if (!info.orderApplied
@@ -2542,6 +2524,21 @@ public class SelectExecutionPlanner {
                   });
         }
       }
+      var sliceMode = OrderByStep.SliceMode.ROWS;
+      if (info.matchDistinctSort && boundedByLimit && info.groupBy == null && info.limit != null) {
+        // A rebuild needs a proof for every visible alias. Keys evaluated by the comparator
+        // need the ordinary sort's comparison schedule, not the tree's insertion order.
+        // This choice does not check that the comparator can order all values in a sort field.
+        // If it cannot, LIMIT or SKIP may return different rows than the same portion of the full
+        // result. The query author must use comparable values in each sort field.
+        var materialized = info.projectionsCalculated
+            && info.aggregateProjection == null
+            && (info.projectionAfterOrderBy == null || !info.matchScalarColumns.isEmpty())
+            && info.orderBy.getItems().stream()
+                .noneMatch(item -> item.needsStoredKey() || item.getCollate() != null);
+        sliceMode = materialized ? OrderByStep.SliceMode.MATCH_DISTINCT_MATERIALIZED
+            : OrderByStep.SliceMode.MATCH_DISTINCT_DEFERRED;
+      }
       plan.chain(
           new OrderByStep(
               info.orderBy,
@@ -2551,7 +2548,8 @@ public class SelectExecutionPlanner {
               info.indexOrderedUpstream,
               ctx,
               info.timeout != null ? info.timeout.getVal().longValue() : -1,
-              profilingEnabled));
+              profilingEnabled,
+              sliceMode, info.matchScalarColumns));
       if (info.projectionAfterOrderBy != null) {
         plan.chain(
             new ProjectionCalculationStep(info.projectionAfterOrderBy, ctx, profilingEnabled));
@@ -2562,6 +2560,13 @@ public class SelectExecutionPlanner {
     // columns; placement before DISTINCT is required (Path B chains this then projections then
     // Distinct).
     stripOrderByMintAliases(plan, info, ctx, profilingEnabled);
+  }
+
+  public static void validateSkip(@Nullable SQLSkip skip, CommandContext ctx) {
+    if (skip != null && skip.getValue(ctx) < 0) {
+      throw new CommandExecutionException(ctx.getDatabaseSession(),
+          "Cannot execute a query with a negative SKIP");
+    }
   }
 
   /**

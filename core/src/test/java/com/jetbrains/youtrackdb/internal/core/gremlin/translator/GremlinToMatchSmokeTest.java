@@ -54,6 +54,10 @@ import org.junit.Test;
  */
 public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /**
    * A recognized {@code g.V()} must end up with exactly one {@link YTDBMatchPlanStep} after
    * {@code applyStrategies()} and return every vertex in the graph. Counting the boundary step

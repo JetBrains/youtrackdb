@@ -10,6 +10,9 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBetweenCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
@@ -29,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import org.junit.Test;
@@ -867,6 +871,28 @@ public class MatchWhereBuilderTest {
         + "selectivity estimator accepts", single instanceof SQLInCondition);
     assertFalse(single instanceof SQLBinaryCondition);
     assertEquals("name.type() IN [\"STRING\"]", render(single));
+  }
+
+  /** Guard evaluation and plan copies share immutable literal values, never a per-row list. */
+  @Test
+  public void typeIn_reusesImmutableValuesAcrossRowsAndCopies() {
+    var names = new ArrayList<>(List.of("BYTE", "SHORT", "INTEGER", "LONG", "FLOAT", "DOUBLE",
+        "DECIMAL"));
+    var condition = (SQLInCondition) b.typeIn("score", names);
+    var ctx = new BasicCommandContext();
+    var row = new ResultInternal(null);
+    var values = condition.evaluateRight(row, ctx);
+    names.clear();
+    assertEquals(7, ((List<?>) values).size());
+    assertSame(values, condition.evaluateRight(row, ctx));
+    assertSame(values, condition.evaluateRight((Identifiable) null, ctx));
+    assertSame(values, condition.copy().evaluateRight(row, ctx));
+    assertThrows(UnsupportedOperationException.class, () -> ((List<?>) values).clear());
+    assertEquals(render(condition), render(condition.copy()));
+    // The AST remains available for planning and diagnostics without interpreting it per row.
+    var collection = new TypeNamesCollection(List.of("INTEGER"));
+    assertEquals(1, collection.getExpressions().size());
+    assertSame(collection.execute(row, ctx), collection.execute((Identifiable) null, ctx));
   }
 
   /** An empty or null type list is a programming error rather than a match-nothing guard, so it

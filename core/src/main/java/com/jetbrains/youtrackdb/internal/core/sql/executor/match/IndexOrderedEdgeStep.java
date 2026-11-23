@@ -493,7 +493,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    long indexSize = index.size(session);
+    long indexSize = index.estimateEntryCount(session);
+    if (indexSize <= 0) {
+      return terminalLoad(linkBag, upstreamRow, ctx);
+    }
     var histogram = index.getHistogram(session);
     long estimate = targetIndexDescriptor == null ? -1 : targetIndexDescriptor.estimateHits(ctx);
     if (!edgeTraversal && estimate >= 0
@@ -505,15 +508,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     if (limitClause == null) {
       return terminalLoad(linkBag, upstreamRow, ctx);
     }
-    if (shouldUseIndexScan(linkBag.size(), indexSize, histogram)) {
-      // Index scan: results are pre-sorted. Signal OrderByStep to pass through.
-      // Build RidSet only now — it is needed as the bitmap filter for the
-      // index-value scan. The fallback paths below iterate the LinkBag
-      // directly, so they skip the RidSet allocation.
-      chosenRuntimePath = RuntimePath.INDEX_SCAN;
-      signalIndexOrderedOutput(ctx);
-      return indexScanFiltered(ridSetFromLinkBag(linkBag), linkBag, ctx, upstreamRow);
-    } else if (downstreamEdgeCount > 0 && rowTarget > 0) {
+    if (shouldUseIndexScan(linkBag.size(), session)) {
+      var ridSet = distinctRidsFromLinkBag(linkBag);
+      if (ridSet != null) {
+        chosenRuntimePath = RuntimePath.INDEX_SCAN;
+        signalIndexOrderedOutput(ctx);
+        return indexScanFiltered(ridSet, linkBag, ctx, upstreamRow);
+      }
+    }
+    if (downstreamEdgeCount > 0 && rowTarget > 0) {
       // Low density but downstream edges + LIMIT: load all, sort locally,
       // and mark PRE_SORTED=true. This enables LIMIT to short-circuit the
       // pipeline — only K records traverse expensive downstream edges
@@ -828,15 +831,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   /**
-   * Builds a RidSet bitmap from the source LinkBag. Used only on the
-   * index-scan branch, where the bitmap is required as a membership filter
-   * for {@link RidFilteredIndexValuesStep}. The fallback branches iterate
-   * the LinkBag directly to avoid this allocation.
+   * Builds the membership filter for the singleton scan. Fall back to walking the LinkBag
+   * if parallel edges would make the bitmap drop repeated vertex bindings.
    */
-  private RidSet ridSetFromLinkBag(LinkBag linkBag) {
+  @Nullable private RidSet distinctRidsFromLinkBag(LinkBag linkBag) {
     var ridSet = new RidSet();
     for (RidPair pair : linkBag) {
-      ridSet.add(ridFromPair(pair));
+      if (!ridSet.add(ridFromPair(pair))) {
+        return null;
+      }
     }
     return ridSet;
   }
@@ -1280,13 +1283,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     int maxSources =
         GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SOURCES.getValueAsInteger();
-    if (sourceCount > maxSources) {
+    long indexSize = sourceCount > maxSources ? -1 : index.estimateEntryCount(session);
+    if (indexSize <= 0) {
       chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnsorted(sourceMap, ctx);
     }
 
-    long indexSize = index.size(session);
     var histogram = index.getHistogram(session);
     var sourceSizes = new HashMap<RID, Integer>();
     long equalityEstimate = targetIndexDescriptor == null ? -1
@@ -1550,10 +1553,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
     // If source or union overflowed, or cost model rejects, stream from
     // source LinkBags without sorting. OrderByStep handles sort downstream.
-    long indexSize = index.size(session);
-    var histogram = index.getHistogram(session);
     if (sourceOverflow || ridSetOverflow || unionRidSet.isEmpty()
-        || !shouldUseIndexScan(unionRidSet.size(), indexSize, histogram)) {
+        || !shouldUseIndexScan(unionRidSet.size(), session)) {
       chosenRuntimePath = RuntimePath.LOAD_UNSORTED_MULTI;
       ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return loadFromSourcesUnbound(sourceRids, ctx);
@@ -2009,17 +2010,18 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /**
    * Single-source: compare RidSet-filtered index scan vs load-all-and-sort.
-   * Callers should cache indexSize/histogram to avoid repeated index lookups.
    */
-  private boolean shouldUseIndexScan(
-      int linkBagSize, long indexSize,
-      @Nullable EquiDepthHistogram histogram) {
+  private boolean shouldUseIndexScan(int linkBagSize, DatabaseSessionEmbedded session) {
+    long indexSize = index.estimateEntryCount(session);
+    if (indexSize <= 0) {
+      return false;
+    }
     if (IndexOrderedCostModel.entriesWorthTheLoadAlternative(linkBagSize) <= 0) {
       // A cached plan may outlive a configuration change. Reach the pre-cursor fallback below.
       return true;
     }
     var costs = IndexOrderedCostModel.computeCosts(
-        linkBagSize, indexSize, rowTarget, histogram, orderAsc,
+        linkBagSize, indexSize, rowTarget, index.getHistogram(session), orderAsc,
         downstreamEdgeCount);
     if (costs == null) {
       return false;
@@ -2202,10 +2204,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * mean far above the typical source; the mean then extrapolates past the index size and the
    * cap would report density {@code 1.0}. Median keeps one hub from rewriting the density.
    *
-   * <p>The result is still CAPPED AT THE INDEX SIZE. No more distinct targets can exist than
-   * the index holds entries. When the cap fires, {@code capped} is true and
-   * {@link IndexOrderedCostModel#pickMultiSourceStrategy} loads from LinkBags rather than
-   * trusting density {@code 1.0} for {@code GLOBAL_SCAN}.
+   * <p>The index estimate caps the extrapolation for costing only. With a positive row
+   * target, the cost model uses the load path rather than trusting the resulting density
+   * when the cap fires.
    */
   private TotalEdgesEstimate estimateTotalEdges(
       Map<RID, ?> sourceMap, Map<RID, Integer> sourceSizes,

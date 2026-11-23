@@ -219,7 +219,7 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
     var a = new RecordId(25, 7);
     var b = new RecordId(25, 8);
     for (boolean hasId : List.of(false, true)) {
-      var keys = new ArrayList<String>();
+      var keys = new ArrayList<GremlinShapeKey>();
       for (var id : List.of(a, b, a.toString())) {
         var query = (hasId ? graph.traversal().V().hasId(id) : graph.traversal().V(id))
             .hasLabel("KeyPerson").out("keyLink").asAdmin();
@@ -228,8 +228,10 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
         var runtime = GremlinStepWalker.extractShape(query, session, false, nulls, true, decision);
         assertThat(runtime.bindings()).isEqualTo(Map.of(0, id.equals(b) ? b : a));
         keys.add(runtime.key());
-        assertThat(runtime.key()).contains("3:rrs").doesNotContain(a.toString(), b.toString());
-        assertThat(GremlinStepWalker.extractShape(query, session, false, nulls, true, null).key())
+        assertThat(runtime.key().toString()).contains("3:rrs").doesNotContain(a.toString(),
+            b.toString());
+        assertThat(GremlinStepWalker.extractShape(query, session, false, nulls, true,
+            (RuntimeRidStartEligibility.EligibleStart) null).key())
             .isNotEqualTo(runtime.key());
         assertThat(
             GremlinStepWalker.extractShape(query, session, false, nulls, false, decision).key())
@@ -527,7 +529,7 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
     graph.addVertex(T.label, "PredicateKeyTarget");
     graph.tx().commit();
     var session = db(graph);
-    String first = null;
+    GremlinShapeKey first = null;
     for (int arm = 0; arm < 8; arm++) {
       var id = new RecordId(25, arm == 1 ? 8 : 7);
       var start = graph.traversal().V(id);

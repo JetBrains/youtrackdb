@@ -48,6 +48,11 @@ public class FilterStep extends AbstractExecutionStep {
     this.timeoutMillis = timeoutMillis;
   }
 
+  /** Read-only planning evidence. Callers must not mutate the returned AST. */
+  public SQLWhereClause getWhereClause() {
+    return whereClause;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
@@ -67,8 +72,7 @@ public class FilterStep extends AbstractExecutionStep {
     return resultSet;
   }
 
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (whereClause.matchesFilters(result, ctx)) {
       return result;
     }
