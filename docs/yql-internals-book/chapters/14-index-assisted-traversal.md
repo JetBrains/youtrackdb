@@ -553,6 +553,31 @@ traversal's cached prefilter for the terminal LinkBag load. The global OrderBySt
 sort and LIMIT, including when later MATCH edges reject rows. Several-source queries without
 LIMIT retain their ordinary planning gates.
 
+### Final candidate load for one source with LIMIT
+
+Phase 1 retains the ordinary equality and ordered attempts and their shared work account.
+Only when its dispatcher selects the final LinkBag load can phase 2 begin.
+It requires a positive LIMIT, completed ordered-attempt membership and an admitted
+plain MATCH target RID prefilter. An equality retry still runs when phase 1 selects it.
+Admission, including refusal, is resolved once per source bag in an execution.
+
+Phase 2 intersects the completed membership bitmap with the target RID prefilter.
+It does not walk the source edges again. The candidate superset stays within
+`QUERY_PREFILTER_MAX_RIDSET_SIZE`, counted in record IDs. Only duplicated edges need
+separate multiplicity counts. Refusal or overflow retains the ordinary final load.
+
+An empty superset reports `candidate-empty` and returns no rows without target loads.
+Otherwise `candidate-load` loads each candidate once and rechecks the full target filter
+and bound alias. It preserves parallel-edge rows. Downstream edges receive every row
+in local primary order. Otherwise the ordinary ORDER BY step owns sorting and LIMIT,
+including SKIP. No speculative prefix is emitted.
+
+The candidate-load price includes membership probes, record reads and sorting every link row.
+It is recorded as the phase-2 limit for the later candidate scan.
+The final candidate load is terminal and is never truncated.
+Without later edges, candidate records stream lazily into the ordinary ORDER BY heap.
+All decisions and observations belong to the execution copy, not a cached plan template.
+
 ### Bounded equality candidate reader
 
 `IndexOrderedEdgeStep.readEqualityCandidates` reads the target index descriptor with the

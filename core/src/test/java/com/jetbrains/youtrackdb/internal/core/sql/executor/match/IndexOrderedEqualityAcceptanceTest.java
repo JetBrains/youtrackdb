@@ -9,17 +9,23 @@ import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex;
 import com.jetbrains.youtrackdb.internal.core.db.record.ridbag.LinkBag;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.RidSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.Test;
@@ -28,6 +34,355 @@ import org.junit.experimental.categories.Category;
 /** Query-level equivalence and work bounds for indexed equality traversal. */
 @Category(SequentialTest.class)
 public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
+
+  /** Early and late clusters must reach phase 2, not merely return the correct LIMIT prefix. */
+  @Test
+  public void candidateLoadEarlyAndLateMatchesPlainWithinLoadPrice() {
+    seed();
+    for (var predicate : List.of("date < 180", "date >= 820")) {
+      session.execute("UPDATE Message SET tag = 'common'").close();
+      session.execute("UPDATE Message SET tag = 'medium' WHERE " + predicate).close();
+      analyzeCandidates();
+      for (var direction : List.of("ASC", "DESC")) {
+        candidateProbe(query(direction).replace("LIMIT 20", "LIMIT 200"), 180);
+      }
+    }
+  }
+
+  /** A disjoint admitted bitmap returns immediately without loading a target record. */
+  @Test
+  public void candidateEmptyReturnsWithoutRecordLoads() {
+    seed(" WHERE date >= 200");
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 180").close();
+    analyzeCandidates();
+    var result = candidateProbe(query("ASC"), 0);
+    assertThat(result.rids()).isEmpty();
+    assertThat(result.step().lastCandidateLoads()).isZero();
+  }
+
+  /** Multiplicity, RID ties, null placement and SKIP survive the reused membership bitmap. */
+  @Test
+  public void candidateLoadPreservesTiesNullsParallelEdgesAndSkip() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium', date = 7 WHERE date >= 820").close();
+    session.execute("UPDATE Message SET date = null WHERE tag = 'medium' LIMIT 20").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+        + " TO (SELECT FROM Message WHERE tag = 'medium')").close();
+    analyzeCandidates();
+    for (var direction : List.of("ASC", "DESC")) {
+      for (var nulls : List.of("FIRST", "LAST")) {
+        var sql = query(direction).replace("LIMIT 20", "SKIP 3 LIMIT 400")
+            .replace("m.date " + direction, "m.date " + direction + " NULLS " + nulls);
+        var result = candidateProbe(sql, 180);
+        assertThat(result.rids()).hasSize(357);
+        assertThat(result.step().executionTraversal().getPreFilterTotalProbed()).isEqualTo(1180);
+      }
+    }
+  }
+
+  /** The superset is not a full predicate result, and later edges must see beyond LIMIT. */
+  @Test
+  public void candidateLoadRechecksResidualFilterAndKeepsRowsForLaterEdges() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    session.execute("CREATE PROPERTY Message.keep BOOLEAN").close();
+    session.execute("UPDATE Message SET keep = true WHERE date >= 900").close();
+    session.execute("CREATE CLASS replyOf EXTENDS E").close();
+    session.execute("CREATE EDGE replyOf FROM (SELECT FROM Message WHERE date >= 995)"
+        + " TO (SELECT FROM Author)").close();
+    analyzeCandidates();
+    var filtered = query("ASC").replace("tag = :tag", "tag = :tag AND keep = true");
+    assertThat(candidateProbe(filtered.replace("LIMIT 20", "LIMIT 200"), 180).rids()).hasSize(100);
+    var sql = filtered.replace(" RETURN", ".out('replyOf'){as:z} RETURN")
+        .replace("LIMIT 20", "LIMIT 2");
+    assertThat(candidateProbe(sql, 180).rids()).hasSize(2);
+  }
+
+  /** An early ordering win keeps phase 1 and never resolves or builds the candidate superset. */
+  @Test
+  public void candidatePhaseDoesNotPreemptAnEarlyOrderingWin() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 180").close();
+    analyzeCandidates();
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
+      var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 1"), "medium",
+          IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+      assertThat(result.step().lastScanConsumedEntries()).isEqualTo(1);
+      assertThat(result.step().lastCandidateCount()).isEqualTo(-1);
+      assertThat(result.step().executionTraversal().getPreFilterAppliedCount()).isZero();
+    }
+  }
+
+  /** Refused admission is reused at final load, and a reset clears execution-only decisions. */
+  @Test
+  public void candidateAdmissionRefusalIsNotAccumulatedTwice() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001);
+        var selectivity = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_INDEX_LOOKUP_MAX_SELECTIVITY, 0.01);
+        var cap = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES, 0)) {
+      var result =
+          equivalent(query("ASC"), "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+      assertThat(result.step().lastCandidateCount()).isEqualTo(-1);
+      assertThat(result.step().executionTraversal().getPreFilterSkippedCount()).isEqualTo(1);
+      result.step().reset();
+      assertThat(result.step().executionTraversal().getPreFilterSkippedCount()).isZero();
+      assertThat(result.step().lastCandidateCount()).isEqualTo(-1);
+    }
+  }
+
+  /** Polymorphic target membership admits subclasses but never unrelated linked records. */
+  @Test
+  public void candidateLoadIncludesSubclassAndRejectsOtherClasses() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    session.execute("CREATE CLASS Reply EXTENDS Message").close();
+    session.execute("CREATE CLASS Other EXTENDS V").close();
+    session.execute("CREATE VERTEX Reply SET tag = 'medium', date = 9999").close();
+    session.execute("CREATE VERTEX Other").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author) TO (SELECT FROM Reply)").close();
+    session.execute("CREATE EDGE wrote FROM (SELECT FROM Author) TO (SELECT FROM Other)").close();
+    analyzeCandidates();
+    assertThat(candidateProbe(query("DESC").replace("LIMIT 20", "LIMIT 200"), 181).rids())
+        .hasSize(181);
+  }
+
+  /** A cap refusal leaves the final load intact and records admission only once. */
+  @Test
+  public void candidateRidCapRefusalRetainsPlainLoad() {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001);
+        var equalityCap = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES, 0);
+        var ridCap = GlobalConfigurationScope.set(
+            GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE, 100)) {
+      var result =
+          equivalent(query("ASC"), "medium", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+      assertThat(result.step().lastCandidateCount()).isEqualTo(-1);
+      assertThat(result.step().executionTraversal().getPreFilterSkippedCount()).isEqualTo(1);
+    }
+  }
+
+  /** A bound target alias rejects the rest of the superset without changing its work limit. */
+  @Test
+  public void candidateLoadRechecksBoundAlias() throws Exception {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var step = candidateProbe(query("ASC"), 180).step();
+    var context = new BasicCommandContext(session);
+    context.setInputParameters(Map.of("tag", "medium"));
+    var upstream = new ResultInternal(session);
+    String boundRid;
+    try (var rows = session.query("SELECT FROM Message WHERE date = 999")) {
+      var bound = rows.next();
+      upstream.setProperty("m", bound);
+      boundRid = bound.getIdentity().toString();
+    }
+    var load = IndexOrderedEdgeStep.class.getDeclaredMethod(
+        "candidateLoad", LinkBag.class,
+        Result.class, CommandContext.class);
+    load.setAccessible(true);
+    try (var authors = session.query("SELECT FROM Author")) {
+      var bag = (LinkBag) ((EntityImpl) authors.next().asEntityOrNull())
+          .getPropertyInternal("out_wrote");
+      prepareCompletedMembership(step, bag);
+      var previousLoads = step.lastCandidateLoads();
+      var stream = (ExecutionStream) load.invoke(step, bag, upstream, context);
+      // Setup must retain no loaded candidate records when there are no later edges.
+      assertThat(step.lastCandidateLoads()).isEqualTo(previousLoads);
+      var actual = new ArrayList<String>();
+      try {
+        while (stream.hasNext(context)) {
+          actual.add(stream.next(context).getEntity("m").getIdentity().toString());
+        }
+      } finally {
+        stream.close(context);
+      }
+      var sql = query("ASC");
+      var plain = "SELECT FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+          .replace("tag = :tag", "tag = :tag AND @rid = " + boundRid)
+          + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d ASC, rid ASC LIMIT 20";
+      assertThat(actual).containsExactlyElementsOf(run(plain, "medium", false).rids());
+      assertThat(step.getChosenRuntimePath())
+          .isEqualTo(IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
+      assertThat(step.lastCandidateLoads()).isEqualTo(360);
+      assertCandidatePrice(step, 180, 180, 1000, 20);
+    }
+  }
+
+  /** Warm executions must not share admitted RID sets, refused admission or phase-2 observations. */
+  @Test
+  public void candidateAdmissionIsPrivateAcrossWarmExecutions() {
+    seed(" WHERE date >= 200");
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var sql = query("ASC");
+    candidateProbe(sql, 180);
+    session.execute("UPDATE Message SET tag = 'common' WHERE tag = 'medium'").close();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date < 180").close();
+    analyzeCandidates();
+    candidateProbe(sql, 0);
+    session.execute("UPDATE Message SET tag = 'common' WHERE tag = 'medium'").close();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var step = candidateProbe(sql, 180).step();
+    step.reset();
+    assertThat(step.lastCandidateCount()).isEqualTo(-1);
+    assertThat(step.lastCandidateLoads()).isZero();
+    assertThat(step.lastCandidateLoadPrice()).isZero();
+    assertThat(step.executionTraversal().getPreFilterAppliedCount()).isZero();
+  }
+
+  private static void assertCandidatePrice(
+      IndexOrderedEdgeStep step, long records, long links, long probes, long target) {
+    double sorted = target > 0 ? Math.min(links, target) : links;
+    double sort = sorted <= 1 ? 0 : links * Math.log(sorted) / Math.log(2);
+    double expected = records * IndexOrderedCostModel.recordReadEntryUnits()
+        + (2 * probes + sort) * IndexOrderedCostModel.reverseEdgeEntryUnits();
+    assertThat(step.lastCandidateLoadPrice())
+        .isCloseTo(expected, org.assertj.core.data.Offset.offset(0.000001));
+  }
+
+  private static void setStepField(IndexOrderedEdgeStep step, String name, Object value)
+      throws Exception {
+    var field = IndexOrderedEdgeStep.class.getDeclaredField(name);
+    field.setAccessible(true);
+    field.set(step, value);
+  }
+
+  private static void prepareCompletedMembership(IndexOrderedEdgeStep step, LinkBag bag)
+      throws Exception {
+    var members = new RidSet();
+    var duplicates = new HashMap<RID, Integer>();
+    for (var pair : bag) {
+      var rid = pair.secondaryRid();
+      if (!members.add(rid)) {
+        duplicates.merge(rid, 2, (count, ignored) -> count + 1);
+      }
+    }
+    setStepField(step, "completedMembers", members);
+    setStepField(step, "completedDuplicates", duplicates);
+  }
+
+  /** Repeated several-source bindings must resolve each row, including a deferred first build. */
+  @Test
+  public void repeatedSourceLoadDoesNotCacheDeferral() throws Exception {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var step = candidateProbe(query("ASC"), 180).step();
+    step.reset();
+    step.executionTraversal().setRootSourceRows(-1);
+    step.executionTraversal().setForecastN(1000000);
+    var context = new BasicCommandContext(session);
+    context.setInputParameters(Map.of("tag", "medium"));
+    var resolve = IndexOrderedEdgeStep.class.getDeclaredMethod(
+        "resolveLoadPrefilter", LinkBag.class, CommandContext.class);
+    resolve.setAccessible(true);
+    try (var authors = session.query("SELECT FROM Author")) {
+      var bag = (LinkBag) ((EntityImpl) authors.next().asEntityOrNull())
+          .getPropertyInternal("out_wrote");
+      assertThat(resolve.invoke(step, bag, context)).isNull();
+      assertThat(resolve.invoke(step, bag, context)).isNull();
+      assertThat(step.executionTraversal().getPreFilterSkippedCount()).isEqualTo(2);
+      var accumulated = EdgeTraversal.class.getDeclaredField("accumulatedLinkBagTotal");
+      accumulated.setAccessible(true);
+      assertThat(accumulated.getLong(step.executionTraversal())).isEqualTo(2000);
+    }
+  }
+
+  /** An admitted set can overflow a lowered cap without double-counting fallback probes. */
+  @Test
+  public void admittedIntersectionOverflowKeepsOrdinaryLoadMetrics() throws Exception {
+    seed();
+    session.execute("UPDATE Message SET tag = 'medium' WHERE date >= 820").close();
+    analyzeCandidates();
+    var expected = candidateProbe(query("ASC"), 180);
+    var step = expected.step();
+    step.reset();
+    setStepField(step, "singleSourceLoad", true);
+    setStepField(step, "rowTarget", 20L);
+    var context = new BasicCommandContext(session);
+    context.setInputParameters(Map.of("tag", "medium"));
+    var upstream = new ResultInternal(session);
+    var resolve = IndexOrderedEdgeStep.class.getDeclaredMethod(
+        "resolveLoadPrefilter", LinkBag.class, CommandContext.class);
+    var candidate = IndexOrderedEdgeStep.class.getDeclaredMethod(
+        "candidateLoad", LinkBag.class, Result.class, CommandContext.class);
+    var terminal = IndexOrderedEdgeStep.class.getDeclaredMethod(
+        "terminalLoad", LinkBag.class, Result.class, CommandContext.class);
+    resolve.setAccessible(true);
+    candidate.setAccessible(true);
+    terminal.setAccessible(true);
+    try (var authors = session.query("SELECT FROM Author")) {
+      var author = authors.next();
+      upstream.setProperty("a", author);
+      var bag = (LinkBag) ((EntityImpl) author.asEntityOrNull()).getPropertyInternal("out_wrote");
+      prepareCompletedMembership(step, bag);
+      assertThat(resolve.invoke(step, bag, context)).isNotNull();
+      try (var cap = GlobalConfigurationScope.set(
+          GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE, 100)) {
+        assertThat(candidate.invoke(step, bag, upstream, context)).isNull();
+        var stream = (ExecutionStream) terminal.invoke(step, bag, upstream, context);
+        var actual = new ArrayList<String>();
+        try {
+          while (stream.hasNext(context)) {
+            actual.add(stream.next(context).getEntity("m").getIdentity().toString());
+          }
+        } finally {
+          stream.close(context);
+        }
+        // Terminal loading leaves sorting and LIMIT to ORDER BY. Compare its entire population.
+        var sql = query("ASC").replace("LIMIT 20", "LIMIT 200");
+        var plain = "SELECT FROM (" + sql.substring(0, sql.indexOf(" RETURN"))
+            + " RETURN m.@rid AS rid, m.date AS d) ORDER BY d ASC, rid ASC LIMIT 200";
+        assertThat(actual).containsExactlyInAnyOrderElementsOf(run(plain, "medium", false).rids());
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+        assertThat(step.executionTraversal().getPreFilterTotalProbed()).isEqualTo(1000);
+      }
+    }
+  }
+
+  private void analyzeCandidates() {
+    session.commit();
+    session.getIndex("Message_tag").analyzeHistogram(session);
+    session.begin();
+  }
+
+  private Observed candidateProbe(String sql, int candidates) {
+    try (var bias = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.000001)) {
+      var result = equivalent(sql, "medium", candidates == 0
+          ? IndexOrderedEdgeStep.RuntimePath.CANDIDATE_EMPTY
+          : IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
+      var step = result.step();
+      assertThat(step.lastCandidateCount()).isEqualTo(candidates);
+      assertThat(step.lastScanConsumedEntries()).isBetween(1L, step.lastScanBudget());
+      assertThat(step.lastCandidateLoads()).isEqualTo(candidates);
+      // Fixture counts price probes, distinct loads and every sorted link row independently.
+      long links = sql.contains("SKIP 3") ? 2L * candidates : candidates;
+      long probes = sourceBagSize() - (candidates == 181 ? 1 : 0);
+      var limit = java.util.regex.Pattern.compile("LIMIT (\\d+)").matcher(sql);
+      assertThat(limit.find()).isTrue();
+      long target = Long.parseLong(limit.group(1)) + (sql.contains("SKIP 3") ? 3 : 0);
+      assertCandidatePrice(step, candidates, links, probes,
+          sql.contains("replyOf") ? -1 : target);
+      assertThat(step.executionTraversal().getPreFilterAppliedCount()).isEqualTo(1);
+      assertThat(step.executionTraversal().getPreFilterTotalProbed())
+          .isBetween((long) candidates, (long) sourceBagSize());
+      return result;
+    }
+  }
 
   private void seed() {
     seed("");
@@ -168,8 +523,9 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     session.getIndex("Message_tag").analyzeHistogram(session);
     session.begin();
     var result = equivalent(query("ASC").replace("LIMIT 20", "LIMIT 2"), "medium",
-        IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+        IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
     assertThat(result.rids()).hasSize(2);
+    assertCandidatePrice(result.step(), 2, 2, 800, 2);
     assertThat(result.step().lastEqualityObservation()).isNull();
     assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 300L);
     var traversal = result.step().executionTraversal();
@@ -1451,7 +1807,9 @@ public class IndexOrderedEqualityAcceptanceTest extends DbTestBase {
     try (var ignored = GlobalConfigurationScope.capture(bias)) {
       bias.setValue(0.0001);
       var result =
-          equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+          equivalent(query("ASC"), "rare", IndexOrderedEdgeStep.RuntimePath.CANDIDATE_LOAD);
+      assertThat(result.step().lastCandidateCount()).isEqualTo(11);
+      assertCandidatePrice(result.step(), 11, 11, 1000, 20);
       assertThat(result.step().lastScanConsumedEntries()).isBetween(1L, 989L);
       assertThat(result.step().lastOrderedBufferedRows()).isPositive();
       assertThat(result.rids()).hasSize(11);

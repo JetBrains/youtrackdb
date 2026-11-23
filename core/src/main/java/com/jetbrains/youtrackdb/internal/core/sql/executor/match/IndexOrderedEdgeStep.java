@@ -172,6 +172,27 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   }
 
   private int lastOrderedBufferedRows;
+  // Cache admission only after runtime singleton verification, and only with positive LIMIT.
+  private boolean singleSourceLoad;
+  private boolean loadPrefilterResolved;
+  private RidSet loadPrefilter;
+  private RidSet completedMembers;
+  private Map<RID, Integer> completedDuplicates;
+  private long lastCandidateCount = -1;
+  private double lastCandidateLoadPrice;
+  private long lastCandidateLoads;
+
+  long lastCandidateCount() {
+    return lastCandidateCount;
+  }
+
+  double lastCandidateLoadPrice() {
+    return lastCandidateLoadPrice;
+  }
+
+  long lastCandidateLoads() {
+    return lastCandidateLoads;
+  }
 
   record EqualityObservation(long entries, boolean complete, boolean requiresLinkBagLoad) {
   }
@@ -195,6 +216,10 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     INDEX_SCAN("index-scan"),
     /** Candidate-side lookup with one result per matching edge. */
     EQUALITY_FETCH("equality-fetch"),
+    /** Final load of the admitted prefilter intersected with completed source membership. */
+    CANDIDATE_LOAD("candidate-load"),
+    /** The admitted intersection contains no linked target RID. */
+    CANDIDATE_EMPTY("candidate-empty"),
     /** Single-source load LinkBag + local sort ({@code loadSortFromLinkBag}). */
     LOAD_SORT("load-sort"),
     /** Single-source load LinkBag unsorted ({@code loadFromLinkBag}). */
@@ -250,6 +275,14 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     lastMultiSourceLoadCalls = 0;
     multiSourcePrefilterBudget = Long.MAX_VALUE;
     lastOrderedBufferedRows = 0;
+    singleSourceLoad = false;
+    loadPrefilterResolved = false;
+    loadPrefilter = null;
+    completedMembers = null;
+    completedDuplicates = null;
+    lastCandidateCount = -1;
+    lastCandidateLoadPrice = 0;
+    lastCandidateLoads = 0;
     executionTraversal = plannedTraversal == null ? null : plannedTraversal.copy();
   }
 
@@ -437,6 +470,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       }
     }
 
+    singleSourceLoad = rowTarget > 0;
     return processUpstreamRow(upstreamRow, ctx);
   }
 
@@ -503,6 +537,17 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       EquiDepthHistogram histogram, long estimate, CommandContext context) {
     IndexOrderedCostModel.WorkAccount account = null;
     java.util.function.Supplier<ExecutionStream> load = () -> {
+      try {
+        if (rowTarget > 0 && completedMembers != null) {
+          var candidates = candidateLoad(bag, upstream, context);
+          if (candidates != null) {
+            return candidates;
+          }
+        }
+      } finally {
+        completedMembers = null;
+        completedDuplicates = null;
+      }
       if (limitClause != null) {
         return terminalLoad(bag, upstream, context);
       }
@@ -536,6 +581,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           lastEqualityObservation = new EqualityObservation(
               attempt.observedEntries(), attempt.complete(), attempt.requiresLinkBagLoad());
           if (attempt.complete()) {
+            completedMembers = null;
+            completedDuplicates = null;
             chosenRuntimePath = RuntimePath.EQUALITY_FETCH;
             return equalityRows(attempt.candidates(), upstream, context);
           }
@@ -548,6 +595,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         case ORDERED -> {
           var stream = equalityOrderedAttempt(bag, upstream, context, account, costs);
           if (stream != null) {
+            completedMembers = null;
+            completedDuplicates = null;
             chosenRuntimePath = RuntimePath.INDEX_SCAN;
             signalIndexOrderedOutput(context);
             return stream;
@@ -564,8 +613,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    * Predicts a fresh source's IndexLookup admission without advancing its amortization state.
    * Links is one bag or the summed admitted bags of all sources. The mode uses the plan-time
    * rootSourceRows and forecastN, as EdgeTraversal.checkIndexLookupAmortization does.
-   * Execution still uses resolveLoadPrefilter, including its runtime build guards. Statistics
-   * drift or a composite descriptor can change that decision without changing load semantics.
+   * Execution uses resolveLoadPrefilter and its runtime build guards. DirectRid admission,
+   * a different index selected after splitting matched references, or a runtime build refusal
+   * can make prediction and resolution differ without changing load semantics.
    */
   private boolean predictsLoadPrefilter(long links, long estimate, CommandContext context) {
     if (executionTraversal == null || estimate < 0
@@ -591,6 +641,65 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return links >= (long) Math.ceil(trigger);
   }
 
+  /**
+   * Final-load-only phase 2. Intersect the completed bitmap, never walk the edges again.
+   * Record the candidate-load price as the limit for the later candidate scan.
+   * The final candidate load is terminal and is never truncated.
+   */
+  @Nullable private ExecutionStream candidateLoad(
+      LinkBag bag, Result upstream, CommandContext context) {
+    var prefilter = resolveLoadPrefilter(bag, context);
+    if (prefilter == null) {
+      return null;
+    }
+    var members = new RidSet();
+    var duplicates = new HashMap<RID, Integer>();
+    long links = 0;
+    var targetClass = resolveTargetClass(context);
+    var membership = new LoadMembership(prefilter);
+    for (var rid : completedMembers) {
+      if (targetClass == null
+          || !targetClass.hasPolymorphicCollectionId(rid.getCollectionId())) {
+        continue;
+      }
+      int count = completedDuplicates.getOrDefault(rid, 1);
+      if (!membership.accepts(rid, count)) {
+        continue;
+      }
+      if (members.size() >= TraversalPreFilterHelper.maxRidSetSize()) {
+        return null;
+      }
+      members.add(rid);
+      links += count;
+      if (count > 1) {
+        duplicates.put(rid, count);
+      }
+    }
+    // A refused intersection contributes no probes. The ordinary load records its own work.
+    membership.close();
+    lastCandidateCount = members.size();
+    lastCandidateLoadPrice = IndexOrderedCostModel.candidateLoadCost(
+        members.size(), links, membership.probedLinks,
+        downstreamEdgeCount == 0 ? rowTarget : -1);
+    if (members.isEmpty()) {
+      chosenRuntimePath = RuntimePath.CANDIDATE_EMPTY;
+      return ExecutionStream.empty();
+    }
+    // Only RIDs and sparse counts survive setup. Without later edges, load one record at a time.
+    var candidates = java.util.stream.StreamSupport.stream(members.spliterator(), false)
+        .map(rid -> {
+          lastCandidateLoads++;
+          var record = loadRecord(rid, context.getDatabaseSession());
+          if (record != null && matchesTargetFilter(record, rid, context, targetClass)
+              && !isAlreadyBoundAndDifferent(upstream, record, context.getDatabaseSession())) {
+            return new EqualityCandidate(record, duplicates.getOrDefault(rid, 1));
+          }
+          return null;
+        }).filter(java.util.Objects::nonNull);
+    chosenRuntimePath = RuntimePath.CANDIDATE_LOAD;
+    return equalityRows(candidates, upstream, context);
+  }
+
   private ExecutionStream terminalLoad(LinkBag bag, Result upstream, CommandContext context) {
     if (downstreamEdgeCount > 0 && rowTarget > 0) {
       chosenRuntimePath = RuntimePath.LOAD_SORT;
@@ -605,7 +714,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
   /** Expands every link and sorts all candidates when later MATCH edges need ordered input. */
   private ExecutionStream equalityRows(
       List<EqualityCandidate> candidates, Result upstream, CommandContext context) {
-    var records = candidates.stream()
+    return equalityRows(candidates.stream(), upstream, context);
+  }
+
+  private ExecutionStream equalityRows(
+      java.util.stream.Stream<EqualityCandidate> candidates, Result upstream,
+      CommandContext context) {
+    var records = candidates
         .flatMap(candidate -> java.util.stream.LongStream.range(0, candidate.links())
             .mapToObj(ignored -> candidate.record()));
     if (downstreamEdgeCount > 0 && rowTarget > 0) {
@@ -639,6 +754,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           duplicates.merge(rid, 2, (count, ignored) -> count + 1);
         }
       }
+      completedMembers = members;
+      completedDuplicates = duplicates;
       if (!account.spend(IndexOrderedCostModel.indexSeekEntryUnits())) {
         return null;
       }
@@ -874,14 +991,23 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
 
   /** Applies the same size, amortization and selectivity gates as ordinary MATCH. */
   @Nullable private RidSet resolveLoadPrefilter(LinkBag bag, CommandContext context) {
-    return executionTraversal == null ? null
-        : executionTraversal.resolvePreFilter(context, bag.size());
+    if (!singleSourceLoad) {
+      return executionTraversal == null ? null
+          : executionTraversal.resolvePreFilter(context, bag.size());
+    }
+    if (!loadPrefilterResolved) {
+      loadPrefilter = executionTraversal == null ? null
+          : executionTraversal.resolvePreFilter(context, bag.size());
+      loadPrefilterResolved = true;
+    }
+    return loadPrefilter;
   }
 
   /** Counts real membership probes without updating the global metric for each edge. */
   private final class LoadMembership implements AutoCloseable {
     @Nullable private final RidSet accepted;
     private long probed;
+    private long probedLinks;
     private long filtered;
 
     private LoadMembership(@Nullable RidSet accepted) {
@@ -889,14 +1015,19 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     }
 
     boolean accepts(RID rid) {
+      return accepts(rid, 1);
+    }
+
+    boolean accepts(RID rid, int links) {
       if (accepted == null) {
         return true;
       }
-      probed++;
+      probed += links;
+      probedLinks += links;
       if (accepted.contains(rid)) {
         return true;
       }
-      filtered++;
+      filtered += links;
       return false;
     }
 

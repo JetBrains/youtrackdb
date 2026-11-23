@@ -138,6 +138,13 @@ final class IndexOrderedCostModel {
         + linkedMatches * sortFactor * reverseEdgeEntryUnits();
   }
 
+  /** Candidate RIDs are loaded once, while sorting accounts for every parallel link row. */
+  static double candidateLoadCost(long records, long links, long probedLinks, long rowTarget) {
+    double sorted = rowTarget > 0 ? Math.min(links, rowTarget) : links;
+    return 2.0 * probedLinks * reverseEdgeEntryUnits()
+        + records * recordReadEntryUnits() + links * log2(sorted) * reverseEdgeEntryUnits();
+  }
+
   /** Record loads and cursor advances have different costs in the shared work account. */
   static double recordReadEntryUnits() {
     return recordReadCost() / scanCostPerEntry();
