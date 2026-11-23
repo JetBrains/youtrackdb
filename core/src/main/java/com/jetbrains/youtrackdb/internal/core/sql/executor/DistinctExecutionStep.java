@@ -48,6 +48,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   /** Maximum number of distinct items allowed in the in-memory set. */
   private final long maxElementsAllowed;
+  private final boolean cacheable;
 
   @Nullable private final String identityAlias;
 
@@ -56,7 +57,11 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
    * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
    */
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled) {
-    this(ctx, profilingEnabled, null);
+    this(ctx, profilingEnabled, false, null);
+  }
+
+  DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled, boolean cacheable) {
+    this(ctx, profilingEnabled, cacheable, null);
   }
 
   /**
@@ -65,7 +70,13 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
    */
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled,
       @Nullable String identityAlias) {
+    this(ctx, profilingEnabled, false, identityAlias);
+  }
+
+  private DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled, boolean cacheable,
+      @Nullable String identityAlias) {
     super(ctx, profilingEnabled);
+    this.cacheable = cacheable;
     this.identityAlias = identityAlias;
     var session = ctx == null ? null : ctx.getDatabaseSession();
 
@@ -111,16 +122,10 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private void markAsVisited(Result nextValue, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionEmbedded session) {
-    // Entity records with valid RIDs are tracked by RID (memory-efficient).
-    // Non-entity results (projections) fall through to full-content tracking.
-    if (nextValue.isEntity()) {
-      var identity = nextValue.asEntityOrNull().getIdentity();
-      var collection = identity.getCollectionId();
-      var pos = identity.getCollectionPosition();
-      if (collection >= 0 && pos >= 0) {
-        pastRids.add(identity);
-        return;
-      }
+    var identity = distinctIdentity(nextValue);
+    if (identity != null) {
+      pastRids.add(identity);
+      return;
     }
     pastItems.add(nextValue);
     enforceHeapLimit(pastItems, session);
@@ -141,15 +146,19 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private static boolean alreadyVisited(Result nextValue, Set<RID> pastRids,
       Set<Result> pastItems) {
-    if (nextValue.isEntity()) {
-      var identity = nextValue.asEntityOrNull().getIdentity();
-      var collection = identity.getCollectionId();
-      var pos = identity.getCollectionPosition();
-      if (collection >= 0 && pos >= 0) {
-        return pastRids.contains(identity);
+    var identity = distinctIdentity(nextValue);
+    return identity == null ? pastItems.contains(nextValue) : pastRids.contains(identity);
+  }
+
+  /** DISTINCT uses a valid entity RID when present, and full result equality otherwise. */
+  @Nullable static RID distinctIdentity(Result row) {
+    if (row.isEntity()) {
+      var identity = row.asEntityOrNull().getIdentity();
+      if (identity.getCollectionId() >= 0 && identity.getCollectionPosition() >= 0) {
+        return identity;
       }
     }
-    return pastItems.contains(nextValue);
+    return null;
   }
 
   /**
@@ -187,7 +196,12 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return cacheable;
+  }
+
+  @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new DistinctExecutionStep(ctx, profilingEnabled, identityAlias);
+    return new DistinctExecutionStep(ctx, profilingEnabled, cacheable, identityAlias);
   }
 }

@@ -10,7 +10,9 @@ import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import java.util.ArrayList;
@@ -570,6 +572,41 @@ public class OrderByStepTest extends DbTestBase {
       Assert.assertEquals("direct loop timeout", failure.getMessage());
       Assert.assertTrue(closed.get());
     }
+  }
+
+  @Test
+  public void materializedLabelsRetainBestOccurrenceAndEarlierTies() {
+    var ctx = ctx();
+    session.begin();
+    var rows = makeRows(ctx, 9, 2, 8, 2, 1, 0, 1, 2);
+    var labels = List.of("A", "B", "A", "C", "A", "A", "A", "D");
+    for (int i = 0; i < rows.size(); i++) {
+      ((ResultInternal) rows.get(i)).setProperty("label", labels.get(i));
+    }
+    var limit = new SQLLimit(-1) {
+      @Override
+      public int getValue(CommandContext context) {
+        return 2;
+      }
+    };
+    var order = new SQLOrderBy(-1) {
+      @Override
+      public int compareKeys(Result a, SQLOrderByItem.SortKey[] aKeys,
+          Result b, SQLOrderByItem.SortKey[] bKeys, CommandContext context,
+          ResolvedOrderByNullsPlacement nullsDefault) {
+        Assert.assertNotSame("Tree bookkeeping must not evaluate SQL keys", a, b);
+        return super.compareKeys(a, aKeys, b, bKeys, context, nullsDefault);
+      }
+    };
+    order.setItems(orderBy(SQLOrderByItem.ASC).getItems());
+    var step = new OrderByStep(order, null, limit, null, false, ctx, -1,
+        false, OrderByStep.SliceMode.MATCH_DISTINCT_MATERIALIZED, List.of("label"));
+    var tracking = trackingUpstream(ctx, rows);
+    step.setPrevious(tracking.step());
+
+    // A leaves the buffer and later wins at rank zero. B wins its rank-two tie with C and D.
+    Assert.assertEquals(List.of(rows.get(5), rows.get(1)), collect(step.start(ctx), ctx));
+    Assert.assertTrue(tracking.streamClosed().get());
   }
 
   // ── Timeout tests ──
