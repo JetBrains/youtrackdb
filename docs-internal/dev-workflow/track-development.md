@@ -28,6 +28,40 @@ after all unit and integration tests pass.
 
 The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
 
+## Pre-existing problems
+
+A pre-existing problem is a defect, a failing or unreliable test, or another fault. It already
+exists in the base branch state for the change. The current change did not introduce it.
+The pinned Slate package calls this a pre-existing defect.
+
+A pre-existing problem is a show-stopper if the change cannot meet an approved goal or pass a
+required check while the problem remains. The required checks are the compile gate, the related
+unit tests, the coverage gate, and required review.
+
+Writing or updating tests for the change's new or changed behavior is work for the current
+change, not a pre-existing problem. See § Deferred test authorship. A fault that already exists
+in a related test in the base branch state still counts as a pre-existing problem.
+
+When anyone finds a pre-existing problem that is not a show-stopper, track it in a separate
+YouTrackDB (YTDB) issue by default. Do not fix it in the current change under this disposition.
+
+For a pre-existing problem that is not a show-stopper, the user's standing answer to the Slate
+escalation is “create a tracked issue.” Under Slate's rules for reusing answers, the orchestrator
+uses that answer without asking again and creates the issue through a worker thread.
+The orchestrator records the escalation and its disposition in the research log.
+If the user gives a different explicit answer for a specific problem, use that answer for
+that problem.
+
+For a show-stopper, the orchestrator asks the user before any fix enters the current change.
+The user chooses a fix, a waiver, or a tracked issue under Slate's escalation rules. Create a
+separate issue only if the user chooses a tracked issue. Slate's scope and review rules also
+apply. The orchestrator asks the user if it is unclear whether a problem is pre-existing or
+whether it is a show-stopper.
+
+Make each issue self-contained. State what the problem is, where it is, why it matters, and what
+a fix needs. The orchestrator lists every issue created under this section in the change
+package's summary.
+
 ## Merge and rebase conflict resolution
 
 Follow the pinned Slate package's `docs/track-workflow.md` § Delivery history and accounting

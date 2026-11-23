@@ -5,6 +5,9 @@ web tools, and codebase navigation (may already be injected automatically by the
 Before choosing verification scope or committing, read
 `docs-internal/dev-workflow/track-development.md`.
 
+Report any pre-existing problem to the orchestrator in your response. Fix it only if your task
+instructs you to. See `docs-internal/dev-workflow/track-development.md` § Pre-existing problems.
+
 ## Build Commands
 
 ```bash
