@@ -243,7 +243,7 @@ public class WOWCacheFlushErrorTest {
     verify(file, Mockito.never()).create();
   }
 
-  /** Forgotten work cancels, while a genuine pending changed write fails finitely and latches. */
+  /** Forgotten work cancels. An unowned pending handle fails finitely and latches. */
   @SuppressWarnings("unchecked")
   @Test
   public void staleAndPendingChangedWritesAreNotHandlePressure() throws Exception {
@@ -264,9 +264,11 @@ public class WOWCacheFlushErrorTest {
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
             .layout28(identity),
         identity.internalId(), false, 1, 0, false);
+    when(files.get(anyLong())).thenReturn(mock(File.class));
     assertTrue(invokePageWrites(cache, pageBuffers(id)) instanceof PageFileFailure);
     assertTrue(readFlushError(cache) instanceof PageFileFailure);
-    Mockito.verifyNoInteractions(files);
+    verify(files).get(anyLong());
+    verify(files, Mockito.never()).tryAcquire(anyLong());
   }
 
   /** The latch is visible during notification and a second failure cannot replace its cause. */
@@ -652,6 +654,7 @@ public class WOWCacheFlushErrorTest {
 
   private static Throwable invokePageWrites(WOWCache cache,
       Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> buffers) throws Exception {
+    setField(cache, "pendingCreationHandles", new ConcurrentHashMap<>());
     final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
         Long2ObjectOpenHashMap.class);
     method.setAccessible(true);

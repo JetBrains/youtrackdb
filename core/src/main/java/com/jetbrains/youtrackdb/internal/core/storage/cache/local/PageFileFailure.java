@@ -27,4 +27,8 @@ final class PageFileFailure extends IOException {
   PageFileFailure(String message) {
     super(message);
   }
+
+  PageFileFailure(String message, Throwable cause) {
+    super(message, cause);
+  }
 }
