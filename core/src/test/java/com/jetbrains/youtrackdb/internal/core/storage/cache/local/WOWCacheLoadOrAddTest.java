@@ -688,6 +688,485 @@ public class WOWCacheLoadOrAddTest {
     }
   }
 
+  // Pending blank work is covered only by a retained image at or above the requested page.
+  @Test
+  public void pendingBlanksRequireCoveringImageAndNeverTouchFiles() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9190);
+    final var name = PageFileNames.layout28(identity);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    wowCache.logicalFiles().register(name, identity.internalId(), false, 5, 0, false);
+    final var token = wowCache.lifetimeToken(identity.internalId());
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    files.add(fileId, file);
+    try {
+      final var page = wowCache.loadOrAdd(fileId, 3, false);
+      wowCache.store(fileId, 3, page);
+      page.decrementReadersReferrer();
+      wowCache.writeValidPageInFile(identity.internalId(), 2, token);
+      wowCache.writeValidPageInFile(identity.internalId(), 3, token);
+      Mockito.verify(file, Mockito.never()).write(Mockito.anyList());
+      assertThrows(StorageException.class,
+          () -> wowCache.writeValidPageInFile(identity.internalId(), 4, token));
+      final var errorField = WOWCache.class.getDeclaredField("flushError");
+      errorField.setAccessible(true);
+      final var first = errorField.get(wowCache);
+      assertNotNull("blank task has no waiter, so it must latch its failure", first);
+      final var later = assertThrows(IOException.class,
+          () -> wowCache.executeFileFlush(new IntOpenHashSet()));
+      assertSame(first, later.getCause());
+      Mockito.verify(file, Mockito.never()).create();
+      Mockito.verify(file, Mockito.never()).write(Mockito.anyList());
+      assertThrows(Exception.class, () -> wowCache.flush(fileId));
+      assertThrows(Exception.class, () -> wowCache.flush());
+    } finally {
+      files.remove(fileId);
+      wowCache.shrinkFile(fileId, 0);
+      wowCache.logicalFiles().forget(identity.internalId());
+    }
+  }
+
+  // Forgotten, deleted and replaced lifetimes cancel blank tasks without physical I/O.
+  @Test
+  public void obsoleteBlankLifetimesDoNotWrite() throws Exception {
+    wowCache.pauseBackgroundFlush();
+    wowCache.setStorageFormat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9191);
+    final var name = PageFileNames.layout28(identity);
+    for (int kind = 0; kind < 3; kind++) {
+      wowCache.logicalFiles().register(name, identity.internalId(), false, 4, 0, false);
+      final var token = wowCache.lifetimeToken(identity.internalId());
+      wowCache.logicalFiles().forget(identity.internalId());
+      if (kind == 1) {
+        wowCache.logicalFiles().delete(name, identity.internalId());
+      } else if (kind == 2) {
+        wowCache.logicalFiles().register(name, identity.internalId(), false, 4, 0, false);
+      }
+      wowCache.writeValidPageInFile(identity.internalId(), 2, token);
+      assertNull(files.get(wowCache.externalFileId(identity.internalId())));
+    }
+    wowCache.logicalFiles().forget(identity.internalId());
+    wowCache.flush();
+  }
+
+  // Every changed-page entry path reports lost registration and retains its only changed image.
+  @Test
+  public void missingMaterializedRegistrationLatchesAcrossEntryPaths() throws Exception {
+    for (int mode = 0; mode < 7; mode++) {
+      final long fileId = prepareUnwrittenMaterializedPage();
+      final var original = files.remove(fileId);
+      final var errorField = WOWCache.class.getDeclaredField("flushError");
+      errorField.setAccessible(true);
+      final var notifications = new java.util.ArrayList<Throwable>();
+      final BackgroundExceptionListener listener = failure -> {
+        try {
+          assertSame(failure, errorField.get(wowCache));
+          notifications.add(failure);
+        } catch (IllegalAccessException e) {
+          throw new AssertionError(e);
+        }
+      };
+      wowCache.addBackgroundExceptionListener(listener);
+      final var healthy = new PageFileIdentity(PageFileRole.RECORD_DATA, 9123);
+      final long healthyId = wowCache.addFile(PageFileNames.layout28(healthy),
+          wowCache.externalFileId(healthy.internalId()));
+      Exception reported = null;
+      try {
+        if (mode == 0) {
+          reported = assertThrows(Exception.class, () -> wowCache.flush(fileId));
+        } else if (mode == 1) {
+          reported = assertThrows(Exception.class, () -> wowCache.flush());
+        } else if (mode == 4) {
+          reported = assertThrows(Exception.class, () -> wowCache.flushTillSegment(4));
+        } else if (mode == 5) {
+          final var nonDurable = WOWCache.class.getDeclaredField("nonDurableFileIds");
+          nonDurable.setAccessible(true);
+          nonDurable.set(wowCache, new IntOpenHashSet(new int[] {wowCache.internalFileId(fileId)}));
+          reported = assertThrows(Exception.class, () -> wowCache.flush(fileId));
+        } else if (mode == 6) {
+          reported = assertThrows(Exception.class,
+              () -> new EnsurePageIsValidInFileTask(wowCache.internalFileId(fileId), 0, wowCache)
+                  .run());
+        } else {
+          final var paused = WOWCache.class.getDeclaredField("backgroundFlushPaused");
+          paused.setAccessible(true);
+          paused.set(wowCache, false);
+          try {
+            if (mode == 2) {
+              wowCache.executePeriodicFlush(mock(PeriodicFlushTask.class));
+            } else {
+              final var limit = WOWCache.class.getDeclaredField("exclusiveWriteCacheMaxSize");
+              limit.setAccessible(true);
+              limit.set(wowCache, 0);
+              wowCache.executeFlush(null, null);
+            }
+          } finally {
+            wowCache.pauseBackgroundFlush();
+          }
+        }
+        assertNotNull(errorField.get(wowCache));
+        final var first = (Throwable) errorField.get(wowCache);
+        assertTrue(first instanceof WOWCache.PageFileFailure);
+        assertTrue(first.getMessage(), first.getMessage().contains(
+            Integer.toString(wowCache.internalFileId(fileId))));
+        assertEquals(List.of(first), notifications);
+        if (reported != null) {
+          assertCause(reported, first);
+        }
+        assertCause(assertThrows(Exception.class, () -> wowCache.flush(healthyId)), first);
+        final var latch = WOWCache.class.getDeclaredMethod("latchFlushError", Throwable.class);
+        latch.setAccessible(true);
+        latch.invoke(wowCache, new WOWCache.PageFileFailure("distinct later failure"));
+        assertEquals(List.of(first), notifications);
+        assertEquals(Long.valueOf(3), earliestRetainedSegment());
+        assertThrows(Exception.class, () -> wowCache.flush());
+        assertSame(first, errorField.get(wowCache));
+        assertEquals(0, wowCache.logicalFiles().live(wowCache.internalFileId(fileId)).diskExtent());
+        final var retained = wowCache.loadIfPresent(fileId, 2, false);
+        assertNotNull(retained);
+        retained.decrementReadersReferrer();
+      } finally {
+        wowCache.removeBackgroundExceptionListener(listener);
+        errorField.set(wowCache, null);
+        final var nonDurable = WOWCache.class.getDeclaredField("nonDurableFileIds");
+        nonDurable.setAccessible(true);
+        nonDurable.set(wowCache, new IntOpenHashSet());
+        files.add(fileId, original);
+        wowCache.deleteFile(healthyId);
+        wowCache.shrinkFile(fileId, 0);
+        wowCache.deleteFile(fileId);
+      }
+    }
+  }
+
+  // Missing backing data is fatal even if a materialized handle is still registered.
+  @Test
+  public void missingBackingFileBlankFailsWithoutReplacement() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    when(wrapper.exists()).thenReturn(false);
+    files.add(fileId, wrapper);
+    try {
+      assertThrows(StorageException.class,
+          () -> wowCache.writeValidPageInFile(wowCache.internalFileId(fileId), 0));
+      Mockito.verify(wrapper, Mockito.never()).create();
+      Mockito.verify(wrapper, Mockito.never()).write(Mockito.anyList());
+      assertThrows(Exception.class, () -> wowCache.flush(fileId));
+    } finally {
+      files.remove(fileId);
+      files.add(fileId, original);
+    }
+  }
+
+  // Fatal identity errors bypass non-durable retry and retain the original cached image.
+  @Test
+  public void nonDurableMissingBackingFileIsFatal() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final var nonDurable = WOWCache.class.getDeclaredField("nonDurableFileIds");
+    nonDurable.setAccessible(true);
+    nonDurable.set(wowCache, new IntOpenHashSet(new int[] {wowCache.internalFileId(fileId)}));
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    when(wrapper.exists()).thenReturn(false);
+    files.add(fileId, wrapper);
+    try {
+      assertThrows(Exception.class, () -> wowCache.flush(fileId));
+      assertThrows(Exception.class, () -> wowCache.flush());
+      final var cached = wowCache.loadIfPresent(fileId, 2, false);
+      assertNotNull(cached);
+      cached.decrementReadersReferrer();
+      Mockito.verify(wrapper, Mockito.never()).create();
+      Mockito.verify(wrapper, Mockito.never()).write(Mockito.anyList());
+    } finally {
+      files.remove(fileId);
+      files.add(fileId, original);
+    }
+  }
+
+  // An out-of-EOF orphan ends layout 28 selection after a nonempty batch. The epilogue must
+  // not write that batch or release its copy again, and the orphan must remain for later cleanup.
+  @Test
+  public void exclusiveFlushReleasesBatchOnceBeforeStoppingAtOrphan() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    wowCache.flush(fileId);
+    cacheUnwrittenImage(fileId, 2, 901);
+    wowCache.addOnlyWriters(fileId, 7);
+    assertEquals(2, wowCache.getExclusiveWriteCachePagesSize());
+    assertNull(wowCache.loadIfPresent(fileId, 7, false));
+
+    final var original = files.remove(fileId);
+    final var file = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    files.add(fileId, file);
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    final var pool = mock(ByteBufferPool.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(bufferPool)));
+    final var copies =
+        new java.util.ArrayList<com.jetbrains.youtrackdb.internal.common.directmemory.Pointer>();
+    final var released = java.util.Collections.newSetFromMap(
+        new java.util.IdentityHashMap<
+            com.jetbrains.youtrackdb.internal.common.directmemory.Pointer, Boolean>());
+    Mockito.doAnswer(invocation -> {
+      final var copy = bufferPool.acquireDirect(false,
+          Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+      copies.add(copy);
+      return copy;
+    }).when(pool).acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+    Mockito.doAnswer(invocation -> {
+      final com.jetbrains.youtrackdb.internal.common.directmemory.Pointer copy =
+          invocation.getArgument(0);
+      // Reject a duplicate before returning it to the real pool, even in a failing regression.
+      assertTrue("Copy released twice", released.add(copy));
+      bufferPool.release(copy);
+      return null;
+    }).when(pool).release(any());
+    poolField.set(wowCache, pool);
+    try {
+      flushWithSelector(fileId, 1);
+      assertEquals(1, copies.size());
+      assertEquals(1, released.size());
+      assertTrue(released.contains(copies.getFirst()));
+      Mockito.verify(pool).release(copies.getFirst());
+      Mockito.verify(file).write(Mockito.anyList());
+      assertNull(earliestRetainedSegment());
+      assertEquals(1, wowCache.getExclusiveWriteCachePagesSize());
+      assertEquals(1, wowCache.getExclusiveWritePagesCountForTest());
+      assertMaterializedContents(fileId, 3, 2, 901);
+      // A later cycle still leaves the orphan unmaterialized and submits no second write.
+      flushWithSelector(fileId, 1);
+      Mockito.verify(file).write(Mockito.anyList());
+      assertEquals(1, copies.size());
+      assertEquals(3L * PAGE_SIZE, original.getUnderlyingFileSize());
+      assertEquals(1, wowCache.getExclusiveWriteCachePagesSize());
+    } finally {
+      poolField.set(wowCache, bufferPool);
+      files.remove(fileId);
+      files.add(fileId, original);
+    }
+  }
+
+  // A failed selection restores copied pages and dirty requirements without retaining copy memory.
+  @Test
+  public void selectionFailureReleasesCopiesAndRestoresDirtyProtection() throws Exception {
+    for (int selector = 1; selector <= 2; selector++) {
+      final int selected = selector;
+      final long healthyId = prepareUnwrittenMaterializedPage(9121);
+      final long missingId = prepareUnwrittenMaterializedPage();
+      final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+      poolField.setAccessible(true);
+      final var pool = mock(ByteBufferPool.class, Mockito.withSettings()
+          .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(bufferPool)));
+      poolField.set(wowCache, pool);
+      final var dirtyField = WOWCache.class.getDeclaredField("dirtyPages");
+      dirtyField.setAccessible(true);
+      @SuppressWarnings("unchecked")
+      final var dirty = (ConcurrentHashMap<PageKey, LogSequenceNumber>) dirtyField.get(wowCache);
+      // Separate segments make the oldest-LSN selector copy A before inspecting B.
+      dirty.put(new PageKey(wowCache.internalFileId(missingId), 2), new LogSequenceNumber(4, 10));
+      final var original = files.remove(missingId);
+      try {
+        final var failure = assertThrows(InvocationTargetException.class,
+            () -> {
+              if (selected == 1) {
+                flushWithSelector(healthyId, selected);
+              } else {
+                final var method = WOWCache.class.getDeclaredMethod(
+                    "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
+                method.setAccessible(true);
+                method.invoke(wowCache, 3L, 5L, 100);
+              }
+            });
+        assertTrue("selector " + selector + ": " + failure.getCause(),
+            failure.getCause() instanceof WOWCache.PageFileFailure);
+        final var acquired = org.mockito.ArgumentCaptor.forClass(
+            com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.class);
+        Mockito.verify(pool, Mockito.atLeastOnce()).acquireDirect(Mockito.eq(false),
+            acquired.capture());
+        final var copies = org.mockito.ArgumentCaptor.forClass(
+            com.jetbrains.youtrackdb.internal.common.directmemory.Pointer.class);
+        Mockito.verify(pool, Mockito.atLeastOnce()).release(copies.capture());
+        assertEquals(acquired.getAllValues().size(), copies.getAllValues().size());
+        assertEquals(new LogSequenceNumber(3, 10),
+            dirty.get(new PageKey(wowCache.internalFileId(healthyId), 2)));
+        final var trackerField = WOWCache.class.getDeclaredField("pageWriteTracker");
+        trackerField.setAccessible(true);
+        assertNull(((PageWriteTracker) trackerField.get(wowCache)).earliestNotWrittenLsn());
+        assertEquals(Long.valueOf(3), earliestRetainedSegment());
+        final var retained = wowCache.loadIfPresent(healthyId, 2, false);
+        assertNotNull(retained);
+        retained.decrementReadersReferrer();
+      } finally {
+        poolField.set(wowCache, bufferPool);
+        files.add(missingId, original);
+        final var error = WOWCache.class.getDeclaredField("flushError");
+        error.setAccessible(true);
+        error.set(wowCache, null);
+        wowCache.deleteFile(healthyId);
+        wowCache.deleteFile(missingId);
+      }
+    }
+  }
+
+  // Both selectors leave pending pages dirty and cached without requesting a physical file.
+  @Test
+  public void pendingSelectionRetainsDirtyImagesWithoutLatching() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final int internalId = wowCache.internalFileId(fileId);
+    final var identity = wowCache.logicalFiles().live(internalId).identity();
+    final var original = files.remove(fileId);
+    wowCache.logicalFiles().forget(internalId);
+    wowCache.logicalFiles().register(PageFileNames.layout28(identity), internalId,
+        false, 3, 0, false);
+    try {
+      flushWithSelector(fileId, 1);
+      flushWithSelector(fileId, 2);
+      final var error = WOWCache.class.getDeclaredField("flushError");
+      error.setAccessible(true);
+      assertNull(error.get(wowCache));
+      assertNull(files.get(fileId));
+      assertEquals(Long.valueOf(3), earliestRetainedSegment());
+      final var retained = wowCache.loadIfPresent(fileId, 2, false);
+      assertNotNull(retained);
+      retained.decrementReadersReferrer();
+    } finally {
+      wowCache.logicalFiles().forget(internalId);
+      wowCache.logicalFiles().register(PageFileNames.layout28(identity), internalId,
+          false, 3, 0, true);
+      files.add(fileId, original);
+    }
+  }
+
+  // A fatal second-file classification drains started data I/O without confirming either image.
+  @Test
+  public void fatalMultiFileFlushRetainsBothImagesAndRecoveryProtection() throws Exception {
+    final long firstId = prepareUnwrittenMaterializedPage(9121);
+    final long secondId = prepareUnwrittenMaterializedPage();
+    wowCache.flush();
+    cacheUnwrittenImage(firstId, 2, 101);
+    cacheUnwrittenImage(secondId, 2, 202);
+    final var chosen = new java.util.concurrent.atomic.AtomicReference<File>();
+    final var drained = new java.util.concurrent.atomic.AtomicBoolean();
+    final var originals = new java.util.HashMap<Long, File>();
+    for (final long fileId : new long[] {firstId, secondId}) {
+      final var original = files.remove(fileId);
+      originals.put(fileId, original);
+      final var wrapper = mock(File.class, Mockito.withSettings()
+          .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+      Mockito.doAnswer(invocation -> chosen.get() == null || chosen.get() == wrapper)
+          .when(wrapper).exists();
+      Mockito.doAnswer(invocation -> {
+        assertTrue(chosen.compareAndSet(null, wrapper));
+        final var result = original.write(invocation.getArgument(0));
+        return (com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult) () -> {
+          result.await();
+          drained.set(true);
+        };
+      }).when(wrapper).write(Mockito.anyList());
+      files.add(fileId, wrapper);
+    }
+    try {
+      assertThrows(Exception.class, () -> wowCache.flush());
+      assertNotNull(chosen.get());
+      assertTrue("Started I/O must drain before the fatal future completes", drained.get());
+      assertEquals(Long.valueOf(3), earliestRetainedSegment());
+      for (final long fileId : new long[] {firstId, secondId}) {
+        final var retained = wowCache.loadIfPresent(fileId, 2, false);
+        assertNotNull(retained);
+        assertEquals(fileId == firstId ? 101 : 202,
+            retained.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+        retained.decrementReadersReferrer();
+      }
+    } finally {
+      for (final var entry : originals.entrySet()) {
+        files.remove(entry.getKey());
+        files.add(entry.getKey(), entry.getValue());
+      }
+    }
+  }
+
+  // A listener failure cannot hide fatal non-durable I/O or prevent later listener delivery.
+  @Test
+  public void throwingListenerCannotTurnFatalNonDurableFlushIntoSuccess() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    for (int page = 3; page < 8; page++) {
+      cacheUnwrittenImage(fileId, page, page);
+    }
+    final var chunkLimit = WOWCache.class.getDeclaredField("chunkSize");
+    chunkLimit.setAccessible(true);
+    chunkLimit.set(wowCache, 1);
+    final var nonDurable = WOWCache.class.getDeclaredField("nonDurableFileIds");
+    nonDurable.setAccessible(true);
+    nonDurable.set(wowCache, new IntOpenHashSet(new int[] {wowCache.internalFileId(fileId)}));
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    when(wrapper.exists()).thenReturn(false);
+    files.add(fileId, wrapper);
+    final var reported = new java.util.ArrayList<Throwable>();
+    final BackgroundExceptionListener throwing = failure -> {
+      throw new IllegalStateException("listener fault");
+    };
+    final BackgroundExceptionListener observer = reported::add;
+    wowCache.addBackgroundExceptionListener(throwing);
+    wowCache.addBackgroundExceptionListener(observer);
+    try {
+      final var failure = assertThrows(Exception.class, () -> wowCache.flush(fileId));
+      assertEquals(1, reported.size());
+      assertTrue(reported.getFirst() instanceof WOWCache.PageFileFailure);
+      assertCause(failure, reported.getFirst());
+      assertCause(assertThrows(Exception.class, () -> wowCache.flush(fileId)), reported.getFirst());
+      assertEquals(Long.valueOf(3), earliestRetainedSegment());
+      Mockito.verify(wrapper).exists();
+      Mockito.verify(wrapper, Mockito.never()).write(Mockito.anyList());
+      Mockito.verify(wrapper, Mockito.never()).create();
+    } finally {
+      files.remove(fileId);
+      wowCache.removeBackgroundExceptionListener(throwing);
+      wowCache.removeBackgroundExceptionListener(observer);
+      files.add(fileId, original);
+    }
+  }
+
+  // An ordinary non-durable data error retains the image without latching and permits retry.
+  @Test
+  public void ordinaryNonDurableWriteFailureRetriesExpectedBytes() throws Exception {
+    final long fileId = prepareUnwrittenMaterializedPage();
+    final var nonDurable = WOWCache.class.getDeclaredField("nonDurableFileIds");
+    nonDurable.setAccessible(true);
+    nonDurable.set(wowCache, new IntOpenHashSet(new int[] {wowCache.internalFileId(fileId)}));
+    final var original = files.remove(fileId);
+    final var wrapper = mock(File.class, Mockito.withSettings()
+        .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+    Mockito.doThrow(new IOException("ordinary write fault")).when(wrapper).write(Mockito.anyList());
+    files.add(fileId, wrapper);
+    try {
+      wowCache.flush(fileId);
+      final var error = WOWCache.class.getDeclaredField("flushError");
+      error.setAccessible(true);
+      assertNull(error.get(wowCache));
+      final var retained = wowCache.loadIfPresent(fileId, 2, false);
+      assertNotNull(retained);
+      assertEquals(728, retained.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      retained.decrementReadersReferrer();
+      Mockito.doAnswer(invocation -> original.write(invocation.getArgument(0)))
+          .when(wrapper).write(Mockito.anyList());
+      wowCache.flush(fileId);
+      assertMaterializedContents(fileId, 3, 2, 728);
+      assertNull(error.get(wowCache));
+    } finally {
+      files.remove(fileId);
+      files.add(fileId, original);
+    }
+  }
+
   // A registered handle is insufficient permission to write an unmaterialized logical file.
   @Test
   public void changedWriteRejectsNonMaterializedState() throws Exception {
@@ -816,11 +1295,32 @@ public class WOWCacheLoadOrAddTest {
     }
   }
 
+  private static void assertCause(Throwable failure, Throwable expected) {
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      if (cause == expected) {
+        return;
+      }
+    }
+    throw new AssertionError("Original failure is missing", failure);
+  }
+
+  private Long earliestRetainedSegment() throws Exception {
+    final var method = WOWCache.class.getDeclaredMethod("earliestNotWrittenSegment");
+    method.setAccessible(true);
+    return (Long) method.invoke(wowCache);
+  }
+
   private long prepareUnwrittenMaterializedPage() throws Exception {
+    return prepareUnwrittenMaterializedPage(9122);
+  }
+
+  private long prepareUnwrittenMaterializedPage(int componentId) throws Exception {
     wowCache.pauseBackgroundFlush();
-    wowCache.setStorageFormat(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
-    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9122);
+    if (wowCache.logicalFiles() == null) {
+      wowCache.setStorageFormat(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
+    }
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, componentId);
     final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
         wowCache.externalFileId(identity.internalId()));
     files.get(fileId).reserveSpaceThrough(3L * PAGE_SIZE);
