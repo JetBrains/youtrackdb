@@ -558,6 +558,8 @@ public class WOWCacheFlushErrorTest {
   /** A real page write obtains the second file despite the first file's failed force. */
   @Test
   public void pageWriteReleasesFailedEvictionSlotWithinBoundedTime() throws Exception {
+    // Wait for metrics initialization when another parallel test starts the engine.
+    com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager.instance().startup();
     final var firstPath = Files.createTempFile("failed-eviction-page", ".dat");
     final var secondPath = Files.createTempFile("second-eviction-page", ".dat");
     Files.delete(firstPath);

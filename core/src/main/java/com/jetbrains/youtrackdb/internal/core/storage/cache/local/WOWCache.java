@@ -4914,7 +4914,15 @@ public final class WOWCache extends AbstractWriteCache
       final ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final var chunk : chunks) {
       for (final var page : chunk) {
-        pageWriteTracker.pageWriteCompleted(page.writeAttempt);
+        if (isPagePublished(page.originalPagePointer)) {
+          pageWriteTracker.pageWriteCompleted(page.writeAttempt);
+        } else if (page.writeAttempt != null) {
+          // A copied upper page can remain behind a cached barrier. Keep it selectable by
+          // the oldest-LSN writer even when a read-cache owner prevents exclusive selection.
+          final var pointer = page.originalPagePointer;
+          dirtyPages.merge(new PageKey(internalFileId(pointer.getFileId()), pointer.getPageIndex()),
+              page.writeAttempt.dirtyLsn(), LogSequenceNumberUtils::earliest);
+        }
       }
     }
   }
@@ -5006,9 +5014,11 @@ public final class WOWCache extends AbstractWriteCache
           if (fileForSize == null) {
             continue;
           }
-          fileSize = fileForSize.getUnderlyingFileSize();
+          final var state = logicalState(fileId);
+          fileSize = state == null ? fileForSize.getUnderlyingFileSize()
+              : state.diskExtent() * pageSize;
 
-          if ((fileSize & (pageSize - 1)) != 0) {
+          if (logicalFiles == null && (fileSize & (pageSize - 1)) != 0) {
             throw new StorageException(storageName,
                 "Storage : "
                     + storageName
@@ -5019,10 +5029,9 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         var diff = (pageKey.pageIndex * pageSize - fileSize) / pageSize;
-        // it is important to do not create holes in the file
-        // otherwise restore process after crash will be aborted
-        // because of invalid data
-        if (diff > 0) {
+        // Layout 27 selects physical gaps here. Layout 28 adds cached barriers below
+        // and initializes uncached gaps in the shared write sink.
+        if (diff > 0 && logicalFiles == null) {
           diff = Math.min(diff, pagesFlushLimit - chunksSize - pageKeysToFlush.size());
           var startPageIndex = fileSize / pageSize;
 
@@ -5045,6 +5054,12 @@ public final class WOWCache extends AbstractWriteCache
       long lastPageIndex = -1;
       long lastFileId = -1;
 
+      if (logicalFiles != null) {
+        final var protectedKeys =
+            precedingCachedPages(pageKeysToFlush, pagesFlushLimit - chunksSize);
+        pageKeysToFlush.clear();
+        protectedKeys.stream().limit(pagesFlushLimit - chunksSize).forEach(pageKeysToFlush::add);
+      }
       for (final var pageKey : pageKeysToFlush) {
         if (lastFileId == -1) {
           if (!chunk.isEmpty()) {
@@ -5143,10 +5158,11 @@ public final class WOWCache extends AbstractWriteCache
             continue;
           }
           var fileSize = fileForSize.getUnderlyingFileSize();
-          if (pageKey.pageIndex * pageSize >= fileSize) {
-            // if we can not write at least one page outside of the size of the file on disk
-            // we should stop the process because otherwise hole in the file during restore
-            // after crash will be treated as a invalid data and restore process will be aborted
+          if ((logicalFiles != null
+              && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent())
+              || pageKey.pageIndex * pageSize >= fileSize) {
+            // Do not pass a locked unpublished page in layout 28 or a physical gap in
+            // layout 27. Either barrier must be written before higher pages can advance.
 
             break flushCycle;
           }
@@ -5192,7 +5208,28 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
+  LogicalPageFileTable.Extents lifetimeToken(int internalFileId) {
+    final var state = logicalState(internalFileId);
+    return state == null ? null : state.extents();
+  }
+
   void writeValidPageInFile(int internalFileId, int pageIndex) {
+    writeValidPageInFile(internalFileId, pageIndex, lifetimeToken(internalFileId));
+  }
+
+  void writeValidPageInFile(int internalFileId, int pageIndex,
+      LogicalPageFileTable.Extents token) {
+    if (logicalFiles != null) {
+      try {
+        writeMaterializedBlank(internalFileId, pageIndex, token);
+      } catch (RuntimeException | Error failure) {
+        // Submitted blank tasks have no waiter. Report their failures through the flush channel.
+        flushError = failure;
+        fireBackgroundDataFlushExceptionEvent(failure);
+        throw failure;
+      }
+      return;
+    }
     if (flushError != null) {
       LogManager.instance()
           .error(
@@ -5494,6 +5531,14 @@ public final class WOWCache extends AbstractWriteCache
     return flushed;
   }
 
+  private boolean isPagePublished(CachePointer pointer) {
+    if (logicalFiles == null) {
+      return true;
+    }
+    final var state = logicalState(internalFileId(pointer.getFileId()));
+    return state != null && state.diskExtent() > pointer.getPageIndex();
+  }
+
   private void removeWrittenPagesFromCache(ArrayList<ArrayList<WritePageContainer>> chunks) {
     for (final List<WritePageContainer> chunk : chunks) {
       for (var chunkPage : chunk) {
@@ -5517,7 +5562,8 @@ public final class WOWCache extends AbstractWriteCache
             assert pageFrame != null : "Write cache page must have a PageFrame";
             // validate() works on released read stamps — it checks only the write-lock
             // sequence counter, not whether the read lock is still held.
-            if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)) {
+            if (pageFrame != null && pageFrame.validate(chunkPage.pageStamp)
+                && isPagePublished(pointer)) {
               var removed = writeCachePages.remove(pageKey);
               if (removed == null) {
                 throw new IllegalStateException("Page is not found in write cache");
@@ -5632,13 +5678,28 @@ public final class WOWCache extends AbstractWriteCache
         slotWait.progress(openFileSlotNanos());
 
         try {
+          final var internalId = extractFileId(entry.getLongKey());
+          final var state = logicalState(internalId);
+          long completedPrefix = 0;
+          if (logicalFiles != null) {
+            if (state == null || !state.diskPresent()) {
+              throw new IOException("Changed-page write requires a materialized live file");
+            }
+            // The caller keeps lifecycle state stable through the drain. The lifetime token
+            // rejects obsolete completion but does not itself provide lifecycle exclusion.
+            completedPrefix = prepareMaterializedWrite(internalId, state, fileEntry.get(),
+                entry.getValue());
+          }
           long writtenExtent = 0;
           for (var buffer : entry.getValue()) {
             writtenExtent = Math.max(writtenExtent,
                 (buffer.first + buffer.second.limit()) / pageSize);
           }
+          if (logicalFiles != null) {
+            fileEntry.get().reserveSpaceThrough(writtenExtent * pageSize);
+          }
           submittedWrites.add(new SubmittedWrite(fileEntry, fileEntry.get().write(entry.getValue()),
-              extractFileId(entry.getLongKey()), writtenExtent));
+              internalId, state == null ? null : state.extents(), completedPrefix));
         } catch (final Throwable t) {
           try {
             files.release(fileEntry);
@@ -5668,6 +5729,94 @@ public final class WOWCache extends AbstractWriteCache
           rethrowWriteFailure(drainFailure);
         }
       }
+    }
+  }
+
+  /**
+   * Initializes only uncached gaps. A cached page outside this protected batch is a publication
+   * barrier, even if higher writes succeed. Every batch recomputes its prefix from published data.
+   */
+  private long prepareMaterializedWrite(int internalId, LogicalPageFileTable.State state, File file,
+      ArrayList<RawPairLongObject<ByteBuffer>> buffers) throws IOException {
+    buffers.sort(java.util.Comparator.comparingLong(buffer -> buffer.first));
+    long cursor = state.diskExtent();
+    long prefix = cursor;
+    for (final var buffer : buffers) {
+      final long start = buffer.first / pageSize;
+      final long end = (buffer.first + buffer.second.limit()) / pageSize;
+      for (; cursor < start; cursor++) {
+        final boolean initialized = initializeUncachedPage(internalId, cursor, file);
+        if (initialized && prefix == cursor) {
+          prefix++;
+        }
+      }
+      if (prefix >= start) {
+        prefix = Math.max(prefix, end);
+      }
+      cursor = Math.max(cursor, end);
+    }
+    return prefix;
+  }
+
+  /** The page-key lock excludes cache insertion through the synchronous blank write. */
+  private boolean initializeUncachedPage(int internalId, long pageIndex, File file)
+      throws IOException {
+    final var key = new PageKey(internalId, pageIndex);
+    beforeBlankPageLock();
+    final var lock = lockManager.acquireExclusiveLock(key);
+    try {
+      if (writeCachePages.containsKey(key)) {
+        return false;
+      }
+      final var pointer = DirectMemoryAllocator.instance()
+          .allocate(pageSize, true, Intention.ADD_NEW_PAGE_IN_FILE);
+      try {
+        final var buffer = pointer.getNativeByteBuffer();
+        DurablePage.setLogSequenceNumberForPage(buffer, new LogSequenceNumber(-1, -1));
+        addMagicChecksumAndEncryption(internalId, Math.toIntExact(pageIndex), buffer);
+        buffer.position(0);
+        file.reserveSpaceThrough((pageIndex + 1) * pageSize);
+        file.write(java.util.List.of(new RawPairLongObject<>(pageIndex * pageSize, buffer)))
+            .await();
+      } finally {
+        DirectMemoryAllocator.instance().deallocate(pointer);
+      }
+      return true;
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /** Test seam immediately before the final cache-absence critical section. */
+  void beforeBlankPageLock() {
+  }
+
+  private void writeMaterializedBlank(int internalId, int pageIndex,
+      LogicalPageFileTable.Extents token) {
+    if (stopFlush || flushError != null || !logicalFiles.isCurrent(internalId, token)) {
+      return;
+    }
+    final var state = logicalState(internalId);
+    if (!state.diskPresent() || state.diskExtent() > pageIndex) {
+      return;
+    }
+    try {
+      final var entry = files.acquire(externalFileId(internalId));
+      if (entry == null) {
+        return;
+      }
+      try {
+        long prefix = state.diskExtent();
+        while (prefix <= pageIndex && initializeUncachedPage(internalId, prefix, entry.get())) {
+          prefix++;
+        }
+        logicalFiles.publishCompleted(internalId, token, prefix);
+      } finally {
+        files.release(entry);
+      }
+    } catch (IOException | java.lang.InterruptedException e) {
+      throw BaseException.wrapException(
+          new StorageException(storageName, "Error writing initial blank page"), e, storageName);
     }
   }
 
@@ -5718,7 +5867,9 @@ public final class WOWCache extends AbstractWriteCache
     for (final var write : writes) {
       try {
         write.result.await();
-        recordWrittenExtent(write.internalFileId, write.writtenExtent);
+        if (write.token != null) {
+          logicalFiles.publishCompleted(write.internalFileId, write.token, write.completedPrefix);
+        }
       } catch (final Throwable t) {
         if (failure == null) {
           failure = t;
@@ -5769,7 +5920,34 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private record SubmittedWrite(ClosableEntry<Long, File> fileEntry, IOResult result,
-      int internalFileId, long writtenExtent) {
+      int internalFileId, LogicalPageFileTable.Extents token, long completedPrefix) {
+  }
+
+  /**
+   * Includes cached publication barriers in the protected copy phase, even when the read cache
+   * still owns them or their WAL segment is newer than the selected upper page.
+   */
+  private TreeSet<PageKey> precedingCachedPages(Iterable<PageKey> selected, long limit) {
+    final var result = new TreeSet<PageKey>();
+    final var upperByFile = new Int2LongOpenHashMap();
+    for (final var key : selected) {
+      result.add(key);
+      upperByFile.merge(key.fileId, key.pageIndex, Math::max);
+      if (result.size() >= limit) {
+        break;
+      }
+    }
+    // Probe only unpublished positions below this bounded selection, not unrelated cached pages.
+    for (final var entry : upperByFile.int2LongEntrySet()) {
+      final int fileId = entry.getIntKey();
+      for (long page = logicalState(fileId).diskExtent(); page < entry.getLongValue(); page++) {
+        final var key = new PageKey(fileId, page);
+        if (writeCachePages.containsKey(key)) {
+          result.add(key);
+        }
+      }
+    }
+    return result;
   }
 
   private void flushExclusiveWriteCache(final CountDownLatch latch, long pagesToFlushLimit)
@@ -5779,9 +5957,8 @@ public final class WOWCache extends AbstractWriteCache
     // it can lead to the situation when a lot of RAM will be consumed during page flush.
     // Method iterates over pages that do not exist in read cache in order sorted by file and
     // position
-    // of page in file. It is important to do not create holes in the file
-    // otherwise restore process after crash will be aborted
-    // because of invalid data.
+    // of page in file. Layout 27 selects physical gaps here. Layout 28 selects cached
+    // barriers and initializes uncached gaps in the shared write sink before publication.
     // Pages are gathered together in chunks of adjacent pages in order to minimize the number of
     // IO operations. Once amount of pages needed to be flushed reaches chunk size it is flushed and
     // process continued till requested amount of pages not flushed.
@@ -5823,7 +6000,8 @@ public final class WOWCache extends AbstractWriteCache
     long lastFileId = -1;
     long lastPageIndex = -1;
 
-    var iterator = exclusiveWritePages.iterator();
+    var iterator = (logicalFiles == null ? exclusiveWritePages
+        : precedingCachedPages(exclusiveWritePages, pagesToFlushLimit)).iterator();
     flushCycle : while (flushedPages < pagesToFlushLimit) {
       // if nothing to flush we should add the last gathered chunk and stop cycle.
       if (!iterator.hasNext()) {
@@ -5853,9 +6031,9 @@ public final class WOWCache extends AbstractWriteCache
       pagesToFlush.add(pageKeyToFlush);
 
       var diff = (pageKeyToFlush.pageIndex * pageSize - fileSize) / pageSize;
-      // it is important to do not create holes in the file
-      // otherwise restore process after crash will be aborted
-      if (diff > 0) {
+      // Layout 27 selects physical gaps. Layout 28 selects cached barriers above
+      // and initializes uncached gaps in the shared write sink.
+      if (diff > 0 && logicalFiles == null) {
         var startPageIndex = fileSize / pageSize;
         for (var i = 0; i < diff; i++) {
           pagesToFlush.add(new PageKey(pageKeyToFlush.fileId, startPageIndex + i));
@@ -5879,16 +6057,20 @@ public final class WOWCache extends AbstractWriteCache
             continue;
           }
           if (file.getUnderlyingFileSize() < (pageKey.pageIndex + 1) * pageSize) {
-            // if we can not write at least one page outside the size of the file on disk
-            // we should stop the process because otherwise hole in the file during restore
-            // after crash will be treated as an invalid data and restore process will be
-            // aborted
+            // A missing image beyond the physical extent cannot advance this plan.
+            // Layout 28 leaves uncached initialization to the write sink. Layout 27 must
+            // select the physical gap before higher pages to keep recovery data valid.
             if (!chunk.isEmpty()) {
               chunks.add(chunk);
               chunk = new ArrayList<>(16);
             }
 
             flushedPages += partitionAndFlushChunks(chunks, maxFullLogLSN);
+            // Layout 28 plans a contiguous prefix once. A missing cached barrier must not
+            // restart the plan and count unpublished upper copies as flush progress.
+            if (logicalFiles != null) {
+              break flushCycle;
+            }
             if (latch != null && exclusiveWriteCacheSize.get() <= exclusiveWriteCacheMaxSize) {
               latch.countDown();
             }
@@ -6018,6 +6200,10 @@ public final class WOWCache extends AbstractWriteCache
               }
             }
 
+            if (logicalFiles != null
+                && pageKey.pageIndex >= logicalState(pageKey.fileId).diskExtent()) {
+              break flushCycle;
+            }
             if (underlyingFileSize < (pageKey.pageIndex + 1) * pageSize) {
               // Break if no progress was made — same reasoning as the first
               // flushCycle reset above.
@@ -6299,7 +6485,8 @@ public final class WOWCache extends AbstractWriteCache
         if (ewcSize >= 0) {
           flushExclusiveWriteCache(null, Math.min(ewcSize, 4L * chunkSize));
 
-          if (exclusiveWriteCacheSize.get() > 0) {
+          if (exclusiveWriteCacheSize.get() > 0
+              && (logicalFiles == null || exclusiveWriteCacheSize.get() < ewcSize)) {
             flushInterval = 1;
           }
         }
@@ -6340,9 +6527,14 @@ public final class WOWCache extends AbstractWriteCache
       if (flushInterval > 0 && !stopFlush && !backgroundFlushPaused) {
         // Skip the re-arm while paused; resumeBackgroundFlush() restarts
         // the periodic task explicitly when the pause is lifted.
-        flushFuture = commitExecutor().schedule(task, flushInterval, TimeUnit.MILLISECONDS);
+        flushFuture = schedulePeriodicFlush(task, flushInterval);
       }
     }
+  }
+
+  // Package-private seam for observing periodic re-arm decisions without running another cycle.
+  Future<?> schedulePeriodicFlush(PeriodicFlushTask task, long interval) {
+    return commitExecutor().schedule(task, interval, TimeUnit.MILLISECONDS);
   }
 
   public void executeFlush(CountDownLatch cacheBoundaryLatch, CountDownLatch completionLatch) {

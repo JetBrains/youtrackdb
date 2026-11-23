@@ -306,10 +306,9 @@ public interface WriteCache {
    * <p><b>FIFO + monotonic submission.</b> {@code EnsurePageIsValidInFileTask} submissions
    * for a given {@code fileId} are monotonically increasing in {@code pageIndex} by
    * construction (the per-component lock serializes concurrent allocators). Combined with
-   * the single-threaded FIFO executor, this guarantees that every gap page in
-   * {@code [old_size, pageIndex]} is stamped in order; no interior zero page can survive
-   * across a crash. See design.md §"Crash safety" for the three crash scenarios and
-   * their walk-throughs.
+   * the single-threaded FIFO executor, layout 27 stamps gaps in order. Layout 28 blank
+   * tasks stop at cached images. Protected changed-page writes include those images and
+   * initialize uncached gaps before publishing a completed contiguous extent.
    *
    * @param fileId external file id of the target page
    * @param pageIndex zero-based page index inside that file; must be &ge; 0
