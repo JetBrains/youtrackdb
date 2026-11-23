@@ -89,8 +89,24 @@ public interface WriteAheadLog extends AutoCloseable {
    */
   ProofReader openProofReader(LogSequenceNumber coverage, int maxRecordBytes);
 
+  /**
+   * Read-only proof view restricted to coverage's segment in the immutable pre-open extent.
+   * Capture failures still reject the whole inventory. Page validation and decoding are unchanged.
+   * This view lets a caller apply its own cross-segment policy without numeric-gap rejection.
+   * At RECORDS_OFFSET it also inspects a short first physical page even when that offset is at
+   * or beyond the captured byte bound, returning BROKEN_PAGE rather than missing coverage.
+   */
+  default ProofReader openSegmentProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+    throw new UnsupportedOperationException("Segment proof reading is unavailable");
+  }
+
   interface ProofReader {
     ProofBatch next(int maxRecords);
+
+    /** Original terminal failure, when available, without changing the reader status. */
+    default Throwable failureCause() {
+      return null;
+    }
   }
 
   /**

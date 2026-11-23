@@ -616,11 +616,21 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     if (maxRecordBytes < 10) {
       throw new IllegalArgumentException("Record bound must allow WAL metadata");
     }
-    return new DiskProofReader(coverage, maxRecordBytes);
+    return new DiskProofReader(coverage, maxRecordBytes, preOpenExtent.segments(), false);
+  }
+
+  @Override
+  public ProofReader openSegmentProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+    if (maxRecordBytes < 10) {
+      throw new IllegalArgumentException("Record bound must allow WAL metadata");
+    }
+    return new DiskProofReader(coverage, maxRecordBytes, preOpenExtent.segments().stream()
+        .filter(segment -> segment.segment() == coverage.getSegment()).toList(), true);
   }
 
   private final class DiskProofReader implements ProofReader {
     private final int maxRecordBytes;
+    private final List<SegmentExtent> inventory;
     private final ByteBuffer page = ByteBuffer.allocate(pageSize).order(ByteOrder.nativeOrder());
     private final byte[] lengthBytes = new byte[IntegerSerializer.INT_SIZE];
     private final int firstSegment;
@@ -633,12 +643,14 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     private boolean readablePageFollows;
     private boolean brokenPage;
     private boolean decoding;
+    private Throwable decodeFailure;
     private IOException error;
 
-    private DiskProofReader(LogSequenceNumber coverage, int maxRecordBytes) {
+    private DiskProofReader(LogSequenceNumber coverage, int maxRecordBytes,
+        List<SegmentExtent> inventory, boolean segmentOnly) {
+      this.inventory = inventory;
       this.maxRecordBytes = maxRecordBytes;
       stop = coverage;
-      var inventory = preOpenExtent.segments();
       while (segmentIndex < inventory.size()
           && inventory.get(segmentIndex).segment() < coverage.getSegment()) {
         segmentIndex++;
@@ -681,12 +693,21 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       }
       nextPage = coverage.getPosition() / pageSize;
       initialOffset = coverage.getPosition() % pageSize;
+      // A segment-start scan must inspect even a torn header. Only this restricted view admits
+      // a nonempty segment shorter than its first record offset. General proof coverage is strict.
+      boolean inspectSegmentStart = segmentOnly
+          && coverage.getPosition() == CASWALPage.RECORDS_OFFSET;
       if (coverage.getPosition() < CASWALPage.RECORDS_OFFSET
-          || (inventory.get(segmentIndex).bytes() != 0
+          || (inventory.get(segmentIndex).bytes() != 0 && !inspectSegmentStart
               && coverage.getPosition() >= inventory.get(segmentIndex).bytes())
           || initialOffset < CASWALPage.RECORDS_OFFSET) {
         status = ProofStatus.COVERAGE_NOT_RETAINED;
       }
+    }
+
+    @Override
+    public Throwable failureCause() {
+      return decodeFailure != null ? decodeFailure : error;
     }
 
     @Override
@@ -697,6 +718,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
       try {
         return readBatch(maxRecords);
       } catch (RuntimeException | Error failure) {
+        decodeFailure = failure;
         // A failed batch may already have advanced its cursor. Latch before propagating so no
         // later call can turn that failure into an end proof, including encryption admission.
         status = decoding ? ProofStatus.INVALID_RECORD : ProofStatus.IO_ERROR;
@@ -762,6 +784,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
             result.add(record);
             seenRecord = true;
           } catch (RuntimeException malformedRecord) {
+            decodeFailure = malformedRecord;
             status = ProofStatus.INVALID_RECORD;
           }
           decoding = false;
@@ -771,8 +794,8 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
         }
         if (status == ProofStatus.REACHED_END || brokenPage) {
           // Also catch unlink of a segment already consumed, including POSIX open-file unlink.
-          for (int i = firstSegment; i < preOpenExtent.segments().size(); i++) {
-            var segment = preOpenExtent.segments().get(i);
+          for (int i = firstSegment; i < inventory.size(); i++) {
+            var segment = inventory.get(i);
             try {
               if (Files.size(preOpenSegmentPaths.get(segment.segment())) < segment.bytes()) {
                 throw new IOException(
@@ -799,7 +822,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
 
     private SegmentExtent currentSegmentExtent() {
-      return preOpenExtent.segments().get(segmentIndex);
+      return inventory.get(segmentIndex);
     }
 
     private boolean ensurePage(boolean insideRecord, ProofChannels channels) throws IOException {
@@ -818,7 +841,7 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
           }
           stop = new LogSequenceNumber(segment.segment(), (int) segment.bytes());
           segmentIndex++;
-          if (segmentIndex == preOpenExtent.segments().size()) {
+          if (segmentIndex == inventory.size()) {
             status = ProofStatus.REACHED_END;
             return false;
           }
@@ -890,7 +913,6 @@ public final class CASDiskWriteAheadLog implements WriteAheadLog {
     }
 
     private void findReadablePageAfter(ProofChannels channels) throws IOException {
-      var inventory = preOpenExtent.segments();
       for (int i = segmentIndex; i < inventory.size(); i++) {
         var segment = inventory.get(i);
         for (long p = i == segmentIndex ? nextPage : 0; p * pageSize < segment.bytes(); p++) {
