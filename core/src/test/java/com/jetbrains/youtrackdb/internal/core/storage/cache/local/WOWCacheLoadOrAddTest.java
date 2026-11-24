@@ -92,6 +92,433 @@ import org.mockito.Mockito;
 @Category(SequentialTest.class)
 public class WOWCacheLoadOrAddTest {
 
+  // With only one WAL segment, the real periodic task must use the exclusive phase.
+  @Test
+  public void periodicTaskMaterializesPendingExclusivePageWithoutOldestPhase() throws Exception {
+    assertPendingPeriodicPhase(false);
+  }
+
+  // A reader-owned page is not exclusive. Only the oldest-segment phase can write it.
+  @Test
+  public void periodicTaskMaterializesPendingOldestPageWithoutExclusiveWork() throws Exception {
+    assertPendingPeriodicPhase(true);
+  }
+
+  private void assertPendingPeriodicPhase(boolean oldest) throws Exception {
+    final long id = preparePendingPage(9400, null);
+    final var held = oldest ? wowCache.loadIfPresent(id, 2, false) : null;
+    final var wal = Mockito.spy(writeAheadLog);
+    when(wal.begin()).thenReturn(new LogSequenceNumber(3, 0));
+    when(wal.end()).thenReturn(new LogSequenceNumber(oldest ? 4 : 3, 20));
+    final var walField = WOWCache.class.getDeclaredField("writeAheadLog");
+    walField.setAccessible(true);
+    walField.set(wowCache, wal);
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    final var pool = Mockito.spy(bufferPool);
+    poolField.set(wowCache, pool);
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doReturn(java.util.concurrent.CompletableFuture.completedFuture(null))
+        .when(wowCache).schedulePeriodicFlush(any(), Mockito.anyLong());
+    final var paused = WOWCache.class.getDeclaredField("backgroundFlushPaused");
+    paused.setAccessible(true);
+    try {
+      assertEquals(oldest ? 0 : 1, wowCache.getExclusiveWriteCachePagesSize());
+      paused.set(wowCache, false);
+      new PeriodicFlushTask(wowCache).run();
+      assertMaterializedContents(id, 3, 2, 728);
+      assertNull(earliestRetainedSegment());
+      Mockito.verify(pool, Mockito.times(oldest ? 0 : 1))
+          .acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+      Mockito.verify(pool, Mockito.times(oldest ? 1 : 0))
+          .acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
+      Mockito.verify(wowCache).createFileHandle(any(), Mockito.anyInt());
+    } finally {
+      paused.set(wowCache, true);
+      walField.set(wowCache, writeAheadLog);
+      poolField.set(wowCache, bufferPool);
+      if (held != null) {
+        held.decrementReadersReferrer();
+      }
+    }
+  }
+
+  // The submitted public task must deduplicate a newer lower barrier shared by old segments.
+  @Test(timeout = 30_000)
+  public void publicSegmentFlushMaterializesPendingPagesAcrossDirtySegments() throws Exception {
+    final long id = preparePendingPage(9401, null);
+    cacheUnwrittenImage(id, 0, 100);
+    cacheUnwrittenImage(id, 1, 101);
+    final var dirtyField = WOWCache.class.getDeclaredField("dirtyPages");
+    dirtyField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final var dirty = (ConcurrentHashMap<PageKey, LogSequenceNumber>) dirtyField.get(wowCache);
+    for (int page = 0; page < 3; page++) {
+      dirty.put(new PageKey(wowCache.internalFileId(id), page),
+          new LogSequenceNumber(page == 0 ? 4 : page + 1, 10));
+    }
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    final var pool = Mockito.spy(bufferPool);
+    poolField.set(wowCache, pool);
+    final var counts = new TreeMap<Long, Integer>();
+    final var held = new java.util.ArrayList<CachePointer>();
+    for (int page = 0; page < 3; page++) {
+      held.add(wowCache.loadIfPresent(id, page, false));
+    }
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doAnswer(inv -> {
+      final File original = (File) inv.callRealMethod();
+      final var wrapper = mock(File.class, Mockito.withSettings()
+          .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+      Mockito.doAnswer(write -> {
+        final List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+                write.getArgument(0);
+        for (final var buffer : buffers) {
+          for (long offset = buffer.first;
+              offset < buffer.first + buffer.second.limit(); offset += PAGE_SIZE) {
+            counts.merge(offset / PAGE_SIZE, 1, Integer::sum);
+          }
+        }
+        return original.write(buffers);
+      }).when(wrapper).write(Mockito.anyList());
+      return wrapper;
+    }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
+    try {
+      wowCache.flushTillSegment(5);
+      assertMaterializedContents(id, 3, Map.of(0, 100, 1, 101, 2, 728));
+      assertEquals(Map.of(0L, 1, 1L, 1, 2L, 1), counts);
+      Mockito.verify(pool, Mockito.times(3))
+          .acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
+      assertNull(earliestRetainedSegment());
+      assertTrue(dirty.isEmpty());
+    } finally {
+      for (final var pointer : held) {
+        pointer.decrementReadersReferrer();
+      }
+      poolField.set(wowCache, bufferPool);
+    }
+  }
+
+  // Later batch submission observes only the earlier batch's protection released.
+  @Test
+  public void successfulExclusiveBatchesReleaseOnlyPublishedRequirements() throws Exception {
+    assertExclusiveBatchOutcome(false, false);
+  }
+
+  // A direct failure leaves tracker-only work for explicit retry, not oldest-LSN selection.
+  @Test
+  public void laterExclusiveFailureRetainsTrackerOnlyImageUntilExplicitRetry() throws Exception {
+    assertExclusiveBatchOutcome(true, false);
+  }
+
+  // Periodic dispatch latches the later failure and preserves the earlier published prefix.
+  @Test
+  public void periodicLaterExclusiveFailureRetainsImagesAndKnownUnownedCopy() throws Exception {
+    assertExclusiveBatchOutcome(true, true);
+  }
+
+  private void assertExclusiveBatchOutcome(boolean fail, boolean periodic) throws Exception {
+    final long id = preparePendingPage(9402, null);
+    cacheUnwrittenImage(id, 3, 303);
+    cacheUnwrittenImage(id, 4, 404);
+    final var dirtyField = WOWCache.class.getDeclaredField("dirtyPages");
+    dirtyField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final var dirty = (ConcurrentHashMap<PageKey, LogSequenceNumber>) dirtyField.get(wowCache);
+    for (int page = 2; page <= 4; page++) {
+      dirty.put(new PageKey(wowCache.internalFileId(id), page),
+          new LogSequenceNumber(page, 10));
+    }
+    final var chunkField = WOWCache.class.getDeclaredField("chunkSize");
+    chunkField.setAccessible(true);
+    final int originalChunk = chunkField.getInt(wowCache);
+    chunkField.set(wowCache, 1);
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    final var pool = Mockito.spy(bufferPool);
+    final var copies = java.util.Collections.newSetFromMap(
+        new java.util.IdentityHashMap<
+            com.jetbrains.youtrackdb.internal.common.directmemory.Pointer, Boolean>());
+    Mockito.doAnswer(inv -> {
+      final var copy = bufferPool.acquireDirect(false,
+          Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+      assertTrue(copies.add(copy));
+      return copy;
+    }).when(pool).acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+    Mockito.doAnswer(inv -> {
+      final com.jetbrains.youtrackdb.internal.common.directmemory.Pointer copy = inv.getArgument(0);
+      copies.remove(copy);
+      bufferPool.release(copy);
+      return null;
+    }).when(pool).release(any());
+    poolField.set(wowCache, pool);
+    wowCache = Mockito.spy(wowCache);
+    final var injected = new IllegalStateException("later exclusive batch failed");
+    final var observed = new java.util.concurrent.atomic.AtomicBoolean();
+    Mockito.doAnswer(inv -> {
+      final File original = (File) inv.callRealMethod();
+      final var wrapper = mock(File.class, Mockito.withSettings()
+          .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+      Mockito.doAnswer(write -> {
+        final List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+                write.getArgument(0);
+        if (buffers.getFirst().first == 4L * PAGE_SIZE) {
+          assertEquals(Long.valueOf(4), earliestRetainedSegment());
+          assertEquals(4, wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskExtent());
+        }
+        if (buffers.getFirst().first == 3L * PAGE_SIZE && !observed.getAndSet(true)) {
+          assertEquals(3, wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskExtent());
+          assertEquals(Long.valueOf(3), earliestRetainedSegment());
+          assertEquals("Current batch and next copied page are still owned", 2, copies.size());
+          Mockito.verify(pool, Mockito.times(3))
+              .acquireDirect(false, Intention.COPY_PAGE_DURING_EXCLUSIVE_PAGE_FLUSH);
+          if (fail) {
+            return (com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult) () -> {
+              throw injected;
+            };
+          }
+        }
+        return original.write(buffers);
+      }).when(wrapper).write(Mockito.anyList());
+      return wrapper;
+    }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
+    final var error = WOWCache.class.getDeclaredField("flushError");
+    error.setAccessible(true);
+    Mockito.doReturn(java.util.concurrent.CompletableFuture.completedFuture(null))
+        .when(wowCache).schedulePeriodicFlush(any(), Mockito.anyLong());
+    try {
+      if (periodic) {
+        flushWithSelector(id, 3);
+        assertCause((Throwable) error.get(wowCache), injected);
+      } else if (fail) {
+        assertCause(assertThrows(InvocationTargetException.class,
+            () -> flushWithSelector(id, 1)), injected);
+        assertNull(error.get(wowCache));
+      } else {
+        flushWithSelector(id, 1);
+        assertMaterializedContents(id, 5, Map.of(2, 728, 3, 303, 4, 404));
+        assertNull(earliestRetainedSegment());
+        assertTrue(copies.isEmpty());
+        assertTrue(observed.get());
+        return;
+      }
+      assertTrue(observed.get());
+      assertEquals(3, wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskExtent());
+      assertEquals(Long.valueOf(3), earliestRetainedSegment());
+      for (int page = 3; page <= 4; page++) {
+        final var retained = wowCache.loadIfPresent(id, page, false);
+        assertNotNull(retained);
+        try {
+          assertEquals(page == 3 ? 303 : 404,
+              retained.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+        } finally {
+          retained.decrementReadersReferrer();
+        }
+      }
+      assertMaterializedContents(id, 3, 2, 728);
+      // YTDB-1702: the next copied page has not joined a batch when the preceding write fails.
+      assertEquals("One unowned copy remains outside sink cleanup", 1, copies.size());
+      if (!periodic) {
+        assertTrue(dirty.isEmpty());
+        final var oldest = WOWCache.class.getDeclaredMethod(
+            "flushWriteCacheFromMinLSN", long.class, long.class, int.class);
+        oldest.setAccessible(true);
+        oldest.invoke(wowCache, 3L, 5L, 100);
+        assertEquals(Long.valueOf(3), earliestRetainedSegment());
+        assertEquals(3, wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskExtent());
+        wowCache.flush(id);
+        assertMaterializedContents(id, 5, Map.of(2, 728, 3, 303, 4, 404));
+        assertNull(earliestRetainedSegment());
+        assertEquals(1, copies.size());
+      }
+    } finally {
+      error.set(wowCache, null);
+      // The fixture owns cleanup of the known unowned copy.
+      for (final var copy : copies) {
+        bufferPool.release(copy);
+      }
+      copies.clear();
+      poolField.set(wowCache, bufferPool);
+      chunkField.set(wowCache, originalChunk);
+    }
+  }
+
+  // A shared pending batch drains each owned handle before admitting the next file.
+  @Test
+  public void periodicPendingBatchBalancesCopiesAndHandlesAtOneFileLimit() throws Exception {
+    assertPendingAdmission(false);
+  }
+
+  // Fatal creation after an earlier completion keeps images protected and reaches the latch.
+  @Test
+  public void periodicPendingCreationFailureDrainsEarlierFileAtOneFileLimit() throws Exception {
+    assertPendingAdmission(true);
+  }
+
+  private void assertPendingAdmission(boolean failCreation) throws Exception {
+    final var originalFiles = files;
+    files = Mockito.spy(new ClosableLinkedContainer<Long, File>(1));
+    final var handles = WOWCache.class.getDeclaredField("files");
+    handles.setAccessible(true);
+    handles.set(wowCache, files);
+    final var held = new java.util.ArrayList<CachePointer>();
+    final var ids = new java.util.ArrayList<Long>();
+    for (int component = 9403; component < 9406; component++) {
+      final long id = preparePendingPage(component, null);
+      ids.add(id);
+      held.add(wowCache.loadIfPresent(id, 2, false));
+    }
+    final var acquired = java.util.Collections.newSetFromMap(
+        new java.util.IdentityHashMap<Object, Boolean>());
+    final var acquisitions = new java.util.concurrent.atomic.AtomicInteger();
+    Mockito.doAnswer(inv -> {
+      final var entry = inv.callRealMethod();
+      if (entry != null) {
+        assertTrue(acquired.add(entry));
+        acquisitions.incrementAndGet();
+      }
+      return entry;
+    }).when(files).tryAcquire(Mockito.anyLong());
+    Mockito.doAnswer(inv -> {
+      assertTrue("Release must match a live acquisition", acquired.remove(inv.getArgument(0)));
+      return inv.callRealMethod();
+    }).when(files).release(any());
+    final var poolField = WOWCache.class.getDeclaredField("bufferPool");
+    poolField.setAccessible(true);
+    final var pool = Mockito.spy(bufferPool);
+    final var copies = java.util.Collections.newSetFromMap(
+        new java.util.IdentityHashMap<
+            com.jetbrains.youtrackdb.internal.common.directmemory.Pointer, Boolean>());
+    Mockito.doAnswer(inv -> {
+      final var copy = bufferPool.acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
+      assertTrue(copies.add(copy));
+      return copy;
+    }).when(pool).acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
+    Mockito.doAnswer(inv -> {
+      assertTrue("A copy must be released exactly once", copies.remove(inv.getArgument(0)));
+      bufferPool.release(inv.getArgument(0));
+      return null;
+    }).when(pool).release(any());
+    poolField.set(wowCache, pool);
+    final var walField = WOWCache.class.getDeclaredField("writeAheadLog");
+    walField.setAccessible(true);
+    final var wal = Mockito.spy(writeAheadLog);
+    when(wal.begin()).thenReturn(new LogSequenceNumber(3, 0));
+    when(wal.end()).thenReturn(new LogSequenceNumber(4, 20));
+    walField.set(wowCache, wal);
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doReturn(java.util.concurrent.CompletableFuture.completedFuture(null))
+        .when(wowCache).schedulePeriodicFlush(any(), Mockito.anyLong());
+    final var creations = new java.util.concurrent.atomic.AtomicInteger();
+    final var completions = new java.util.concurrent.atomic.AtomicInteger();
+    final var firstId = new java.util.concurrent.atomic.AtomicLong();
+    final var entered = new CountDownLatch(1);
+    final var release = new CountDownLatch(1);
+    final var injected = new IOException("later pending creation failed");
+    Mockito.doAnswer(inv -> {
+      assertTrue("Admission must follow completion and handle release", acquired.isEmpty());
+      final int number = creations.incrementAndGet();
+      assertEquals(number - 1, completions.get());
+      final File original = (File) inv.callRealMethod();
+      final var wrapper = mock(File.class, Mockito.withSettings()
+          .defaultAnswer(org.mockito.AdditionalAnswers.delegatesTo(original)));
+      if (failCreation && number == 2) {
+        Mockito.doThrow(injected).when(wrapper).create();
+      }
+      Mockito.doAnswer(write -> {
+        final List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+                write.getArgument(0);
+        final var result = original.write(buffers);
+        if (buffers.getFirst().first != 2L * PAGE_SIZE) {
+          return result;
+        }
+        return (com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult) () -> {
+          if (number == 1) {
+            firstId.set(wowCache.externalFileId((int) inv.getArgument(1)));
+            entered.countDown();
+            try {
+              assertTrue(release.await(10, TimeUnit.SECONDS));
+            } catch (InterruptedException interrupted) {
+              throw new IllegalStateException(interrupted);
+            }
+          }
+          assertEquals(1, acquired.size());
+          result.await();
+          completions.incrementAndGet();
+        };
+      }).when(wrapper).write(Mockito.anyList());
+      return wrapper;
+    }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
+    final var paused = WOWCache.class.getDeclaredField("backgroundFlushPaused");
+    paused.setAccessible(true);
+    final var error = WOWCache.class.getDeclaredField("flushError");
+    error.setAccessible(true);
+    paused.set(wowCache, false);
+    final var task = asyncFileExecutor.submit(() -> new PeriodicFlushTask(wowCache).run());
+    try {
+      assertTrue(entered.await(10, TimeUnit.SECONDS));
+      assertEquals(1, creations.get());
+      assertEquals(0, completions.get());
+      release.countDown();
+      task.get(10, TimeUnit.SECONDS);
+      assertEquals(failCreation ? 2 : 3, creations.get());
+      assertEquals(failCreation ? 1 : 3, completions.get());
+      assertEquals(completions.get(), acquisitions.get());
+      assertTrue(acquired.isEmpty());
+      assertTrue(copies.isEmpty());
+      Mockito.doCallRealMethod().when(files).release(any());
+      Mockito.verify(pool, Mockito.times(3))
+          .acquireDirect(false, Intention.COPY_PAGE_DURING_FLUSH);
+      if (failCreation) {
+        assertCause((Throwable) error.get(wowCache), injected);
+        assertEquals(Long.valueOf(3), earliestRetainedSegment());
+        assertMaterializedContents(firstId.get(), 3, 2, 728);
+        for (final long id : ids) {
+          final var pointer = wowCache.loadIfPresent(id, 2, false);
+          assertNotNull(pointer);
+          assertEquals(728, pointer.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+          pointer.decrementReadersReferrer();
+          if (id != firstId.get()) {
+            assertFalse(wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskPresent());
+          }
+        }
+      } else {
+        assertNull(error.get(wowCache));
+        assertNull(earliestRetainedSegment());
+        for (final long id : ids) {
+          assertMaterializedContents(id, 3, 2, 728);
+        }
+      }
+    } finally {
+      release.countDown();
+      task.get(10, TimeUnit.SECONDS);
+      paused.set(wowCache, true);
+      error.set(wowCache, null);
+      walField.set(wowCache, writeAheadLog);
+      poolField.set(wowCache, bufferPool);
+      Mockito.doCallRealMethod().when(wowCache).createFileHandle(any(), Mockito.anyInt());
+      Mockito.doCallRealMethod().when(files).release(any());
+      for (final var pointer : held) {
+        pointer.decrementReadersReferrer();
+      }
+      for (final long id : ids) {
+        final var file = files.remove(id);
+        if (file != null) {
+          if (!file.isOpen()) {
+            file.open();
+          }
+          originalFiles.add(id, file);
+        }
+      }
+      files = originalFiles;
+      handles.set(wowCache, files);
+    }
+  }
+
   // A paused reservation caller must not hold up growth of a different page in the same file.
   @Test
   public void logicalGrowerDoesNotBlockAnotherGrower() throws Exception {
