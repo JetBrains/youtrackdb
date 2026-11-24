@@ -1809,7 +1809,7 @@ public class SelectExecutionPlanner {
       handleMetadataAsTarget(result, target.getMetadata(), ctx, profilingEnabled);
     } else if (target.getRids() != null) {
       if (target.getRids().isEmpty()) {
-        // MATCH class+rid outside the class builds an empty RID target (YTDB-1672).
+        // MATCH class+rid outside the class builds an empty RID target.
         result.chain(new EmptyStep(ctx, profilingEnabled));
       } else {
         handleRidsAsTarget(result, target.getRids(), ctx, profilingEnabled);

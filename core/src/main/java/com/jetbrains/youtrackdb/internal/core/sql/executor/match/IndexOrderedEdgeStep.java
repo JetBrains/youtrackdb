@@ -387,7 +387,7 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
     }
-    // Parser rid: + class used to fetch by RID alone and drop the class (YTDB-1672).
+    // Parser rid: + class used to fetch by RID alone and drop the class.
     // MatchFirstStep now keeps the class; still refuse a source whose collection is
     // outside the declared source class so a stray upstream row cannot load its LinkBag.
     if (!sourceMatchesDeclaredClass(sourceRid, session)) {

@@ -6678,7 +6678,7 @@ public class MatchExecutionPlanner {
         // to a post-filter — and the prefetch filter only spares aliases estimated under
         // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
         // needed the fetch. createSelectStatement keeps the RID FROM when pins sit inside the
-        // class (same path as before); out-of-class pins become zero rows (YTDB-1672).
+        // class (same path as before); out-of-class pins become zero rows.
         var select =
             createSelectStatement(
                 clazz, pinnedRids, where == null ? null : where.copy(), null, context);
@@ -6833,11 +6833,10 @@ public class MatchExecutionPlanner {
    * class. Used as the initial record source for {@link MatchFirstStep} and
    * {@link MatchPrefetchStep}.
    *
-   * <p>When the alias has pinned RIDs and a class, membership is one check
-   * (YTDB-1672): inside the class (or a subclass) → same RID FROM as before;
-   * outside the class → empty RID FROM (zero rows). Unresolvable pins keep the
-   * RID FROM (same as before that edge case). No class → RID FROM. No RIDs →
-   * class scan.
+   * <p>When the alias has pinned RIDs and a class, membership is one check:
+   * inside the class (or a subclass) → same RID FROM as before; outside the
+   * class → empty RID FROM (zero rows). Unresolvable pins keep the RID FROM
+   * (same as before that edge case). No class → RID FROM. No RIDs → class scan.
    */
   private static SQLSelectStatement createSelectStatement(
       @Nullable String targetClass,
@@ -6951,9 +6950,9 @@ public class MatchExecutionPlanner {
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
     // The promotion also feeds createSelectStatement()'s RID list. In-class pins keep the RID
-    // FROM; out-of-class pins become zero rows (YTDB-1672). aliasClasses is still passed in: the
-    // promoter declines pins that are not provably inside the class so estimateRootEntries and
-    // schedule cost stay honest (see pinnedRidsProvablyInClass).
+    // FROM; out-of-class pins become zero rows. aliasClasses is still passed in: the promoter
+    // declines pins that are not provably inside the class so estimateRootEntries and schedule
+    // cost stay honest (see pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
@@ -7118,7 +7117,7 @@ public class MatchExecutionPlanner {
    * A translated {@code g.V(rid).hasLabel(L)} under polymorphic mode is the sharp case:
    * {@code HasStepRecogniser} re-types the boundary node to {@code L} with no {@code @class}
    * conjunct, so a wrong pin would also skew the schedule. Fetch correctness for class-plus-RID
-   * is enforced in {@link #createSelectStatement} (YTDB-1672).
+   * is enforced in {@link #createSelectStatement}.
    *
    * <p>Proof is by collection ownership, the same zero-I/O route
    * {@code MatchEdgeTraverser.matchesClass} takes: a RID's collection is owned by at most one

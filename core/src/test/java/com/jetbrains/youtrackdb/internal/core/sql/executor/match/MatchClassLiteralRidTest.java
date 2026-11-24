@@ -10,9 +10,9 @@ import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import org.junit.Test;
 
 /**
- * Regression for YTDB-1672: a MATCH node with both {@code class:} and a literal
- * {@code rid:} must treat them as a conjunction. A RID from an unrelated class
- * yields no rows; a RID from a subclass still matches a superclass alias.
+ * A MATCH node with both {@code class:} and a literal {@code rid:} must treat them as a
+ * conjunction. A RID from an unrelated class yields no rows; a RID from a subclass still matches a
+ * superclass alias.
  */
 public class MatchClassLiteralRidTest extends DbTestBase {
 
