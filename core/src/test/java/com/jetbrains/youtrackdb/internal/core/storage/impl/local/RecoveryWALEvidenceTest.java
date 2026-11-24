@@ -121,6 +121,35 @@ public class RecoveryWALEvidenceTest {
     }
   }
 
+  /**
+   * The later deletion position wins across overlapping units, whether its unit ends first or
+   * last. Closing and reopening the disk WAL makes both end orders part of the retained evidence.
+   */
+  @Test
+  public void laterDeletionPositionWinsRegardlessOfUnitEndOrder() throws Exception {
+    for (boolean latestEndsLast : new boolean[] {false, true}) {
+      walPath = folder.newFolder().toPath();
+      LogSequenceNumber start;
+      LogSequenceNumber latest;
+      LogSequenceNumber finish;
+      try (var wal = open()) {
+        start = wal.log(new AtomicUnitStartRecord(false, 1));
+        begin(wal, 2);
+        var earlier = wal.log(new FileDeletedWALRecord(2, 11));
+        latest = wal.log(new FileDeletedWALRecord(1, 11));
+        assertTrue(earlier.compareTo(latest) < 0);
+        end(wal, latestEndsLast ? 2 : 1);
+        finish = end(wal, latestEndsLast ? 1 : 2);
+      }
+      try (var wal = open()) {
+        var evidence = collect(wal, start);
+        assertEquals("latest deletion unit ends last: " + latestEndsLast,
+            Map.of(11, latest), evidence.deletions());
+        assertEquals(finish, evidence.readableEnd());
+      }
+    }
+  }
+
   /** A missing leading start disqualifies allocation, not committed deletion. */
   @Test
   public void partialLeadingUnitsExcludeUnavailableAllocationEvidence() throws Exception {
