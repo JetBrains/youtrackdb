@@ -1,19 +1,19 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 /**
- * Typed key for the shared snapshot index. Replaces {@code CompositeKey(collectionPosition,
- * recordVersion)} with a type-safe, primitive-based record that supports efficient {@code
- * Comparable} ordering for use in {@code ConcurrentSkipListMap}.
+ * Typed key for the shared snapshot index. Identifies a record version by its storage collection
+ * id and position. Supports efficient {@code Comparable} ordering for use in {@code
+ * ConcurrentSkipListMap}.
  *
- * <p>Natural ordering: {@code componentId}, then {@code collectionPosition}, then {@code
+ * <p>Natural ordering: {@code collectionId}, then {@code collectionPosition}, then {@code
  * recordVersion} (all ascending).
  */
-public record SnapshotKey(int componentId, long collectionPosition, long recordVersion)
+public record SnapshotKey(int collectionId, long collectionPosition, long recordVersion)
     implements Comparable<SnapshotKey> {
 
   @Override
   public int compareTo(SnapshotKey other) {
-    int cmp = Integer.compare(componentId, other.componentId);
+    int cmp = Integer.compare(collectionId, other.collectionId);
     if (cmp != 0) {
       return cmp;
     }

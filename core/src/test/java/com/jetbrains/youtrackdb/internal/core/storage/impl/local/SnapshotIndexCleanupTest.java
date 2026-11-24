@@ -160,11 +160,11 @@ public class SnapshotIndexCleanupTest {
     assertThat(visibilityIndex).hasSize(1);
   }
 
-  // --- evictStaleSnapshotEntries: multi-component ---
+  // --- evictStaleSnapshotEntries: multi-collection ---
 
   @Test
-  public void testEvictAcrossMultipleComponents() {
-    // Entries from different componentIds, all below lwm
+  public void testEvictAcrossMultipleCollections() {
+    // Entries from different collectionIds, all below lwm
     var sk1 = new SnapshotKey(1, 100L, 5L);
     var sk2 = new SnapshotKey(2, 200L, 8L);
     var sk3 = new SnapshotKey(3, 300L, 12L);
@@ -743,11 +743,11 @@ public class SnapshotIndexCleanupTest {
     assertThat(visibilityIndex).isEmpty();
   }
 
-  // --- Same recordTs, different components ---
+  // --- Same recordTs, different collections ---
 
   @Test
-  public void testEvictWithSameRecordTsDifferentComponents() {
-    // Multiple entries with identical recordTs but different componentId/position.
+  public void testEvictWithSameRecordTsDifferentCollections() {
+    // Multiple entries with identical recordTs but different collectionId/position.
     // All entries at recordTs=10 (below lwm=20) should be evicted; entry at
     // recordTs=20 (at lwm) should be preserved.
     var sk1 = new SnapshotKey(1, 100L, 5L);
@@ -892,7 +892,7 @@ public class SnapshotIndexCleanupTest {
   @Test
   public void testEvictWithNullCollectionsEvictsMultipleEntries() {
     // Tests the 5-parameter static method with null collections list and multiple
-    // entries across different components. Eviction should proceed normally and
+    // entries across different collections. Eviction should proceed normally and
     // decrement the size counter, but skip dead record counting.
     var sk1 = new SnapshotKey(1, 100L, 5L);
     var sk2 = new SnapshotKey(2, 200L, 8L);
@@ -910,8 +910,8 @@ public class SnapshotIndexCleanupTest {
   }
 
   @Test
-  public void testEvictWithOutOfBoundsComponentIdDoesNotFail() {
-    // Snapshot entry with componentId larger than collections list size.
+  public void testEvictWithOutOfBoundsCollectionIdDoesNotFail() {
+    // Snapshot entry with collectionId larger than collections list size.
     // Should be evicted normally without dead record counting.
     var sk = new SnapshotKey(999, 100L, 5L);
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
@@ -927,8 +927,8 @@ public class SnapshotIndexCleanupTest {
   }
 
   @Test
-  public void testEvictWithNegativeComponentIdDoesNotFail() {
-    // Snapshot entry with negative componentId. Should be evicted without counting.
+  public void testEvictWithNegativeCollectionIdDoesNotFail() {
+    // Snapshot entry with negative collectionId. Should be evicted without counting.
     var sk = new SnapshotKey(-1, 100L, 5L);
     snapshotIndex.put(sk, new PositionEntry(1L, 0, 5L));
     visibilityIndex.put(new VisibilityKey(10L, -1, 100L), sk);
@@ -1098,7 +1098,7 @@ public class SnapshotIndexCleanupTest {
       }
       collections.set(targetId, targetCollection);
 
-      // Create snapshot + visibility entries with componentId matching the collection
+      // Create snapshot + visibility entries with collectionId matching the collection
       var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
       var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
 
@@ -1218,14 +1218,14 @@ public class SnapshotIndexCleanupTest {
     assertThat(sizeCounter.get()).isEqualTo(0);
   }
 
-  // --- Boundary: componentId == 0 ---
+  // --- Boundary: collectionId == 0 ---
 
   // Exercises the boundary condition at AbstractStorage line 5595: `id >= 0 && id < size`.
-  // The mutant changes `>=` to `>`, which would skip componentId=0. This test places a
+  // The mutant changes `>=` to `>`, which would skip collectionId=0. This test places a
   // PaginatedCollectionV2 at index 0 in the collections list and verifies its dead record
-  // counter is incremented when an entry with componentId=0 is evicted.
+  // counter is incremented when an entry with collectionId=0 is evicted.
   @Test
-  public void testEvictIncrementsCounterForComponentIdZero() {
+  public void testEvictIncrementsCounterForCollectionIdZero() {
     YouTrackDBImpl youTrackDB = null;
     try {
       youTrackDB = DbTestBase.createYTDBManagerAndDb(
@@ -1255,14 +1255,14 @@ public class SnapshotIndexCleanupTest {
       assertThat(targetCollection).isNotNull();
 
       // Place the collection at index 0, regardless of its real ID.
-      // The snapshot entry uses componentId=0 to match this position.
+      // The snapshot entry uses collectionId=0 to match this position.
       List<StorageCollection> collections = new CopyOnWriteArrayList<>();
       collections.add(targetCollection); // index 0
 
       var localSnapshot = new ConcurrentSkipListMap<SnapshotKey, PositionEntry>();
       var localVisibility = new ConcurrentSkipListMap<VisibilityKey, SnapshotKey>();
 
-      // componentId = 0 targets the collection at index 0
+      // collectionId = 0 targets the collection at index 0
       var sk = new SnapshotKey(0, 100L, 5L);
       localSnapshot.put(sk, new PositionEntry(1L, 0, 5L));
       localVisibility.put(new VisibilityKey(10L, 0, 100L), sk);
@@ -1277,7 +1277,7 @@ public class SnapshotIndexCleanupTest {
       assertThat(sizeCounter.get()).isEqualTo(0);
       // With `id >= 0`: counter is incremented. With `id > 0` (mutant): skipped.
       assertThat(targetCollection.getDeadRecordCount())
-          .as("dead record counter must be incremented for componentId=0")
+          .as("dead record counter must be incremented for collectionId=0")
           .isEqualTo(countBefore + 1);
 
       session.close();

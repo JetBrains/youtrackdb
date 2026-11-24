@@ -1409,14 +1409,14 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   @Test
   public void layoutAdmissionUsesExactSupportedSet() throws IOException {
     var uuid = UUID.randomUUID();
-    for (var layout : new int[] {10, 24, 25, 26, 27, 28}) {
+    for (var layout : new int[] {10, 24, 25, 26, 27, 28, 29}) {
       for (var version : new int[] {3, 4, 5}) {
         for (var validHash : new boolean[] {true, false}) {
           var unit = backupUnitWithHeader(uuid, 1, version,
               BackupUnitFiles.supportedFeatureFormat(), layout,
               BackupUnitFiles.COMPLETED_CREATION_EVIDENCE, validHash);
           var result = inspect(unit, unitFileName(uuid, 1), uuid);
-          var supported = layout == 27;
+          var supported = layout == 27 || layout == 28;
           var expected = !supported ? DiskStorage.BackupUnitClassification.UNCLASSIFIABLE
               : validHash ? DiskStorage.BackupUnitClassification.SUPPORTED
                   : DiskStorage.BackupUnitClassification.RECOGNIZED_INCOMPLETE;
@@ -1491,29 +1491,36 @@ public class DiskStorageValidateFileAndFetchBackupMetadataTest {
   }
 
   /**
-   * A header of unsupported storage layout 27 is rejected.
+   * Old and future layouts retain actionable guidance in full and header-only admission.
    *
-   * <p>The scenario writes an otherwise valid header whose storage layout version is outside the
-   * supported set. The expected outcome has two parts. The validation rejects the
-   * unit. The classification refuses every automatic removal of the unit.
+   * <p>Integrity-valid units for layouts 25, 26 and 29 remain unclassifiable and cannot authorize
+   * automatic removal. Old layouts direct export/import. Future layouts direct a newer version.
    */
   @Test
   public void storageLayoutMismatchIsUnclassifiable() throws IOException {
     final var uuid = UUID.randomUUID();
-    final var identity = DiskStorage.supportedBackupSemanticIdentity(
-        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_27);
-    final var unit =
-        backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
-            identity.featureFormatVersion(), 28,
-            identity.creationEvidence(), true);
+    final var identity = DiskStorage.supportedBackupSemanticIdentity(StorageFormat.LAYOUT_27);
+    for (var layout : new int[] {25, 26, 29}) {
+      final var unit =
+          backupUnitWithHeader(uuid, 1, DiskStorage.CURRENT_BACKUP_FORMAT_VERSION,
+              identity.featureFormatVersion(), layout, identity.creationEvidence(), true);
 
-    final var inspection = inspect(unit, unitFileName(uuid, 1), uuid);
-
-    Assert.assertNull("a foreign layout version must reject the unit", inspection.metadata());
-    Assert.assertEquals(
-        "a foreign layout version must stay unclassifiable",
-        DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
-        inspection.classification());
+      for (var inspection : new DiskStorage.BackupUnitInspection[] {
+          inspect(unit, unitFileName(uuid, 1), uuid),
+          inspectHeader(unit, unitFileName(uuid, 1), uuid)}) {
+        Assert.assertNull("a foreign layout version must reject the unit", inspection.metadata());
+        Assert.assertEquals(
+            "a foreign layout version must stay unclassifiable",
+            DiskStorage.BackupUnitClassification.UNCLASSIFIABLE,
+            inspection.classification());
+        var guidance = layout == 29
+            ? "A newer YouTrackDB version created this database. Open it with that version."
+            : "Export the database with the older YouTrackDB version."
+                + " Import that export with the new YouTrackDB version.";
+        Assert.assertEquals("Unsupported storage layout version: " + layout + ". " + guidance,
+            inspection.detail());
+      }
+    }
   }
 
   /**

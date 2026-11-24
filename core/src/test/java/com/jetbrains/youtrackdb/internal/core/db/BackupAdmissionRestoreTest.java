@@ -347,16 +347,16 @@ public class BackupAdmissionRestoreTest {
   }
 
   /**
-   * One path restore refuses a chain of unsupported storage layout 28.
+   * One path restore refuses a chain of unsupported storage layout 29.
    *
    * <p>A storage layout version names the on-disk layout of one database. The expected outcome has
-   * two parts. The restore names the foreign layout version. No database and no directory of the
-   * target name exist.
+   * two parts. The restore names the foreign layout version and gives newer-version guidance.
+   * No database and no directory of the target name exist.
    */
   @Test
   public void pathRestoreRefusesAnIncompatibleStorageLayoutChain() throws Exception {
     writeSyntheticUnit(0, true, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
-        BackupUnitFiles.supportedFeatureFormat(), 28,
+        BackupUnitFiles.supportedFeatureFormat(), 29,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
 
     try (var youTrackDB = openManager()) {
@@ -368,8 +368,39 @@ public class BackupAdmissionRestoreTest {
 
       assertTrue(
           "the refusal must name the foreign layout version, saw: " + refusal.getMessage(),
-          refusal.getMessage().contains("storage layout version"));
+          refusal.getMessage().contains("storage layout version: 29"));
+      assertTrue(refusal.getMessage(), refusal.getMessage().contains(
+          "A newer YouTrackDB version created this database. Open it with that version."));
       assertNoTargetExists(youTrackDB);
+    }
+  }
+
+  /** Old-layout units give export/import guidance, keep their bytes and create no target. */
+  @Test
+  public void oldLayoutBackupAdmissionLeavesSourceUnchanged() throws Exception {
+    for (var layout : new int[] {25, 26}) {
+      writeSyntheticUnit(0, true, BackupUnitFiles.CURRENT_BACKUP_FORMAT_VERSION,
+          BackupUnitFiles.supportedFeatureFormat(), layout,
+          BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+      try (var units = Files.list(syntheticBackupPath)) {
+        var paths = units.toList();
+        assertEquals(1, paths.size());
+        var path = paths.getFirst();
+        var before = Files.readAllBytes(path);
+        try (var youTrackDB = openManager()) {
+          var refusal = assertThrows(UnsupportedBackupException.class,
+              () -> internalOf(youTrackDB)
+                  .restore(TARGET, syntheticBackupPath.toString(), null, null));
+          assertTrue(refusal.getMessage(), refusal.getMessage().contains(
+              "Unsupported storage layout version: " + layout));
+          assertTrue(refusal.getMessage(), refusal.getMessage().contains(
+              "Export the database with the older YouTrackDB version."
+                  + " Import that export with the new YouTrackDB version."));
+          assertNoTargetExists(youTrackDB);
+          org.junit.Assert.assertArrayEquals(before, Files.readAllBytes(path));
+        }
+        Files.delete(path);
+      }
     }
   }
 
@@ -1926,37 +1957,41 @@ public class BackupAdmissionRestoreTest {
     }
   }
 
-  /** Mixed layouts refuse before manager target birth. Homogeneous layout 27 prepares normally. */
+  /** Mixed layouts refuse before manager target birth. Homogeneous layout 28 prepares normally. */
   @Test
   public void preparationRequiresOneLayoutBeforeTargetBirth() throws Exception {
-    for (var firstLayout : new int[] {25, 26}) {
+    for (var firstLayout : new int[] {25, 26, 27, 28}) {
       var full = writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(),
           firstLayout, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
       var increment = writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(),
-          27, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
+          firstLayout == 27 ? 28 : 27, BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
       try (var manager = openManager()) {
         var refusal = assertThrows(UnsupportedBackupException.class,
             () -> internalOf(manager).restore(TARGET, syntheticBackupPath.toString(), null, null));
-        try {
-          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
-              .resolve(firstLayout);
-          fail("an old layout must refuse");
-        } catch (IllegalArgumentException classification) {
-          assertTrue(refusal.getMessage().contains(classification.getMessage()));
+        if (firstLayout == 27 || firstLayout == 28) {
+          assertTrue(refusal.getMessage().contains("different storage layout versions"));
+        } else {
+          try {
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat
+                .resolve(firstLayout);
+            fail("an old layout must refuse");
+          } catch (IllegalArgumentException classification) {
+            assertTrue(refusal.getMessage().contains(classification.getMessage()));
+          }
         }
         assertNoTargetExists(manager);
       }
       Files.delete(syntheticBackupPath.resolve(full));
       Files.delete(syntheticBackupPath.resolve(increment));
     }
-    writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(), 27,
+    writeSyntheticUnit(0, true, 5, BackupUnitFiles.supportedFeatureFormat(), 28,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
-    writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 27,
+    writeSyntheticUnit(1, false, 5, BackupUnitFiles.supportedFeatureFormat(), 28,
         BackupUnitFiles.COMPLETED_CREATION_EVIDENCE);
     try (var prepared = com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage
         .prepareBackupChain(TARGET, syntheticBackupPath, syntheticDatabaseId.toString())) {
       try (var copies = Files.list(prepared.temporaryDirectory())) {
-        assertEquals("both layout-27 units must reach prepared copies", 2, copies.count());
+        assertEquals("both layout-28 units must reach prepared copies", 2, copies.count());
       }
     }
   }
