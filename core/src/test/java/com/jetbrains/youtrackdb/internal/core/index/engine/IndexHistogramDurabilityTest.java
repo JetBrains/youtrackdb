@@ -23,12 +23,21 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
@@ -38,16 +47,28 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -57,6 +78,7 @@ import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
+import java.util.stream.Stream;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Before;
@@ -626,6 +648,83 @@ public class IndexHistogramDurabilityTest {
     }
   }
 
+  @Test
+  public void analyzeKeepsFittedHistogramWhenWriteAdmissionFails() throws Exception {
+    var dbName = "analyzeAdmissionFailure";
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL, Integer.MAX_VALUE)
+        .build();
+    ytdb.create(dbName, DatabaseType.DISK, config, ADMIN, ADMIN_PWD, "admin");
+    try (var session = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      createSchemaAndData(session, 2);
+      var storage = (DiskStorage) session.getStorage();
+      var manager = getHistogramManager(session, "TestClassvalIdx");
+      manager.setBackgroundExecutor(null);
+      storage.synch();
+      assertNull(manager.getHistogram());
+      assertEquals(0, manager.getDirtyMutations());
+      var beforeVersion = manager.getSnapshot().version();
+      assertEquals(0, storage.readStartupMetadataForTesting()[12]);
+
+      var failedWrite = new IOException("analyze indication rejected");
+      storage.failNextRecoveryIndicationForTesting(failedWrite);
+      var logged = new AtomicBoolean();
+      var handler = new Handler() {
+        @Override
+        public void publish(LogRecord record) {
+          if (record.getLevel().intValue() >= Level.SEVERE.intValue()
+              && record.getMessage().startsWith("Failed to persist rebalanced histogram")) {
+            for (var cause = record.getThrown(); cause != null; cause = cause.getCause()) {
+              if (cause == failedWrite) {
+                logged.set(true);
+              }
+            }
+          }
+        }
+
+        @Override
+        public void flush() {
+        }
+
+        @Override
+        public void close() {
+        }
+      };
+      var logger = Logger.getLogger("");
+      int buckets;
+      var publishedUnderLock = new AtomicBoolean();
+      manager.setPrePublicationTestHook(() -> publishedUnderLock.set(manager.isExclusiveOwner()));
+      logger.addHandler(handler);
+      try (var result = session.execute("ANALYZE INDEX TestClassvalIdx")) {
+        assertTrue(result.hasNext());
+        buckets = ((Number) result.next().getProperty("bucketCount")).intValue();
+      } finally {
+        logger.removeHandler(handler);
+        manager.setPrePublicationTestHook(null);
+      }
+
+      assertTrue("ANALYZE must report the fitted histogram", buckets > 0);
+      assertTrue("The fallback must publish under the manager lock", publishedUnderLock.get());
+      assertTrue("The admission failure must be logged at ERROR", logged.get());
+      assertEquals(1, manager.getDirtyMutations());
+      assertEquals(beforeVersion + 1, manager.getSnapshot().version());
+      assertEquals(buckets, manager.getHistogram().bucketCount());
+      assertEquals("Failure fallback must not write", 0,
+          storage.readStartupMetadataForTesting()[12]);
+
+      manager.flushIfDirtyOrFail();
+      assertEquals(0, manager.getDirtyMutations());
+    }
+
+    ytdb.internal.forceDatabaseClose(dbName);
+    try (var session = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      var histogram = getHistogramManager(session, "TestClassvalIdx").getHistogram();
+      assertNotNull("The dirty retry must store the fitted histogram", histogram);
+      assertEquals(2, histogram.nonNullCount());
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   //  Helpers
   // ═══════════════════════════════════════════════════════════════
@@ -653,6 +752,193 @@ public class IndexHistogramDurabilityTest {
   @Test
   public void dropOfNullOnlyIndexWaitsForSameIndexCommit() throws Exception {
     overlap("dropNullOnly", false, false, true, true);
+  }
+
+  @Test
+  public void buildWaitsForWriteAdmissionWhileCheckpointDrainsCommitWaitingForStatistics()
+      throws Exception {
+    var dbName = "buildAdmission";
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL, Integer.MAX_VALUE)
+        .build();
+    ytdb.create(dbName, DatabaseType.DISK, config, ADMIN, ADMIN_PWD, "admin");
+    DiskStorage storage;
+    BTreeMultiValueIndexEngine engine;
+    try (var session = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      createSchemaAndData(session, 2);
+      storage = (DiskStorage) session.getStorage();
+      engine = (BTreeMultiValueIndexEngine) IndexEngineTestSupport.engine(session,
+          "TestClassvalIdx");
+    }
+    var ops = storage.getAtomicOperationsManager();
+    var manager = engine.getHistogramManager();
+    manager.setBackgroundExecutor(null);
+    manager.flushIfDirtyOrFail();
+    var held = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var frozen = new CountDownLatch(1);
+    var scanClosed = new CountDownLatch(1);
+    var finishScan = new CountDownLatch(1);
+    var publishedUnderLock = new AtomicBoolean();
+    var commitThread = new AtomicReference<Thread>();
+    var buildThread = new AtomicReference<Thread>();
+    try {
+      // Close the tree stream before the commit takes the tree locks.
+      manager.setKeyStreamSupplier(op -> engine.rawKeyStreamForHistogram(op).onClose(() -> {
+        scanClosed.countDown();
+        await(finishScan, 45);
+      }));
+      manager.setPrePublicationTestHook(() -> {
+        if (Thread.currentThread() == commitThread.get()) {
+          manager.setDirtyMutationsForTest(
+              GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger());
+        } else if (Thread.currentThread() == buildThread.get()) {
+          publishedUnderLock.set(manager.isExclusiveOwner());
+        }
+      });
+      var build = start("build", () -> {
+        buildThread.set(Thread.currentThread());
+        assertNotNull(manager.analyzeIndex());
+        return null;
+      });
+      await(scanClosed);
+      var holder = start("statistics holder", () -> {
+        ops.executeInsideAtomicOperation(op -> {
+          ops.acquireExclusiveLockTillOperationComplete(op, manager);
+          assertTrue(manager.isExclusiveOwner());
+          held.countDown();
+          await(release, 45);
+        });
+        return null;
+      });
+      await(held);
+      var commit = start("commit", () -> commitOne(dbName, commitThread, false, null));
+      awaitStack(commit, "applyHistogramDeltas", "StorageComponent.lockExclusive",
+          "LockSupport.park");
+      assertEquals(0L, manager.getDirtyMutations());
+      var beforeBuild = manager.getSnapshot();
+      assertNotNull(beforeBuild);
+
+      ops.setFreezeRegisteredActionForTesting(frozen::countDown);
+      var checkpoint = start("checkpoint", () -> {
+        storage.synch();
+        return null;
+      });
+      await(frozen);
+      awaitStack(checkpoint, "doSynch", "OperationsFreezer.freezeOperations", "Thread.yield");
+
+      finishScan.countDown();
+      awaitStack(build, "doRebalance", "OperationsFreezer.startOperation", "LockSupport.park");
+      assertSame("A build parked for admission must not publish", beforeBuild,
+          manager.getSnapshot());
+      awaitStack(holder, "executeInsideAtomicOperation", "CountDownLatch.await",
+          "LockSupport.park");
+
+      release.countDown();
+      holder.result().get(10, TimeUnit.SECONDS);
+      commit.result().get(10, TimeUnit.SECONDS);
+      checkpoint.result().get(10, TimeUnit.SECONDS);
+      build.result().get(10, TimeUnit.SECONDS);
+      assertTrue("The build must hold the manager lock at publication", publishedUnderLock.get());
+      assertEquals(beforeBuild.version() + 1, manager.getSnapshot().version());
+      storage.checkErrorState();
+    } finally {
+      finishScan.countDown();
+      release.countDown();
+      manager.setPrePublicationTestHook(null);
+      manager.setKeyStreamSupplier(engine::rawKeyStreamForHistogram);
+      ops.clearTestActions();
+    }
+  }
+
+  @Test
+  public void standaloneBuildKeepsStatisticsLockUntilItsWriteCommits() throws Exception {
+    var storage = mock(AbstractStorage.class);
+    when(storage.getIdGen()).thenReturn(new AtomicOperationIdGen());
+    var wal = mock(WriteAheadLog.class);
+    // Exercise real admission, lock registration and operation completion.
+    // Stub the page write and commit steps to pause without disk I/O.
+    when(storage.getWALInstance()).thenReturn(wal);
+    var table = mock(AtomicOperationsTable.class);
+    var ops = spy(new AtomicOperationsManager(storage, table));
+    when(storage.getAtomicOperationsManager()).thenReturn(ops);
+
+    var write = mock(AtomicOperation.class);
+    when(write.getCommitTs()).thenReturn(1L);
+    var lockedComponents = new ArrayList<StorageComponent>();
+    when(write.lockedComponents()).thenReturn(lockedComponents);
+    doAnswer(invocation -> {
+      lockedComponents.add(invocation.getArgument(0));
+      return null;
+    }).when(write).addLockedComponent(any());
+    doReturn(mock(AtomicOperation.class), write).when(ops).startAtomicOperation();
+
+    var page = mock(CacheEntry.class);
+    var pointer = mock(CachePointer.class);
+    when(pointer.getBuffer()).thenReturn(
+        ByteBuffer.allocateDirect(DurablePage.MAX_PAGE_SIZE_BYTES).order(ByteOrder.nativeOrder()));
+    when(page.getCachePointer()).thenReturn(pointer);
+    when(write.loadPageForWrite(42L, 0L, 1, true)).thenReturn(page);
+
+    var serializer = IntegerSerializer.INSTANCE;
+    var cache = new ConcurrentHashMap<Integer, HistogramSnapshot>();
+    cache.put(0, new HistogramSnapshot(new IndexStatistics(2, 2, 0),
+        null, 0, 2, 0, false, null, false));
+    var manager = new IndexHistogramManager(storage, "build-lock-lifetime", 0, true, cache,
+        serializer,
+        BinarySerializerFactory.create(BinarySerializerFactory.currentBinaryFormatVersion()),
+        serializer.getId());
+    manager.setFileIdForTest(42L);
+    manager.setKeyStreamSupplier(op -> Stream.of(1, 2));
+
+    var committing = new CountDownLatch(1);
+    var finishCommit = new CountDownLatch(1);
+    var recorded = new CountDownLatch(1);
+    var finishRecording = new CountDownLatch(1);
+    var committed = new AtomicBoolean();
+    // Pause after the component callback and again at the end of the commit.
+    when(write.commitChanges(1L, wal)).thenAnswer(invocation -> {
+      committing.countDown();
+      await(finishCommit, 45);
+      return null;
+    });
+    doAnswer(invocation -> {
+      recorded.countDown();
+      await(finishRecording, 45);
+      committed.set(true);
+      return null;
+    }).when(table).commitOperation(1L);
+
+    try {
+      var build = start("build committing statistics", () -> {
+        assertNotNull(manager.analyzeIndex());
+        return null;
+      });
+      await(committing);
+      assertNotNull(manager.getSnapshot().histogram());
+      var contender = start("statistics lock contender", () -> {
+        manager.lockExclusive();
+        try {
+          assertTrue("The contender must acquire the lock after the commit", committed.get());
+        } finally {
+          manager.unlockExclusive();
+        }
+        return null;
+      });
+      awaitStack(contender, "StorageComponent.lockExclusive", "ReentrantReadWriteLock",
+          "LockSupport.park");
+      finishCommit.countDown();
+      await(recorded);
+      awaitStack(contender, "StorageComponent.lockExclusive", "ReentrantReadWriteLock",
+          "LockSupport.park");
+      finishRecording.countDown();
+      build.result().get(10, TimeUnit.SECONDS);
+      contender.result().get(10, TimeUnit.SECONDS);
+    } finally {
+      finishCommit.countDown();
+      finishRecording.countDown();
+    }
   }
 
   private void overlap(String dbName, boolean fill, boolean checkpoint, boolean nullOnly,
@@ -844,8 +1130,12 @@ public class IndexHistogramDurabilityTest {
   }
 
   private static void await(CountDownLatch latch) {
+    await(latch, 10);
+  }
+
+  private static void await(CountDownLatch latch, long seconds) {
     try {
-      assertTrue("Timed out waiting for test stage", latch.await(10, TimeUnit.SECONDS));
+      assertTrue("Timed out waiting for test stage", latch.await(seconds, TimeUnit.SECONDS));
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new AssertionError(e);

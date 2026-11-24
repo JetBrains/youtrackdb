@@ -5,19 +5,30 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -747,12 +758,39 @@ public class RebalanceTriggerTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    var atomicOps = mockRebalanceOperations();
     when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;
+  }
+
+  static AtomicOperationsManager mockRebalanceOperations() {
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+
+    // A standalone build publishes and writes inside the callbacks. Give its
+    // write operation a page buffer so both steps can run without disk I/O.
+    var writeOp = mock(AtomicOperation.class);
+    var page = mock(CacheEntry.class);
+    var pointer = mock(CachePointer.class);
+    when(pointer.getBuffer()).thenReturn(
+        ByteBuffer.allocateDirect(DurablePage.MAX_PAGE_SIZE_BYTES).order(ByteOrder.nativeOrder()));
+    when(page.getCachePointer()).thenReturn(pointer);
+    try {
+      when(writeOp.loadPageForWrite(anyLong(), eq(0L), eq(1), eq(true))).thenReturn(page);
+      doAnswer(invocation -> invocation.<TxFunction<?>>getArgument(0).accept(writeOp))
+          .when(atomicOps).calculateInsideAtomicOperation(any());
+    } catch (IOException e) {
+      throw new AssertionError("Could not configure the write operation", e);
+    }
+    doAnswer(invocation -> {
+      AtomicOperation operation = invocation.getArgument(0);
+      var result = invocation.<TxFunction<?>>getArgument(2).accept(operation);
+      operation.flushPendingOperations();
+      return result;
+    }).when(atomicOps).calculateInsideComponentOperation(any(), any(), any());
+    return atomicOps;
   }
 
   private static void setFileId(

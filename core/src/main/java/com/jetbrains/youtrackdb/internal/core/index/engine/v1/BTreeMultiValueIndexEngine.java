@@ -708,7 +708,10 @@ public final class BTreeMultiValueIndexEngine
 
     // Finish all reads before locking the trees ahead of the statistics manager.
     acquireAtomicExclusiveLock(atomicOperation);
-    long scannedNonNull = mgr.publishHistogramAfterFill(atomicOperation, prepared);
+    if (!mgr.publishHistogramAfterFill(atomicOperation, prepared)) {
+      return;
+    }
+    long scannedNonNull = prepared.nonNullCount();
 
     // Recalibrate from exact counts using mixed-mode encoding.
     //

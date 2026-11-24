@@ -16,9 +16,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -28,8 +30,15 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.Test;
@@ -59,7 +68,7 @@ public class BTreeEngineHistogramBuildTest {
     when(f.sbTree.firstKey(f.op)).thenReturn(key);
     when(f.sbTree.iterateEntriesMajor(key, true, true, f.op)).thenAnswer(
         inv -> Stream.of(new RawPair<>(key, new RecordId(2, 1))).onClose(mainClosed));
-    var prepared = prepareByScanning(f.manager);
+    var prepared = prepareByScanning(f.manager, f.op);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -92,7 +101,7 @@ public class BTreeEngineHistogramBuildTest {
     when(f.nullTree.firstKey(f.op)).thenReturn(nullKey);
     when(f.nullTree.iterateEntriesMajor(nullKey, true, true, f.op)).thenAnswer(
         inv -> Stream.of(new RawPair<>(nullKey, rid)).onClose(nullClosed));
-    var prepared = prepareByScanning(f.manager);
+    var prepared = prepareByScanning(f.manager, f.op);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -113,13 +122,166 @@ public class BTreeEngineHistogramBuildTest {
     verifyNoMoreInteractions(f.svTree, f.nullTree, f.manager, mainClosed, nullClosed);
   }
 
+  @Test
+  public void singleValue_declinedFillWritesNeitherPageNorCountAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.setHistogramManager(detachedManager(f.storage, true));
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.sbTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void multiValue_declinedFillWritesNeitherPageNorCountsAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.setHistogramManager(detachedManager(f.storage, false));
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void singleValue_acceptedNegativeNonNullCountStillWritesCountAndCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.setHistogramManager(fillManager(f.storage, true));
+    stubStatisticsPage(f.op);
+    when(f.sbTree.getVisible(any(), any(), eq(f.op))).thenAnswer(inv -> {
+      // A null insert commits after the total sample and before the exact null lookup.
+      f.engine.addToApproximateEntriesCount(1);
+      f.engine.addToApproximateNullCount(1);
+      return new RecordId(1, 1);
+    });
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.op).loadPageForWrite(42L, 0L, 1, true);
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-1, delta.getInMemAdjustTotal());
+    assertEquals(0, delta.getInMemAdjustNull());
+  }
+
+  @Test
+  public void multiValue_acceptedNegativeNonNullCountStillWritesCountsAndCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.setHistogramManager(fillManager(f.storage, false));
+    stubStatisticsPage(f.op);
+    // Feed the scan samples from opposite sides of a null insertion.
+    f.engine.addToApproximateNullCount(1);
+    when(f.svTree.firstKey(f.op)).thenAnswer(inv -> {
+      f.engine.addToApproximateEntriesCount(1);
+      return null;
+    });
+    var rid = new RecordId(1, 1);
+    var nullKey = new CompositeKey(rid, 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullKey);
+    when(f.nullTree.iterateEntriesMajor(nullKey, true, true, f.op))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(nullKey, rid)));
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.op).loadPageForWrite(42L, 0L, 1, true);
+    // The mock tree observes the negative count that the real tree assertion rejects.
+    verify(f.svTree).setApproximateEntriesCount(f.op, -1L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-1, delta.getInMemAdjustTotal());
+    assertEquals(0, delta.getInMemAdjustNull());
+  }
+
+  @Test
+  public void singleValue_detachAtPublicationWritesNeitherPageNorCountAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    var manager = fillManager(f.storage, true);
+    var publication = detachAtPublication(manager);
+    f.engine.setHistogramManager(manager);
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(publication).run();
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void multiValue_detachAtPublicationWritesNeitherPageNorCountsAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    var manager = fillManager(f.storage, false);
+    var publication = detachAtPublication(manager);
+    f.engine.setHistogramManager(manager);
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(publication).run();
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  private static Runnable detachAtPublication(IndexHistogramManager manager) {
+    var hook = mock(Runnable.class);
+    doAnswer(inv -> {
+      manager.detach();
+      return null;
+    }).when(hook).run();
+    BTreeEngineTestFixtures.injectField(manager, "prePublicationTestHook", hook);
+    return hook;
+  }
+
+  private static void stubStatisticsPage(AtomicOperation op) throws IOException {
+    var page = mock(CacheEntry.class);
+    var pointer = mock(CachePointer.class);
+    when(pointer.getBuffer()).thenReturn(
+        ByteBuffer.allocateDirect(DurablePage.MAX_PAGE_SIZE_BYTES).order(ByteOrder.nativeOrder()));
+    when(page.getCachePointer()).thenReturn(pointer);
+    when(op.loadPageForWrite(42L, 0L, 1, true)).thenReturn(page);
+  }
+
+  private static IndexHistogramManager detachedManager(AbstractStorage storage,
+      boolean singleValue) {
+    var manager = fillManager(storage, singleValue);
+    manager.detach();
+    return manager;
+  }
+
+  private static IndexHistogramManager fillManager(AbstractStorage storage, boolean singleValue) {
+    var serializer = IntegerSerializer.INSTANCE;
+    var manager = new IndexHistogramManager(storage, "declined-fill", 0, singleValue,
+        new ConcurrentHashMap<>(), serializer,
+        BinarySerializerFactory.create(BinarySerializerFactory.currentBinaryFormatVersion()),
+        serializer.getId());
+    BTreeEngineTestFixtures.injectField(manager, "fileId", 42L);
+    return manager;
+  }
+
   private static IndexHistogramManager.PreparedHistogram prepareByScanning(
-      IndexHistogramManager manager) {
-    var prepared = new IndexHistogramManager.PreparedHistogram(null, 1);
+      IndexHistogramManager manager, AtomicOperation op) throws IOException {
+    var prepared = new IndexHistogramManager.PreparedHistogram(null, 0);
     when(manager.prepareHistogram(any(), anyLong(), anyLong(), anyInt())).thenAnswer(inv -> {
       assertEquals(1L, inv.<Stream<Object>>getArgument(0).count());
       return prepared;
     });
+    when(manager.publishHistogramAfterFill(op, prepared)).thenReturn(true);
     return prepared;
   }
 
@@ -2251,7 +2413,7 @@ public class BTreeEngineHistogramBuildTest {
       throws IOException {
     var prepared = new IndexHistogramManager.PreparedHistogram(null, count);
     when(manager.prepareHistogram(any(), anyLong(), anyLong(), anyInt())).thenReturn(prepared);
-    when(manager.publishHistogramAfterFill(op, prepared)).thenReturn(count);
+    when(manager.publishHistogramAfterFill(op, prepared)).thenReturn(true);
   }
 
   private static class SingleValueFixture

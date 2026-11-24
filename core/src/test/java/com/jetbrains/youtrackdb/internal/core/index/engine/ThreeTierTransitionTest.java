@@ -36,7 +36,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
-import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -682,9 +681,8 @@ public class ThreeTierTransitionTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
-    when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
+    var ops = RebalanceTriggerTest.mockRebalanceOperations();
+    when(storage.getAtomicOperationsManager()).thenReturn(ops);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;

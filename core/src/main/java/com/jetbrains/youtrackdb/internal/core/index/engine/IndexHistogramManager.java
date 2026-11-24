@@ -862,7 +862,8 @@ public class IndexHistogramManager extends StorageComponent {
   public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
     var prepared = prepareHistogram(sortedKeys, totalCount, nullCount, keyFieldCnt);
-    return publishPreparedHistogram(op, prepared);
+    publishHistogramAfterFill(op, prepared);
+    return prepared.nonNullCount();
   }
 
   /** Carries the image and recalibration count from the scan to the fill write. */
@@ -946,21 +947,29 @@ public class IndexHistogramManager extends StorageComponent {
     return new PreparedHistogram(snapshot, scannedNonNull);
   }
 
-  /** Publishes a prepared fill result after the caller has locked the index trees. */
-  public long publishHistogramAfterFill(AtomicOperation op, PreparedHistogram prepared)
+  /**
+   * Publishes a prepared fill result after the caller has locked the index trees.
+   *
+   * @return whether the prepared image was published and written
+   */
+  public boolean publishHistogramAfterFill(AtomicOperation op, PreparedHistogram prepared)
       throws IOException {
-    // Lock without opening a component-operation boundary that would flush pending WAL.
+    // Keep the direct write boundary so pending log records stay with the caller.
     storage.getAtomicOperationsManager().acquireExclusiveLockTillOperationComplete(op, this);
-    return publishPreparedHistogram(op, prepared);
+    if (!canPublishBuild()) {
+      return false;
+    }
+    var snapshot = prepared.snapshot();
+    if (publish(current -> snapshot) != snapshot) {
+      return false;
+    }
+    writeSnapshotUnderLock(op, snapshot);
+    return true;
   }
 
-  private long publishPreparedHistogram(AtomicOperation op, PreparedHistogram prepared)
-      throws IOException {
-    var snapshot = prepared.snapshot();
-    if (publish(current -> snapshot) == snapshot) {
-      writeSnapshotToPage(op, snapshot);
-    }
-    return prepared.nonNullCount();
+  /** Validates a completed build while holding the manager lock. */
+  private boolean canPublishBuild() {
+    return !detached;
   }
 
   // ---- Rebalance ----
@@ -1841,63 +1850,67 @@ public class IndexHistogramManager extends StorageComponent {
         return;
       }
 
-      long scannedDistinctCount = result.totalDistinct;
-
-      boolean hllOnPage1 = false;
-      if (!isSingleValue) {
-        hllOnPage1 = fitResult.hllOnPage1;
-      }
-
-      // Install new snapshot via cache.compute() — preserves scalar counters
-      // from concurrent commits that occurred after the scan started.
-      final var finalHistogram = fitResult.histogram;
-      final var finalHll = newHll;
-      final long finalNDV = scannedDistinctCount;
-      final boolean finalHllOnPage1 = hllOnPage1;
-      final var published = publish(old -> {
-        if (old == null) {
-          return null;
-        }
-        // Use CHM's totalCount/nullCount (most up-to-date — includes concurrent
-        // commits after the scan) rather than the scanned values. For distinctCount,
-        // use the scan's exact NDV (replaces the approximate HLL estimate).
-        // Note: this means distinctCount may briefly exceed totalCount - nullCount
-        // if concurrent inserts added entries during the scan. This is benign —
-        // subsequent delta applications will correct it, and the planner tolerates
-        // approximate stats.
-        var newStats = new IndexStatistics(
-            old.stats().totalCount(), finalNDV, old.stats().nullCount());
-        return new HistogramSnapshot(
-            newStats,
-            finalHistogram,
-            0, // reset mutationsSinceRebalance
-            old.stats().totalCount(), // totalCountAtLastBuild (latest committed, not scanned)
-            old.version() + 1, // increment version
-            false, // reset hasDriftedBuckets
-            finalHll,
-            finalHllOnPage1);
-      });
-      if (published == null || detached) {
+      // A detached manager must not request admission or wait for the manager lock.
+      if (detached) {
         return;
       }
-
-      // Persist the new snapshot. On failure, mark dirty so the next
-      // checkpoint or commit-path batch flush retries the persistence.
-      // The CHM snapshot is already installed (correct in-memory state);
-      // only the on-disk page needs to catch up.
-      try {
-        flushSnapshotToPage();
-        DIRTY_MUTATIONS.setRelease(this, 0L);
-      } catch (IOException e) {
-        DIRTY_MUTATIONS.getAndAdd(this, 1);
-        logger.error("Failed to persist rebalanced histogram for {}",
-            getName(), e);
-      }
+      publishAndStoreRebalance(fitResult, result.totalDistinct, newHll);
     } finally {
       if (sem != null) {
         sem.release();
       }
     }
+  }
+
+  private void publishAndStoreRebalance(FitResult fit, long distinctCount,
+      @Nullable HyperLogLogSketch hll) {
+    // The callback runs on this thread. Keep its publication status if completion fails.
+    var published = new boolean[1];
+    try {
+      // Admit the write before taking the manager lock. The scan has finished.
+      boolean written = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> calculateInsideComponentOperation(op, lockedOp -> {
+            published[0] = publishRebalanceUnderLock(fit, distinctCount, hll);
+            if (!published[0]) {
+              return false;
+            }
+            // A commit can update the cached counters without the manager lock.
+            var snapshotToWrite = cache.get(engineId);
+            if (snapshotToWrite == null || detached || fileId == -1) {
+              return false;
+            }
+            writeSnapshotUnderLock(lockedOp, snapshotToWrite);
+            return true;
+          }));
+      if (written) {
+        DIRTY_MUTATIONS.setRelease(this, 0L);
+      }
+    } catch (IOException e) {
+      if (!published[0] && !detached) {
+        // Keep the fitted image for readers and a later flush. Do not start a write here.
+        lockExclusive();
+        try {
+          publishRebalanceUnderLock(fit, distinctCount, hll);
+        } finally {
+          unlockExclusive();
+        }
+      }
+      DIRTY_MUTATIONS.getAndAdd(this, 1);
+      logger.error("Failed to persist rebalanced histogram for {}", getName(), e);
+    }
+  }
+
+  private boolean publishRebalanceUnderLock(FitResult fit, long distinctCount,
+      @Nullable HyperLogLogSketch hll) {
+    if (!canPublishBuild()) {
+      return false;
+    }
+    // Keep scalar counters from commits that occurred during the scan.
+    var published = publish(old -> old == null ? null : new HistogramSnapshot(
+        new IndexStatistics(old.stats().totalCount(), distinctCount, old.stats().nullCount()),
+        fit.histogram, 0, old.stats().totalCount(), old.version() + 1, false,
+        hll, !isSingleValue && fit.hllOnPage1));
+    return published != null && !detached;
   }
 
   /**
@@ -2002,42 +2015,18 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Writes the given snapshot to the .ixs file. Writes page 0, and if
-   * {@code hllOnPage1} is set, also writes HLL registers to page 1.
-   * Both pages are written within the same {@link AtomicOperation}, so
-   * they are flushed atomically via WAL.
-   *
-   * <p>Acquires the IHM's per-component exclusive lock before touching any page so the
-   * two page-1 allocators on this component cannot race for the same {@code fileId}.
-   * The lock matches the one {@link #flushSnapshotToPage()} acquires (via the same
-   * {@code acquireExclusiveLockTillOperationComplete} call inside
-   * {@code executeInsideComponentOperation}); without the symmetric lock,
-   * {@code flushSnapshotToPage} (reachable from {@code applyDelta} on a commit-time
-   * batch flush, from {@code flushIfDirty} on checkpoint/shutdown/recovery, from
-   * {@code closeStatsFile}, and from {@code doRebalance}) could race with
-   * {@code writeSnapshotToPage} (reachable from {@code buildHistogram} via the BTree
-   * engines' {@code buildInitialHistogram} and from
-   * {@code createStatsFileWithCounters} at storage open), and the cache-layer
-   * load-or-add primitive's fail-fast {@code IllegalStateException} in
-   * {@code WOWCache.loadOrAdd} would surface a hard crash on the loser of the
-   * I4-violating concurrent allocation.
-   *
-   * <p>The lock is acquired directly via
-   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete} rather
-   * than via {@code executeInsideComponentOperation} because the wrapper rewraps any
-   * thrown {@link IOException} as an unchecked {@code CommonStorageComponentException}.
-   * Callers such as {@link #flushIfDirty(AtomicOperation)} catch {@link IOException} to
-   * restore the dirty-mutation counter; keeping the checked exception transparent here
-   * preserves that catch site. Acquisition is idempotent (the AOM fast-path no-ops
-   * when the component is already in the operation's {@code lockedObjects} set), so
-   * callers that already sit inside the lock pay only a hash-set lookup. The lock is
-   * released by {@code AtomicOperationsManager.endAtomicOperation} when the outer
-   * atomic op commits or rolls back.
+   * Locks this manager and writes the snapshot in the caller's operation.
+   * Keep checked I/O failures visible to callers that restore their dirty count for retry.
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
     storage.getAtomicOperationsManager()
         .acquireExclusiveLockTillOperationComplete(op, this);
+    writeSnapshotUnderLock(op, snapshot);
+  }
+
+  private void writeSnapshotUnderLock(AtomicOperation op, HistogramSnapshot snapshot)
+      throws IOException {
     var cacheEntry = loadPageForWrite(op, fileId, 0, true);
     try {
       var page = new HistogramStatsPage(cacheEntry);
@@ -2050,10 +2039,8 @@ public class IndexHistogramManager extends StorageComponent {
     // Write HLL to page 1 when spilled. The .ixs file starts with only
     // page 0; the first spill allocates page 1, subsequent flushes
     // re-write the existing page 1. Discriminate at the caller because
-    // allocatePageForWrite is allocator-only and would throw if asked
-    // to load an already-committed page 1. The per-component exclusive
-    // lock acquired above keeps the filledUpTo read consistent with the
-    // subsequent allocate/load call.
+    // allocatePageForWrite cannot load an already-committed page 1.
+    // The manager lock keeps the page count stable through the allocate or load call.
     if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
       CacheEntry page1Entry;
       if (op.filledUpTo(fileId) > 1) {
@@ -2069,30 +2056,7 @@ public class IndexHistogramManager extends StorageComponent {
     }
   }
 
-  /**
-   * Writes the current cached snapshot to the .ixs file. Creates its own
-   * atomic operation (flush runs from commit and rebalance paths where
-   * no caller-provided AtomicOperation is available).
-   *
-   * <p>The body runs inside {@code executeInsideComponentOperation} so the
-   * per-component exclusive lock is held while pages 0 and 1 are loaded /
-   * allocated. Without this lock, this method could race with
-   * {@code writeSnapshotToPage} (called from {@code buildHistogram} and
-   * {@code createStatsFileWithCounters}) for the same {@code fileId},
-   * causing two concurrent allocators to target page 1 simultaneously and
-   * trip the cache-layer fail-fast {@code IllegalStateException} in
-   * {@code WOWCache.loadOrAdd} that surfaces I4 violations.
-   * Audit: PSI call-hierarchy showed {@code flushSnapshotToPage} reachable
-   * from {@code applyDelta} (commit-time batch flush above threshold),
-   * {@code flushIfDirty} (checkpoint / shutdown / recovery via
-   * {@code AbstractStorage.flushDirtyHistograms}), {@code closeStatsFile}
-   * (index-level close), and {@code doRebalance} (rebalance task), while
-   * {@code writeSnapshotToPage} is reachable from
-   * {@code buildHistogram} (called by BTree engines' {@code buildInitialHistogram})
-   * and {@code createStatsFileWithCounters} (storage open / wire-up). None
-   * of those entry points serialise with each other naturally; the
-   * component-lock wrap closes the race.
-   */
+  /** Captures the cached image before admitting a standalone flush. */
   private void flushSnapshotToPage() throws IOException {
     if (detached) {
       return;
@@ -2102,45 +2066,9 @@ public class IndexHistogramManager extends StorageComponent {
       return;
     }
 
-    // Create a standalone atomic operation for the flush — we cannot
-    // use executeInsideComponentOperation(null, ...) because that
-    // passes null to AtomicOperationsManager which requires non-null.
     storage.getAtomicOperationsManager()
-        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, lockedOp -> {
-          // lockedOp is the same AtomicOperation as op, re-bound after the
-          // per-component exclusive lock has been acquired by
-          // executeInsideComponentOperation; the rename makes the relationship
-          // explicit at every use site below.
-          var cacheEntry = loadPageForWrite(lockedOp, fileId, 0, true);
-          try {
-            var page = new HistogramStatsPage(cacheEntry);
-            page.writeSnapshot(snapshot, serializerId,
-                keySerializer, serializerFactory);
-          } finally {
-            releasePageFromWrite(lockedOp, cacheEntry);
-          }
-
-          // Write HLL to page 1 when spilled. Same allocator-only
-          // discrimination as writeSnapshotToPage: first spill allocates
-          // page 1, subsequent flushes re-write it. The per-component
-          // exclusive lock acquired by the surrounding
-          // executeInsideComponentOperation keeps filledUpTo consistent
-          // with the subsequent allocate/load call.
-          if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-            CacheEntry page1Entry;
-            if (lockedOp.filledUpTo(fileId) > 1) {
-              page1Entry = loadPageForWrite(lockedOp, fileId, 1, true);
-            } else {
-              page1Entry = allocatePageForWrite(lockedOp, fileId, 1);
-            }
-            try {
-              HistogramStatsPage.writeHllToPage1(
-                  page1Entry, snapshot.hllSketch());
-            } finally {
-              releasePageFromWrite(lockedOp, page1Entry);
-            }
-          }
-        }));
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op,
+            lockedOp -> writeSnapshotUnderLock(lockedOp, snapshot)));
   }
 
   // ---- Internal: key utilities ----
