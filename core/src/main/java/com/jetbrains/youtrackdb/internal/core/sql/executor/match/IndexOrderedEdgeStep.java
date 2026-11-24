@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.concur.TimeoutException;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
@@ -1468,7 +1469,12 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return ridSet;
   }
 
-  @Nullable private Result loadRecord(
+  /**
+   * Loads a record for an index entry. A missing record is skipped (stale index
+   * entry). Any other load failure propagates so the query fails instead of
+   * silently dropping the entry.
+   */
+  @Nullable static Result loadRecordOrSkipMissing(
       RID rid, DatabaseSessionEmbedded session) {
     try {
       var rec = session.getActiveTransaction().load(rid);
@@ -1476,10 +1482,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         return null;
       }
       return new ResultInternal(session, rec);
-    } catch (Exception e) {
-      logger.debug("Failed to load record {}: {}", rid, e.getMessage(), e);
+    } catch (RecordNotFoundException e) {
+      logger.debug("Index entry points to missing record {}; skipping", rid);
       return null;
     }
+  }
+
+  @Nullable private Result loadRecord(
+      RID rid, DatabaseSessionEmbedded session) {
+    return loadRecordOrSkipMissing(rid, session);
   }
 
   /** Consistency check: if target alias was already bound, verify match. */
