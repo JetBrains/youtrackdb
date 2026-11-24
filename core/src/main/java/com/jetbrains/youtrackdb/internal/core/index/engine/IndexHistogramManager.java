@@ -839,6 +839,17 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
+    var prepared = prepareHistogram(sortedKeys, totalCount, nullCount, keyFieldCnt);
+    return publishPreparedHistogram(op, prepared);
+  }
+
+  /** Carries the image and recalibration count from the scan to the fill write. */
+  public record PreparedHistogram(HistogramSnapshot snapshot, long nonNullCount) {
+  }
+
+  /** Scans and fits the histogram without publishing or taking a kept lock. */
+  public PreparedHistogram prepareHistogram(Stream<Object> sortedKeys,
+      long totalCount, long nullCount, int keyFieldCnt) {
     long nonNullCount = totalCount - nullCount;
     if (nonNullCount < histogramMinSize) {
       // Too few non-null keys for histogram; install counters-only snapshot.
@@ -848,12 +859,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot) == snapshot) {
-        writeSnapshotToPage(op, snapshot);
-      }
-      // Early exit: return approximate count (no stream consumed).
-      // Callers' "recalibration" is effectively a no-op for small indexes.
-      return nonNullCount;
+      return new PreparedHistogram(snapshot, nonNullCount);
     }
 
     // Compute effective keys (leading field for composite indexes)
@@ -892,10 +898,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, 0, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot) == snapshot) {
-        writeSnapshotToPage(op, snapshot);
-      }
-      return 0;
+      return new PreparedHistogram(snapshot, 0);
     }
 
     // Compute actual non-null count from scan (consistent with frequencies)
@@ -918,10 +921,24 @@ public class IndexHistogramManager extends StorageComponent {
     var stats = new IndexStatistics(totalCount, exactDistinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
+    return new PreparedHistogram(snapshot, scannedNonNull);
+  }
+
+  /** Publishes a prepared fill result after the caller has locked the index trees. */
+  public long publishHistogramAfterFill(AtomicOperation op, PreparedHistogram prepared)
+      throws IOException {
+    // Lock without opening a component-operation boundary that would flush pending WAL.
+    storage.getAtomicOperationsManager().acquireExclusiveLockTillOperationComplete(op, this);
+    return publishPreparedHistogram(op, prepared);
+  }
+
+  private long publishPreparedHistogram(AtomicOperation op, PreparedHistogram prepared)
+      throws IOException {
+    var snapshot = prepared.snapshot();
     if (publish(current -> snapshot) == snapshot) {
       writeSnapshotToPage(op, snapshot);
     }
-    return scannedNonNull;
+    return prepared.nonNullCount();
   }
 
   // ---- Rebalance ----

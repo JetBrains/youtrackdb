@@ -27,16 +27,32 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.index.IndexAbstract;
+import com.jetbrains.youtrackdb.internal.core.index.IndexEngineTestSupport;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
+import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -72,6 +88,7 @@ public class IndexHistogramDurabilityTest {
 
   private String testDir;
   private YouTrackDBImpl ytdb;
+  private final List<Worker> workers = new ArrayList<>();
 
   @Before
   public void setUp() {
@@ -81,6 +98,12 @@ public class IndexHistogramDurabilityTest {
 
   @After
   public void tearDown() throws Exception {
+    for (var worker : workers) {
+      worker.thread().join(TimeUnit.SECONDS.toMillis(10));
+      // Closing storage could wait on the same lock cycle the test detected.
+      assertFalse("Worker still holds storage resources: " + worker.thread().getName(),
+          worker.thread().isAlive());
+    }
     if (ytdb != null) {
       ytdb.close();
     }
@@ -606,6 +629,246 @@ public class IndexHistogramDurabilityTest {
   // ═══════════════════════════════════════════════════════════════
   //  Helpers
   // ═══════════════════════════════════════════════════════════════
+
+  @Test
+  public void fillLocksTreesBeforeStatisticsWhileSameIndexCommitWaitsAndFlushes() throws Exception {
+    overlap("fill", true, false, false, false);
+  }
+
+  @Test
+  public void checkpointDrainsCommitWaitingForFillTreeLocks() throws Exception {
+    overlap("fillCheckpoint", true, true, false, false);
+  }
+
+  @Test
+  public void clearLocksBothPopulatedTreesBeforeSameIndexCommit() throws Exception {
+    overlap("clearPopulated", false, false, false, false);
+  }
+
+  @Test
+  public void clearLocksEmptyMainBeforePopulatedNullTreeWhileCommitWaits() throws Exception {
+    overlap("clearNullOnly", false, false, true, false);
+  }
+
+  @Test
+  public void dropOfNullOnlyIndexWaitsForSameIndexCommit() throws Exception {
+    overlap("dropNullOnly", false, false, true, true);
+  }
+
+  private void overlap(String dbName, boolean fill, boolean checkpoint, boolean nullOnly,
+      boolean drop) throws Exception {
+    var indexName = "TestClassvalIdx";
+    // Keep periodic checkpoints outside the bounded overlap window. The explicit
+    // checkpoint in the freeze scenario still runs.
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL, Integer.MAX_VALUE)
+        .build();
+    ytdb.create(dbName, DatabaseType.DISK, config, ADMIN, ADMIN_PWD, "admin");
+    BTreeMultiValueIndexEngine engine;
+    int indexId;
+    DiskStorage storage;
+    try (var session = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      createSchemaAndData(session, nullOnly ? 0 : 1);
+      session.begin();
+      session.newEntity("TestClass");
+      session.commit();
+      engine = (BTreeMultiValueIndexEngine) IndexEngineTestSupport.engine(session, indexName);
+      indexId = IndexEngineTestSupport.externalIdentifier(session, indexName);
+      storage = (DiskStorage) session.getStorage();
+      engine.getHistogramManager().flushIfDirtyOrFail();
+      assertEquals(nullOnly ? 1 : 2, engine.getTotalCount(null));
+      assertEquals(1, engine.getNullCount(null));
+    }
+    var ops = storage.getAtomicOperationsManager();
+    var manager = engine.getHistogramManager();
+    var stem = AbstractStorage.indexEngineFileStem(engine.getFileBaseId());
+    var trees = List.of(stem + BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
+        stem + AbstractStorage.NULL_TREE_SUFFIX + BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION);
+    var held = new AtomicReference<List<String>>();
+    var holderReady = new CountDownLatch(1);
+    var release = new CountDownLatch(1);
+    var admission = new CountDownLatch(1);
+    var flush = new CountDownLatch(1);
+    var dropCommitCounts = new AtomicReference<List<Long>>();
+    var holderOp = new AtomicReference<AtomicOperation>();
+    var commitThread = new AtomicReference<Thread>();
+    java.util.function.Consumer<AtomicOperation> pause = op -> {
+      var names = new ArrayList<String>();
+      op.lockedComponents().forEach(component -> names.add(component.getLockName()));
+      held.set(names);
+      holderReady.countDown();
+      await(release);
+    };
+    var hooksActive = new AtomicBoolean(true);
+    Worker holder;
+    Worker contender;
+    Worker sync = null;
+    try {
+      manager.setPrePublicationTestHook(() -> {
+        if (Thread.currentThread() == commitThread.get()) {
+          if (fill) {
+            // A callback already in flight must not install an action after cleanup.
+            synchronized (hooksActive) {
+              if (!hooksActive.get()) {
+                return;
+              }
+              // Arm the nested write from Hook B, not the outer commit's admission.
+              manager.setDirtyMutationsForTest(
+                  GlobalConfiguration.QUERY_STATS_PERSIST_BATCH_SIZE.getValueAsInteger());
+              ops.setBeforeTimestampActionForTesting(() -> {
+                if (Thread.currentThread() == commitThread.get()) {
+                  flush.countDown();
+                }
+              });
+            }
+          } else if (drop) {
+            // Hook B has applied the counts and the commit still excludes drop.
+            dropCommitCounts.set(List.of(engine.getTotalCount(null), engine.getNullCount(null)));
+          }
+        } else if (holderOp.get() != null) {
+          pause.accept(holderOp.get());
+        }
+      });
+      if (drop) {
+        holder = start("commit", () -> commitOne(dbName, commitThread, true, pause));
+      } else {
+        holder = start(fill ? "fill" : "clear", () -> {
+          storage.callIndexEngine(true, indexId, ignored -> {
+            try {
+              ops.executeInsideAtomicOperation(op -> {
+                holderOp.set(op);
+                try {
+                  if (fill) {
+                    engine.buildInitialHistogram(op);
+                  } else {
+                    engine.clear(storage, op);
+                  }
+                } finally {
+                  holderOp.set(null);
+                }
+              });
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+            return null;
+          });
+          return null;
+        });
+      }
+      await(holderReady);
+      var expected = new ArrayList<>(trees);
+      if (fill) {
+        expected.add(manager.getLockName());
+      }
+      assertEquals(expected, held.get().stream().filter(expected::contains).toList());
+      if (drop) {
+        contender = start("drop", () -> {
+          storage.deleteIndexEngine(indexId);
+          return null;
+        });
+        awaitStack(contender, "deleteIndexEngine", "ScalableRWLock.exclusiveLock",
+            "Thread.yield");
+      } else {
+        ops.setBeforeTimestampActionForTesting(admission::countDown);
+        contender = start("commit", () -> commitOne(dbName, commitThread, false, null));
+        await(admission);
+        awaitStack(contender, "lockIndexes", "StorageComponent.lockExclusive",
+            "LockSupport.park");
+        if (checkpoint) {
+          var frozen = new CountDownLatch(1);
+          ops.setFreezeRegisteredActionForTesting(frozen::countDown);
+          sync = start("checkpoint", () -> {
+            storage.synch();
+            return null;
+          });
+          await(frozen);
+          awaitStack(sync, "doSynch", "OperationsFreezer.freezeOperations", "Thread.yield");
+        }
+      }
+      release.countDown();
+      holder.result().get(10, TimeUnit.SECONDS);
+      contender.result().get(10, TimeUnit.SECONDS);
+      if (sync != null) {
+        sync.result().get(10, TimeUnit.SECONDS);
+      }
+      if (fill) {
+        await(flush);
+        assertEquals(0L, manager.getDirtyMutations());
+      }
+      if (drop) {
+        assertEquals("Both committed entries must be null keys", List.of(2L, 2L),
+            dropCommitCounts.get());
+      }
+      storage.checkErrorState();
+    } finally {
+      // Also release the holder if staging the overlap failed.
+      release.countDown();
+      synchronized (hooksActive) {
+        hooksActive.set(false);
+        manager.setPrePublicationTestHook(null);
+        ops.clearTestActions();
+      }
+    }
+  }
+
+  private Void commitOne(String dbName, AtomicReference<Thread> thread,
+      boolean nullKey, java.util.function.Consumer<AtomicOperation> afterIndexLocks) {
+    thread.set(Thread.currentThread());
+    try (var writer = ytdb.open(dbName, ADMIN, ADMIN_PWD)) {
+      writer.begin();
+      var entity = writer.newEntity("TestClass");
+      if (!nullKey) {
+        entity.setProperty("val", 10);
+      }
+      if (afterIndexLocks != null) {
+        writer.getTransactionInternal().getRecordSerializationContext()
+            .push((op, storage) -> afterIndexLocks.accept(op));
+      }
+      writer.commit();
+    }
+    return null;
+  }
+
+  private record Worker(Thread thread, FutureTask<Void> result) {
+  }
+
+  private Worker start(String name, Callable<Void> action) {
+    var task = new FutureTask<>(action);
+    var thread = new Thread(task, name);
+    thread.setDaemon(true);
+    var worker = new Worker(thread, task);
+    workers.add(worker);
+    thread.start();
+    return worker;
+  }
+
+  private static void await(CountDownLatch latch) {
+    try {
+      assertTrue("Timed out waiting for test stage", latch.await(10, TimeUnit.SECONDS));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new AssertionError(e);
+    }
+  }
+
+  private static void awaitStack(Worker worker, String caller, String lock, String waitSite)
+      throws Exception {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    do {
+      var stack = Arrays.toString(worker.thread().getStackTrace());
+      if (stack.contains(caller) && stack.contains(lock) && stack.contains(waitSite)) {
+        return;
+      }
+      if (worker.result().isDone()) {
+        worker.result().get(0, TimeUnit.SECONDS);
+        break;
+      }
+      Thread.sleep(1);
+    } while (System.nanoTime() < deadline);
+    throw new AssertionError(
+        "Did not see " + worker.thread().getName() + " waiting at " + waitSite);
+  }
 
   /**
    * Creates a class with an indexed integer field and populates it

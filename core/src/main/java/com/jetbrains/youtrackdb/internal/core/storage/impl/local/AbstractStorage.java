@@ -4926,9 +4926,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The storage state lock protects indexEngines through Hook B. Transaction commits and
+      // the fill tail also retain the index tree locks through this hook.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -4997,9 +4996,7 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The commit retains the storage state lock and its index tree locks through Hook B.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {

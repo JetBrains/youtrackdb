@@ -6,9 +6,12 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
@@ -544,6 +547,37 @@ public class BTreeEngineHistogramWiringTest {
 
     // Then deleteStatsFile is called
     verify(fixture.manager).deleteStatsFile(fixture.op);
+  }
+
+  @Test
+  public void multiValue_delete_locksEmptyMainBeforePopulatedNullTree() throws IOException {
+    var f = new MultiValueFixture();
+    var rid = new RecordId(1, 1);
+    var key = new CompositeKey(rid, 0L);
+    when(f.nullTree.size(f.op)).thenReturn(1L, 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(key);
+    when(f.nullTree.lastKey(f.op)).thenReturn(key);
+    when(f.nullTree.iterateEntriesBetween(key, true, key, true, true, f.op))
+        .thenReturn(Stream.of(new RawPair<>(key, rid)));
+    when(f.nullTree.remove(f.op, key)).thenReturn(rid);
+
+    f.engine.delete(f.op);
+
+    var order = inOrder(f.svTree, f.nullTree, f.manager);
+    order.verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    order.verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
+    order.verify(f.svTree).size(f.op);
+    order.verify(f.nullTree).size(f.op);
+    order.verify(f.nullTree).firstKey(f.op);
+    order.verify(f.nullTree).lastKey(f.op);
+    order.verify(f.nullTree).iterateEntriesBetween(key, true, key, true, true, f.op);
+    order.verify(f.nullTree).remove(f.op, key);
+    // Check the size after removal and again at the next loop condition.
+    order.verify(f.nullTree, times(2)).size(f.op);
+    order.verify(f.svTree).delete(f.op);
+    order.verify(f.nullTree).delete(f.op);
+    order.verify(f.manager).deleteStatsFile(f.op);
+    verifyNoMoreInteractions(f.svTree, f.nullTree, f.manager);
   }
 
   @Test

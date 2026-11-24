@@ -701,17 +701,19 @@ public final class BTreeSingleValueIndexEngine
     long approxTotal = approximateIndexEntriesCount.get();
     long exactNullCount = countNulls(atomicOperation);
 
-    long scannedNonNull;
+    IndexHistogramManager.PreparedHistogram prepared;
     // Use the raw (non-SI-filtered) key stream for histogram building.
     // SI filtering is unnecessary here because the histogram tolerates the
     // tiny error from uncommitted/phantom entries (< 0.01% of index size),
     // and skipping it avoids drift between scanned counts and scalar counters.
     try (var keyStream = rawKeyStreamForHistogram(atomicOperation)) {
-      scannedNonNull = mgr.buildHistogram(
-          atomicOperation, keyStream,
-          approxTotal, exactNullCount,
+      prepared = mgr.prepareHistogram(keyStream, approxTotal, exactNullCount,
           mgr.getKeyFieldCount());
     }
+
+    // Finish all reads before locking the trees ahead of the statistics manager.
+    acquireAtomicExclusiveLock(atomicOperation);
+    long scannedNonNull = mgr.publishHistogramAfterFill(atomicOperation, prepared);
 
     // Recalibrate from exact counts using mixed-mode encoding.
     //
@@ -726,20 +728,8 @@ public final class BTreeSingleValueIndexEngine
     // delta (target - currentInMem) is recorded on the AtomicOperation via
     // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
     // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds.
-    // On the only production path that reaches this method
-    // (IndexAbstract.buildHistogramAfterFill via executeInsideAtomicOperation),
-    // no per-index lock is held during Hook B's apply; concurrent commits on
-    // the same engine compose via AtomicLong.addAndGet's additive semantics.
-    // On rollback the holder is dropped and the in-mem counters stay at
-    // their pre-recalibration value, so the persisted-side WAL revert and
-    // the in-mem-side no-op stay in step. The structural divergence that
-    // produced the underflow cascade is unreachable on this path.
-    //
-    // Scope: the structural-impossibility claim covers only the count
-    // counters (approximateIndexEntriesCount, approximateNullCount). The
-    // IndexHistogramManager.cache snapshots installed by the preceding
-    // mgr.buildHistogram call are NOT reverted on rollback (a heap-only
-    // cache rebuilt on next storage open; out-of-scope follow-up).
+    // The tree locks stay held through Hook B. Rollback discards the count
+    // adjustment but does not revert the published histogram cache snapshot.
     //
     // SV-specific note: persistCountDelta ignores nullDelta on this engine
     // (the single tree stores nulls and non-nulls together; the persisted
