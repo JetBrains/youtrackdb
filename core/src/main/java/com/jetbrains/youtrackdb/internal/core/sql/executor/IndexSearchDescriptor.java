@@ -297,6 +297,11 @@ public class IndexSearchDescriptor {
     }
   }
 
+  /** Whether the lookup key contains only equalities, including a composite leading prefix. */
+  public boolean isEqualityLookup() {
+    return keyCondition != null && additionalRangeCondition == null && allEquality(getSubBlocks());
+  }
+
   /** Returns the number of condition sub-blocks in the key condition. */
   public int blockCount() {
     return getSubBlocks().size();

@@ -529,6 +529,36 @@ public class EdgeTraversal {
   // Pre-filter counter accessors (read by MatchStep.prettyPrint)
   // =========================================================================
 
+  /**
+   * Resolves the RID filter under the ordinary MATCH admission policy.
+   * Callers record actual membership probes through {@link #resolveEffectivenessMetric()}.
+   */
+  @Nullable RidSet resolvePreFilter(CommandContext ctx, int linkBagSize) {
+    var desc = intersectionDescriptor;
+    if (desc == null) {
+      return null;
+    }
+    resolveEffectivenessMetric();
+    if (linkBagSize < TraversalPreFilterHelper.minLinkBagSize()) {
+      recordPreFilterSkip(PreFilterSkipReason.LINKBAG_TOO_SMALL);
+      return null;
+    }
+    var ridSet = resolveWithCache(ctx, linkBagSize);
+    if (ridSet == null) {
+      return null;
+    }
+    // Index selectivity was already checked during resolution. Reverse-edge overlap
+    // needs a second check against the actual set size for this source vertex.
+    boolean indexLookupVerified = desc instanceof RidFilterDescriptor.IndexLookup
+        || (desc instanceof RidFilterDescriptor.Composite c && c.findIndexLookup() != null);
+    if (!indexLookupVerified && !desc.passesSelectivityCheck(ridSet.size(), linkBagSize, ctx)) {
+      recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+      return null;
+    }
+    recordPreFilterApplied();
+    return ridSet;
+  }
+
   public int getPreFilterAppliedCount() {
     return preFilterAppliedCount;
   }
