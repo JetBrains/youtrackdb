@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.AbstractMetadataUpdateCache;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -142,7 +143,8 @@ public class YqlExecutionPlanCache
     if (statement == null || !cacheEnabled()) {
       return;
     }
-    if (db.getTxSchemaState() != null) {
+    if (db.getTxSchemaState() != null || PrivatePreparationSchemaScope.isActive(db)) {
+      // Private preparation must not export plans shaped by its pinned schema.
       // The mirror of the getInternal bypass: a plan built during a schema- or index-changing
       // transaction is shaped by the tx-local schema view and must not be published to other
       // sessions through the shared cache.
@@ -186,7 +188,8 @@ public class YqlExecutionPlanCache
     if (statement == null || !cacheEnabled()) {
       return null;
     }
-    if (db.getTxSchemaState() != null) {
+    if (db.getTxSchemaState() != null || PrivatePreparationSchemaScope.isActive(db)) {
+      // Private preparation must not import plans shaped by another schema view.
       // An open schema- or index-changing transaction plans against its tx-local schema view
       // (tx-created classes with provisional collection ids, tx-dropped classes and indexes).
       // A plan cached from committed state can be stale against that view (for example a

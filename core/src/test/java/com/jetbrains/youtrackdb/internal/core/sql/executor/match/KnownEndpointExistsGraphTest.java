@@ -265,6 +265,20 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
     assertThat(reverse.candidates).isEqualTo(1);
   }
 
+  /** A privately prepared endpoint plan still checks target policies after its marker closes. */
+  @Test
+  public void privatePreparationKeepsKnownEndpointSecurityAtExecution() throws Exception {
+    policy("database.class.GraphTarget", "false");
+    useReader();
+    var production = run(true, KnownEndpointExistsStep.Path.TARGET, target, "all");
+    var prepared = run(true, KnownEndpointExistsStep.Path.TARGET, target, "private");
+    assertThat(prepared.rows).isEqualTo(production.rows).isEmpty();
+    assertThat(prepared.error).isEqualTo(production.error);
+    assertThat(prepared.boundaries).isEqualTo(1);
+    assertThat(com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope
+        .isActive(graphSession())).isFalse();
+  }
+
   /** LinkBag vertex traversal compares identities without loading hidden edge records. */
   @Test
   public void hiddenEdgesKeepTheCurrentLinkBagBehavior() throws Exception {
@@ -1124,7 +1138,11 @@ public class KnownEndpointExistsGraphTest extends DbTestBase {
         traversal.limit(1);
       }
       var admin = traversal.asAdmin();
-      admin.applyStrategies();
+      try (var privateScope = shape.equals("private")
+          ? com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope.open(db)
+          : null) {
+        admin.applyStrategies();
+      }
       var boundaries =
           admin.getSteps().stream().filter(YTDBMatchPlanStep.class::isInstance).toList();
       if (shape.endsWith("-profile")) {

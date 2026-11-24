@@ -62,6 +62,11 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
 
   private static final GremlinShapeKey repairKey = new GremlinShapeKey(new Object[] {"repair"});
 
+  /** Translation publication retains only shape or private-candidate keys, never plain strings. */
+  private static GremlinShapeKey translationKey(String name) {
+    return new GremlinShapeKey(new Object[] {name});
+  }
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::graphSession);
 
@@ -1438,51 +1443,60 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var cache = GremlinPlanCache.instance(session);
     cache.prepare(session);
     var old = cache.getInvalidationCounter();
-    cache.putTranslationInternal("before", GremlinTranslationTemplate.DECLINE, session, old);
-    assertThat(cache.getTranslationInternal("before", session, old)).isNotNull();
+    cache.putTranslationInternal(translationKey("before"), GremlinTranslationTemplate.DECLINE,
+        session, old);
+    assertThat(cache.getTranslationInternal(translationKey("before"), session, old)).isNotNull();
     cache.invalidate();
-    assertThat(cache.containsTranslation("before")).isFalse();
-    cache.putTranslationInternal("after", GremlinTranslationTemplate.DECLINE, session, old);
-    assertThat(cache.containsTranslation("after")).isFalse();
-    cache.putTranslationInternal("after", GremlinTranslationTemplate.DECLINE, session,
+    assertThat(cache.containsTranslation(translationKey("before"))).isFalse();
+    cache.putTranslationInternal(translationKey("after"), GremlinTranslationTemplate.DECLINE,
+        session, old);
+    assertThat(cache.containsTranslation(translationKey("after"))).isFalse();
+    cache.putTranslationInternal(translationKey("after"), GremlinTranslationTemplate.DECLINE,
+        session,
         cache.getInvalidationCounter());
-    assertThat(cache.containsTranslation("after")).isTrue();
-    assertThat(cache.getTranslationInternal("after", session, old))
+    assertThat(cache.containsTranslation(translationKey("after"))).isTrue();
+    assertThat(cache.getTranslationInternal(translationKey("after"), session, old))
         .as("old bindings must reject even a new live entry").isNull();
   }
 
-  /** A real apply parked in value harvesting misses both entries installed after schema DDL. */
+  /**
+   * A reader that captured an older generation rejects translation and plan entries published
+   * after real schema DDL. The park is the reader's first translation-cache lookup after
+   * generation capture and before that lookup returns. QuerySafetyAdmission refuses anonymous
+   * {@link P} subclasses, so the old getValue harvest park is no longer reachable on apply.
+   */
   @Test
   public void parkedReaderRejectsNewEntryAfterInvalidation() throws Exception {
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
     var session = graphSession();
-    var cache = GremlinPlanCache.instance(session);
+    var cache = org.mockito.Mockito.spy(GremlinPlanCache.instance(session));
     var shape = GremlinStepWalker.extractShape(
         graph.traversal().V().has("age", 30).has("age", 30).asAdmin(), session).key();
     var fp = fingerprint(walk(() -> graph.traversal().V().has("age", 30).has("age", 30)));
-    var harvesting = new CountDownLatch(1);
-    var published = new CountDownLatch(1);
-    var armed = new java.util.concurrent.atomic.AtomicBoolean();
-    var reads = new java.util.concurrent.atomic.AtomicInteger();
-    // The first predicate binding is already harvested. Park the second predicate after
-    // its value class is encoded, before either cache lookup.
-    var predicate = new P<Integer>(P.<Integer>eq(30).getBiPredicate(), 30) {
-      @Override
-      public Integer getValue() {
-        if (armed.get() && reads.incrementAndGet() == 2) {
-          harvesting.countDown();
-          awaitLatch(published);
-        }
-        return super.getValue();
+    var readerParked = new CountDownLatch(1);
+    var writerDone = new CountDownLatch(1);
+    var armLookups = new java.util.concurrent.atomic.AtomicBoolean();
+    var parkedOnce = new java.util.concurrent.atomic.AtomicBoolean();
+    var readerThread = Thread.currentThread();
+    org.mockito.Mockito.doAnswer(invocation -> {
+      // Only the armed reader parks, and only once. The writer must keep moving.
+      if (armLookups.get()
+          && Thread.currentThread() == readerThread
+          && parkedOnce.compareAndSet(false, true)) {
+        readerParked.countDown();
+        awaitLatch(writerDone);
       }
-    };
-    var reader = graph.traversal().V().has("age", 30).has("age", predicate).asAdmin();
+      return invocation.callRealMethod();
+    }).when(cache).getTranslationInternal(org.mockito.ArgumentMatchers.any(),
+        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+    // Ordinary predicates pass QuerySafetyAdmission; values stay out of the structural key.
+    var reader = graph.traversal().V().has("age", 30).has("age", 30).asAdmin();
     var failure = new AtomicReference<Throwable>();
     var worker = new Thread(() -> {
       try {
-        awaitLatch(harvesting);
-        // This is real committed schema DDL, not a direct call to the cache listener.
+        awaitLatch(readerParked);
+        // Real committed schema DDL, not a direct call to the cache listener.
         var tx = (YTDBTransaction) graph.tx();
         tx.readWrite();
         tx.getDatabaseSession().getMetadata().getSchema().createClass("ReaderNewSchema");
@@ -1498,23 +1512,28 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       } catch (Throwable t) {
         failure.set(t);
       } finally {
-        published.countDown();
+        writerDone.countDown();
       }
-    });
+    }, "parked-reader-writer");
     var translationMisses = cache.getTranslationMisses();
     var planMisses = cache.getMisses();
     var before = cache.getInvalidationCounter();
     worker.start();
-    try {
-      armed.set(true);
-      GremlinToMatchStrategy.instance().apply(reader);
-    } finally {
-      published.countDown();
-      worker.join(TimeUnit.SECONDS.toMillis(10));
+    try (var caches = org.mockito.Mockito.mockStatic(GremlinPlanCache.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      caches.when(() -> GremlinPlanCache.instance(org.mockito.ArgumentMatchers.any()))
+          .thenReturn(cache);
+      try {
+        armLookups.set(true);
+        GremlinToMatchStrategy.instance().apply(reader);
+      } finally {
+        writerDone.countDown();
+        worker.join(TimeUnit.SECONDS.toMillis(10));
+      }
     }
     assertThat(worker.isAlive()).isFalse();
     assertThat(failure.get()).isNull();
-    assertThat(reads.get()).isGreaterThanOrEqualTo(2);
+    assertThat(parkedOnce.get()).isTrue();
     assertThat(cache.getInvalidationCounter()).isGreaterThan(before);
     assertThat(reader.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
     assertThat(cache.getTranslationMisses()).isEqualTo(translationMisses + 2);
@@ -1536,13 +1555,14 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       assertThat(cache.planEntry("pending", session, old)).isNull();
     };
     cache.afterTranslationPublication = () -> {
-      assertThat(cache.containsTranslation("pending")).isFalse();
-      assertThat(cache.getTranslationInternal("pending", session, old)).isNull();
+      assertThat(cache.containsTranslation(translationKey("pending"))).isFalse();
+      assertThat(cache.getTranslationInternal(translationKey("pending"), session, old)).isNull();
     };
     try {
       cache.putInternal("pending", plan, session, old);
       assertThat(cache.size()).as("stale physical holder is removed").isZero();
-      cache.putTranslationInternal("pending", GremlinTranslationTemplate.DECLINE, session, old);
+      cache.putTranslationInternal(translationKey("pending"), GremlinTranslationTemplate.DECLINE,
+          session, old);
       assertThat(rawTranslationContains(cache, "pending"))
           .as("stale translation holder is removed").isFalse();
     } finally {
@@ -1550,7 +1570,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       cache.afterTranslationPublication = null;
     }
     assertThat(cache.contains("pending")).isFalse();
-    assertThat(cache.containsTranslation("pending")).isFalse();
+    assertThat(cache.containsTranslation(translationKey("pending"))).isFalse();
   }
 
   /** The real strategy carries a plan hit's generation into its translation publication. */
@@ -1679,13 +1699,15 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     var fresh = cache.getInvalidationCounter();
     cache.afterTranslationPublication = () -> {
       cache.afterTranslationPublication = null;
-      assertThat(cache.containsTranslation("decline")).isFalse();
-      cache.putTranslationInternal("decline", GremlinTranslationTemplate.DECLINE, session, fresh);
+      assertThat(cache.containsTranslation(translationKey("decline"))).isFalse();
+      cache.putTranslationInternal(translationKey("decline"), GremlinTranslationTemplate.DECLINE,
+          session, fresh);
     };
     try {
-      cache.putTranslationInternal("decline", GremlinTranslationTemplate.DECLINE, session, old);
-      assertThat(cache.containsTranslation("decline")).isTrue();
-      assertThat(cache.getTranslationInternal("decline", session, fresh))
+      cache.putTranslationInternal(translationKey("decline"), GremlinTranslationTemplate.DECLINE,
+          session, old);
+      assertThat(cache.containsTranslation(translationKey("decline"))).isTrue();
+      assertThat(cache.getTranslationInternal(translationKey("decline"), session, fresh))
           .isSameAs(GremlinTranslationTemplate.DECLINE);
     } finally {
       cache.afterTranslationPublication = null;
@@ -1721,11 +1743,12 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       when(plan.copy(any())).thenAnswer(invocation -> mock(InternalExecutionPlan.class));
       cache.putInternal("during", plan, session, old);
       assertThat(cache.size()).as("stale physical holder is removed before clear").isZero();
-      cache.putTranslationInternal("during", GremlinTranslationTemplate.DECLINE, session, old);
+      cache.putTranslationInternal(translationKey("during"), GremlinTranslationTemplate.DECLINE,
+          session, old);
       assertThat(rawTranslationContains(cache, "during"))
           .as("stale translation holder is removed before clear").isFalse();
       assertThat(cache.contains("during")).isFalse();
-      assertThat(cache.containsTranslation("during")).isFalse();
+      assertThat(cache.containsTranslation(translationKey("during"))).isFalse();
     } finally {
       release.countDown();
       invalidator.join(TimeUnit.SECONDS.toMillis(10));
@@ -1734,7 +1757,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(invalidator.isAlive()).isFalse();
     assertThat(error.get()).isNull();
     assertThat(cache.contains("during")).isFalse();
-    assertThat(cache.containsTranslation("during")).isFalse();
+    assertThat(cache.containsTranslation(translationKey("during"))).isFalse();
   }
 
   /** Two invalidations overlap, and the delayed first clear also drops an intervening store. */
@@ -1775,25 +1798,29 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       assertThat(firstIncremented.await(10, TimeUnit.SECONDS)).isTrue();
       assertThat(cache.getInvalidationCounter()).isEqualTo(before + 1);
       cache.putInternal("first", plan, session, before);
-      cache.putTranslationInternal("first", GremlinTranslationTemplate.DECLINE, session,
+      cache.putTranslationInternal(translationKey("first"), GremlinTranslationTemplate.DECLINE,
+          session,
           before);
       assertThat(cache.planEntry("first", session, before)).isNull();
-      assertThat(cache.getTranslationInternal("first", session, before)).isNull();
+      assertThat(cache.getTranslationInternal(translationKey("first"), session, before)).isNull();
       b.start();
       b.join(TimeUnit.SECONDS.toMillis(10));
       assertThat(b.isAlive()).isFalse();
       assertThat(cache.getInvalidationCounter()).isEqualTo(before + 2);
       cache.putInternal("second", plan, session, before + 1);
-      cache.putTranslationInternal("second", GremlinTranslationTemplate.DECLINE, session,
+      cache.putTranslationInternal(translationKey("second"), GremlinTranslationTemplate.DECLINE,
+          session,
           before + 1);
       assertThat(cache.planEntry("second", session, before + 1)).isNull();
-      assertThat(cache.getTranslationInternal("second", session, before + 1)).isNull();
+      assertThat(cache.getTranslationInternal(translationKey("second"), session, before + 1))
+          .isNull();
       // The second invalidation has cleared. A live store now precedes the first clear.
       cache.putInternal("fresh", plan, session, before + 2);
-      cache.putTranslationInternal("fresh", GremlinTranslationTemplate.DECLINE, session,
+      cache.putTranslationInternal(translationKey("fresh"), GremlinTranslationTemplate.DECLINE,
+          session,
           before + 2);
       assertThat(cache.contains("fresh")).isTrue();
-      assertThat(cache.containsTranslation("fresh")).isTrue();
+      assertThat(cache.containsTranslation(translationKey("fresh"))).isTrue();
     } finally {
       releaseFirst.countDown();
       a.join(TimeUnit.SECONDS.toMillis(10));
@@ -1805,11 +1832,12 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
     assertThat(error.get()).isNull();
     assertThat(cache.getInvalidationCounter()).isEqualTo(before + 2);
     assertThat(cache.contains("fresh")).isFalse();
-    assertThat(cache.containsTranslation("fresh")).isFalse();
+    assertThat(cache.containsTranslation(translationKey("fresh"))).isFalse();
     assertThat(cache.planEntry("first", session, before)).isNull();
     assertThat(cache.planEntry("second", session, before + 1)).isNull();
-    assertThat(cache.getTranslationInternal("first", session, before)).isNull();
-    assertThat(cache.getTranslationInternal("second", session, before + 1)).isNull();
+    assertThat(cache.getTranslationInternal(translationKey("first"), session, before)).isNull();
+    assertThat(cache.getTranslationInternal(translationKey("second"), session, before + 1))
+        .isNull();
   }
 
   /** Bypass generation-filtered reads so cleanup assertions observe physical map membership. */
@@ -1819,7 +1847,7 @@ public class GremlinPlanCacheTest extends GraphBaseTest {
       field.setAccessible(true);
       var translations = (com.google.common.cache.Cache<?, ?>) field.get(cache);
       assertThat(translations).isNotNull();
-      return translations.asMap().containsKey(key);
+      return translations.asMap().containsKey(translationKey(key));
     } catch (ReflectiveOperationException e) {
       throw new AssertionError("cannot inspect raw translation cache", e);
     }

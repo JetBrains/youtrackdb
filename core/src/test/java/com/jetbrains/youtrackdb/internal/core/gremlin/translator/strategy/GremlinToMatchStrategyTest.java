@@ -174,6 +174,290 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     }
   }
 
+  /**
+   * Fail before and after each mutation kind. Native fallback must recover exact objects, links,
+   * parent/child ownership and native results, not merely an equal list or the same step ids.
+   */
+  @Test
+  public void recoverableInstallationFailuresRestoreNativeTopologyAndExecution() {
+    graph.addVertex();
+    graph.addVertex();
+    graph.tx().commit();
+    for (boolean removal : List.of(false, true)) {
+      for (boolean after : List.of(false, true)) {
+        var admin = mutationTraversal();
+        QuerySafetyAdmission.prepare(admin);
+        var original = List.copyOf(admin.getSteps());
+        var parent = admin.getParent();
+        var effects = admin.getSideEffects();
+        var strategies = admin.getStrategies();
+        var child =
+            ((org.apache.tinkerpop.gremlin.process.traversal.step.TraversalParent) original.get(1))
+                .getLocalChildren().getFirst();
+        var childParent = child.getParent();
+        var primary = new IllegalStateException("installation");
+        injectMutationFailure(admin, removal, after, primary);
+        var plan = mock(InternalExecutionPlan.class);
+        var logs = captureStrategyDebugLogs(
+            () -> new GremlinToMatchStrategy(t -> fixtureTranslation(),
+                (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation))
+                .apply(admin));
+        assertNativeTopology(admin, original);
+        assertThat(admin.getParent()).isSameAs(parent);
+        assertThat(admin.getSideEffects()).isSameAs(effects);
+        assertThat(admin.getStrategies()).isSameAs(strategies);
+        assertThat(child.getParent()).isSameAs(childParent);
+        assertThat(childParent.asStep()).isSameAs(original.get(1));
+        assertThat(child.getStartStep().getTraversal()).isSameAs(child);
+        assertThat(logs).anySatisfy(log -> assertThat(log.getThrown()).isSameAs(primary));
+        verify(plan).close();
+        // Compilation can continue on native providers only after the topology check above.
+        setKillSwitch(false);
+        try {
+          assertThat(admin.toList()).hasSize(2);
+        } finally {
+          setKillSwitch(true);
+        }
+      }
+    }
+  }
+
+  /** Restoration failure is terminal. Cleanup cannot replace the original installation cause. */
+  @Test
+  public void failedRestorationEscapesFallbackAndPreservesPrimaryAndCleanupErrors() {
+    var admin = mutationTraversal();
+    var primary = new IllegalStateException("installation");
+    var restore = new IllegalArgumentException("restoration");
+    var close = new IllegalStateException("close");
+    var calls = new java.util.concurrent.atomic.AtomicInteger();
+    org.mockito.Mockito.doAnswer(call -> {
+      throw calls.getAndIncrement() == 0 ? primary : restore;
+    }).when(admin).addStep(org.mockito.ArgumentMatchers.anyInt(),
+        org.mockito.ArgumentMatchers.any(Step.class));
+    var plan = mock(InternalExecutionPlan.class);
+    org.mockito.Mockito.doThrow(close).when(plan).close();
+    var strategy = new GremlinToMatchStrategy(t -> fixtureTranslation(),
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation));
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> strategy.apply(admin))
+        .isSameAs(primary);
+    assertThat(primary.getSuppressed()).hasSize(2);
+    assertThat(primary.getSuppressed()[0]).isSameAs(restore);
+    assertThat(primary.getSuppressed()[1]).isSameAs(close);
+    verify(plan).close();
+  }
+
+  /** Suppression-disabled installation errors still fail closed after restoration fails. */
+  @Test
+  public void disabledSuppressionCannotTurnRestorationFailureIntoNativeFallback() {
+    var admin = mutationTraversal();
+    var primary = new RuntimeException("installation", null, false, false) {
+    };
+    org.mockito.Mockito.doThrow(primary).when(admin).addStep(
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(Step.class));
+    var plan = mock(InternalExecutionPlan.class);
+    var strategy = new GremlinToMatchStrategy(t -> fixtureTranslation(),
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation));
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> strategy.apply(admin))
+        .isSameAs(primary);
+    assertThat(primary.getSuppressed()).isEmpty();
+    verify(plan).close();
+  }
+
+  /** Reusing an exception during cleanup must not mask terminal damaged-state failure. */
+  @Test
+  public void repeatedPrimaryDuringRestorationAndCloseCannotEnableFallback() {
+    var admin = mutationTraversal();
+    var primary = new IllegalStateException("installation and cleanup");
+    org.mockito.Mockito.doThrow(primary).when(admin).addStep(
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(Step.class));
+    var plan = mock(InternalExecutionPlan.class);
+    org.mockito.Mockito.doThrow(primary).when(plan).close();
+    var strategy = new GremlinToMatchStrategy(t -> fixtureTranslation(),
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation));
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> strategy.apply(admin))
+        .isSameAs(primary);
+    assertThat(primary.getSuppressed()).isEmpty();
+    verify(plan).close();
+  }
+
+  /** A mutation method that returns damaged links must not authorize native execution. */
+  @Test
+  public void silentRestorationDamageIsDetectedBeforeNativeFallback() {
+    var admin = mutationTraversal();
+    var primary = new IllegalStateException("installation");
+    var calls = new java.util.concurrent.atomic.AtomicInteger();
+    org.mockito.Mockito.doAnswer(call -> {
+      if (calls.getAndIncrement() == 0) {
+        throw primary;
+      }
+      var result = call.callRealMethod();
+      Step step = call.getArgument(1);
+      step.setTraversal(__.identity().asAdmin());
+      return result;
+    }).when(admin).addStep(org.mockito.ArgumentMatchers.anyInt(),
+        org.mockito.ArgumentMatchers.any(Step.class));
+    var plan = mock(InternalExecutionPlan.class);
+    var strategy = new GremlinToMatchStrategy(t -> fixtureTranslation(),
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation));
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> strategy.apply(admin))
+        .isSameAs(primary);
+    assertThat(primary.getSuppressed()).hasSize(1);
+    assertThat(primary.getSuppressed()[0])
+        .hasMessage("Native step relationships were not restored");
+    verify(plan).close();
+  }
+
+  /** Every untransferred multi-plan child closes even when another child's close fails. */
+  @Test
+  public void multiPlanInstallationFailureClosesAllChildrenAndKeepsPrimary() {
+    var admin = mutationTraversal();
+    var original = List.copyOf(admin.getSteps());
+    var primary = new IllegalStateException("installation");
+    injectMutationFailure(admin, false, true, primary);
+    var first = mock(InternalExecutionPlan.class);
+    var second = mock(InternalExecutionPlan.class);
+    var close = new IllegalStateException("close");
+    org.mockito.Mockito.doThrow(close).when(first).close();
+    var translation = fixtureMultiPlanTranslation(
+        List.of(MatchPlanInputs.builder(new Pattern()).build(),
+            MatchPlanInputs.builder(new Pattern()).build()),
+        List.of(Map.of(), Map.of()));
+    var built = new java.util.concurrent.atomic.AtomicInteger();
+    var logs = captureStrategyDebugLogs(() -> new GremlinToMatchStrategy(t -> translation,
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(
+            built.getAndIncrement() == 0 ? first : second, scope.generation))
+        .apply(admin));
+    assertNativeTopology(admin, original);
+    assertThat(built).hasValue(2);
+    assertThat(logs).anySatisfy(log -> assertThat(log.getThrown()).isSameAs(primary));
+    assertThat(primary.getSuppressed()).containsExactly(close);
+    verify(first).close();
+    verify(second).close();
+  }
+
+  /** Child parameter setup is preparation work. Its failure closes the newly owned child too. */
+  @Test
+  public void multiPlanBindingFailureClosesInitializedChildBeforeNativeFallback() {
+    var admin = mutationTraversal();
+    var original = List.copyOf(admin.getSteps());
+    var first = mock(InternalExecutionPlan.class);
+    var second = mock(InternalExecutionPlan.class);
+    var context = mock(com.jetbrains.youtrackdb.internal.core.command.CommandContext.class);
+    var primary = new IllegalStateException("binding");
+    when(second.getContext()).thenReturn(context);
+    org.mockito.Mockito.doThrow(primary).when(context).setInputParameters(Map.of(0, 7));
+    var translation = fixtureMultiPlanTranslation(
+        List.of(MatchPlanInputs.builder(new Pattern()).build(),
+            MatchPlanInputs.builder(new Pattern()).build()),
+        List.of(Map.of(), Map.of(0, 7)));
+    var built = new java.util.concurrent.atomic.AtomicInteger();
+    var logs = captureStrategyDebugLogs(() -> new GremlinToMatchStrategy(t -> translation,
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(
+            built.getAndIncrement() == 0 ? first : second, scope.generation))
+        .apply(admin));
+    assertNativeTopology(admin, original);
+    assertThat(logs).anySatisfy(log -> assertThat(log.getThrown()).isSameAs(primary));
+    verify(first).close();
+    verify(second).close();
+  }
+
+  /** A genuine cached full outcome restores native state without closing its shared template. */
+  @Test
+  public void warmInstallationFailureRestoresWithoutWalkingBuildingOrClosingTemplate() {
+    var seed = graph.traversal().V().asAdmin();
+    var db = session();
+    var cache = GremlinPlanCache.instance(db);
+    cache.invalidate();
+    var shape = GremlinStepWalker.extractShape(seed, db);
+    var template = mock(InternalExecutionPlan.class);
+    var decision = com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision
+        .rejected(
+            com.jetbrains.youtrackdb.internal.core.sql.executor.match.PlainPlanDecision.Reason.START_ACCESS,
+            null);
+    GremlinPlanCache.putTranslation(shape.key(),
+        new GremlinTranslationTemplate.Translate(template, "v", BoundaryOutputType.ELEMENT,
+            Vertex.class, ResultShaping.NONE, 0, List.of(), decision),
+        db, cache.getGeneration(), null);
+    var admin = org.mockito.Mockito.spy(graph.traversal().V().asAdmin());
+    var original = List.copyOf(admin.getSteps());
+    var primary = new IllegalStateException("warm installation");
+    injectMutationFailure(admin, false, false, primary);
+    var hits = cache.getTranslationHits();
+    var strategy = new GremlinToMatchStrategy(t -> {
+      throw new AssertionError("warm route walked");
+    }, (s, tr, scope) -> {
+      throw new AssertionError("warm route built");
+    }, true);
+    var logs = captureStrategyDebugLogs(() -> strategy.apply(admin));
+    assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+    assertNativeTopology(admin, original);
+    assertThat(logs).anySatisfy(log -> assertThat(log.getThrown()).isSameAs(primary));
+    verify(template, org.mockito.Mockito.never()).close();
+  }
+
+  /** Fatal mutation errors propagate without restarting or pretending restoration succeeded. */
+  @Test
+  public void fatalInstallationErrorPropagatesAndClosesPrivatePlan() {
+    var admin = mutationTraversal();
+    var fatal = new OutOfMemoryError("injected");
+    org.mockito.Mockito.doThrow(fatal).when(admin).addStep(
+        org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(Step.class));
+    var plan = mock(InternalExecutionPlan.class);
+    var strategy = new GremlinToMatchStrategy(t -> fixtureTranslation(),
+        (s, tr, scope) -> GremlinPlanCache.Entry.owned(plan, scope.generation));
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> strategy.apply(admin)).isSameAs(fatal);
+    verify(plan).close();
+  }
+
+  private Traversal.Admin<?, ?> mutationTraversal() {
+    var traversal = org.mockito.Mockito.spy(
+        graph.traversal().V().filter(__.identity()).limit(2).asAdmin());
+    // Mockito copies the traversal object but retains its step list. Establish a valid owner.
+    for (var step : traversal.getSteps()) {
+      step.setTraversal(traversal);
+    }
+    return traversal;
+  }
+
+  private static void injectMutationFailure(Traversal.Admin<?, ?> admin, boolean removal,
+      boolean after, RuntimeException primary) {
+    var fired = new java.util.concurrent.atomic.AtomicBoolean();
+    org.mockito.stubbing.Answer<Object> answer = call -> {
+      if (!fired.compareAndSet(false, true)) {
+        return call.callRealMethod();
+      }
+      if (after) {
+        call.callRealMethod();
+      }
+      throw primary;
+    };
+    if (removal) {
+      org.mockito.Mockito.doAnswer(answer).when(admin)
+          .removeStep(org.mockito.ArgumentMatchers.anyInt());
+    } else {
+      org.mockito.Mockito.doAnswer(answer).when(admin).addStep(
+          org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any(Step.class));
+    }
+  }
+
+  private static void assertNativeTopology(Traversal.Admin<?, ?> admin,
+      List<? extends Step> original) {
+    assertThat(admin.getSteps()).hasSize(original.size());
+    assertThat(admin.getStartStep()).isSameAs(original.getFirst());
+    assertThat(admin.getEndStep()).isSameAs(original.getLast());
+    for (int i = 0; i < original.size(); i++) {
+      var step = original.get(i);
+      assertThat(admin.getSteps().get(i)).isSameAs(step);
+      assertThat(step.getTraversal()).isSameAs(admin);
+      assertThat(step.getPreviousStep()).isSameAs(i == 0
+          ? org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep.instance()
+          : original.get(i - 1));
+      assertThat(step.getNextStep()).isSameAs(i + 1 == original.size()
+          ? org.apache.tinkerpop.gremlin.process.traversal.step.util.EmptyStep.instance()
+          : original.get(i + 1));
+    }
+  }
+
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(this::session);
 

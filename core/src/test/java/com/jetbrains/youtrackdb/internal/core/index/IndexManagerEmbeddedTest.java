@@ -155,6 +155,22 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     assertNotNull("a previously retained cell remains a valid standalone object", cell);
   }
 
+  /** Dropping an already absent index leaves other indexes and their lifecycle cells intact. */
+  @Test
+  public void dropAbsentIndexPreservesExistingIndex() {
+    var manager = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var original = (IndexAbstract) manager.getIndex(IDX);
+    var cell = original.getLifecycleCell();
+
+    manager.dropIndex(session, "absent-index");
+    manager.dropIndex(session, "absent-index");
+
+    assertNull(manager.getIndex("absent-index"));
+    assertSame(original, manager.getIndex(IDX));
+    assertSame(cell, original.getLifecycleCell());
+    assertEquals(IndexLifecycle.EXISTS, cell.get());
+  }
+
   // -----------------------------------------------------------------------
   //  addCollectionToIndex
   // -----------------------------------------------------------------------

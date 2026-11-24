@@ -111,6 +111,133 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     assertThat(cache.size()).isLessThanOrEqualTo(2);
   }
 
+  /**
+   * The actual mixed cache keeps every private dimension and production shape independent.
+   * Probe hits, rejected repairs and losing repairs retain only immutable keys.
+   */
+  @Test
+  public void mixedCachePreservesCandidateDomainsAndNeverRetainsLookupProbe() throws Exception {
+    GremlinShapeBuffer.hasherForTests = value -> 7;
+    var db = graphSession();
+    var cache = new GremlinPlanCache(32);
+    var shape = new GremlinShapeKey(new Object[] {"Aa"});
+    var collision = new GremlinShapeKey(new Object[] {"BB"});
+    var cuts = new PrivateCandidatePreparation.Policy(java.util.Set.of(3));
+    var base = new PrivateCandidatePreparation.CandidateKey("private", cuts, false, false, 7,
+        shape);
+    var keys = List.of(base,
+        new PrivateCandidatePreparation.CandidateKey("other", cuts, false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private",
+            new PrivateCandidatePreparation.Policy(java.util.Set.of()), false, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", cuts, true, false, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", cuts, false, true, 7, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", cuts, false, false, 8, shape),
+        new PrivateCandidatePreparation.CandidateKey("private", cuts, false, false, 7, collision));
+    cache.getTranslationEntry(shape, db);
+    long generation = cache.getGeneration();
+    var production = new GremlinTranslationTemplate.Decline();
+    assertThat(cache.putTranslationInternal(shape, production, db, generation))
+        .isSameAs(production);
+    var privateResidents = new ArrayList<GremlinTranslationTemplate>();
+    for (int i = 0; i < keys.size(); i++) {
+      var candidate = new GremlinTranslationTemplate.Candidate(
+          i, PrivatePrefixDiscovery.Reason.FOLD_CUT, null);
+      assertThat(cache.getTranslationEntry(keys.get(i), db)).isNull();
+      assertThat(cache.putTranslationInternal(keys.get(i), candidate, db, generation))
+          .isSameAs(candidate);
+      privateResidents.add(candidate);
+    }
+    for (int i = 0; i < keys.size(); i++) {
+      var key = keys.get(i);
+      var resident = cache.getTranslationEntry(key, db);
+      assertThat(resident.value).isSameAs(privateResidents.get(i));
+      var repair = new GremlinTranslationTemplate.Candidate(
+          i, PrivatePrefixDiscovery.Reason.PLAIN, null);
+      // A production envelope is not authority to replace any private publication.
+      assertThat(cache.putTranslationInternal(key, repair, db, generation,
+          cache.getTranslationEntry(shape, db))).isSameAs(resident.value);
+      assertThat(cache.putTranslationInternal(key, repair, db, generation, resident))
+          .isSameAs(repair);
+      assertThat(cache.putTranslationInternal(key, privateResidents.get(i), db, generation,
+          resident)).isSameAs(repair);
+      privateResidents.set(i, repair);
+    }
+    var field = GremlinPlanCache.class.getDeclaredField("translationCache");
+    field.setAccessible(true);
+    var backing = (Cache<?, ?>) field.get(cache);
+    try (var probe = GremlinShapeBuffer.acquire()) {
+      probe.append("Aa");
+      var resident = cache.getTranslationEntry(probe, db);
+      assertThat(resident.value).isSameAs(production);
+      assertThat(cache.putTranslationInternal(probe, new GremlinTranslationTemplate.Decline(),
+          db, generation, resident)).isNull();
+      var repair = new GremlinTranslationTemplate.Decline();
+      assertThat(cache.putTranslationInternal(probe.freeze(), repair, db, generation, resident))
+          .isSameAs(repair);
+      assertThat(cache.putTranslationInternal(probe.freeze(), production, db, generation,
+          resident)).isSameAs(repair);
+      assertThat(cache.getTranslationInternal(probe, db)).isSameAs(repair);
+      assertThat(retainsProbe(backing, probe, java.util.Collections.newSetFromMap(
+          new java.util.IdentityHashMap<>()))).isFalse();
+      assertThat(backing.asMap().keySet()).allMatch(key -> key instanceof GremlinShapeKey
+          || key instanceof PrivateCandidatePreparation.CandidateKey);
+    }
+    try (var reused = GremlinShapeBuffer.acquire()) {
+      reused.append("unrelated");
+      assertThat(cache.getTranslationEntry(reused, db)).isNull();
+      for (int i = 0; i < keys.size(); i++) {
+        assertThat(cache.getTranslationInternal(keys.get(i), db)).isSameAs(privateResidents.get(i));
+      }
+      assertThat(cache.getTranslationInternal(shape, db)).isInstanceOf(
+          GremlinTranslationTemplate.Decline.class).isNotSameAs(production);
+    }
+  }
+
+  /** Root admission annotates strategies without forcing grouping to rescan them on a warm hit. */
+  @Test
+  public void warmCombiningRootReusesScanThroughSafetyEvidenceWithoutMatchBookkeeping()
+      throws Exception {
+    var cold = graph.traversal().V().has("age", 1).barrier(2500).valueMap("name").asAdmin();
+    assertThat(PropertyMapBulkingAdmission.capacity(cold)).isEqualTo(2500);
+    GremlinToMatchStrategy.instance().apply(cold);
+    var warm = graph.traversal().V().has("age", 2).barrier(2500).valueMap("name").asAdmin();
+    var strategies = org.mockito.Mockito.spy(warm.getStrategies());
+    warm.setStrategies(strategies);
+    org.mockito.Mockito.clearInvocations(strategies);
+    var counters = new GremlinShapeBuffer.Counters();
+    GremlinShapeBuffer.startCounting(counters);
+    var metrics = GremlinTranslationMetrics.of(graphSession());
+    var nativeBefore = metrics.getRuleNative();
+    GremlinToMatchStrategy.instance().apply(warm);
+    assertThat(warm.getStrategies()).isInstanceOf(QuerySafetyAdmission.Evidence.class);
+    assertThat(metrics.getRuleNative()).isEqualTo(nativeBefore + 1);
+    org.mockito.Mockito.verify(strategies).iterator();
+    org.mockito.Mockito.verify(strategies, org.mockito.Mockito.never())
+        .getStrategy(org.mockito.ArgumentMatchers.any());
+    assertThat(counters.emissions).isEqualTo(1);
+    assertThat(counters.hits).isEqualTo(1);
+    assertThat(counters.extractions).isZero();
+    assertThat(counters.bindingMaps).isZero();
+    assertThat(counters.contributions).isZero();
+    // Observe a separate warm invocation without forcing harvest or freezing its leased key.
+    var observed = new ArrayList<GremlinShapeExtractor.Extraction>();
+    var observer = new GremlinToMatchStrategy(t -> {
+      throw new AssertionError("warm combining root walked again");
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
+    observer.extractionObserver = observed::add;
+    try (var contexts = org.mockito.Mockito.mockStatic(HasBindingContext.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS)) {
+      observer.apply(graph.traversal().V().has("age", 1).barrier(2500).valueMap("name").asAdmin());
+      assertThat(observed).hasSize(1);
+      var encoder = observed.getFirst().encoder();
+      assertThat(encoder.harvested()).isFalse();
+      var frozen = GremlinShapeEncoder.class.getDeclaredField("frozenKey");
+      frozen.setAccessible(true);
+      assertThat(frozen.get(encoder)).isNull();
+      contexts.verifyNoInteractions();
+    }
+  }
+
   /** The folded Java hash cannot replace full 64-bit rejection and exact token comparison. */
   @Test
   public void different64BitHashesWithSameJavaHashCoexist() {
@@ -215,7 +342,7 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
 
   /** The last HasStep aborts at its custom operator, before any remaining container is read. */
   @Test
-  public void unsupportedFinalPredicateAbortsBeforeUserConversionAndFullFallbackRemainsCorrect() {
+  public void unsupportedFinalPredicateAbortsFastEmissionAndSafetyKeepsApplicationNative() {
     var conversions = new java.util.concurrent.atomic.AtomicInteger();
     var operator =
         new org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate<Object, Object>() {
@@ -259,11 +386,18 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
     strategy.extractionObserver = observed::add;
     var counters = new GremlinShapeBuffer.Counters();
     GremlinShapeBuffer.startCounting(counters);
+    var steps = List.copyOf(traversal.getSteps());
+    int conversionsBeforeAdmission = conversions.get();
     strategy.apply(traversal);
-    assertThat(counters.fallbacks).isEqualTo(1);
-    assertThat(counters.emissions).isEqualTo(1);
-    assertThat(observed).hasSize(1);
-    assertThat(observed.getFirst().key()).isEqualTo(full.key());
+    assertThat(QuerySafetyAdmission.stored(traversal).reason())
+        .isEqualTo(QuerySafetyAdmission.Reason.USER_FUNCTION);
+    assertThat(traversal.getSteps()).containsExactlyElementsOf(steps);
+    assertThat(conversions).hasValue(conversionsBeforeAdmission);
+    assertThat(counters.leases).isZero();
+    assertThat(counters.fallbacks).isZero();
+    assertThat(counters.emissions).isZero();
+    assertThat(observed).isEmpty();
+    assertThat(full.key()).isNotNull();
     assertThat((List<?>) traversal.toList()).isEqualTo(expected);
     assertScratchCleared();
   }
@@ -516,6 +650,23 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
         .getStrategy(org.mockito.ArgumentMatchers.any());
   }
 
+  /** Only a safety view over the captured list can reuse references, not clones or replacements. */
+  @Test
+  public void safetyEvidenceReusesReferencesButClonedAndReplacedListsDoNot() {
+    var traversal = graph.traversal().V().barrier(2500).valueMap("name").asAdmin();
+    var environment = TranslationEnvironment.resolve(traversal, graphSession());
+    assertThat(QuerySafetyAdmission.prepare(traversal).reason())
+        .isEqualTo(QuerySafetyAdmission.Reason.SAFE);
+    assertThat(TranslationEnvironment.references(traversal, environment))
+        .isSameAs(environment.references());
+    var clone = traversal.clone();
+    clone.setStrategies(traversal.getStrategies().clone());
+    assertThat(TranslationEnvironment.references(clone, environment)).isNull();
+    traversal.setStrategies(
+        new org.apache.tinkerpop.gremlin.process.traversal.util.DefaultTraversalStrategies());
+    assertThat(TranslationEnvironment.references(traversal, environment)).isNull();
+  }
+
   /** Disabled counting ignores even installed counters, while enabled counting stays thread-local. */
   @Test
   public void testCountersAreGatedBeforeThreadLocalAccess() {
@@ -682,8 +833,9 @@ public class GremlinShapeFastPathTest extends GraphBaseTest {
         walker.verify(() -> GremlinStepWalker.hasDuplicateStepLabels(warmA));
         walker.verify(() -> GremlinStepWalker.selectCollidesWithSideEffect(warmA));
       }
-      // ID-free fast emission scans the structure only once.
-      org.mockito.Mockito.verify(has, org.mockito.Mockito.times(1)).getHasContainers();
+      // Root safety inspects predicates once before the single structural token emission. An
+      // ID-free start skips the runtime RID eligibility scan, so it adds no third read.
+      org.mockito.Mockito.verify(has, org.mockito.Mockito.times(2)).getHasContainers();
       assertThat(counters.leases).isEqualTo(1);
       assertThat(counters.emissions).isEqualTo(1);
       assertThat(counters.hits).isEqualTo(1);

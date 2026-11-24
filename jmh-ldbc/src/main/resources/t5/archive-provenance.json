@@ -1,0 +1,13 @@
+{
+  "source": "full-93aba32c93",
+  "sources": {
+    "A-n20000-skewed-f0/results.jsonl": "0a6538fcbb3add1ed200e8812a15979b7b8e89130b907033deabb8eb525a3560",
+    "A-n20000-skewed-f1/results.jsonl": "9fc1968587cede9dde9cf87309310cac30cc28d4dbb7a2772da3816cbe7d7143",
+    "A-n20000-uniform-f0/results.jsonl": "59fbc6899fd571649393d0c52987392f92c21aba24430346fa3209d290015531",
+    "A-n20000-uniform-f1/results.jsonl": "ca01fb81fedd1548379e130a7b7e8a275c12e199373f120adec2a14203f44a12",
+    "A-n200000-skewed-f0/results.jsonl": "154e535f2c306fde9f67dfcd19455c28e49557df1a2cc0f6185a7e0f399b391e",
+    "A-n200000-skewed-f1/results.jsonl": "dbe04224bf404d62e64669575bcbad1c5a14f4a0e1dd6db4d7d5175e2d45756c"
+  },
+  "grammarSha256": "10dc1455f213425957500c3660a8cf446b958429e0ac16673d96595339518d76",
+  "catalogueSha256": "ec1bdc2819a34010e2ee1ad5f274d1c0e0cefc90bf754bd5f83e10d5e74e2d1d"
+}

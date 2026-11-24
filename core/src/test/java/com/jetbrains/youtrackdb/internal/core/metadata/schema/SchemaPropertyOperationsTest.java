@@ -172,6 +172,30 @@ public class SchemaPropertyOperationsTest extends DbTestBase {
     assertEquals(DefaultCollate.NAME, prop.getCollate().getName());
   }
 
+  /** Setting the current collation again must retain the populated index and its descriptor. */
+  @Test
+  public void unchangedCollatePreservesIndexAndRows() {
+    var cls = session.getMetadata().getSchema().createClass("SameCollate");
+    var prop = cls.createProperty("text", PropertyType.STRING);
+    prop.createIndex(INDEX_TYPE.NOTUNIQUE);
+    session.executeInTx(tx -> session.newEntity("SameCollate").setProperty("text", "Mixed"));
+    var manager = session.getSharedContext().getIndexManager();
+    var identity = manager.getIndex("SameCollate.text").getIdentity();
+
+    prop.setCollate(DefaultCollate.NAME);
+
+    assertEquals("unchanged collation must not recreate the index", identity,
+        manager.getIndex("SameCollate.text").getIdentity());
+    session.executeInTx(tx -> {
+      try (var rows = session.query("select from SameCollate where text = 'Mixed'")) {
+        assertEquals(1, rows.stream().count());
+      }
+      try (var rows = session.query("select from SameCollate where text = 'mixed'")) {
+        assertFalse("default collation remains case-sensitive", rows.hasNext());
+      }
+    });
+  }
+
   @Test
   public void customAttributesSetGetRemoveClear() {
     // Walk the full custom-attribute lifecycle — initial state is null/empty, set populates the
