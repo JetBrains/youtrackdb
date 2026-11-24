@@ -40,8 +40,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolve
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCollection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
@@ -49,7 +51,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLevelZeroIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -6676,10 +6680,9 @@ public class MatchExecutionPlanner {
         // the RIDs, so a pattern root carrying both scanned the class and demoted the pinned list
         // to a post-filter — and the prefetch filter only spares aliases estimated under
         // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
-        // needed the fetch. createSelectStatement takes the RIDs first, which is safe because
-        // promoteStaticRidsFromFilters only pins RIDs it has proved are inside the alias's class
-        // (see pinnedRidsProvablyInClass); a parser `rid:` slot pins one RID and estimates at 1,
-        // so it is prefetched through the same builder and never arrives here.
+        // needed the fetch. createSelectStatement keeps the class when RIDs are also present and
+        // folds the list into WHERE (YTDB-1672); SelectExecutionPlanner then membership-filters
+        // and still compiles a direct RID fetch when every RID belongs to the class.
         var select =
             createSelectStatement(clazz, pinnedRids, where == null ? null : where.copy());
         var subContext = new BasicCommandContext();
@@ -6830,8 +6833,15 @@ public class MatchExecutionPlanner {
 
   /**
    * Builds a synthetic {@code SELECT} that fetches from a RID list, scans a class,
-   * or both (RID list plus {@code WHERE}). Used as the initial record source for
-   * {@link MatchFirstStep} and {@link MatchPrefetchStep}.
+   * or both. Used as the initial record source for {@link MatchFirstStep} and
+   * {@link MatchPrefetchStep}.
+   *
+   * <p>When the alias carries both a class and pinned RIDs, the class stays as the
+   * FROM target and the RID list is folded into {@code WHERE}. A RID-only FROM
+   * would drop the class (YTDB-1672); {@link SelectExecutionPlanner}'s
+   * class-plus-{@code @rid} path membership-filters the list (subclass OK,
+   * unrelated class → {@link EmptyStep}) and still compiles a direct RID fetch
+   * when every RID belongs to the class.
    */
   private static SQLSelectStatement createSelectStatement(
       String targetClass, @Nullable List<SQLRid> targetRids, SQLWhereClause filter) {
@@ -6844,20 +6854,88 @@ public class MatchExecutionPlanner {
       SQLWhereClause filter,
       @Nullable SQLOrderBy orderBy) {
     var prefetchStm = new SQLSelectStatement(-1);
-    prefetchStm.setWhereClause(filter);
     if (orderBy != null) {
       prefetchStm.setOrderBy(orderBy);
     }
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
-    if (targetRids != null && !targetRids.isEmpty()) {
-      fromItem.setRids(targetRids);
-    } else if (targetClass != null) {
+    var effectiveFilter = filter;
+    if (targetClass != null) {
       fromItem.setIdentifier(new SQLIdentifier(targetClass));
+      if (targetRids != null && !targetRids.isEmpty()) {
+        effectiveFilter = withPinnedRidConstraint(filter, targetRids);
+      }
+    } else if (targetRids != null && !targetRids.isEmpty()) {
+      fromItem.setRids(targetRids);
     }
     from.setItem(fromItem);
     prefetchStm.setTarget(from);
+    prefetchStm.setWhereClause(effectiveFilter);
     return prefetchStm;
+  }
+
+  /**
+   * Ensures a class-targeted fetch still enforces its pinned RID list. Parser
+   * {@code rid:} slots pin without an {@code @rid} WHERE term; promoted
+   * {@code @rid} filters may already carry one (left intact).
+   */
+  // Visible for testing
+  @Nullable static SQLWhereClause withPinnedRidConstraint(
+      @Nullable SQLWhereClause filter, List<SQLRid> targetRids) {
+    assert MatchAssertions.checkNotNull(targetRids, "targetRids");
+    assert !targetRids.isEmpty();
+    if (filter != null
+        && (filter.findRidEquality() != null || filter.findRidInList() != null)) {
+      return filter;
+    }
+    var ridPred = pinnedRidPredicate(targetRids);
+    if (filter == null || filter.getBaseExpression() == null) {
+      var where = new SQLWhereClause(-1);
+      where.setBaseExpression(ridPred);
+      return where;
+    }
+    var and = new SQLAndBlock(-1);
+    and.getSubBlocks().add(filter.getBaseExpression());
+    and.getSubBlocks().add(ridPred);
+    var where = new SQLWhereClause(-1);
+    where.setBaseExpression(and);
+    return where;
+  }
+
+  private static SQLBooleanExpression pinnedRidPredicate(List<SQLRid> targetRids) {
+    var ridAttr = new SQLRecordAttribute(-1);
+    ridAttr.setName("@rid");
+    var left = new SQLExpression(ridAttr, null);
+    if (targetRids.size() == 1) {
+      var condition = new SQLBinaryCondition(-1);
+      condition.setLeft(left);
+      condition.setOperator(SQLEqualsOperator.INSTANCE);
+      var right = new SQLExpression(-1);
+      right.setRid(targetRids.getFirst().copy());
+      condition.setRight(right);
+      return condition;
+    }
+    var condition = new SQLInCondition(-1);
+    condition.setLeft(left);
+    condition.setOperator(new SQLInOperator(-1));
+    var values = new ArrayList<SQLExpression>(targetRids.size());
+    for (var rid : targetRids) {
+      var expr = new SQLExpression(-1);
+      expr.setRid(rid.copy());
+      values.add(expr);
+    }
+    var coll = new SQLCollection(-1);
+    for (var value : values) {
+      coll.add(value);
+    }
+    var levelZero = new SQLLevelZeroIdentifier(-1);
+    levelZero.setCollection(coll);
+    var ident = new SQLBaseIdentifier(-1);
+    ident.setLevelZero(levelZero);
+    var base = new SQLBaseExpression(-1);
+    base.setIdentifier(ident);
+    condition.setRightMathExpression(base);
+    return condition;
   }
 
   /**
@@ -6926,11 +7004,11 @@ public class MatchExecutionPlanner {
     // schedule run. With a RID slot populated, the estimate collapses to the list
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
-    // The promotion also lets createSelectStatement() take the FetchFromRids
-    // fast path instead of a class scan with post-filter. aliasClasses is passed in because that
-    // swap discards the alias's class — createSelectStatement treats RIDs and class as mutually
-    // exclusive — so the promoter declines whenever the pinned RIDs are not provably inside the
-    // class (see pinnedRidsProvablyInClass).
+    // The promotion also feeds createSelectStatement()'s RID list. When the alias also names a
+    // class, that method keeps the class as FROM and folds the list into WHERE (YTDB-1672).
+    // aliasClasses is still passed in: the promoter declines pins that are not provably inside
+    // the class so estimateRootEntries and schedule cost stay honest (see
+    // pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
@@ -7089,14 +7167,13 @@ public class MatchExecutionPlanner {
   /**
    * Whether every pinned RID provably belongs to {@code className} or one of its subclasses.
    *
-   * <p>The promotion is only safe when it loses nothing. {@link #createSelectStatement} treats a
-   * RID list and a class as mutually exclusive — a non-empty RID list sets the FROM target and the
-   * class arm never runs — so promoting an alias that also carries a class silently drops that
-   * class from the plan. Where the class is the only type constraint the alias has, the fetch then
-   * resolves whatever record the RID names. A translated {@code g.V(rid).hasLabel(L)} under
-   * polymorphic mode is exactly that shape: {@code HasStepRecogniser} re-types the boundary node to
-   * {@code L} and deliberately adds no {@code @class} conjunct, so with the class gone the label
-   * stops being checked at all and a record from an unrelated class is emitted.
+   * <p>The promotion is only safe when it loses nothing for cost and schedule. A pin collapses
+   * {@link #estimateRootEntries} to the list size; pinning RIDs outside the alias class would make
+   * that alias look tiny and win root selection even though the fetch must still obey the class.
+   * A translated {@code g.V(rid).hasLabel(L)} under polymorphic mode is the sharp case:
+   * {@code HasStepRecogniser} re-types the boundary node to {@code L} with no {@code @class}
+   * conjunct, so a wrong pin would also skew the schedule. Fetch correctness for class-plus-RID
+   * is enforced in {@link #createSelectStatement} (YTDB-1672).
    *
    * <p>Proof is by collection ownership, the same zero-I/O route
    * {@code MatchEdgeTraverser.matchesClass} takes: a RID's collection is owned by at most one
