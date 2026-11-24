@@ -6,15 +6,15 @@ package com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree;
  * headMap(lowWaterMark)}.
  *
  * <p>Natural ordering: {@code recordTs} first (enables efficient range-scan by timestamp for
- * eviction), then {@code componentId} → {@code ridBagId} → {@code targetCollection} → {@code
+ * eviction), then {@code linkBagFileId} → {@code ridBagId} → {@code targetCollection} → {@code
  * targetPosition}.
  *
- * <p>{@code componentId} is the {@code collectionId} that identifies the {@link
- * SharedLinkBagBTree} instance (same as in {@link EdgeSnapshotKey}).
+ * <p>{@code linkBagFileId} is the internal file id of the {@link SharedLinkBagBTree} instance
+ * (same as in {@link EdgeSnapshotKey}).
  */
 public record EdgeVisibilityKey(
     long recordTs,
-    int componentId,
+    int linkBagFileId,
     long ridBagId,
     int targetCollection,
     long targetPosition)
@@ -26,7 +26,7 @@ public record EdgeVisibilityKey(
     if (cmp != 0) {
       return cmp;
     }
-    cmp = Integer.compare(componentId, other.componentId);
+    cmp = Integer.compare(linkBagFileId, other.linkBagFileId);
     if (cmp != 0) {
       return cmp;
     }

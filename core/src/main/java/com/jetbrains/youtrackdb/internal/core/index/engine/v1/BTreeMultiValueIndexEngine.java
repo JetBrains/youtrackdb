@@ -22,6 +22,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.v3.BTree;
@@ -60,8 +63,9 @@ public final class BTreeMultiValueIndexEngine
 
   /**
    * The engine's stable, never-reused file base id. All storage-component names derive from it
-   * ({@code ie_<fileBaseId>} and {@code ie_<fileBaseId>$null}), so the logical index name
-   * ({@link #name}) never touches a file: a drop-and-recreate of a same-named index gets fresh
+   * through role identities on layout 28 and {@code ie_<fileBaseId>} stems on layout 27.
+   * The logical index name ({@link #name}) never touches a file.
+   * A drop-and-recreate of a same-named index gets fresh
    * files, and a rename never moves any.
    */
   private final int fileBaseId;
@@ -96,23 +100,29 @@ public final class BTreeMultiValueIndexEngine
     this.name = name;
     this.storage = storage;
     this.engineReference = storage.allocateIndexEngineReference(id, API_VERSION);
-    // Both components (and therefore their files) are keyed by the stable file base id, not the
-    // index name — the single name domain for engine storage components.
+    // Both trees share the engine component id. Their roles distinguish files and lock domains.
     final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);
     nullTreeName = stem + AbstractStorage.NULL_TREE_SUFFIX;
 
     if (version == 1 || version == 2 || version == 3) {
       throw new IllegalArgumentException("Unsupported version of index : " + version);
     } else if (version == 4) {
-      svTree =
-          new BTree<>(
-              stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      final boolean roleAware = storage.getStorageFormat() == StorageFormat.LAYOUT_28;
+      svTree = roleAware
+          ? new BTree<>(stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage,
+              storage.getComponentsFactory().binarySerializerFactory,
+              new PageFileIdentity(PageFileRole.INDEX_DATA, fileBaseId),
+              new PageFileIdentity(PageFileRole.INDEX_NULL_BUCKET, fileBaseId))
+          : new BTree<>(stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       svTree.setHistoryFileBaseId(this.fileBaseId);
       // User-facing diagnostics report the index's logical name, never the ie_<n> file stems.
       svTree.setDisplayName(name);
-      nullTree =
-          new BTree<>(
-              nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+      nullTree = roleAware
+          ? new BTree<>(nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage,
+              storage.getComponentsFactory().binarySerializerFactory,
+              new PageFileIdentity(PageFileRole.NULL_KEY_DATA, fileBaseId),
+              new PageFileIdentity(PageFileRole.NULL_KEY_NULL_BUCKET, fileBaseId))
+          : new BTree<>(nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       nullTree.setHistoryFileBaseId(this.fileBaseId);
       nullTree.setDisplayName(name + AbstractStorage.NULL_TREE_SUFFIX);
       // Explicit null-tree identity for the tombstone-GC snapshot lookup — the component name

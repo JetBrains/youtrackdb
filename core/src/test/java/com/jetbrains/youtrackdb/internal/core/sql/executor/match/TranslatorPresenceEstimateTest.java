@@ -343,22 +343,31 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
       for (var limit : List.of(1, 10, 100)) {
         var statement = parse("MATCH {class:SourceCost,as:s}.out('LinkCost'){as:t}"
             + " RETURN t.k AS value ORDER BY t.k LIMIT " + limit);
-        var planner = new IndexOrderedPlanner(null, classes, filters, Map.of(),
+        var planner = new IndexOrderedPlanner(null, classes, filters, Map.of(), java.util.Set.of(),
             statement.getOrderBy(), null, statement.getLimit(), statement.getReturnItems(),
             statement.getReturnAliases(), false, false, false, false, false);
         var order = statement.getOrderBy().getItems().getFirst();
-        for (var size : List.of(100L, 1000L, 10000L, 1000000L)) {
-          org.mockito.Mockito.when(index.size(session)).thenReturn(size);
+        for (var size : List.of(-1L, 0L, 100L, 1000L, 10000L, 1000000L)) {
+          org.mockito.Mockito.when(index.estimateEntryCount(session)).thenReturn(size);
           Object[] args = {"s", index, order, Map.of("s", 300L), session, context,
               List.of(), null, false};
           planner.estimateFilters(Map.of());
           var expected = method.invoke(planner, args);
+          if (size <= 0) {
+            assertThat(expected).isEqualTo(false);
+          } else if (size == 100L && limit == 1) {
+            assertThat(expected).isEqualTo(true);
+          }
           planner.estimateFilters(estimates(filters));
           assertThat(method.invoke(planner, args)).isEqualTo(expected);
           planner.estimateFilters(filters);
           distinguished |= !method.invoke(planner, args).equals(expected);
         }
       }
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.atLeastOnce())
+          .estimateEntryCount(session);
+      org.mockito.Mockito.verify(index, org.mockito.Mockito.atLeastOnce()).getHistogram(session);
+      org.mockito.Mockito.verifyNoMoreInteractions(index);
       assertThat(distinguished).as("ordinary presence takes the filtered cost branch").isTrue();
     } finally {
       session.rollback();
@@ -539,11 +548,15 @@ public class TranslatorPresenceEstimateTest extends GraphBaseTest {
             calls.verify(() -> MatchExecutionPlanner.canUseHashJoin(
                 org.mockito.ArgumentMatchers.any(
                     com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression.class),
-                org.mockito.ArgumentMatchers.anyMap(),
-                org.mockito.ArgumentMatchers.same(view), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.eq(inputs.aliasClasses()),
+                org.mockito.ArgumentMatchers.same(view),
+                org.mockito.ArgumentMatchers.eq(Map.of()),
+                org.mockito.ArgumentMatchers.eq(Map.of()),
                 org.mockito.ArgumentMatchers.same(context),
                 org.mockito.ArgumentMatchers.same(pattern),
-                org.mockito.ArgumentMatchers.eq(java.util.OptionalLong.of(300))));
+                org.mockito.ArgumentMatchers.eq(java.util.OptionalLong.of(300)),
+                org.mockito.ArgumentMatchers.eq(new MatchExecutionPlanner.DetachedSlice(
+                    java.util.OptionalLong.empty(), false))));
           } finally {
             tree.close();
           }

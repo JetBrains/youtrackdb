@@ -5,7 +5,7 @@ The repository does not need machine-local model overrides to enable routing.
 
 ## Model routing
 
-The project requires Pi 1.5.2 or later and configures `openai/gpt-6.2-astra` at `high`
+The project requires Pi 1.6.0 or later and configures `openai/gpt-6.2-astra` at `high`
 as Pi's startup default. Slate supplies the ordinary model pool and the worker-summary
 compressor unless home Slate settings override them. Completed worker content goes to the
 configured compressor, OpenAI by default.
@@ -37,7 +37,6 @@ the merged policy. Some legacy settings produce warnings and are ignored rather 
 Do not treat a warning-backed fallback as acceptance of an explicit setting.
 
 After changing configuration, use `pi --list-models` to check for the exact routes.
-The OpenAI catalog bundled with Pi 1.5.2 lacks `gpt-6.2-astra` and `gpt-6.2-sol`.
 If a route is missing, run `pi update --models` to refresh the catalogs, not the packages.
 Check the list again before reopening Pi. A refresh cannot guarantee access.
 
@@ -52,7 +51,7 @@ select another available model or no model. Only `openai/gpt-6.2-astra` at `high
 startup check.
 
 Run `/slate effective` and resolve every policy error and warning. With no home overrides,
-Slate 0.19 uses `luna-6` at `max`, `sol-6.2` at `high`, `astra-6.2` at `high`, and
+Slate 0.21 uses `luna-6` at `max`, `sol-6.2` at `high`, `astra-6.2` at `high`, and
 `fable-5-2` at `high`. The independent summary compressor uses `sol-6.2` at `low`.
 Check each permitted route separately for exact registry entry, authentication, and effort
 support. Policy membership does not prove availability or a successful call. If no configured

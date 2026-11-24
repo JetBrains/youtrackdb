@@ -45,6 +45,11 @@ import java.util.Set;
  */
 public class FetchFromClassExecutionStep extends AbstractExecutionStep {
 
+  /** Class identity read by the plain-plan analysis without opening the scan. */
+  public String getClassName() {
+    return className;
+  }
+
   /** The target class name (e.g. "Person"). */
   protected String className;
 
