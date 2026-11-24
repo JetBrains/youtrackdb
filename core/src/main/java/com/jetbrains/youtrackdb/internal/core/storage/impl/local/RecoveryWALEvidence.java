@@ -98,8 +98,12 @@ record RecoveryWALEvidence(LogSequenceNumber start, LogSequenceNumber readableEn
                 if (unit.started) {
                   allocations.addAll(unit.allocations);
                 }
-                unit.deletions.forEach((id, lsn) -> deletions.merge(id, lsn,
-                    (left, right) -> left.compareTo(right) >= 0 ? left : right));
+                for (var deletion : unit.deletions.entrySet()) {
+                  var existing = deletions.get(deletion.getKey());
+                  if (existing == null || existing.compareTo(deletion.getValue()) < 0) {
+                    deletions.put(deletion.getKey(), deletion.getValue());
+                  }
+                }
               }
             } else if (record instanceof OperationUnitRecord operation) {
               var unit =
