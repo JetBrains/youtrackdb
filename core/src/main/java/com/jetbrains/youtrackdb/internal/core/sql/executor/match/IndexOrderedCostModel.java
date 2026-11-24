@@ -29,10 +29,11 @@ import javax.annotation.Nullable;
  *
  * <p>A multi-source edge estimate may be clamped to {@code indexSize}. That clamp is not proof
  * every index entry is reachable, and under density {@code 1.0} {@link MultiSourceStrategy#GLOBAL_SCAN}
- * prices a LIMIT-sized walk. An earlier revision refused every capped estimate up front; that
- * also blocked true dense top-N shapes where GLOBAL wins. Capped estimates now go through the
- * same cost comparison as uncapped ones. When membership is sparse in key order, the runtime
- * scan budget on GLOBAL abandons the scan after roughly one entry per source edge.
+ * would price a LIMIT-sized walk. When the query has a positive LIMIT and the estimate is capped,
+ * {@link #pickMultiSourceStrategy} refuses that estimate and selects
+ * {@link MultiSourceStrategy#LOAD_ALL_SORT} from the source LinkBags before any cost comparison.
+ * Uncapped estimates still go through the cost comparison. When membership is sparse in key order,
+ * the runtime scan budget on GLOBAL abandons the scan after roughly one entry per source edge.
  *
  * <h2>Shared per-entry cursor cost</h2>
  * {@link #computeCosts} and {@link #pickMultiSourceStrategy} both price a filtered ordered-scan
