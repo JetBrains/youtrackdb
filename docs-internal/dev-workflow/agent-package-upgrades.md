@@ -20,7 +20,7 @@ understood without it. Give each YTDB-specific rule one owning project document.
 
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.19.0**.
+Last reconciled against **ytdb-slate 0.21.0**.
 
 This reconciliation read these package documents:
 
