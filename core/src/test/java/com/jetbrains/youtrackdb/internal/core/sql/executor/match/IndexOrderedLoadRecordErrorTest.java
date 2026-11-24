@@ -13,16 +13,14 @@ import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import org.junit.Test;
 
 /**
- * Regression for YTDB-1698: index-ordered MATCH must skip only missing records
- * on load, and must surface every other load failure instead of silently
- * dropping the index entry.
+ * Index-ordered MATCH must skip only missing records on load, and must surface every other load
+ * failure instead of silently dropping the index entry.
  */
 public class IndexOrderedLoadRecordErrorTest {
 
   /**
-   * A storage or transaction failure other than RecordNotFoundException must
-   * propagate out of loadRecordOrSkipMissing so the MATCH query fails rather
-   * than returning an incomplete result set.
+   * A storage or transaction failure other than RecordNotFoundException must propagate out of
+   * loadRecord so the MATCH query fails rather than returning an incomplete result set.
    */
   @Test
   public void nonMissingLoadFailurePropagates() {
@@ -34,13 +32,13 @@ public class IndexOrderedLoadRecordErrorTest {
 
     var thrown = assertThrows(
         IllegalStateException.class,
-        () -> IndexOrderedEdgeStep.loadRecordOrSkipMissing(rid, session));
+        () -> IndexOrderedEdgeStep.loadRecord(rid, session));
     assertEquals("injected storage failure", thrown.getMessage());
   }
 
   /**
-   * A RecordNotFoundException still means a stale index entry: skip the entry
-   * and return null so the scan continues with the next key.
+   * A RecordNotFoundException still means a stale index entry: skip the entry and return null so
+   * the scan continues with the next key.
    */
   @Test
   public void recordNotFoundIsSkipped() {
@@ -50,6 +48,6 @@ public class IndexOrderedLoadRecordErrorTest {
     when(session.getActiveTransaction()).thenReturn(tx);
     when(tx.load(rid)).thenThrow(new RecordNotFoundException("testdb", rid));
 
-    assertNull(IndexOrderedEdgeStep.loadRecordOrSkipMissing(rid, session));
+    assertNull(IndexOrderedEdgeStep.loadRecord(rid, session));
   }
 }

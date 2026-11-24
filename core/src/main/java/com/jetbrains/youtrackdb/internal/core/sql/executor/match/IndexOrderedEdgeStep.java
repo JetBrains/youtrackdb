@@ -1469,13 +1469,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     return ridSet;
   }
 
-  /**
-   * Loads a record for an index entry. A missing record is skipped (stale index
-   * entry). Any other load failure propagates so the query fails instead of
-   * silently dropping the entry.
-   */
-  @Nullable static Result loadRecordOrSkipMissing(
-      RID rid, DatabaseSessionEmbedded session) {
+  // Missing record → skip stale index entry. Any other load failure propagates.
+  @Nullable static Result loadRecord(RID rid, DatabaseSessionEmbedded session) {
     try {
       var rec = session.getActiveTransaction().load(rid);
       if (rec == null) {
@@ -1486,11 +1481,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
       logger.debug("Index entry points to missing record {}; skipping", rid);
       return null;
     }
-  }
-
-  @Nullable private Result loadRecord(
-      RID rid, DatabaseSessionEmbedded session) {
-    return loadRecordOrSkipMissing(rid, session);
   }
 
   /** Consistency check: if target alias was already bound, verify match. */
