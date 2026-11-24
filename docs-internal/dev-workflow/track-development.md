@@ -15,6 +15,8 @@ after all unit and integration tests pass.
   applicable prior answer. An issue number is optional. With an issue, start the branch name
   with `YTDB-<number>`, as in `YTDB-123-short-name`. CI adds the issue prefix to the PR title.
   Without an issue, CI leaves the title unchanged. Individual commit subjects need no issue number.
+- Before starting implementation of a change with a YTDB issue, read the
+  [issue tracking rules](issue-tracking.md).
 - For multiple issues, list all issue IDs in the title, separated by commas and wrapped in
   square brackets: `[YTDB-123, YTDB-456] <summary>`.
 - Pull requests merge into `develop` with a merge commit. Branches may contain merge commits,
@@ -29,6 +31,9 @@ after all unit and integration tests pass.
 The YTDB review charter lives in `docs-internal/agents/review-perspectives.md`.
 
 ## Pre-existing problems
+
+Before creating or linking a YTDB issue for a pre-existing problem, read the
+[issue tracking rules](issue-tracking.md).
 
 A pre-existing problem is a defect, a failing or unreliable test, or another fault. It already
 exists in the base branch state for the change. The current change did not introduce it.
