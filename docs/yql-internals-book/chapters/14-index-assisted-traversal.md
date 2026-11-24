@@ -530,8 +530,14 @@ separate result rows. Applied, skipped and membership counters use the ordinary 
 
 For one source row and a positive runtime LIMIT, the ordered step prices the current
 target-index estimate against the ordering scan and the LinkBag load. Unknown estimates
-and unbounded executions use the ordinary path. The estimate uses the current parameter
-bindings even when the plan comes from the cache.
+use the ordinary path. The estimate uses the current parameter bindings even when the
+plan comes from the cache.
+
+For a proven single start record without a LIMIT clause, the step prices eligible equality
+fetch against the LinkBag load. A known target-index estimate is required.
+It uses equality fetch when its estimated cost is lower and the bounded read completes.
+Otherwise it loads from the LinkBag and leaves sorting to OrderByStep.
+One start record without LIMIT never uses the ordered index scan.
 
 One execution-local work account bounds speculative index reads and record loads.
 Each path is attempted at most once. An incomplete equality read discards its candidates
@@ -660,8 +666,8 @@ loaded. Adding an index on the field is sufficient to enable the optimisation.
 
 **OR-combined index conditions.** `findIndexForFilter` rejects WHERE clauses that flatten to
 more than one OR branch. Those predicates are not pre-filterable and fall back to post-load
-evaluation. AND-combined conditions on multiple indexed fields are handled via `Composite`
-intersection.
+evaluation. AND-combined conditions use the best available index.
+`Composite` intersects descriptors attached separately to the same edge.
 
 These are not bugs; they are the current scope of the optimisation, and the engine degrades
 gracefully to standard post-load filtering in all these cases.
@@ -670,10 +676,10 @@ gracefully to standard post-load filtering in all these cases.
 
 ## Configuration knobs
 
-Seven `GlobalConfiguration` keys support the paths described in this chapter. Five control
-runtime pre-filter thresholds. Two control null placement during plan construction, when
-`SelectExecutionPlanner` and `IndexOrderedPlanner` test whether an index-ordered plan can
-elide an in-memory sort.
+Eight `GlobalConfiguration` keys support the paths described in this chapter. Five control
+runtime pre-filter thresholds. One caps equality-fetch candidates.
+Two control null placement during plan construction, when `SelectExecutionPlanner` and
+`IndexOrderedPlanner` test whether an index-ordered plan can elide an in-memory sort.
 
 **Table 14.1 — Index-assisted traversal configuration keys.**
 
