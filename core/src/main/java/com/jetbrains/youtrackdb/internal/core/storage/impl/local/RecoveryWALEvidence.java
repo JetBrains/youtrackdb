@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.W
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.EmptyWALRecord;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -49,12 +50,10 @@ record RecoveryWALEvidence(LogSequenceNumber start, LogSequenceNumber readableEn
     LogSequenceNumber stop = null;
     Long previousSegment = null;
     try {
-      var segments = wal.preOpenExtent().segments().stream()
-          .filter(segment -> segment.segment() >= start.getSegment()).toList();
       // Even unavailable coverage must go through the reader so capture errors retain their cause.
-      var positions = new java.util.ArrayList<LogSequenceNumber>();
+      var positions = new ArrayList<LogSequenceNumber>();
       positions.add(start);
-      for (var segment : segments) {
+      for (var segment : wal.preOpenExtent().segments()) {
         if (segment.segment() > start.getSegment()) {
           positions.add(new LogSequenceNumber(segment.segment(), CASWALPage.RECORDS_OFFSET));
         }
