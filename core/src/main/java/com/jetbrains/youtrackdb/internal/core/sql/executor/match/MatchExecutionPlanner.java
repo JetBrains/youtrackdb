@@ -40,10 +40,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.OrderByCollationResolve
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCollection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
@@ -51,9 +49,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLevelZeroIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -6681,8 +6677,8 @@ public class MatchExecutionPlanner {
         // the RIDs, so a pattern root carrying both scanned the class and demoted the pinned list
         // to a post-filter — and the prefetch filter only spares aliases estimated under
         // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
-        // needed the fetch. createSelectStatement takes a RID FROM when the pins are inside the
-        // class; otherwise it keeps the class and folds the RIDs into WHERE (YTDB-1672).
+        // needed the fetch. createSelectStatement keeps the RID FROM when pins sit inside the
+        // class (same path as before); out-of-class pins become zero rows (YTDB-1672).
         var select =
             createSelectStatement(
                 clazz, pinnedRids, where == null ? null : where.copy(), null, context);
@@ -6833,16 +6829,15 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Builds a synthetic {@code SELECT} that fetches from a RID list, scans a class,
-   * or both. Used as the initial record source for {@link MatchFirstStep} and
+   * Builds a synthetic {@code SELECT} that fetches from a RID list or scans a
+   * class. Used as the initial record source for {@link MatchFirstStep} and
    * {@link MatchPrefetchStep}.
    *
-   * <p>A non-empty RID list normally becomes the FROM target (direct fetch). When
-   * the alias also names a class, that is safe only if every pinned RID belongs to
-   * that class or a subclass — otherwise the RID-only FROM would drop the class
-   * (YTDB-1672). Unprovable or out-of-class pins keep the class as FROM and fold
-   * the RID list into {@code WHERE} so {@link SelectExecutionPlanner} can
-   * membership-filter or {@link EmptyStep}.
+   * <p>When the alias has pinned RIDs and a class, membership is one check
+   * (YTDB-1672): inside the class (or a subclass) → same RID FROM as before;
+   * outside the class → empty RID FROM (zero rows). Unresolvable pins keep the
+   * RID FROM (same as before that edge case). No class → RID FROM. No RIDs →
+   * class scan.
    */
   private static SQLSelectStatement createSelectStatement(
       @Nullable String targetClass,
@@ -6851,90 +6846,42 @@ public class MatchExecutionPlanner {
       @Nullable SQLOrderBy orderBy,
       @Nullable CommandContext ctx) {
     var prefetchStm = new SQLSelectStatement(-1);
+    prefetchStm.setWhereClause(filter);
     if (orderBy != null) {
       prefetchStm.setOrderBy(orderBy);
     }
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
-    var effectiveFilter = filter;
     var hasRids = targetRids != null && !targetRids.isEmpty();
-    if (hasRids
-        && (targetClass == null || pinnedRidsProvablyInClass(targetRids, targetClass, ctx))) {
-      fromItem.setRids(targetRids);
+    if (hasRids) {
+      if (targetClass != null
+          && pinnedRidsDefinitelyOutsideClass(targetRids, targetClass, ctx)) {
+        fromItem.setRids(List.of());
+      } else {
+        fromItem.setRids(targetRids);
+      }
     } else if (targetClass != null) {
       fromItem.setIdentifier(new SQLIdentifier(targetClass));
-      if (hasRids) {
-        effectiveFilter = withPinnedRidConstraint(filter, targetRids);
-      }
     }
     from.setItem(fromItem);
     prefetchStm.setTarget(from);
-    prefetchStm.setWhereClause(effectiveFilter);
     return prefetchStm;
   }
 
   /**
-   * Ensures a class-targeted fetch still enforces its pinned RID list. Parser
-   * {@code rid:} slots pin without an {@code @rid} WHERE term; promoted
-   * {@code @rid} filters may already carry one (left intact).
+   * True only when every pinned RID has a resolvable collection and at least one
+   * lies outside {@code className}'s hierarchy. Unresolvable pins return
+   * {@code false} so the caller keeps the RID FROM unchanged.
    */
-  // Visible for testing
-  @Nullable static SQLWhereClause withPinnedRidConstraint(
-      @Nullable SQLWhereClause filter, List<SQLRid> targetRids) {
-    assert MatchAssertions.checkNotNull(targetRids, "targetRids");
-    assert !targetRids.isEmpty();
-    if (filter != null
-        && (filter.findRidEquality() != null || filter.findRidInList() != null)) {
-      return filter;
+  private static boolean pinnedRidsDefinitelyOutsideClass(
+      List<SQLRid> rids, String className, @Nullable CommandContext ctx) {
+    for (var rid : rids) {
+      var collection = rid.getCollection();
+      if (collection == null || collection.getValue() == null) {
+        return false;
+      }
     }
-    var ridPred = pinnedRidPredicate(targetRids);
-    if (filter == null || filter.getBaseExpression() == null) {
-      var where = new SQLWhereClause(-1);
-      where.setBaseExpression(ridPred);
-      return where;
-    }
-    var and = new SQLAndBlock(-1);
-    and.getSubBlocks().add(filter.getBaseExpression());
-    and.getSubBlocks().add(ridPred);
-    var where = new SQLWhereClause(-1);
-    where.setBaseExpression(and);
-    return where;
-  }
-
-  private static SQLBooleanExpression pinnedRidPredicate(List<SQLRid> targetRids) {
-    var ridAttr = new SQLRecordAttribute(-1);
-    ridAttr.setName("@rid");
-    var left = new SQLExpression(ridAttr, null);
-    if (targetRids.size() == 1) {
-      var condition = new SQLBinaryCondition(-1);
-      condition.setLeft(left);
-      condition.setOperator(SQLEqualsOperator.INSTANCE);
-      var right = new SQLExpression(-1);
-      right.setRid(targetRids.getFirst().copy());
-      condition.setRight(right);
-      return condition;
-    }
-    var condition = new SQLInCondition(-1);
-    condition.setLeft(left);
-    condition.setOperator(new SQLInOperator(-1));
-    var values = new ArrayList<SQLExpression>(targetRids.size());
-    for (var rid : targetRids) {
-      var expr = new SQLExpression(-1);
-      expr.setRid(rid.copy());
-      values.add(expr);
-    }
-    var coll = new SQLCollection(-1);
-    for (var value : values) {
-      coll.add(value);
-    }
-    var levelZero = new SQLLevelZeroIdentifier(-1);
-    levelZero.setCollection(coll);
-    var ident = new SQLBaseIdentifier(-1);
-    ident.setLevelZero(levelZero);
-    var base = new SQLBaseExpression(-1);
-    base.setIdentifier(ident);
-    condition.setRightMathExpression(base);
-    return condition;
+    return !pinnedRidsProvablyInClass(rids, className, ctx);
   }
 
   /**
@@ -7003,11 +6950,10 @@ public class MatchExecutionPlanner {
     // schedule run. With a RID slot populated, the estimate collapses to the list
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
-    // The promotion also feeds createSelectStatement()'s RID list. That method uses a RID FROM
-    // when pins are inside the class, and otherwise keeps the class and folds RIDs into WHERE
-    // (YTDB-1672). aliasClasses is still passed in: the promoter declines pins that are not
-    // provably inside the class so estimateRootEntries and schedule cost stay honest (see
-    // pinnedRidsProvablyInClass).
+    // The promotion also feeds createSelectStatement()'s RID list. In-class pins keep the RID
+    // FROM; out-of-class pins become zero rows (YTDB-1672). aliasClasses is still passed in: the
+    // promoter declines pins that are not provably inside the class so estimateRootEntries and
+    // schedule cost stay honest (see pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
