@@ -26,7 +26,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -962,49 +961,6 @@ public final class LockFreeReadCache implements ReadCache {
     }
     if (pinnedRefusal != null) {
       throw pinnedRefusal;
-    }
-  }
-
-  private static final class FileCleanupFailures {
-
-    private final Throwable first;
-    private IdentityHashMap<Throwable, Boolean> seen;
-    private ArrayList<Throwable> later;
-
-    private FileCleanupFailures(Throwable first) {
-      this.first = first;
-    }
-
-    private static FileCleanupFailures record(FileCleanupFailures failures, Throwable failure) {
-      if (failures == null) {
-        return new FileCleanupFailures(failure);
-      }
-      if (failure != failures.first) {
-        if (failures.seen == null) {
-          failures.seen = new IdentityHashMap<>();
-          failures.later = new ArrayList<>();
-        }
-        if (failures.seen.put(failure, Boolean.TRUE) == null) {
-          failures.later.add(failure);
-        }
-      }
-      return failures;
-    }
-
-    private void rethrow(StorageException pinnedRefusal) {
-      // Throwable.addSuppressed takes the primary failure's monitor.
-      if (later != null) {
-        for (var failure : later) {
-          first.addSuppressed(failure);
-        }
-      }
-      if (pinnedRefusal != null) {
-        first.addSuppressed(pinnedRefusal);
-      }
-      if (first instanceof RuntimeException runtimeFailure) {
-        throw runtimeFailure;
-      }
-      throw (Error) first;
     }
   }
 
