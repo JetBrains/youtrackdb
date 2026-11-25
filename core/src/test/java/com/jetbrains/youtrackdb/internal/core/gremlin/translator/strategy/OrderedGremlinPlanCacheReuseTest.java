@@ -41,6 +41,10 @@ import org.junit.Test;
 /** Actual ordered cache engagement, bound predicates, and private execution across graph sessions. */
 public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** A complete warm single-plan hit skips both seams and rebinds alternating source and target values. */
   @Test
   public void warmSinglePlanSkipsWalkerAndPlannerAndMatchesNativeForAlternatingBindings()
@@ -55,19 +59,22 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(t);
     }, (s, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
     var registry = mock(MetricsRegistry.class);
     var successRatio = mock(Ratio.class);
     var declineRatio = mock(Ratio.class);
     var errorRatio = mock(Ratio.class);
+    var ruleNativeRatio = mock(Ratio.class);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_SUCCESS_RATIO))
         .thenReturn(successRatio);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_DECLINE_RATIO))
         .thenReturn(declineRatio);
     when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_ERROR_RATIO))
         .thenReturn(errorRatio);
+    when(registry.globalMetric(CoreMetrics.GREMLIN_TRANSLATION_RULE_NATIVE_RATIO))
+        .thenReturn(ruleNativeRatio);
     var metrics = new GremlinTranslationMetrics(registry);
     // This fixture owns its database. Replace only its holder, never the engine-global registry.
     var metricsField = SharedContext.class.getDeclaredField("gremlinTranslationMetrics");
@@ -104,6 +111,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
     verify(successRatio, times(3)).record(1, 1);
     verify(declineRatio, times(3)).record(0, 1);
     verify(errorRatio, times(3)).record(0, 1);
+    verify(ruleNativeRatio, times(3)).record(0, 1);
   }
 
   /** Multi-plan calls rerun the walker but both eligible ordered children hit physical templates. */
@@ -116,7 +124,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       walks.incrementAndGet();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     db.getConfiguration().setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED,
         false);
     List<String> expected;
@@ -160,10 +168,10 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       return GremlinToMatchTranslator.translate(t);
     }, (s, translation, scope) -> {
       builds.incrementAndGet();
-      return GremlinToMatchStrategy.buildPlan(s, translation, scope);
+      return GremlinToMatchStrategy.buildPlanEntry(s, translation, scope);
     }, true);
     var hits = cache.getTranslationHits();
-    var keys = new ArrayList<String>();
+    var keys = new ArrayList<GremlinShapeKey>();
     var templates = new ArrayList<InternalExecutionPlan>();
     for (var minimum : List.of(0, "0", 4, "1")) {
       var traversal = guardedOrdered(minimum);
@@ -283,8 +291,8 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
           GremlinPlanFingerprint.fingerprint(eligibleChild.inputs(), translation.shaping());
       InternalExecutionPlan injected = null;
       if (call == 1) {
-        injected = GremlinPlanCache.put(privateKey, cache.peekStored(eligibleKey), db,
-            cache.getGeneration());
+        cache.putInternal(privateKey, cache.peekStored(eligibleKey), db, cache.getGeneration());
+        injected = cache.peekStored(privateKey);
         assertThat(injected).isNotNull();
       }
       var hits = cache.getHits();
@@ -454,7 +462,7 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       var db = graphSession(privateGraph);
       var cache = GremlinPlanCache.instance(db);
       var key = GremlinStepWalker.extractShape(ordered(privateGraph, 1, 0).asAdmin(), db).key();
-      var sharedTranslation = cache.getTranslationInternal(key, db);
+      var sharedTranslation = cache.getTranslationInternal(key, db, cache.getGeneration());
       db.getMetadata().getSchema().createClass("PrivateOrderedClass");
       assertThat(db.getTxSchemaState()).isNotNull();
       var hits = cache.getTranslationHits();
@@ -466,7 +474,8 @@ public class OrderedGremlinPlanCacheReuseTest extends GraphBaseTest {
       assertThat(boundary(traversal).getPlan()).isSameAs(privatePlan);
       assertThat(cache.getTranslationHits()).isEqualTo(hits);
       var thirdDb = graphSession(third);
-      assertThat(cache.getTranslationInternal(key, thirdDb)).isSameAs(sharedTranslation);
+      assertThat(cache.getTranslationInternal(key, thirdDb, cache.getGeneration()))
+          .isSameAs(sharedTranslation);
       var reused = ordered(third, 1, 0);
       GremlinToMatchStrategy.instance().apply(reused.asAdmin());
       assertThat(boundary(reused).getPlan()).isSameAs(template).isNotSameAs(privatePlan);

@@ -16,7 +16,7 @@ import javax.annotation.Nullable;
 /**
  * Intermediate step that removes duplicate records from the stream.
  *
- * <p>Two deduplication strategies are used:
+ * <p>The default mode uses two deduplication strategies:
  * <ul>
  *   <li><b>Entity records</b>: deduplication by RID (using a compact {@link RidSet}
  *       which is memory-efficient for identity-based comparison)</li>
@@ -39,19 +39,45 @@ import javax.annotation.Nullable;
  * tracked by RID via {@link RidSet} are not subject to this limit because RidSet
  * uses a compact bitmap representation.
  *
+ * <p>MATCH can instead supply a required alias whose identity is the entire duplicate key.
+ * That mode filters original rows before projection and enforces the projected-record heap limit.
+ *
  * @see SelectExecutionPlanner#handleDistinct
  */
 public class DistinctExecutionStep extends AbstractExecutionStep {
 
   /** Maximum number of distinct items allowed in the in-memory set. */
   private final long maxElementsAllowed;
+  private final boolean cacheable;
+
+  @Nullable private final String identityAlias;
 
   /**
    * @param ctx              the query context (used to read the max-heap-elements config)
    * @param profilingEnabled true to enable the profiling of the execution (for SQL PROFILE)
    */
   public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled) {
+    this(ctx, profilingEnabled, false, null);
+  }
+
+  DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled, boolean cacheable) {
+    this(ctx, profilingEnabled, cacheable, null);
+  }
+
+  /**
+   * The alias mode requires a MATCH proof that this link identity is the complete DISTINCT key.
+   * A null alias selects ordinary result deduplication. No execution state belongs to the step.
+   */
+  public DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled,
+      @Nullable String identityAlias) {
+    this(ctx, profilingEnabled, false, identityAlias);
+  }
+
+  private DistinctExecutionStep(CommandContext ctx, boolean profilingEnabled, boolean cacheable,
+      @Nullable String identityAlias) {
     super(ctx, profilingEnabled);
+    this.cacheable = cacheable;
+    this.identityAlias = identityAlias;
     var session = ctx == null ? null : ctx.getDatabaseSession();
 
     maxElementsAllowed =
@@ -65,6 +91,18 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     assert prev != null;
     var resultSet = prev.start(ctx);
+    if (identityAlias != null) {
+      // Use a capped set, not the unlimited entity RidSet. Keep the first original row so its
+      // checked-record evidence and all other bindings remain available to normal projection.
+      Set<RID> identities = new HashSet<>();
+      return resultSet.filter((result, context) -> {
+        if (!identities.add(result.getLink(identityAlias))) {
+          return null;
+        }
+        enforceHeapLimit(identities, context.getDatabaseSession());
+        return result;
+      });
+    }
     Set<Result> pastItems = new HashSet<>();
     var pastRids = new RidSet();
 
@@ -72,8 +110,7 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
         ctx.getDatabaseSession()));
   }
 
-  @Nullable
-  private Result filterMap(Result result, Set<RID> pastRids, Set<Result> pastItems,
+  @Nullable private Result filterMap(Result result, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionEmbedded session) {
     if (alreadyVisited(result, pastRids, pastItems)) {
       return null;
@@ -85,22 +122,19 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private void markAsVisited(Result nextValue, Set<RID> pastRids, Set<Result> pastItems,
       DatabaseSessionEmbedded session) {
-    // Entity records with valid RIDs are tracked by RID (memory-efficient).
-    // Non-entity results (projections) fall through to full-content tracking.
-    if (nextValue.isEntity()) {
-      var identity = nextValue.asEntityOrNull().getIdentity();
-      var collection = identity.getCollectionId();
-      var pos = identity.getCollectionPosition();
-      if (collection >= 0 && pos >= 0) {
-        pastRids.add(identity);
-        return;
-      }
+    var identity = distinctIdentity(nextValue);
+    if (identity != null) {
+      pastRids.add(identity);
+      return;
     }
     pastItems.add(nextValue);
-    if (maxElementsAllowed > 0 && maxElementsAllowed < pastItems.size()) {
-      // Clear the set before throwing to release memory -- the exception handler
-      // should not hold a reference to a potentially huge set.
-      pastItems.clear();
+    enforceHeapLimit(pastItems, session);
+  }
+
+  private void enforceHeapLimit(Set<?> items, DatabaseSessionEmbedded session) {
+    if (maxElementsAllowed > 0 && maxElementsAllowed < items.size()) {
+      // Clear the set before throwing so the exception does not retain the accumulated keys.
+      items.clear();
       throw new CommandExecutionException(session,
           "Limit of allowed entities for in-heap DISTINCT in a single query exceeded ("
               + maxElementsAllowed
@@ -112,15 +146,19 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
 
   private static boolean alreadyVisited(Result nextValue, Set<RID> pastRids,
       Set<Result> pastItems) {
-    if (nextValue.isEntity()) {
-      var identity = nextValue.asEntityOrNull().getIdentity();
-      var collection = identity.getCollectionId();
-      var pos = identity.getCollectionPosition();
-      if (collection >= 0 && pos >= 0) {
-        return pastRids.contains(identity);
+    var identity = distinctIdentity(nextValue);
+    return identity == null ? pastItems.contains(nextValue) : pastRids.contains(identity);
+  }
+
+  /** DISTINCT uses a valid entity RID when present, and full result equality otherwise. */
+  @Nullable static RID distinctIdentity(Result row) {
+    if (row.isEntity()) {
+      var identity = row.asEntityOrNull().getIdentity();
+      if (identity.getCollectionId() >= 0 && identity.getCollectionPosition() >= 0) {
+        return identity;
       }
     }
-    return pastItems.contains(nextValue);
+    return null;
   }
 
   /**
@@ -148,6 +186,9 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   @Override
   public String prettyPrint(int depth, int indent) {
     var result = ExecutionStepInternal.getIndent(depth, indent) + "+ DISTINCT";
+    if (identityAlias != null) {
+      result += " BY IDENTITY (" + identityAlias + ")";
+    }
     if (profilingEnabled) {
       result += " (" + getCostFormatted() + ")";
     }
@@ -155,7 +196,12 @@ public class DistinctExecutionStep extends AbstractExecutionStep {
   }
 
   @Override
+  public boolean canBeCached() {
+    return cacheable;
+  }
+
+  @Override
   public ExecutionStep copy(CommandContext ctx) {
-    return new DistinctExecutionStep(ctx, profilingEnabled);
+    return new DistinctExecutionStep(ctx, profilingEnabled, cacheable, identityAlias);
   }
 }

@@ -5278,11 +5278,11 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // Single-source query without LIMIT must not use IndexOrderedEdgeStep.
-  // Without LIMIT the saving is just sort elision, which is dwarfed by the
-  // planner + per-source RidSet/cursor setup overhead for typical LinkBags.
+  // An unfiltered singleton without LIMIT stays on the ordinary traversal path.
+  // Indexed target equality is covered by IndexOrderedEqualityAcceptanceTest.
   @Test
-  public void testIndexOrderedMatchSingleSourceNoLimitSkipsOptimization() throws Exception {
+  public void testIndexOrderedMatchSingleSourceNoLimitWithoutEqualitySkipsOptimization()
+      throws Exception {
     initIndexOrderedMatchData(false);
 
     try (var cfg = setIndexOrderedTestConfig()) {

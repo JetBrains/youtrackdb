@@ -103,6 +103,120 @@ public class AllocatePageForWriteTest {
         new AtomicLong());
   }
 
+  /** An attempt catches delegate I/O, stops later loads, and the locked rerun reports it. */
+  @Test
+  public void optimisticLoadFailureIsRepeatedOutsideAttempt() throws Exception {
+    long fileId = composeFileId(100L, STORAGE_ID);
+    when(readCache.supportsOptimisticReads()).thenReturn(true);
+    var scope = op.getOptimisticReadScope();
+    scope.beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+    when(readCache.loadForRead(fileId, 0, writeCache, true, scope))
+        .thenThrow(new IOException("broken page"));
+    org.junit.Assert.assertNull(op.loadPageForRead(fileId, 0));
+    org.junit.Assert.assertTrue(scope.isFailed());
+    org.junit.Assert.assertNull(op.loadPageForRead(fileId, 1));
+    org.mockito.Mockito.verify(readCache, org.mockito.Mockito.never())
+        .loadForRead(fileId, 1, writeCache, true, scope);
+    org.junit.Assert.assertThrows(
+        com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException.class,
+        scope::validateOrThrow);
+    scope.endAttempt();
+    when(readCache.loadForRead(fileId, 0, writeCache, true))
+        .thenThrow(new IOException("broken page"));
+    org.junit.Assert.assertThrows(IOException.class, () -> op.loadPageForRead(fileId, 0));
+  }
+
+  /** Post-install failures keep their original identity through the atomic-operation catch. */
+  @Test
+  public void optimisticLoadPreservesPostInstallFailure() throws Exception {
+    long fileId = composeFileId(100L, STORAGE_ID);
+    when(readCache.supportsOptimisticReads()).thenReturn(true);
+    var scope = op.getOptimisticReadScope();
+    var failure =
+        new com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException(
+            "overflow");
+    scope.beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+    when(readCache.loadForRead(fileId, 0, writeCache, true, scope)).thenAnswer(call -> {
+      scope.preserveLoadFailure(failure);
+      throw failure;
+    });
+    try {
+      org.junit.Assert.assertNull(op.loadPageForRead(fileId, 0));
+      org.junit.Assert.assertSame(failure, org.junit.Assert.assertThrows(
+          RuntimeException.class, scope::checkLoadFailure));
+    } finally {
+      scope.endAttempt();
+    }
+  }
+
+  /** Errors not already kept by the cache return null and remain available at wrapper exit. */
+  @Test
+  public void optimisticLoadPreservesUnkeptErrors() throws Exception {
+    long fileId = composeFileId(100L, STORAGE_ID);
+    when(readCache.supportsOptimisticReads()).thenReturn(true);
+    var scope = op.getOptimisticReadScope();
+    for (var error : new Error[] {
+        new OutOfMemoryError("cache load"), new AssertionError("cache load")}) {
+      scope
+          .beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+      org.mockito.Mockito.doThrow(error).when(readCache)
+          .loadForRead(fileId, 0, writeCache, true, scope);
+      try {
+        org.junit.Assert.assertNull(op.loadPageForRead(fileId, 0));
+        org.junit.Assert.assertTrue(scope.isFailed());
+        org.junit.Assert.assertSame(error,
+            org.junit.Assert.assertThrows(error.getClass(), scope::checkLoadFailure));
+      } finally {
+        scope.endAttempt();
+      }
+      scope.checkLoadFailure();
+      org.junit.Assert.assertFalse(scope.isFailed());
+    }
+  }
+
+  /** A later Error caught by the operation must not replace the cache's original failure. */
+  @Test
+  public void optimisticLoadErrorKeepsFirstFailure() throws Exception {
+    long fileId = composeFileId(100L, STORAGE_ID);
+    when(readCache.supportsOptimisticReads()).thenReturn(true);
+    var scope = op.getOptimisticReadScope();
+    var original = new OutOfMemoryError("first");
+    scope.beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+    when(readCache.loadForRead(fileId, 0, writeCache, true, scope)).thenAnswer(call -> {
+      scope.preserveLoadFailure(original);
+      throw new AssertionError("second");
+    });
+    try {
+      org.junit.Assert.assertNull(op.loadPageForRead(fileId, 0));
+      org.junit.Assert.assertSame(original,
+          org.junit.Assert.assertThrows(OutOfMemoryError.class, scope::checkLoadFailure));
+    } finally {
+      scope.endAttempt();
+    }
+  }
+
+  /** Private changes keep their delegate on failure and new operation pages record no stamps. */
+  @Test
+  public void optimisticOverlayFailureKeepsDelegateAndNewPagesStayLocal() throws Exception {
+    long fileId = composeFileId(100L, STORAGE_ID);
+    when(writeCache.getFilledUpTo(fileId)).thenReturn(2L);
+    var original = mock(CacheEntry.class);
+    when(readCache.loadForRead(fileId, 0, writeCache, true)).thenReturn(original);
+    var overlay = (CacheEntryChanges) op.loadPageForWrite(fileId, 0, 1, true);
+    when(readCache.supportsOptimisticReads()).thenReturn(true);
+    var scope = op.getOptimisticReadScope();
+    scope.beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+    when(readCache.loadForRead(fileId, 0, writeCache, true, scope)).thenReturn(null);
+    org.junit.Assert.assertNull(op.loadPageForRead(fileId, 0));
+    org.junit.Assert.assertSame(original, overlay.delegate);
+    scope.endAttempt();
+    var fresh = op.allocatePageForWrite(fileId, 2);
+    scope.beginAttempt(new com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch());
+    org.junit.Assert.assertSame(fresh, op.loadPageForRead(fileId, 2));
+    org.junit.Assert.assertEquals(0, scope.count());
+    scope.endAttempt();
+  }
+
   // ---------------------------------------------------------------------------
   // Allocator contract: callers must target a genuinely new pageIndex.
   // ---------------------------------------------------------------------------

@@ -3,9 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 /**
  * An identity for a layout 28 page file.
  *
- * <p>The positive internal id uses bits 30..28 for kind, 27..25 for role and 24..0 for
- * component id. The sign bit stays clear. Component zero is valid because every kind is nonzero.
- * The storage-id portion of a cache-facing file id is outside this codec.
+ * <p>Before mixing, bits 30..28 hold kind, 27..25 hold role and 24..0 hold component id.
+ * A bijection over 31 bits spreads these fields across the positive internal id. Zero maps to
+ * zero, so every valid identity stays positive. The storage-id portion of a cache-facing file
+ * id is outside this codec.
+ *
+ * <p>Layout 28 requires this encoding. IDs from a different encoding can decode to a different
+ * valid identity. Decode alone cannot identify the encoding.
  */
 public record PageFileIdentity(PageFileRole role, int componentId) {
 
@@ -28,7 +32,7 @@ public record PageFileIdentity(PageFileRole role, int componentId) {
   }
 
   public int internalId() {
-    return (kind().code() << 28) | (role.code() << 25) | componentId;
+    return mix(pack(kind().code(), role.code(), componentId));
   }
 
   public static int encode(int kind, int role, int componentId) {
@@ -40,8 +44,33 @@ public record PageFileIdentity(PageFileRole role, int componentId) {
     if (internalId <= 0) {
       throw new IllegalArgumentException("Page-file internal id must be positive: " + internalId);
     }
-    var kind = PageFileKind.fromCode(internalId >>> 28);
-    var role = PageFileRole.fromCode(kind, (internalId >>> 25) & 7);
-    return new PageFileIdentity(role, internalId & MAX_COMPONENT_ID);
+    int packed = unmix(internalId);
+    var kind = PageFileKind.fromCode(packed >>> 28);
+    var role = PageFileRole.fromCode(kind, (packed >>> 25) & 7);
+    return new PageFileIdentity(role, packed & MAX_COMPONENT_ID);
+  }
+
+  // Raw field packing is separate so tests can mix invalid kind and role fields.
+  static int pack(int kind, int role, int componentId) {
+    return (kind << 28) | (role << 25) | componentId;
+  }
+
+  // Adapted from Chris Wellons's public-domain lowbias32 construction:
+  // https://github.com/skeeto/hash-prospector
+  // Odd multiplication modulo 2^31 and xor-shifts are bijections. Mask after each product.
+  static int mix(int value) {
+    value ^= value >>> 16;
+    value = (value * 0x7feb352d) & Integer.MAX_VALUE;
+    value ^= value >>> 15;
+    value = (value * 0x046ca68b) & Integer.MAX_VALUE;
+    return value ^ (value >>> 16);
+  }
+
+  static int unmix(int value) {
+    value ^= value >>> 16;
+    value = (value * 0x43021123) & Integer.MAX_VALUE;
+    value ^= (value >>> 15) ^ (value >>> 30);
+    value = (value * 0x1d69e2a5) & Integer.MAX_VALUE;
+    return value ^ (value >>> 16);
   }
 }

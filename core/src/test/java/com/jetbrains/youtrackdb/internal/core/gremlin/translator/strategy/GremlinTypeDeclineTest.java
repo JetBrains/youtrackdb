@@ -22,6 +22,10 @@ import org.junit.Test;
 
 public class GremlinTypeDeclineTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** Every shared contract admits its classes, including both tails and consumed subclasses. */
   @Test
   public void admissionMatchesRegistryTransparencyAndClaims() {

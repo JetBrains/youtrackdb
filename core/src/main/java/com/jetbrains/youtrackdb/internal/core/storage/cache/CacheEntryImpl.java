@@ -319,7 +319,7 @@ public class CacheEntryImpl implements CacheEntry {
 
   @Override
   public int hashCode() {
-    // Same formula as ConcurrentLongIntHashMap.hashForFrequencySketch — both use
+    // Same formula as ConcurrentFilePageMap.hashForFrequencySketch — both use
     // Long.hashCode(fileId) * 31 + pageIndex. This is intentionally different from
     // the map's internal murmur hash to avoid correlation with bucket position.
     return Long.hashCode(fileId) * 31 + pageIndex;

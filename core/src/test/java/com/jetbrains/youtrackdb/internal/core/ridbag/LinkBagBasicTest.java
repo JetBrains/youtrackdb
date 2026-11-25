@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.ridbag;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -12,6 +11,38 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.EmbeddedLinkBag;
 import org.junit.Test;
 
 public class LinkBagBasicTest extends DbTestBase {
+
+  /** Point counts must equal iteration, including identities that move between pending sources. */
+  @Test
+  public void pointCountsMatchIteratorAcrossIdentityChange() {
+    for (boolean tree : new boolean[] {false, true}) {
+      session.begin();
+      var bag = new LinkBag(session, tree
+          ? new com.jetbrains.youtrackdb.internal.core.storage.ridbag.BTreeBasedLinkBag(
+              session, Integer.MAX_VALUE)
+          : new EmbeddedLinkBag(session, Integer.MAX_VALUE));
+      var rid = session.newEntity().getIdentity();
+      assertEquals(0, bag.getCount(rid));
+      assertEquals(0, bag.getCount(null));
+      assertEquals(0, bag.getCount(new RecordId(32000, 1)));
+      bag.add(rid);
+      bag.add(rid);
+      assertEquals(2, bag.getCount(rid));
+      session.commit();
+      session.begin();
+      // The unattached bag retains the re-keyed new entry. A persistent add uses local changes.
+      bag.add(rid);
+      assertEquals(3, bag.getCount(rid));
+      assertEquals(bag.stream().filter(p -> p.primaryRid().equals(rid)).count(), bag.getCount(rid));
+      for (int expected = 2; expected >= 0; expected--) {
+        bag.remove(rid);
+        assertEquals(expected, bag.getCount(rid));
+        assertEquals(bag.stream().filter(p -> p.primaryRid().equals(rid)).count(),
+            bag.getCount(rid));
+      }
+      session.rollback();
+    }
+  }
 
   @Test(expected = IllegalArgumentException.class)
   public void testExceptionInCaseOfNull() {

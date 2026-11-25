@@ -45,8 +45,11 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       subclass-expanded under polymorphic mode). Disjoint trees under {@code V} keep the {@code V}
  *       root and the IN filter alone. Two conflicting {@code ~label} containers decline (one MATCH
  *       node has one class);
- *   <li>a {@code ~id} container ({@code T.id} accessor) contributes an {@code @rid IN [...]} filter
- *       via the record-attribute builder shared with {@link StartStepRecogniser}. {@code hasId} is set
+ *   <li>an eligible root {@code ~id} container ({@code T.id} accessor) binds its RID at its container position
+ *       in the parameter sequence. It adds no {@code @rid IN} filter and does not call {@code markRidBearing}.
+ *       Its runtime-start plan may be cached. Other {@code ~id} containers contribute an
+ *       {@code @rid IN [...]} filter via the builder shared with {@link StartStepRecogniser}.
+ *       {@code hasId} is set
  *       membership, so a repeated id ({@code hasId(a, a)}) does <em>not</em> decline (unlike {@code
  *       g.V(ids)} seek semantics) — it calls {@link StartStepRecogniser#toRecordIds} without the
  *       duplicate decline;
@@ -303,6 +306,12 @@ final class HasStepRecogniser implements StepRecogniser {
         continue;
       }
       if (ID_KEY.equals(key)) {
+        var runtimeStart = ctx.runtimeRidStart();
+        if (!deferred && runtimeStart != null && runtimeStart.idContainer() == container) {
+          // Ordinary recognition has validated the current alias before preparing contributions.
+          ctx.bindRuntimeRidStart(ctx.boundaryAlias());
+          continue;
+        }
         ctx.markRidBearing();
         cacheSafe = false;
         var ridExpr = translateHasId(container);
@@ -663,14 +672,9 @@ final class HasStepRecogniser implements StepRecogniser {
     }
     var containers = hasStep.getHasContainers();
     encoder.appendToken("H", Integer.toString(containers.size()));
-    var context = encoder.hasBindingContext();
-    if (context == null) {
-      context = HasBindingContext.forVertex(labelNames(containers), null, false,
-          HasBindingContext.Destination.MATCH_VERTEX);
-    }
-    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
     for (int index = 0; index < containers.size(); index++) {
       HasContainer container = containers.get(index);
+      encoder.recordContainer(container, index);
       var key = container.getKey();
       if (LABEL_KEY.equals(key)) {
         encoder.appendToken("lab");
@@ -679,11 +683,41 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       if (ID_KEY.equals(key)) {
         encoder.appendToken("id");
-        encoder.appendPredicate(container.getPredicate(), true);
+        var runtimeStart = encoder.runtimeRidStart();
+        if (runtimeStart != null && runtimeStart.idContainer() == container) {
+          // Eligibility admits only equality. Keep its operator, but never encode the live value.
+          encoder.appendToken("bi", Compare.eq.getClass().getName());
+          encoder.appendToken(String.valueOf(Compare.eq));
+          encoder.appendRuntimeRidStart();
+        } else {
+          encoder.appendPredicate(container.getPredicate(), true);
+        }
         continue;
       }
       encoder.appendToken(key == null ? "" : key);
       encoder.appendPredicate(container.getPredicate(), false);
+    }
+    return true;
+  }
+
+  /** Replay the exact HasStep order recorded by extraction without visiting traversal steps. */
+  static void harvest(List<HasContainer> containers, HasBindingContext context,
+      GremlinShapeEncoder encoder) {
+    int fromSlot = encoder.hasSlotCount();
+    GremlinPredicateAdapter.PropertyTypeGate typeGate = null;
+    for (int index = 0; index < containers.size(); index++) {
+      var container = containers.get(index);
+      if (ID_KEY.equals(container.getKey())) {
+        var runtimeStart = encoder.runtimeRidStart();
+        if (runtimeStart != null && runtimeStart.idContainer() == container) {
+          // Replay in container order, exactly as the walker allocates positional slots.
+          encoder.bindRuntimeRidStart();
+        }
+        continue;
+      }
+      if (LABEL_KEY.equals(container.getKey())) {
+        continue;
+      }
       int containerIndex = index;
       // Ordered-filter slots describe the native predicate's layout, but never enter MATCH's
       // positional map. Otherwise a later MATCH HasStep would be bound at the wrong SQL slot.
@@ -692,13 +726,20 @@ final class HasStepRecogniser implements StepRecogniser {
       }
       // Harvest ignores the returned parameter. The native layout uses roles, not SQL indexes.
       ParamSink sink = context.destination() == HasBindingContext.Destination.ORDERED_FILTER
-          ? value -> SQLPositionalParameter.forSlot(0) : encoder.paramSink();
-      GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
-          GremlinPredicateAdapter.withRoles(sink,
-              role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
-          !context.folded());
+          ? value -> null : encoder.paramSink();
+      harvestContainer(container, context, typeGate, sink, encoder, containerIndex);
     }
-    return true;
+    encoder.recordHasContribution(context, fromSlot);
+  }
+
+  /** Shared slot roles and range guards for full harvesting and recorded fast replay. */
+  static void harvestContainer(HasContainer container, HasBindingContext context,
+      GremlinPredicateAdapter.PropertyTypeGate typeGate, ParamSink sink,
+      GremlinShapeEncoder encoder, int containerIndex) {
+    GremlinPredicateAdapter.INSTANCE.bindParams(container, typeGate,
+        GremlinPredicateAdapter.withRoles(sink,
+            role -> encoder.recordHasSlot(new HasBindingContext.Slot(containerIndex, role))),
+        !context.folded());
   }
 
   /**

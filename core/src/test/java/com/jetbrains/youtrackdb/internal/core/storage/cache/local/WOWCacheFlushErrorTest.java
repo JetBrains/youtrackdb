@@ -11,6 +11,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableEntry;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -74,6 +75,227 @@ import org.mockito.Mockito;
 public class WOWCacheFlushErrorTest {
 
   private static final int PAGE_SIZE = 8192;
+
+  /** Capacity pressure drains a started write, then retries the same live registered file. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void layout28PressureDrainsBeforeRetryWithoutCreation() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
+    final var table = new LogicalPageFileTable();
+    setField(cache, "logicalFiles", table);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var firstFile = mock(File.class);
+    final var secondFile = mock(File.class);
+    when(firstFile.exists()).thenReturn(true);
+    when(secondFile.exists()).thenReturn(true);
+    final var firstEntry = new ClosableEntry<Long, File>(firstFile);
+    final var secondEntry = new ClosableEntry<Long, File>(secondFile);
+    final var destinations = new java.util.LinkedHashMap<Long, File>();
+    final var drained = new java.util.concurrent.atomic.AtomicBoolean();
+    final var calls = new AtomicInteger();
+    when(files.tryAcquire(anyLong())).thenAnswer(invocation -> {
+      final int call = calls.incrementAndGet();
+      if (call == 2) {
+        return null;
+      }
+      if (call == 3) {
+        assertTrue("outstanding I/O must complete before retry", drained.get());
+      }
+      return destinations.get(invocation.<Long>getArgument(0)) == firstFile
+          ? firstEntry : secondEntry;
+    });
+    for (int id = 1; id <= 2; id++) {
+      final var identity =
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.RECORD_DATA,
+              id);
+      // The buffer keys use the canonical internal IDs, not component IDs.
+      table.register(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+              .layout28(identity),
+          identity.internalId(), false, 3, 3, true);
+    }
+    final long[] ids = table.liveIds().stream().mapToLong(Integer::longValue).toArray();
+    // The primitive map determines submission order. Bind each destination to its own payload.
+    final var buffers = pageBuffers(ids);
+    int ordinal = 0;
+    for (final var entry : buffers.long2ObjectEntrySet()) {
+      final long fileId = entry.getLongKey();
+      final var destination = ordinal++ == 0 ? firstFile : secondFile;
+      destinations.put(fileId, destination);
+      when(files.get(fileId)).thenReturn(destination);
+      final byte marker = (byte) ordinal;
+      final var payload = ByteBuffer.allocate(PAGE_SIZE);
+      java.util.Arrays.fill(payload.array(), marker);
+      entry.getValue().clear();
+      entry.getValue().add(new RawPairLongObject<>(2L * PAGE_SIZE, payload));
+      when(destination.write(Mockito.anyList())).thenAnswer(invocation -> {
+        final List<RawPairLongObject<ByteBuffer>> writes = invocation.getArgument(0);
+        assertEquals(1, writes.size());
+        assertEquals(2L * PAGE_SIZE, writes.getFirst().first);
+        final byte[] actual = new byte[PAGE_SIZE];
+        writes.getFirst().second.duplicate().get(actual);
+        final byte[] expected = new byte[PAGE_SIZE];
+        java.util.Arrays.fill(expected, marker);
+        assertArrayEquals(expected, actual);
+        return (IOResult) () -> drained.set(true);
+      });
+    }
+    final var executor = Executors.newSingleThreadExecutor();
+    try {
+      assertNull(executor.submit(() -> invokePageWrites(cache, buffers))
+          .get(5, TimeUnit.SECONDS));
+      assertEquals(3, calls.get());
+      for (final var destination : destinations.values()) {
+        verify(destination, Mockito.never()).create();
+        verify(destination).write(Mockito.anyList());
+      }
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /** Pressure with no submitted write must reclassify a registration lost during the wait. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void pressureSleepReclassifiesLostRegistrationAndLatches() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var table = new LogicalPageFileTable();
+    setField(cache, "logicalFiles", table);
+    setField(cache, "backgroundExceptionListeners", List.of());
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var identity =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.RECORD_DATA,
+            1);
+    table.register(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+            .layout28(identity),
+        identity.internalId(), false, 1, 1, true);
+    final var file = mock(File.class);
+    when(file.exists()).thenReturn(true);
+    final var lost = new java.util.concurrent.atomic.AtomicBoolean();
+    when(files.get(anyLong())).thenAnswer(invocation -> lost.get() ? null : file);
+    when(files.tryAcquire(anyLong())).thenAnswer(invocation -> {
+      lost.set(true);
+      return null;
+    });
+    final var executor = Executors.newSingleThreadExecutor();
+    try {
+      final var failure = executor.submit(() -> invokePageWrites(cache,
+          pageBuffers(identity.internalId()))).get(5, TimeUnit.SECONDS);
+      assertTrue(failure instanceof PageFileFailure);
+      assertEquals(failure, readFlushError(cache));
+      verify(files).tryAcquire(anyLong());
+      verify(file, Mockito.never()).write(Mockito.anyList());
+      verify(file, Mockito.never()).create();
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
+  }
+
+  /** A fatal second-file classification drains the first file before releasing its handle. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void fatalMultiFileBatchDrainsStartedWrite() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    setField(cache, "pageSize", PAGE_SIZE);
+    setField(cache, "backgroundExceptionListeners", List.of());
+    final var table = new LogicalPageFileTable();
+    setField(cache, "logicalFiles", table);
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var ids = new long[2];
+    for (int index = 0; index < 2; index++) {
+      final var identity =
+          new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.RECORD_DATA,
+              index + 1);
+      ids[index] = identity.internalId();
+      table.register(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+              .layout28(identity),
+          identity.internalId(), false, 1, 1, true);
+    }
+    final var buffers = pageBuffers(ids);
+    final long firstId = buffers.long2ObjectEntrySet().iterator().next().getLongKey();
+    final var file = mock(File.class);
+    when(file.exists()).thenReturn(true);
+    when(files.get(firstId)).thenReturn(file);
+    final var entry = new ClosableEntry<Long, File>(file);
+    when(files.tryAcquire(firstId)).thenReturn(entry);
+    final var drained = new java.util.concurrent.atomic.AtomicBoolean();
+    when(file.write(Mockito.anyList())).thenReturn((IOResult) () -> drained.set(true));
+    Mockito.doAnswer(invocation -> {
+      assertTrue("release must follow drain", drained.get());
+      return null;
+    }).when(files).release(entry);
+    final var failure = invokePageWrites(cache, buffers);
+    assertTrue(failure instanceof PageFileFailure);
+    assertEquals(failure, readFlushError(cache));
+    assertTrue(drained.get());
+    verify(file).write(Mockito.anyList());
+    verify(files).release(entry);
+    verify(file, Mockito.never()).create();
+  }
+
+  /** Forgotten work cancels. An unowned pending handle fails finitely and latches. */
+  @SuppressWarnings("unchecked")
+  @Test
+  public void staleAndPendingChangedWritesAreNotHandlePressure() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var table = new LogicalPageFileTable();
+    setField(cache, "logicalFiles", table);
+    setField(cache, "backgroundExceptionListeners", List.of());
+    final var files = mock(ClosableLinkedContainer.class);
+    setField(cache, "files", files);
+    final var identity =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole.RECORD_DATA,
+            1);
+    final long id = identity.internalId();
+    assertNull(invokePageWrites(cache, pageBuffers(id)));
+    Mockito.verifyNoInteractions(files);
+    table.register(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
+            .layout28(identity),
+        identity.internalId(), false, 1, 0, false);
+    when(files.get(anyLong())).thenReturn(mock(File.class));
+    assertTrue(invokePageWrites(cache, pageBuffers(id)) instanceof PageFileFailure);
+    assertTrue(readFlushError(cache) instanceof PageFileFailure);
+    verify(files).get(anyLong());
+    verify(files, Mockito.never()).tryAcquire(anyLong());
+  }
+
+  /** The latch is visible during notification and a second failure cannot replace its cause. */
+  @Test
+  public void firstFlushFailureIsVisibleToListenerAndNeverReplaced() throws Exception {
+    final var cache = Mockito.mock(WOWCache.class, Mockito.CALLS_REAL_METHODS);
+    final var first = new PageFileFailure("first");
+    final var notifications = new AtomicInteger();
+    final BackgroundExceptionListener listener = failure -> {
+      try {
+        assertEquals(first, readFlushError(cache));
+        assertEquals(first, failure);
+        notifications.incrementAndGet();
+      } catch (Exception e) {
+        throw new AssertionError(e);
+      }
+    };
+    setField(cache, "backgroundExceptionListeners",
+        List.of(new WeakReference<>(listener)));
+    final var method = WOWCache.class.getDeclaredMethod("latchFlushError", Throwable.class);
+    method.setAccessible(true);
+    method.invoke(cache, first);
+    method.invoke(cache, new PageFileFailure("second"));
+    assertEquals(first, readFlushError(cache));
+    assertEquals(1, notifications.get());
+  }
 
   /** A failing result cannot release either file until every submitted write completes. */
   @SuppressWarnings("unchecked")
@@ -329,6 +551,11 @@ public class WOWCacheFlushErrorTest {
     final var pool = Mockito.spy(new ByteBufferPool(PAGE_SIZE));
     setField(cache, "bufferPool", pool);
     final var doubleWriteLog = mock(DoubleWriteLog.class);
+    when(doubleWriteLog.write(Mockito.any(), Mockito.any(), Mockito.any()))
+        .thenReturn(new DoubleWriteLog.AppendResult(null, false, 0));
+    setField(cache, "pageRetentionState", new PageRetentionState(() -> true,
+        (Integer) GlobalConfiguration.STORAGE_DOUBLE_WRITE_LOG_SYNCHRONIZATION_LIMIT
+            .getDefValue()));
     setField(cache, "doubleWriteLog", doubleWriteLog);
     final var file = mock(File.class);
     final var entry = new ClosableEntry<Long, File>(file);
@@ -433,6 +660,7 @@ public class WOWCacheFlushErrorTest {
 
   private static Throwable invokePageWrites(WOWCache cache,
       Long2ObjectOpenHashMap<ArrayList<RawPairLongObject<ByteBuffer>>> buffers) throws Exception {
+    setField(cache, "pendingCreationHandles", new ConcurrentHashMap<>());
     final var method = WOWCache.class.getDeclaredMethod("writePageChunksToFiles",
         Long2ObjectOpenHashMap.class);
     method.setAccessible(true);
@@ -1526,6 +1754,9 @@ public class WOWCacheFlushErrorTest {
    */
   private static void invokeFlushWriteCacheFromMinLSN(
       WOWCache cache, long segStart, long segEnd, int pagesFlushLimit) throws Exception {
+    // CALLS_REAL_METHODS bypasses construction, including the striped counters initializer.
+    setField(cache, "pageCacheCounters",
+        new com.jetbrains.youtrackdb.internal.core.storage.cache.PageCacheCounters.Flush());
     Method method =
         WOWCache.class.getDeclaredMethod(
             "flushWriteCacheFromMinLSN", long.class, long.class, int.class);

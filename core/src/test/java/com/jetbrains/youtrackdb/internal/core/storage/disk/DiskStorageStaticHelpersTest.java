@@ -344,9 +344,9 @@ public class DiskStorageStaticHelpersTest {
 
   private void assertParentSweepRetainsLayout28Files(Path databasePath) throws IOException {
     var firstPage = Files.createFile(
-        testDir.resolve("ytdb-p28-collection-0-record-data_268435456.pcl"));
+        testDir.resolve("ytdb-p28-collection-0-record-data_650489682.pcl"));
     var secondPage = Files.createFile(
-        testDir.resolve("ytdb-p28-index-7-null-key-data_603979783.cbt"));
+        testDir.resolve("ytdb-p28-index-7-null-key-data_2055768198.cbt"));
     var legacy = Files.createFile(testDir.resolve("legacy.cm"));
     var foreign = Files.createFile(testDir.resolve("foreign.txt"));
 

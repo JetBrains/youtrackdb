@@ -122,6 +122,10 @@ public class QueryPlanningInfo {
    */
   protected List<String> orderByMintAliases = List.of();
 
+  public boolean hasOrderByMintAliases() {
+    return !orderByMintAliases.isEmpty();
+  }
+
   // --------------- LET clauses ---------------
 
   /**
@@ -217,6 +221,12 @@ public class QueryPlanningInfo {
    */
   public boolean indexOrderedUpstream;
 
+  /** A sort for custom MATCH DISTINCT must account for deduplication before slicing. */
+  public boolean matchDistinctSort;
+
+  /** Visible columns whose synthetic alias rebuild only copies immutable scalar values. */
+  public List<String> matchScalarColumns = List.of();
+
   /**
    * Set to {@code true} once projection steps have been appended to the plan.
    * Prevents double-appending (projections may be triggered from multiple code paths).
@@ -280,6 +290,8 @@ public class QueryPlanningInfo {
     result.orderApplied = this.orderApplied;
     result.orderRequestedWithoutSort = this.orderRequestedWithoutSort;
     result.ridOrderWithinEqualKeys = this.ridOrderWithinEqualKeys;
+    result.matchDistinctSort = this.matchDistinctSort;
+    result.matchScalarColumns = this.matchScalarColumns;
     result.projectionsCalculated = this.projectionsCalculated;
     result.deferOrderByProjections = this.deferOrderByProjections;
     result.deferPerRecordLetPastLimit = this.deferPerRecordLetPastLimit;

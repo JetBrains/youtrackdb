@@ -202,8 +202,10 @@ public abstract class IndexMultiValues extends IndexAbstract {
   public Stream<RawPair<Object, RID>> streamEntriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
-    fromKey = getCollatingValue(fromKey);
-    toKey = getCollatingValue(toKey);
+    var lowerBound = prepareLowerBound(fromKey, fromInclusive);
+    fromKey = lowerBound.key();
+    fromInclusive = lowerBound.inclusive();
+    toKey = collateOnly(toKey);
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -271,7 +273,9 @@ public abstract class IndexMultiValues extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
-    fromKey = getCollatingValue(fromKey);
+    var lowerBound = prepareLowerBound(fromKey, fromInclusive);
+    fromKey = lowerBound.key();
+    fromInclusive = lowerBound.inclusive();
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -337,7 +341,7 @@ public abstract class IndexMultiValues extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
-    toKey = getCollatingValue(toKey);
+    toKey = collateOnly(toKey);
     Stream<RawPair<Object, RID>> stream;
 
     acquireSharedLock();

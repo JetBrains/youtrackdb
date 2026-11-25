@@ -781,9 +781,7 @@ public class WOWCacheLogicalFileStateTest {
           cache.syncDataFiles();
           verify(handle, times(callFsync ? 1 : 0)).synch();
           org.mockito.Mockito.clearInvocations(handle);
-          var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
-          force.setAccessible(true);
-          force.invoke(cache);
+          forceOnFlushExecutor(cache);
           verify(handle, times(callFsync ? 1 : 0)).synch();
           assertFalse(Files.exists(map));
           cache.deleteFile(id);
@@ -792,7 +790,7 @@ public class WOWCacheLogicalFileStateTest {
           cache.close();
           assertFalse(Files.exists(map));
           // Closed-cache force must not fall back to either legacy map.
-          force.invoke(cache);
+          forceOnFlushExecutor(cache);
           cache.loadRegisteredFiles();
           assertFalse(cache.admitExpectedFile(identity));
           assertTrue(cache.admitExpectedFile(survivor));
@@ -965,15 +963,7 @@ public class WOWCacheLogicalFileStateTest {
           org.mockito.Mockito.verify(handle).synch();
           org.mockito.Mockito.clearInvocations(handle);
         }
-        var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
-        force.setAccessible(true);
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
-          try {
-            force.invoke(cache);
-          } catch (ReflectiveOperationException e) {
-            throw new AssertionError(e);
-          }
-        }).get();
+        forceOnFlushExecutor(cache);
         for (var handle : observed) {
           org.mockito.Mockito.verify(handle).synch();
         }
@@ -1216,9 +1206,7 @@ public class WOWCacheLogicalFileStateTest {
       var fsync = WOWCache.class.getDeclaredField("callFsync");
       fsync.setAccessible(true);
       fsync.set(cache, true);
-      var force = WOWCache.class.getDeclaredMethod("fsyncFiles");
-      force.setAccessible(true);
-      force.invoke(cache);
+      forceOnFlushExecutor(cache);
       org.mockito.Mockito.verify(handle).synch();
     });
   }
@@ -1420,6 +1408,15 @@ public class WOWCacheLogicalFileStateTest {
       assertTrue(cache.admitExpectedFile(identity));
       assertLive(cache, identity, false);
     });
+  }
+
+  private static void forceOnFlushExecutor(WOWCache cache) throws Exception {
+    var force = WOWCache.class.getDeclaredMethod("fsyncFiles", long.class);
+    force.setAccessible(true);
+    YouTrackDBEnginesManager.instance().getWowCacheFlushExecutor().submit(() -> {
+      force.invoke(cache, 1L);
+      return null;
+    }).get(10, TimeUnit.SECONDS);
   }
 
   // Isolate cache lifecycle failures from storage-owned read pages and background checkpointing.

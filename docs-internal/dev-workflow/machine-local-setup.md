@@ -5,7 +5,7 @@ The repository does not need machine-local model overrides to enable routing.
 
 ## Model routing
 
-The project requires Pi 1.6.0 or later and configures `openai/gpt-6.2-astra` at `high`
+The project requires Pi 1.6.0 or later and configures `anthropic/claude-fable-5-2` at `high`
 as Pi's startup default. Slate supplies the ordinary model pool and the worker-summary
 compressor unless home Slate settings override them. Completed worker content goes to the
 configured compressor, OpenAI by default.
@@ -45,10 +45,10 @@ model, and thinking level. An available model scoped by `enabledModels` can take
 over the configured default. A scoped effort or an entry in `modelThinkingLevels` can override
 `high`.
 
-Without a scoped selection, Pi uses the configured Astra default only if the registry
+Without a scoped selection, Pi uses the configured startup default only if the registry
 contains the exact route and the provider has configured authentication. Otherwise Pi can
-select another available model or no model. Only `openai/gpt-6.2-astra` at `high` passes the
-startup check.
+select another available model or no model. Only `anthropic/claude-fable-5-2` at `high`
+passes the startup check.
 
 Run `/slate effective` and resolve every policy error and warning. With no home overrides,
 Slate 0.21 uses `luna-6` at `max`, `sol-6.2` at `high`, `astra-6.2` at `high`, and

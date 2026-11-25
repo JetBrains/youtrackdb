@@ -35,40 +35,40 @@ public class PageFileNamesTest {
 
   private static final String[][] BOUNDARY_DISK_NAMES = {
       {
-          "ytdb-p28-collection-0-record-data_268435456.pcl",
-          "ytdb-p28-collection-0-position-map_301989888.cpm",
-          "ytdb-p28-collection-0-free-space-map_335544320.fsm",
-          "ytdb-p28-collection-0-dirty-page-bit-set_369098752.dpb",
-          "ytdb-p28-collection-0-link-bag-tree_402653184.grb",
-          "ytdb-p28-index-0-tree-data_536870912.cbt",
-          "ytdb-p28-index-0-tree-null-bucket_570425344.nbt",
-          "ytdb-p28-index-0-null-key-data_603979776.cbt",
-          "ytdb-p28-index-0-null-key-null-bucket_637534208.nbt",
-          "ytdb-p28-index-0-histogram_671088640.ixs",
-          "ytdb-p28-configuration-0-data_805306368.cd",
-          "ytdb-p28-configuration-0-position-map_838860800.ccm",
-          "ytdb-p28-configuration-0-free-space-map_872415232.fcm",
-          "ytdb-p28-configuration-0-dirty-page-bit-set_905969664.dcm",
-          "ytdb-p28-configuration-0-property-data_939524096.bd",
-          "ytdb-p28-configuration-0-property-null-bucket_973078528.nd"
+          "ytdb-p28-collection-0-record-data_650489682.pcl",
+          "ytdb-p28-collection-0-position-map_1870545472.cpm",
+          "ytdb-p28-collection-0-free-space-map_1243996864.fsm",
+          "ytdb-p28-collection-0-dirty-page-bit-set_541442628.dpb",
+          "ytdb-p28-collection-0-link-bag-tree_1161507987.grb",
+          "ytdb-p28-index-0-tree-data_1375201358.cbt",
+          "ytdb-p28-index-0-tree-null-bucket_2023095872.nbt",
+          "ytdb-p28-index-0-null-key-data_1593574528.cbt",
+          "ytdb-p28-index-0-null-key-null-bucket_168215589.nbt",
+          "ytdb-p28-index-0-histogram_987130652.ixs",
+          "ytdb-p28-configuration-0-data_1676378299.cd",
+          "ytdb-p28-configuration-0-position-map_1248663706.ccm",
+          "ytdb-p28-configuration-0-free-space-map_1567905770.fcm",
+          "ytdb-p28-configuration-0-dirty-page-bit-set_1717813721.dcm",
+          "ytdb-p28-configuration-0-property-data_641686878.bd",
+          "ytdb-p28-configuration-0-property-null-bucket_1209860885.nd"
       },
       {
-          "ytdb-p28-collection-33554431-record-data_301989887.pcl",
-          "ytdb-p28-collection-33554431-position-map_335544319.cpm",
-          "ytdb-p28-collection-33554431-free-space-map_369098751.fsm",
-          "ytdb-p28-collection-33554431-dirty-page-bit-set_402653183.dpb",
-          "ytdb-p28-collection-33554431-link-bag-tree_436207615.grb",
-          "ytdb-p28-index-33554431-tree-data_570425343.cbt",
-          "ytdb-p28-index-33554431-tree-null-bucket_603979775.nbt",
-          "ytdb-p28-index-33554431-null-key-data_637534207.cbt",
-          "ytdb-p28-index-33554431-null-key-null-bucket_671088639.nbt",
-          "ytdb-p28-index-33554431-histogram_704643071.ixs",
-          "ytdb-p28-configuration-33554431-data_838860799.cd",
-          "ytdb-p28-configuration-33554431-position-map_872415231.ccm",
-          "ytdb-p28-configuration-33554431-free-space-map_905969663.fcm",
-          "ytdb-p28-configuration-33554431-dirty-page-bit-set_939524095.dcm",
-          "ytdb-p28-configuration-33554431-property-data_973078527.bd",
-          "ytdb-p28-configuration-33554431-property-null-bucket_1006632959.nd"
+          "ytdb-p28-collection-33554431-record-data_1172159978.pcl",
+          "ytdb-p28-collection-33554431-position-map_459051980.cpm",
+          "ytdb-p28-collection-33554431-free-space-map_1616618287.fsm",
+          "ytdb-p28-collection-33554431-dirty-page-bit-set_2053320110.dpb",
+          "ytdb-p28-collection-33554431-link-bag-tree_91831647.grb",
+          "ytdb-p28-index-33554431-tree-data_2080428704.cbt",
+          "ytdb-p28-index-33554431-tree-null-bucket_271091409.nbt",
+          "ytdb-p28-index-33554431-null-key-data_1902513716.cbt",
+          "ytdb-p28-index-33554431-null-key-null-bucket_992316558.nbt",
+          "ytdb-p28-index-33554431-histogram_403573377.ixs",
+          "ytdb-p28-configuration-33554431-data_1768069916.cd",
+          "ytdb-p28-configuration-33554431-position-map_257890696.ccm",
+          "ytdb-p28-configuration-33554431-free-space-map_767072259.fcm",
+          "ytdb-p28-configuration-33554431-dirty-page-bit-set_1150134937.dcm",
+          "ytdb-p28-configuration-33554431-property-data_1839316940.bd",
+          "ytdb-p28-configuration-33554431-property-null-bucket_923861463.nd"
       }
   };
 
@@ -115,7 +115,7 @@ public class PageFileNamesTest {
       assertFalse(PageFileNames.parseLayout28(disk).isPresent());
       assertFalse(PageFileNames.parseLayout28DiskName(COMPUTED[i]).isPresent());
     }
-    assertEquals("ytdb-p28-collection-7-record-data_268435463.pcl",
+    assertEquals("ytdb-p28-collection-7-record-data_1838729451.pcl",
         PageFileNames.layout28DiskName(new PageFileIdentity(PageFileRole.RECORD_DATA, 7)));
   }
 
@@ -199,7 +199,7 @@ public class PageFileNamesTest {
     for (var obsolete : new String[] {
         "ytdb-index-7-histogram.p26", "ytdb-index-7-histogram_671088647.p26",
         "ytdb-p28-index-7-histogram.p26", "ytdb-p28-index-7-histogram.pcl",
-        "ytdb-p28-index-7-histogram_671088647.pcl"}) {
+        "ytdb-p28-index-7-histogram_1129019648.pcl"}) {
       assertFalse(obsolete, PageFileNames.parseLayout28(obsolete).isPresent());
       assertFalse(obsolete, PageFileNames.parseLayout28DiskName(obsolete).isPresent());
     }
@@ -270,16 +270,16 @@ public class PageFileNamesTest {
     }
     for (String invalid : new String[] {null, "", "foreign.p26",
         "ytdb-p26-collection-7-record-data.pcl",
-        "ytdb-p26-collection-7-record-data_268435463.pcl",
+        "ytdb-p26-collection-7-record-data_1838729451.pcl",
         "ytdb-p28-collection-7-record-data.rec", "ytdb-p28-collection-07-record-data.pcl",
         "ytdb-p28-collection--1-record-data.pcl", "ytdb-p28-collection-33554432-record-data.pcl",
         "ytdb-p28-collection-999999999999999999999-record-data.pcl",
         "ytdb-p28-unknown-7-record-data.pcl", "ytdb-p28-index-7-record-data.pcl",
         "ytdb-p28-collection-7-histogram.pcl", "ytdb-p28-collection-7-record-data.pcl.tmp",
         "/ytdb-p28-collection-7-record-data.pcl", "ytdb-p28-collection-7-record-data_1.pcl",
-        "ytdb-p28-collection-7-record-data_0268435463.pcl",
+        "ytdb-p28-collection-7-record-data_01838729451.pcl",
         "ytdb-p28-collection-7-record-data_999999999999999999.pcl",
-        "ytdb-p28-collection-7-record-data_268435463.pcl.tmp"}) {
+        "ytdb-p28-collection-7-record-data_1838729451.pcl.tmp"}) {
       assertFalse(String.valueOf(invalid), PageFileNames.parseLayout28(invalid).isPresent());
       assertFalse(String.valueOf(invalid),
           PageFileNames.parseLayout28DiskName(invalid).isPresent());

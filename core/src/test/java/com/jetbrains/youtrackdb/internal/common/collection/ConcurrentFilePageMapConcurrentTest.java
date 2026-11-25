@@ -14,14 +14,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.Test;
 
 /**
- * Concurrent stress tests for {@link ConcurrentLongIntHashMap}.
+ * Concurrent stress tests for {@link ConcurrentFilePageMap}.
  *
  * <p>Validates concurrency correctness under high contention: mixed operations with overlapping
  * keys, rehash during concurrent access, and optimistic-read-to-read-lock fallback. Uses raw {@link
  * java.util.concurrent.ExecutorService} + {@link Future#get(long, TimeUnit)} pattern for failure
  * detection.
  */
-public class ConcurrentLongIntHashMapConcurrentTest {
+public class ConcurrentFilePageMapConcurrentTest {
 
   private static final int THREAD_COUNT = 8;
   private static final int OPS_PER_THREAD = 200_000;
@@ -39,7 +39,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void mixedConcurrentOperationsAreConsistent() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(1024);
+    var map = new ConcurrentFilePageMap<String>(1024);
     var executor = Executors.newFixedThreadPool(THREAD_COUNT);
     var futures = new ArrayList<Future<Void>>();
     var startBarrier = new CyclicBarrier(THREAD_COUNT);
@@ -181,7 +181,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
   @Test
   public void rehashUnderConcurrentAccessIsCorrect() throws Exception {
     // Single section, capacity 4 — rehash triggers frequently
-    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    var map = new ConcurrentFilePageMap<String>(4, 1);
     int totalThreads = 8; // 3 writers + 3 readers + 2 removers
     var executor = Executors.newFixedThreadPool(totalThreads);
     var futures = new ArrayList<Future<Void>>();
@@ -296,7 +296,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
   @Test
   public void rehashFromMinimumCapacityUnderConcurrentAccessIsCorrect() throws Exception {
     // Single section, capacity 2 — rehash triggers on the second insert
-    var map = new ConcurrentLongIntHashMap<String>(2, 1);
+    var map = new ConcurrentFilePageMap<String>(2, 1);
     assertThat(map.capacity()).as("initial capacity should be minimum 2").isEqualTo(2);
 
     int totalThreads = 6; // 3 writers + 3 readers
@@ -391,7 +391,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void shrinkUnderConcurrentAccessIsCorrect() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     // 500 total keys: entries 0-99 are always kept (readers have stable data),
     // entries 100-499 are removed/re-inserted each round to oscillate capacity.
     int keyCount = 500;
@@ -505,7 +505,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void removeByFileIdDoesNotAffectOtherFiles() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(1024);
+    var map = new ConcurrentFilePageMap<String>(1024);
     long targetFileId = 5;
     int pagesPerFile = 100;
     int otherFileCount = 9; // files 0-4 and 6-9
@@ -624,7 +624,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
   @Test
   public void removeByFileIdWithConcurrentPutOnSameFile() throws Exception {
     // Single section — all operations contend on one StampedLock
-    var map = new ConcurrentLongIntHashMap<String>(256, 1);
+    var map = new ConcurrentFilePageMap<String>(256, 1);
     long fileId = 42;
     int pagesPerFile = 200;
     int rounds = 100;
@@ -714,7 +714,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void multipleConcurrentRemoveByFileIdForDifferentFiles() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(4096);
+    var map = new ConcurrentFilePageMap<String>(4096);
     int fileCount = 8;
     int pagesPerFile = 200;
 
@@ -783,7 +783,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void drainAllConcurrentWithPutsAndReadsIsSafe() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(1024);
+    var map = new ConcurrentFilePageMap<String>(1024);
     int fileCount = 200;
     int pageCount = 50;
 
@@ -902,7 +902,7 @@ public class ConcurrentLongIntHashMapConcurrentTest {
    */
   @Test
   public void removeByStorageIdConcurrentWithPutsAndReadsOnOtherStorageIsSafe() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>(1024);
+    var map = new ConcurrentFilePageMap<String>(1024);
     int targetStorage = 1;
     int otherStorage = 2;
     int fileCount = 100;

@@ -17,6 +17,9 @@ import org.junit.Test;
  */
 public class GremlinTranslationTelemetryTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final ForceMatchTranslationRule forceMatch = new ForceMatchTranslationRule();
+
   private GremlinTranslationMetrics metrics() {
     return GremlinTranslationMetrics.of(graphSession());
   }
@@ -71,7 +74,8 @@ public class GremlinTranslationTelemetryTest extends GraphBaseTest {
             t -> {
               throw new IllegalStateException("simulated translator bug");
             },
-            (s, tr, planningStart) -> mock(InternalExecutionPlan.class));
+            (s, tr, scope) -> GremlinPlanCache.Entry.owned(
+                mock(InternalExecutionPlan.class), scope.generation));
 
     strategy.apply(admin);
 

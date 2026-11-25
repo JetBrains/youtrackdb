@@ -13,7 +13,10 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.TooBigIndexKeyException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexEngineValidator;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.IndexMultiValuKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -89,6 +92,45 @@ public class BTreeLifecycleTest {
       youTrackDB.close();
     }
     FileUtils.deleteRecursively(new File(buildDirectory));
+  }
+
+  /**
+   * Only eligible non-unique trees accept the eight-byte compact-RID growth.
+   * One more payload byte still fails, and a composite user-key tree gets no margin.
+   */
+  @Test
+  public void singleVariableLengthKeyMarginIsExactlyEightBytes() throws Exception {
+    int previous = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
+    var compositeTree = new BTree<CompositeKey>(
+        "margin-" + UUID.randomUUID(), ".sbt", ".nbt", storage);
+    try {
+      GlobalConfiguration.BTREE_MAX_KEY_SIZE.setValue(100);
+      var types = new PropertyTypeInternal[] {
+          PropertyTypeInternal.STRING, PropertyTypeInternal.LINK, PropertyTypeInternal.LONG};
+      atomicOperationsManager.executeInsideAtomicOperation(
+          op -> compositeTree.create(op, new IndexMultiValuKeySerializer(), types, 3));
+      var rid = new RecordId(1, Long.MAX_VALUE);
+      var key = new CompositeKey("x".repeat(76), rid, 1L);
+      assertThatThrownBy(() -> atomicOperationsManager.executeInsideAtomicOperation(
+          op -> compositeTree.put(op, key, rid))).isInstanceOf(TooBigIndexKeyException.class);
+      compositeTree.configureKeySizeMargin(
+          new PropertyTypeInternal[] {PropertyTypeInternal.STRING, PropertyTypeInternal.LINK});
+      assertThatThrownBy(() -> atomicOperationsManager.executeInsideAtomicOperation(
+          op -> compositeTree.put(op, key, rid))).isInstanceOf(TooBigIndexKeyException.class);
+      compositeTree
+          .configureKeySizeMargin(new PropertyTypeInternal[] {PropertyTypeInternal.STRING});
+      atomicOperationsManager.executeInsideAtomicOperation(op -> {
+        compositeTree.put(op, key, rid);
+        assertThat(compositeTree.get(key, op)).isEqualTo(rid);
+        assertThat(compositeTree.remove(op, key)).isEqualTo(rid);
+      });
+      var tooBig = new CompositeKey("x".repeat(77), rid, 1L);
+      assertThatThrownBy(() -> atomicOperationsManager.executeInsideAtomicOperation(
+          op -> compositeTree.put(op, tooBig, rid))).isInstanceOf(TooBigIndexKeyException.class);
+      atomicOperationsManager.executeInsideAtomicOperation(op -> compositeTree.delete(op));
+    } finally {
+      GlobalConfiguration.BTREE_MAX_KEY_SIZE.setValue(previous);
+    }
   }
 
   @Before

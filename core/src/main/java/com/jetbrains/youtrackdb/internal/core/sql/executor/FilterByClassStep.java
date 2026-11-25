@@ -49,6 +49,10 @@ public class FilterByClassStep extends AbstractExecutionStep {
     this.className = identifier.getStringValue();
   }
 
+  public String getClassName() {
+    return className;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     if (prev == null) {
@@ -59,8 +63,7 @@ public class FilterByClassStep extends AbstractExecutionStep {
     return resultSet.filter(this::filterMap);
   }
 
-  @Nullable
-  private Result filterMap(Result result, CommandContext ctx) {
+  @Nullable private Result filterMap(Result result, CommandContext ctx) {
     if (result.isEntity()) {
       var session = ctx.getDatabaseSession();
       // Use getImmutableSchemaClass for a thread-safe schema snapshot.

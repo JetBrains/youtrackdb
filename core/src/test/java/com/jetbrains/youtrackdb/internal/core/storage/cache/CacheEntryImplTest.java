@@ -4,7 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import org.junit.After;
 import org.junit.Before;
@@ -12,7 +12,7 @@ import org.junit.Test;
 
 /**
  * Tests for {@link CacheEntryImpl}: equals/hashCode contract, hash consistency
- * with {@link ConcurrentLongIntHashMap#hashForFrequencySketch(long, int)}, and the
+ * with {@link ConcurrentFilePageMap#hashForFrequencySketch(long, int)}, and the
  * acquire/release/freeze/makeDead state machine.
  */
 public class CacheEntryImplTest {
@@ -117,7 +117,7 @@ public class CacheEntryImplTest {
         assertThat(entry.hashCode())
             .as("hashCode mismatch for fileId=%d, pageIndex=%d", fileId, pageIndex)
             .isEqualTo(
-                ConcurrentLongIntHashMap.hashForFrequencySketch(fileId, pageIndex));
+                ConcurrentFilePageMap.hashForFrequencySketch(fileId, pageIndex));
       }
     }
   }
