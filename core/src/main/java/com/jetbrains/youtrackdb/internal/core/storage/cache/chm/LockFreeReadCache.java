@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.L
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -365,19 +366,22 @@ public final class LockFreeReadCache implements ReadCache {
                   });
 
           if (cacheEntry.acquireEntry()) {
-            if (read[0]) {
-              success = true;
-              afterRead(cacheEntry);
-            } else {
-              afterAdd(cacheEntry);
-
-              try {
+            try {
+              if (read[0]) {
+                success = true;
+                afterRead(cacheEntry);
+              } else {
+                afterAdd(cacheEntry);
                 writeCache.checkCacheOverflow();
-              } catch (final java.lang.InterruptedException e) {
-                throw BaseException.wrapException(
-                    new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                    e, writeCache.getStorageName());
               }
+            } catch (final java.lang.InterruptedException e) {
+              cacheEntry.releaseEntry();
+              throw BaseException.wrapException(
+                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                  e, writeCache.getStorageName());
+            } catch (RuntimeException | Error e) {
+              cacheEntry.releaseEntry();
+              throw e;
             }
 
             return cacheEntry;
@@ -774,8 +778,7 @@ public final class LockFreeReadCache implements ReadCache {
    *       storage's id. Entries from other storages sharing the same JVM cache are left intact.
    *   <li>For each removed entry: {@code freeze()} + {@code policy.onRemove()} +
    *       {@code cacheSize.decrementAndGet()}. If {@code freeze()} fails (entry still pinned),
-   *       throw {@link StorageException} — remaining entries in the batch are left out of the
-   *       map and not yet processed, matching the pre-existing semantics of {@link #clearFile}.
+   *       reinsert the pinned entry and report the first pinned entry after the sweep.
    * </ol>
    *
    * <p>This replaces the per-file {@link #clearFile} loop used by {@code closeStorage} and
@@ -869,22 +872,17 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   /**
-   * Drops every cache entry whose {@code (fileId, pageIndex)} pair satisfies
-   * {@code pageIndex >= minPageIndex}; entries below the minimum survive (they belong to
-   * file regions the truncate does NOT drop and must remain reachable for ongoing
-   * readers). With {@code minPageIndex = 0} this is "remove every cache entry for this
-   * fileId" — the shape that {@code closeFile} and {@code deleteFile} use.
+   * Removes cached pages for {@code fileId} at or above {@code minPageIndex}.
    *
-   * <p>Same evictionLock acquisition, current-thread read batch flush, and freeze /
-   * onRemove / checkCacheOverflow loop in every case. Pinned-entry recovery follows
-   * {@link #drainAllEntries(WriteCache)}'s "re-insert un-frozen entries" pattern: on a
-   * freeze failure the loop continues, every un-frozen entry is re-inserted into the
-   * segment map, and the first-pinned exception is thrown only after the tail has been
-   * fully processed. This keeps {@code policy} and {@code cacheSize} in lockstep with
-   * the segment map even on partial failure — an earlier shape that threw on the first
-   * pinned entry orphaned the un-processed tail (removed from the map but never
-   * accounted for in the policy / cacheSize, leaking direct-memory references via the
-   * never-decremented CachePointer referrers).
+   * <p>Sweeps the range even if flushing the read batch or draining the buffers fails.
+   * Attempts to account for each removed entry once.
+   * Reinserts pinned entries and records only the first refusal.
+   * Checks overflow after each completed release until the first failure.
+   * A pin refusal does not stop overflow checks.
+   * After unlocking, reports the first failure with distinct later failures suppressed in order.
+   * Adds the pin refusal last, or throws it alone if no other step failed.
+   * A release primitive can leave its entry partially released if it throws.
+   * This method neither retries nor repairs that release.
    *
    * <p>Precondition: this method assumes no concurrent {@code doLoad} for the same
    * fileId. A concurrent {@code doLoad} could re-insert an entry for a page of this
@@ -904,10 +902,20 @@ public final class LockFreeReadCache implements ReadCache {
    */
   private void clearFile(
       final long fileId, final int minPageIndex, final WriteCache writeCache) {
-    flushCurrentThreadReadBatch();
+    FileCleanupFailures failures = null;
+    StorageException pinnedRefusal = null;
+    try {
+      flushCurrentThreadReadBatch();
+    } catch (RuntimeException | Error failure) {
+      failures = new FileCleanupFailures(failure);
+    }
     evictionLock.lock();
     try {
-      emptyBuffers();
+      try {
+        emptyBuffers();
+      } catch (RuntimeException | Error failure) {
+        failures = FileCleanupFailures.record(failures, failure);
+      }
 
       // Bulk removal: removeByFileId sweeps each segment linearly under its write lock
       // with a (fileId, pageIndex >= minPageIndex) match filter. Entries are returned
@@ -916,42 +924,87 @@ public final class LockFreeReadCache implements ReadCache {
       // reentrancy deadlock if callbacks re-enter the map.
       final var removedEntries = data.removeByFileId(fileId, minPageIndex);
 
-      // First entry that freeze() rejected (still pinned). We use it to build the
-      // exception message after re-inserting every un-frozen entry into the segment
-      // map. Null means every entry was frozen.
-      CacheEntry firstUnfrozen = null;
       for (final var cacheEntry : removedEntries) {
-        if (cacheEntry.freeze()) {
-          policy.onRemove(cacheEntry);
-          cacheSize.decrementAndGet();
+        try {
+          if (!cacheEntry.freeze()) {
+            // Keep a pinned entry reachable so a later retry can remove it.
+            data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
+            if (pinnedRefusal == null) {
+              pinnedRefusal = new StorageException(writeCache.getStorageName(),
+                  "Page with index " + cacheEntry.getPageIndex()
+                      + " for file id " + cacheEntry.getFileId()
+                      + " is used and cannot be removed");
+            }
+            continue;
+          }
 
-          try {
-            writeCache.checkCacheOverflow();
-          } catch (final java.lang.InterruptedException e) {
-            throw BaseException.wrapException(
-                new ThreadInterruptedException("Check of write cache overflow was interrupted"),
-                e, writeCache.getStorageName());
+          // A frozen entry leaves the size count even if policy removal fails.
+          cacheSize.decrementAndGet();
+          policy.onRemove(cacheEntry);
+          if (failures == null) {
+            try {
+              writeCache.checkCacheOverflow();
+            } catch (final java.lang.InterruptedException e) {
+              throw BaseException.wrapException(
+                  new ThreadInterruptedException("Check of write cache overflow was interrupted"),
+                  e, writeCache.getStorageName());
+            }
           }
-        } else {
-          if (firstUnfrozen == null) {
-            firstUnfrozen = cacheEntry;
-          }
-          // Re-insert so policy + cacheSize stay in lockstep with the segment map and
-          // a retry by the caller (after the pin is released) can drain this entry
-          // through the normal path.
-          data.put(cacheEntry.getFileId(), cacheEntry.getPageIndex(), cacheEntry);
+        } catch (RuntimeException | Error failure) {
+          failures = FileCleanupFailures.record(failures, failure);
         }
-      }
-      if (firstUnfrozen != null) {
-        throw new StorageException(writeCache.getStorageName(),
-            "Page with index "
-                + firstUnfrozen.getPageIndex()
-                + " for file id "
-                + firstUnfrozen.getFileId()
-                + " is used and cannot be removed");
       }
     } finally {
       evictionLock.unlock();
+    }
+    if (failures != null) {
+      failures.rethrow(pinnedRefusal);
+    }
+    if (pinnedRefusal != null) {
+      throw pinnedRefusal;
+    }
+  }
+
+  private static final class FileCleanupFailures {
+
+    private final Throwable first;
+    private IdentityHashMap<Throwable, Boolean> seen;
+    private ArrayList<Throwable> later;
+
+    private FileCleanupFailures(Throwable first) {
+      this.first = first;
+    }
+
+    private static FileCleanupFailures record(FileCleanupFailures failures, Throwable failure) {
+      if (failures == null) {
+        return new FileCleanupFailures(failure);
+      }
+      if (failure != failures.first) {
+        if (failures.seen == null) {
+          failures.seen = new IdentityHashMap<>();
+          failures.later = new ArrayList<>();
+        }
+        if (failures.seen.put(failure, Boolean.TRUE) == null) {
+          failures.later.add(failure);
+        }
+      }
+      return failures;
+    }
+
+    private void rethrow(StorageException pinnedRefusal) {
+      // Throwable.addSuppressed takes the primary failure's monitor.
+      if (later != null) {
+        for (var failure : later) {
+          first.addSuppressed(failure);
+        }
+      }
+      if (pinnedRefusal != null) {
+        first.addSuppressed(pinnedRefusal);
+      }
+      if (first instanceof RuntimeException runtimeFailure) {
+        throw runtimeFailure;
+      }
+      throw (Error) first;
     }
   }
 
