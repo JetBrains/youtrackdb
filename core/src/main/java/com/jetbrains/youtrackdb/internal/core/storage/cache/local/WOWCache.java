@@ -2802,6 +2802,12 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public boolean shrinkFile(long fileId, final long targetBytes) throws IOException {
+    return shrinkFile(fileId, targetBytes, null);
+  }
+
+  /** Runs the read-cache tail cleanup on the caller after a confirmed shrink. */
+  public boolean shrinkFile(long fileId, final long targetBytes, @Nullable Runnable clearTail)
+      throws IOException {
     // Argument-validity guards run BEFORE any locking or pre-flight no-op so a contract
     // violation never lands a partial truncate and never racily competes with concurrent
     // file writers for filesLock. These checks run under default JVM flags (no -ea) — the
@@ -2839,113 +2845,144 @@ public final class WOWCache extends AbstractWriteCache
     }
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
+    final int minPageIndex = (int) (targetBytes / pageSizeLocal);
+    if (logicalFiles != null) {
+      return orderedShrinkFile(fileId, targetBytes, minPageIndex, clearTail);
+    }
+    final boolean shrunk = shrinkLegacyFile(fileId, targetBytes, minPageIndex);
+    if (shrunk && clearTail != null) {
+      clearTail.run();
+    }
+    return shrunk;
+  }
 
+  private boolean orderedShrinkFile(long fileId, long targetBytes, int minPageIndex,
+      @Nullable Runnable clearTail) throws IOException {
+    FileLifecycleStep.requireCaller(commitExecutor());
+    try (var step = new FileLifecycleStep(storageName, "File shrink")) {
+      filesLock.acquireWriteLock();
+      try {
+        checkForClose();
+        // Growth is excluded by filesLock. First creation publishes only the written extent.
+        final var state = logicalState(extractFileId(fileId));
+        if (state != null && state.logicalExtent() <= minPageIndex) {
+          return false;
+        }
+        step.await(submitShrinkStep(fileId, targetBytes, minPageIndex));
+      } finally {
+        filesLock.releaseWriteLock();
+      }
+      if (clearTail != null) {
+        try {
+          clearTail.run();
+        } catch (RuntimeException | Error failure) {
+          // The overflow wait can consume an interrupt after the shrink step completes.
+          for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+              Thread.currentThread().interrupt();
+              break;
+            }
+          }
+          throw failure;
+        }
+      }
+      return true;
+    }
+  }
+
+  Future<Void> submitShrinkStep(long fileId, long targetBytes, int minPageIndex) {
+    return commitExecutor().submit(() -> {
+      shrinkPageFile(fileId, targetBytes, minPageIndex);
+      return null;
+    });
+  }
+
+  // Earlier writes have completed publication before this step runs on the commitExecutor()
+  // thread. Later writes cannot observe the file before its extents have been clamped.
+  private void shrinkPageFile(long fileId, long targetBytes, int minPageIndex)
+      throws IOException, InterruptedException {
+    final int intId = extractFileId(fileId);
+    final var state = logicalState(intId);
+    if (state != null && !state.diskPresent()) {
+      if (files.get(fileId) == null) {
+        if (pageRetentionState.hasRetainedContents(fileId)
+            && !Files.notExists(storagePath.resolve(PageFileNames.layout28DiskName(
+                state.identity())))) {
+          throw new IOException("Cannot confirm absence of pending page file " + intId);
+        }
+        doRemoveCachePages(intId, minPageIndex);
+        state.extents().shrink(minPageIndex);
+        pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
+        return;
+      }
+      if (pendingCreationHandles.get(intId) != state.extents()) {
+        throw new IOException("Cannot truncate an unowned pending page file " + intId);
+      }
+    }
+
+    final var entry = acquireFileForShrink(fileId);
+    try {
+      if (state == null) {
+        throw new IOException("Cannot truncate a page file without a live logical entry " + intId);
+      }
+      final var file = entry.get();
+      final long reservedBytes = file.getFileSize();
+      doRemoveCachePages(intId, minPageIndex);
+      file.shrink(Math.min(targetBytes, reservedBytes));
+      // A failed channel truncate can leave the wrapper counter at the target. Check the disk
+      // length before lowering extents or discarding protection, including on retry.
+      if (file.getUnderlyingFileSize() > targetBytes) {
+        throw new IOException(
+            "Page file " + intId + " still exceeds " + targetBytes + " bytes after shrink");
+      }
+      state.extents().shrink(minPageIndex);
+      pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
+    } finally {
+      files.release(entry);
+    }
+  }
+
+  private boolean shrinkLegacyFile(long fileId, long targetBytes, int minPageIndex)
+      throws IOException {
     filesLock.acquireWriteLock();
     try {
       checkForClose();
-
-      final var logical = logicalState(intId);
-      final var minPageIndex = (int) (targetBytes / pageSizeLocal);
-      if (logical != null && logical.logicalExtent() <= minPageIndex) {
-        return false;
-      }
-      final boolean pending = logical != null && !logical.diskPresent();
-      if (pending) {
-        // Drain first. A failed first write can leave a handle with bytes but no published extent.
-        removeCachedPages(intId, minPageIndex);
-        if (files.get(fileId) == null) {
-          if (pageRetentionState.hasRetainedContents(fileId)
-              && !Files.notExists(storagePath.resolve(PageFileNames.layout28DiskName(
-                  logical.identity())))) {
-            throw new IOException("Cannot confirm absence of pending page file " + intId);
-          }
-          logical.extents().shrink(minPageIndex);
-          discardRetainedContents(fileId, minPageIndex);
-          return true;
-        }
-        if (!logicalState(intId).diskPresent()
-            && pendingCreationHandles.get(intId) != logical.extents()) {
-          throw new IOException("Cannot truncate an unowned pending page file " + intId);
-        }
-      }
-      final var entry = files.acquire(fileId);
-      // shrinkFile is only invoked by the recovery-time orphan-truncation orchestrator,
-      // which iterates already-open components. A null entry here means the orchestrator
-      // dispatched against a fileId that is no longer open — a contract violation worth
-      // signalling loudly rather than silently no-op'ing. The orchestrator (in
-      // AbstractStorage.truncateOrphansAfterRecovery) wraps each dispatch in a try/catch
-      // that absorbs StorageException with a WARN log so a single corrupted component
-      // does not poison recovery for the rest of the storage.
-      if (entry == null) {
-        throw new StorageException(
-            storageName,
-            "shrinkFile invoked on fileId="
-                + intId
-                + " but no file entry is open — recovery orchestrator must guarantee the"
-                + " file is open before dispatching orphan truncation");
-      }
+      final var entry = acquireFileForShrink(fileId);
       try {
         final var file = entry.get();
-        // Pre-flight no-op: a target greater than or equal to the current
-        // AsyncFile.getFileSize() has nothing to drop. The read of getFileSize() is
-        // serialised against concurrent allocateSpace / shrink writers by the surrounding
-        // filesLock writeLock + the AsyncFile internal exclusiveLock, so this snapshot is
-        // stable for the duration of the call.
-        if (logical == null && file.getFileSize() <= targetBytes) {
-          // Pre-flight no-op: nothing was truncated. Returning false here (versus true on
-          // the real-truncate fall-through below) is derived from this same getFileSize()
-          // snapshot held under filesLock.writeLock, so the read-cache orchestrator can
-          // skip its purge without reopening a TOCTOU window on a recomputed size compare.
+        if (file.getFileSize() <= targetBytes) {
           return false;
         }
-        // Drop write-back layer entries at pageIndex >= minPageIndex BEFORE
-        // truncating the AsyncFile. If we truncated first, a concurrent periodic
-        // flush could write a dirty orphan entry back to disk and re-extend the
-        // file past targetBytes. Dirty entries below minPageIndex are preserved
-        // (they belong to file regions the truncate does NOT drop and need to
-        // survive the next periodic flush).
-        if (!pending) {
-          removeCachedPages(intId, minPageIndex);
-        }
-        // Shrink the reserved range too. A logical tail need not have reserved disk bytes.
+        // Purge before truncating so queued page writes cannot re-extend the file.
+        removeCachedPages(extractFileId(fileId), minPageIndex);
         file.shrink(Math.min(targetBytes, file.getFileSize()));
-        final var state = logicalState(intId);
-        if (state != null) {
-          // AsyncFile lowers its size counter before truncating. A retry can skip the truncate.
-          if (pending && !state.diskPresent() && file.getUnderlyingFileSize() > targetBytes) {
-            throw new IOException(
-                "Pending page file " + intId + " still exceeds " + targetBytes
-                    + " bytes after shrink");
-          }
-          state.extents().shrink(targetBytes / pageSize);
-        }
         discardRetainedContents(fileId, minPageIndex);
-        // Boolean/physical-truncate contract: the true return below is the sole signal
-        // LockFreeReadCache.shrinkFile uses to gate its read-cache purge. Pin that the
-        // file actually reached targetBytes so a future refactor that reorders the return
-        // relative to file.shrink (or inserts an early return between removeCachedPages and
-        // the truncate) cannot silently desync the boolean from the physical state. -ea-only,
-        // zero production cost; coverage-gate.py excludes assert lines.
-        assert logical != null ? logical.logicalExtent() * pageSize == targetBytes
-            : file.getFileSize() == targetBytes
-            : "shrinkFile returned true but physical size "
-                + file.getFileSize()
-                + " != target "
-                + targetBytes
-                + " (boolean/truncate desync breaks the read-cache purge gate)";
-        // The file was physically shrunk: signal the read-cache orchestrator to run its
-        // range-scoped purge of cached entries at pageIndex >= minPageIndex.
+        assert file.getFileSize() == targetBytes : "shrinkFile returned true but physical size "
+            + file.getFileSize() + " != target " + targetBytes;
         return true;
       } finally {
         files.release(entry);
       }
-    } catch (final java.lang.InterruptedException e) {
+    } catch (final InterruptedException e) {
       throw BaseException.wrapException(
-          new StorageException(storageName, "File shrink was interrupted"),
-          e, storageName);
+          new StorageException(storageName, "File shrink was interrupted"), e, storageName);
     } finally {
       filesLock.releaseWriteLock();
     }
+  }
+
+  private ClosableEntry<Long, File> acquireFileForShrink(long fileId) throws InterruptedException {
+    final var entry = files.acquire(fileId);
+    // Recovery dispatches shrink only for open components. A missing handle is not a no-op.
+    if (entry == null) {
+      throw new StorageException(
+          storageName,
+          "shrinkFile invoked on fileId="
+              + extractFileId(fileId)
+              + " but no file entry is open — recovery orchestrator must guarantee the"
+              + " file is open before dispatching orphan truncation");
+    }
+    return entry;
   }
 
   @Override
@@ -5044,14 +5081,14 @@ public final class WOWCache extends AbstractWriteCache
     //     keep, their writeCachePages entries survive, and decrementing for them would push
     //     exclusiveWriteCacheSize negative. exclusiveWritePages is a skip-list ordered by
     //     (fileId, pageIndex), so the bounded view is an O(log n + k) slice, not a scan.
-    //   * It takes NO additional lock. This method runs on the commit executor, while
+    //   * It takes NO additional lock. This method runs on the commitExecutor() thread, while
     //     filesLock's write lock is held by the thread that submitted the purge task
     //     (deleteFile / shrinkFile / close), so acquiring filesLock here
     //     would deadlock against the submitter. Both structures touched are concurrent, and
     //     the per-key group lock would buy nothing because CachePointer fires
     //     addOnlyWriters/removeOnlyWriters without holding it.
     //     Caveat on that exclusion: it is best-effort under interruption. If the submitter's
-    //     future.get() throws InterruptedException, removeCachedPages / deleteFile rethrow
+    //     future.get() throws InterruptedException, the legacy purge wait and deleteFile rethrow
     //     without cancelling or awaiting this task, so their finally releases the filesLock
     //     write lock while the purge — including this sweep — may still be running, and a
     //     concurrent store() can then proceed. Tracked as its own follow-up item.
