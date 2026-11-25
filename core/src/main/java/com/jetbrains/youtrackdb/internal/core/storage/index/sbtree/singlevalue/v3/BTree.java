@@ -449,6 +449,59 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   }
 
   /**
+   * Looks up a visible value for a statistics build. The guard may throw to refuse the read.
+   * The shared lock orders the guard and the pinned lookup against tree deletion.
+   */
+  @Nullable public RID getVisibleForHistogram(K key, IndexesSnapshot snapshot,
+      @Nonnull AtomicOperation atomicOperation, Runnable readGuard) {
+    acquireSharedLock();
+    try {
+      readGuard.run();
+      assert key instanceof CompositeKey;
+      if (((CompositeKey) key).getKeys().size() < keySize - 1) {
+        return null;
+      }
+      final var preprocessedKey =
+          keySerializer.preprocess(serializerFactory, buildSearchKey(key), (Object[]) keyTypes);
+      final var serializedKey = keySerializer.serializeNativeAsWhole(
+          serializerFactory, preprocessedKey, (Object[]) keyTypes);
+      final var opsSnapshot = atomicOperation.getAtomicOperationsSnapshot();
+      return getVisiblePinnedForHistogram(atomicOperation, preprocessedKey, serializedKey,
+          snapshot, opsSnapshot.snapshotTs(), opsSnapshot.inProgressTxs());
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during getVisible of sbtree with name " + getName(), this),
+          e, storage.getName());
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
+  @Nullable private RID getVisiblePinnedForHistogram(AtomicOperation atomicOperation,
+      K prefixKey, byte[] serializedKey, IndexesSnapshot snapshot, long snapshotTs,
+      LongOpenHashSet inProgressVersions) throws IOException {
+    final var search = findBucketSerialized(prefixKey, serializedKey, atomicOperation);
+    var pageIndex = search.getPageIndex();
+    var foundIndex = search.getItemIndex();
+    while (pageIndex >= 0) {
+      try (final var cacheEntry = loadPageForRead(atomicOperation, fileId, pageIndex)) {
+        final var bucket = new CellBTreeSingleValueBucketV3<K>(cacheEntry);
+        try {
+          // Request the scanner's exhaustion signal, as the optimistic reader does.
+          // A null result then proves that the key prefix has ended.
+          return scanLeafForVisible(bucket, foundIndex, prefixKey, snapshot, snapshotTs,
+              inProgressVersions, true);
+        } catch (final OptimisticReadFailedException exhausted) {
+          pageIndex = (int) bucket.getRightSibling();
+          foundIndex = Integer.MIN_VALUE;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Builds a search key by padding to {@code keySize} with {@code Long.MIN_VALUE}.
    * Used by {@link #getVisible} where the caller supplies all user-key elements
    * and only the version element is missing.
@@ -1669,6 +1722,25 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
     }
   }
 
+  /**
+   * Probes the first key for a statistics build. Run the guard even if the tree is empty.
+   */
+  @Nullable public K firstKeyForHistogram(
+      @Nonnull AtomicOperation atomicOperation, Runnable readGuard) {
+    acquireSharedLock();
+    try {
+      readGuard.run();
+      return doFirstKey(atomicOperation);
+    } catch (final IOException e) {
+      throw BaseException.wrapException(
+          new CellBTreeSingleValueV3Exception(
+              "Error during finding first key in sbtree [" + getName() + "]", this),
+          e, storage.getName());
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
   @Nullable private K doFirstKey(@Nonnull AtomicOperation atomicOperation) throws IOException {
     final var searchResult = firstItem(atomicOperation);
     if (searchResult.isEmpty()) {
@@ -1868,6 +1940,18 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
     return new SpliteratorForward<>(this, key, null, inclusive, false,
         atomicOperation);
+  }
+
+  /**
+   * Creates a forward cursor for a statistics build. The guard runs under the shared lock at
+   * the first fetch and every refill, but not while the cursor returns buffered entries.
+   */
+  public Stream<RawPair<K, RID>> iterateEntriesMajorForHistogram(
+      K key, boolean inclusive, @Nonnull AtomicOperation atomicOperation, Runnable readGuard) {
+    key = keySerializer.preprocess(serializerFactory, key, (Object[]) keyTypes);
+    key = enhanceCompositeKeyMajorAsc(key, inclusive);
+    return StreamSupport.stream(
+        new SpliteratorForward.Guarded<>(this, key, inclusive, atomicOperation, readGuard), false);
   }
 
   private Spliterator<RawPair<K, RID>> iterateEntriesMajorDesc(K key, final boolean inclusive,
@@ -2711,24 +2795,41 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
 
   void fetchNextForwardCachePortion(SpliteratorForward<K> iter,
       @Nonnull AtomicOperation atomicOperation) {
-    final K lastKey;
-    if (!iter.getDataCache().isEmpty()) {
-      lastKey = iter.getDataCache().getLast().first();
-    } else {
-      lastKey = null;
-    }
-
-    iter.getDataCache().clear();
-    iter.setCacheIterator(Collections.emptyIterator());
-
+    final var lastKey = prepareForwardCacheFetch(iter);
     try {
       fetchForwardCachePortionInner(iter, atomicOperation, lastKey);
     } catch (final IOException e) {
-      throw BaseException.wrapException(
-          new CellBTreeSingleValueV3Exception(
-              "Error during entity iteration", BTree.this),
-          e, storage.getName());
+      throw forwardFetchError(e);
     }
+  }
+
+  void fetchNextForwardCachePortionForHistogram(SpliteratorForward<K> iter,
+      AtomicOperation atomicOperation, Runnable readGuard) {
+    acquireSharedLock();
+    try {
+      readGuard.run();
+      final var lastKey = prepareForwardCacheFetch(iter);
+      doFetchForwardCachePortion(iter, atomicOperation, lastKey);
+    } catch (final IOException e) {
+      throw forwardFetchError(e);
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
+  @Nullable private K prepareForwardCacheFetch(SpliteratorForward<K> iter) {
+    final var cache = iter.getDataCache();
+    final K lastKey = cache.isEmpty() ? null : cache.getLast().first();
+    cache.clear();
+    iter.setCacheIterator(Collections.emptyIterator());
+    return lastKey;
+  }
+
+  private RuntimeException forwardFetchError(IOException e) {
+    return BaseException.wrapException(
+        new CellBTreeSingleValueV3Exception(
+            "Error during entity iteration", BTree.this),
+        e, storage.getName());
   }
 
   private void fetchForwardCachePortionInner(SpliteratorForward<K> iter,
