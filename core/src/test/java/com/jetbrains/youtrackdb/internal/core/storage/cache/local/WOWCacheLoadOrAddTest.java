@@ -52,6 +52,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.AsynchronousFileChannel;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1868,6 +1869,62 @@ public class WOWCacheLoadOrAddTest {
   // Shrink must keep the DWL copy on a failed truncate and discard it only after success.
   @Test
   public void shrinkOfUnpublishedHandleProtectsDwlUntilPhysicalTruncation() throws Exception {
+    final long id = prepareUnpublishedHandleWithRetainedTail();
+    final var file = files.get(id);
+    final var retention = pageRetentionState();
+    Mockito.doThrow(new IOException("Truncate failed")).doCallRealMethod()
+        .when(file).shrink(PAGE_SIZE);
+    assertThrows(IOException.class, () -> wowCache.shrinkFile(id, PAGE_SIZE));
+    assertTrue(retention.hasRetainedContents(id));
+    assertTrue(wowCache.shrinkFile(id, PAGE_SIZE));
+    assertEquals(PAGE_SIZE, file.getUnderlyingFileSize());
+    assertFalse(retention.hasRetainedContents(id));
+  }
+
+  @Test
+  public void shrinkRetryRejectsUnchangedPhysicalLengthAfterSizeCounterDrops() throws Exception {
+    final long id = prepareUnpublishedHandleWithRetainedTail();
+    final var file = files.get(id);
+    final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+    final var retention = pageRetentionState();
+    final var readCache = new LockFreeReadCache(bufferPool, 1024L * PAGE_SIZE, PAGE_SIZE);
+    final var channelField = AsyncFile.class.getDeclaredField("fileChannel");
+    channelField.setAccessible(true);
+    final var realChannel = (AsynchronousFileChannel) channelField.get(file);
+    final var channel = mock(AsynchronousFileChannel.class,
+        org.mockito.AdditionalAnswers.delegatesTo(realChannel));
+    final var truncateFailure = new IOException("Channel truncate failed");
+    // Fail at the channel boundary so the real shrink lowers the size counter first.
+    Mockito.doThrow(truncateFailure).when(channel).truncate(Mockito.anyLong());
+
+    try {
+      final var tail = readCache.loadForRead(id, 2, wowCache, false);
+      assertNotNull(tail);
+      readCache.releaseFromRead(tail);
+      assertSame(tail, readCache.getCacheEntryOptimistic(id, 2));
+      channelField.set(file, channel);
+
+      assertSame(truncateFailure,
+          assertThrows(IOException.class, () -> readCache.shrinkFile(id, PAGE_SIZE, wowCache)));
+      assertEquals(PAGE_SIZE, file.getFileSize());
+      assertEquals(3L * PAGE_SIZE, file.getUnderlyingFileSize());
+      assertEquals(3, state.logicalExtent());
+      assertTrue(retention.hasRetainedContents(id));
+
+      assertThrows("Retry must reject the physical tail", IOException.class,
+          () -> readCache.shrinkFile(id, PAGE_SIZE, wowCache));
+      Mockito.verify(channel).truncate(Mockito.anyLong());
+      assertEquals(3L * PAGE_SIZE, file.getUnderlyingFileSize());
+      assertEquals(3, state.logicalExtent());
+      assertTrue(retention.hasRetainedContents(id));
+      assertSame(tail, readCache.getCacheEntryOptimistic(id, 2));
+    } finally {
+      channelField.set(file, realChannel);
+      readCache.clear();
+    }
+  }
+
+  private long prepareUnpublishedHandleWithRetainedTail() throws Exception {
     final long id = preparePendingPage(9343, null);
     final var dwl = mock(DoubleWriteLog.class);
     when(dwl.write(any(), any(), any())).thenReturn(new DoubleWriteLog.AppendResult(1L, false, 0));
@@ -1890,21 +1947,18 @@ public class WOWCacheLoadOrAddTest {
           throw new IllegalStateException("First write completion failed");
         };
       }).when(wrapper).write(Mockito.anyList());
-      Mockito.doThrow(new IOException("Truncate failed")).doCallRealMethod()
-          .when(wrapper).shrink(PAGE_SIZE);
       return wrapper;
     }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
     assertThrows(InvocationTargetException.class, () -> flushWithSelector(id, 1));
-    final var field = WOWCache.class.getDeclaredField("pageRetentionState");
-    field.setAccessible(true);
-    final var retention = (PageRetentionState) field.get(wowCache);
     assertFalse(wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskPresent());
     assertEquals(3L * PAGE_SIZE, files.get(id).getUnderlyingFileSize());
-    assertThrows(IOException.class, () -> wowCache.shrinkFile(id, PAGE_SIZE));
-    assertTrue(retention.hasRetainedContents(id));
-    assertTrue(wowCache.shrinkFile(id, PAGE_SIZE));
-    assertEquals(PAGE_SIZE, files.get(id).getUnderlyingFileSize());
-    assertFalse(retention.hasRetainedContents(id));
+    return id;
+  }
+
+  private PageRetentionState pageRetentionState() throws Exception {
+    final var field = WOWCache.class.getDeclaredField("pageRetentionState");
+    field.setAccessible(true);
+    return (PageRetentionState) field.get(wowCache);
   }
 
   // Both selectors force the maximum creating/changing dependency before DWL, creation,

@@ -2911,6 +2911,12 @@ public final class WOWCache extends AbstractWriteCache
         file.shrink(Math.min(targetBytes, file.getFileSize()));
         final var state = logicalState(intId);
         if (state != null) {
+          // AsyncFile lowers its size counter before truncating. A retry can skip the truncate.
+          if (pending && !state.diskPresent() && file.getUnderlyingFileSize() > targetBytes) {
+            throw new IOException(
+                "Pending page file " + intId + " still exceeds " + targetBytes
+                    + " bytes after shrink");
+          }
           state.extents().shrink(targetBytes / pageSize);
         }
         discardRetainedContents(fileId, minPageIndex);
