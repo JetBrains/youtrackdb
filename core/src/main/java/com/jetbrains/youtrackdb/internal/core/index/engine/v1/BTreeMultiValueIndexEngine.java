@@ -167,6 +167,7 @@ public final class BTreeMultiValueIndexEngine
   public void create(@Nonnull AtomicOperation atomicOperation, IndexEngineData data) {
     try {
       final var sbTypes = calculateTypes(data.getKeyTypes());
+      ((BTree<?>) svTree).configureKeySizeMargin(data.getKeyTypes());
       svTree.create(
           atomicOperation,
           new IndexMultiValuKeySerializer(),
@@ -263,6 +264,7 @@ public final class BTreeMultiValueIndexEngine
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     final var sbTypes = calculateTypes(keyTypes);
+    ((BTree<?>) svTree).configureKeySizeMargin(keyTypes);
 
     // Load under the file-base-id stems the components were constructed with — never the index
     // name, which keys no file.

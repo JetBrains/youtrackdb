@@ -20,13 +20,16 @@ final class GremlinStepLabels {
    * null)}) are skipped — they carry no binding.
    */
   static Set<String> userLabels(Step<?, ?> step) {
-    var labels = new LinkedHashSet<String>();
+    Set<String> labels = null;
     for (String label : step.getLabels()) {
       if (label != null) {
+        if (labels == null) {
+          labels = new LinkedHashSet<>();
+        }
         labels.add(label);
       }
     }
-    return labels;
+    return labels == null ? Set.of() : labels;
   }
 
   /**

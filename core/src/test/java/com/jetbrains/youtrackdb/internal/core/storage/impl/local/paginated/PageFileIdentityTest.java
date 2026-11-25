@@ -9,7 +9,7 @@ import org.junit.Test;
 
 public class PageFileIdentityTest {
 
-  // Each kind has a local role range. Literal shifts pin the wire layout independently.
+  // Each kind has a local role range. Both component boundaries must survive the codec.
   @Test
   public void everyRoleRoundTripsAtBothComponentBoundariesWithPositiveUniqueIds() {
     var ids = new HashSet<Integer>();
@@ -17,21 +17,49 @@ public class PageFileIdentityTest {
       int roles = kind == 3 ? 6 : 5;
       for (int role = 0; role < roles; role++) {
         for (int component : new int[] {0, 33554431}) {
-          int expected = kind * 268435456 + role * 33554432 + component;
           int encoded = PageFileIdentity.encode(kind, role, component);
-          assertEquals(expected, encoded);
           assertTrue(encoded > 0);
           assertTrue(ids.add(encoded));
-          var decoded = PageFileIdentity.decode(expected);
+          var decoded = PageFileIdentity.decode(encoded);
           assertEquals(kind, decoded.kind().code());
           assertEquals(role, decoded.role().code());
           assertEquals(component, decoded.componentId());
-          assertEquals(expected, decoded.internalId());
+          assertEquals(encoded, decoded.internalId());
         }
       }
     }
     assertEquals(32, ids.size());
     assertEquals(33554431, PageFileIdentity.MAX_COMPONENT_ID);
+  }
+
+  // Literal vectors pin the encoding independently of pack and the inverse.
+  @Test
+  public void mixedEncodingMatchesKnownAnswers() {
+    assertEquals(1676378299, PageFileIdentity.encode(3, 0, 0));
+    assertEquals(650489682, PageFileIdentity.encode(1, 0, 0));
+    assertEquals(2055768198, PageFileIdentity.encode(2, 2, 7));
+    assertEquals(0, PageFileIdentity.mix(0));
+    assertEquals(0, PageFileIdentity.unmix(0));
+    assertEquals(1, (0x7feb352dL * 0x1d69e2a5L) & Integer.MAX_VALUE);
+    assertEquals(1, (0x046ca68bL * 0x43021123L) & Integer.MAX_VALUE);
+  }
+
+  // Check both inverse directions over boundaries, every single bit and a million seeded values.
+  @Test
+  public void mixIsReversibleAcrossThe31BitDomain() {
+    var random = new java.util.Random(1620);
+    for (int i = 0; i < 1_000_000; i++) {
+      int value = random.nextInt() & Integer.MAX_VALUE;
+      assertEquals(value, PageFileIdentity.unmix(PageFileIdentity.mix(value)));
+      assertEquals(value, PageFileIdentity.mix(PageFileIdentity.unmix(value)));
+    }
+    for (int bit = 0; bit < 31; bit++) {
+      for (int value : new int[] {1 << bit, (1 << bit) - 1,
+          Integer.MAX_VALUE ^ (1 << bit), Integer.MAX_VALUE}) {
+        assertEquals(value, PageFileIdentity.unmix(PageFileIdentity.mix(value)));
+        assertEquals(value, PageFileIdentity.mix(PageFileIdentity.unmix(value)));
+      }
+    }
   }
 
   // Reject every unused bit-field value, not just one representative unknown kind or role.
@@ -45,7 +73,7 @@ public class PageFileIdentityTest {
         int k = kind;
         int r = role;
         assertThrows(IllegalArgumentException.class, () -> PageFileIdentity.encode(k, r, 1));
-        int encoded = kind * 268435456 + role * 33554432 + 1;
+        int encoded = PageFileIdentity.mix(PageFileIdentity.pack(kind, role, 1));
         assertThrows(IllegalArgumentException.class, () -> PageFileIdentity.decode(encoded));
       }
     }

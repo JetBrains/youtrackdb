@@ -53,6 +53,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.function.BiConsumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
@@ -246,7 +247,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       collection.create(atomicOperation);
       btree.create(atomicOperation, StringSerializer.INSTANCE, null, 1);
 
-      this.configuration = contextConfiguration;
+      this.configuration = new CollectionCountConfiguration(contextConfiguration);
 
       init(atomicOperation);
 
@@ -326,7 +327,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       throws SerializationException {
     lock.writeLock().lock();
     try {
-      this.configuration = configuration;
+      this.configuration = new CollectionCountConfiguration(configuration);
 
       collection.open(atomicOperation);
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
@@ -2591,7 +2592,83 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private void autoInitCollections() {
     if (configuration.getValueAsInteger(GlobalConfiguration.CLASS_COLLECTIONS_COUNT)
         == 0) {
-      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 8);
+      configuration.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT, 1);
+    }
+  }
+
+  /**
+   * Owns only the collection count. Other settings keep their shared read/write behavior.
+   * Loading a persisted count must not turn it into an override for another database.
+   */
+  private static final class CollectionCountConfiguration extends ContextConfiguration {
+
+    private final ContextConfiguration shared;
+
+    private CollectionCountConfiguration(ContextConfiguration shared) {
+      this.shared = shared;
+      super.setValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT,
+          shared.getValue(GlobalConfiguration.CLASS_COLLECTIONS_COUNT));
+    }
+
+    @Override
+    public Object getValue(GlobalConfiguration key) {
+      return key == GlobalConfiguration.CLASS_COLLECTIONS_COUNT
+          ? super.getValue(key) : shared.getValue(key);
+    }
+
+    @Override
+    public <T> T getValue(String key, T defaultValue) {
+      return GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)
+          ? super.getValue(key, defaultValue) : shared.getValue(key, defaultValue);
+    }
+
+    @Override
+    public Object setValue(GlobalConfiguration key, Object value) {
+      return setValue(key.getKey(), value);
+    }
+
+    @Override
+    public Object setValue(String key, Object value) {
+      return GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)
+          ? super.setValue(key, value) : shared.setValue(key, value);
+    }
+
+    @Override
+    public java.util.Set<String> getContextKeys() {
+      var keys = new java.util.HashSet<>(shared.getContextKeys());
+      keys.addAll(super.getContextKeys());
+      return keys;
+    }
+
+    @Override
+    public <T extends Enum<T>> T getValueAsEnum(GlobalConfiguration key, Class<T> enumType) {
+      return shared.getValueAsEnum(key, enumType);
+    }
+
+    @Override
+    public void forEach(BiConsumer<String, Object> action) {
+      // Read each shared entry with its value, but export only the storage-local count.
+      shared.forEach((key, value) -> {
+        if (!GlobalConfiguration.CLASS_COLLECTIONS_COUNT.getKey().equals(key)) {
+          action.accept(key, value);
+        }
+      });
+      super.forEach(action);
+    }
+
+    @Override
+    public void merge(ContextConfiguration source) {
+      source.forEach(this::setValue);
+    }
+
+    @Override
+    public void merge(org.apache.commons.configuration2.Configuration target) {
+      forEach(target::setProperty);
+    }
+
+    @Override
+    public int getContextSize() {
+      return getContextKeys().size();
     }
   }
 

@@ -494,7 +494,7 @@ public class ComponentIdAllocationTest {
     var names = new HashSet<String>();
     for (var role : indexTreeRoles(multi)) {
       var identity = new PageFileIdentity(role, id);
-      // Literal names and bit fields keep this check independent of the production name codec.
+      // Literal logical names pin the naming contract separately from the identity codec.
       var suffix = switch (role) {
         case INDEX_DATA -> "tree-data.cbt";
         case INDEX_NULL_BUCKET -> "tree-null-bucket.nbt";
@@ -503,7 +503,7 @@ public class ComponentIdAllocationTest {
         case HISTOGRAM -> "histogram.ixs";
         default -> throw new AssertionError(role);
       };
-      int expectedId = (2 << 28) | (role.code() << 25) | id;
+      int expectedId = identity.internalId();
       var name = "ytdb-p28-index-" + id + "-" + suffix;
       assertEquals(name, PageFileNames.layout28(identity));
       assertTrue(cache.files().containsKey(name));

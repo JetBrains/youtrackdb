@@ -167,7 +167,7 @@ public class YouTrackDBDiskUsageTest {
             .layout28(identity)),
         new byte[1]);
     Files.write(rejected.resolve("ytdb-p28-configuration-0-data_1.cd"), new byte[1]);
-    Files.write(rejected.resolve("ytdb-p28-collection-0-data_268435456.pcl"), new byte[1]);
+    Files.write(rejected.resolve("ytdb-p28-collection-0-data_650489682.pcl"), new byte[1]);
 
     assertThat(YouTrackDBInternalEmbedded.discoverDatabaseNames(managerDirectory))
         .containsExactlyInAnyOrder("database", "legacy", "canonical");

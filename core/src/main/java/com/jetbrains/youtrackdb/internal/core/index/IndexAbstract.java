@@ -67,6 +67,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Stream;
@@ -85,6 +86,8 @@ public abstract class IndexAbstract implements Index {
   private static final AlwaysGreaterKey ALWAYS_GREATER_KEY = new AlwaysGreaterKey();
 
   private static final String CONFIG_COLLECTIONS = "collections";
+
+  private final AtomicBoolean keyShorteningWarned = new AtomicBoolean();
 
   @Nonnull
   protected final AbstractStorage storage;
@@ -1701,10 +1704,42 @@ public abstract class IndexAbstract implements Index {
 
   @Override
   public Object getCollatingValue(final Object key) {
+    return shortenKey(collateOnly(key), keyPrefixLength());
+  }
+
+  protected Object collateOnly(final Object key) {
     if (key != null && im.getIndexDefinition() != null) {
       return im.getIndexDefinition().getCollate().transform(key);
     }
     return key;
+  }
+
+  @Override
+  public int keyPrefixLength() {
+    var definition = im.getIndexDefinition();
+    return IndexKeyShortener.prefixLength(
+        definition == null ? null : definition.getTypes(), isUnique(),
+        storage.getRecordedMaxIndexKeySize());
+  }
+
+  private Object shortenKey(Object key, int prefixLength) {
+    var prepared = IndexKeyShortener.shorten(key, prefixLength);
+    if (prepared != key && keyShorteningWarned.compareAndSet(false, true)) {
+      LogManager.instance().warn(this,
+          "Index '%s' shortens oversized keys. Index results can be approximate.", getName());
+    }
+    return prepared;
+  }
+
+  protected record LowerBound(Object key, boolean inclusive) {
+  }
+
+  protected LowerBound prepareLowerBound(Object key, boolean inclusive) {
+    var collated = collateOnly(key);
+    int prefixLength = keyPrefixLength();
+    return new LowerBound(
+        IndexKeyShortener.lowerBoundKey(shortenKey(collated, prefixLength), prefixLength),
+        IndexKeyShortener.inclusiveLowerBound(collated, prefixLength, inclusive));
   }
 
   @Override
@@ -1723,6 +1758,18 @@ public abstract class IndexAbstract implements Index {
     return withOwnedEngineAndStateLock(current -> storage.getIndexEngineWithStateLock(
         current.engineIdentifier(), current.engineReference()))
         .acquireAtomicExclusiveLock(atomicOperation);
+  }
+
+  @Override
+  public long estimateEntryCount(DatabaseSessionEmbedded session) {
+    if (isNeverBuilt(state())) {
+      return -1;
+    }
+    var engine = withOwnedEngine(current -> storage.getIndexEngine(
+        current.engineIdentifier(), current.engineReference()));
+    return engine instanceof BTreeIndexEngine btreeEngine
+        ? btreeEngine.getTotalCount(session.getActiveTransaction().getAtomicOperation())
+        : -1;
   }
 
   @Nullable @Override

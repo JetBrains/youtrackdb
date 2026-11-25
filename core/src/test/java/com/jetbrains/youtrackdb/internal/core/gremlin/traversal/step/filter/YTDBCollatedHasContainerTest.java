@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.collate.CaseInsensitiveCollate;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -39,10 +40,15 @@ import org.apache.tinkerpop.gremlin.structure.Property;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.detached.DetachedFactory;
+import org.junit.Rule;
 import org.junit.Test;
 
 /** Exercises native property filtering because translated MATCH already applies schema collation. */
 public class YTDBCollatedHasContainerTest extends GraphBaseTest {
+
+  // Compare MATCH collation with native filtering even for plans eligible for rule-native routing.
+  @Rule
+  public final ForceMatchTranslationRule forceMatch = new ForceMatchTranslationRule();
 
   /** Scalar comparison, ranges, membership, text predicates, and boolean trees use {@code ci}. */
   @Test

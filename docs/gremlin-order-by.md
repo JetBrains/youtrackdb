@@ -37,8 +37,7 @@ Alice
 ```
 
 The null key sorts where YQL puts it. An ascending order puts the null key first. A
-descending order puts it last. The two engines agree, so one query returns the same order
-through Gremlin and through YQL.
+descending order puts it last. The two engines place the null key in the same position.
 
 A following step reads the kept record too. `order().by("age").count()` counts three
 records, not two.

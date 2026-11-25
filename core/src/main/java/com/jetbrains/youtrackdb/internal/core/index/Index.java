@@ -192,9 +192,11 @@ public interface Index extends Comparable<Index> {
   String INDEX_VERSION = "indexVersion";
   String LIFECYCLE_RECORD = "lifecycleRecord";
   String METADATA = "metadata";
-  String MERGE_KEYS = "mergeKeys";
 
   Object getCollatingValue(final Object key);
+
+  /** Prefix byte budget, or a negative value when this index does not shorten keys. */
+  int keyPrefixLength();
 
   /**
    * Add given collection to the list of collections that should be automatically indexed.
@@ -240,6 +242,12 @@ public interface Index extends Comparable<Index> {
    * @return number of entries in the index.
    */
   long size(DatabaseSessionEmbedded session);
+
+  /**
+   * Returns a constant-time estimate of committed entries for cost decisions, or a negative
+   * value if unavailable. It excludes pending transaction changes and cannot prove emptiness.
+   */
+  long estimateEntryCount(DatabaseSessionEmbedded session);
 
   Stream<RID> getRids(DatabaseSessionEmbedded session, final Object key);
 

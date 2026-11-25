@@ -15,9 +15,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.PriorityQueue;
+import java.util.TreeSet;
 import javax.annotation.Nullable;
 
 /**
@@ -37,6 +39,10 @@ import javax.annotation.Nullable;
  *
  * <p>This reduces memory from O(|all results|) to O(N) and time from
  * O(|results| &times; log(|results|)) to O(|results| &times; log(N)).
+ *
+ * <h2>Bounded custom MATCH DISTINCT</h2>
+ * For a finite slice, select the best ordered representative of each retained visible result.
+ * The ordered set and equality map share at most {@code SKIP + LIMIT} representatives.
  *
  * <h2>Parameterized bounds</h2>
  * The bound may come from a parameterized {@code SKIP}/{@code LIMIT} (e.g. {@code LIMIT :n}).
@@ -101,6 +107,13 @@ public class OrderByStep extends AbstractExecutionStep {
    */
   private final boolean indexOrderedUpstream;
 
+  enum SliceMode {
+    ROWS, MATCH_DISTINCT_DEFERRED, MATCH_DISTINCT_MATERIALIZED
+  }
+
+  private final SliceMode sliceMode;
+  private final List<String> scalarColumns;
+
   /**
    * @param orderBy          the ORDER BY clause defining sort keys and directions
    * @param maxResults       max rows needed (SKIP+LIMIT); null for unlimited.
@@ -135,8 +148,24 @@ public class OrderByStep extends AbstractExecutionStep {
       CommandContext ctx,
       long timeoutMillis,
       boolean profilingEnabled) {
+    this(orderBy, skipClause, limitClause, primaryKeySortedInput, indexOrderedUpstream, ctx,
+        timeoutMillis, profilingEnabled, SliceMode.ROWS, List.of());
+  }
+
+  OrderByStep(
+      SQLOrderBy orderBy,
+      @Nullable SQLSkip skipClause,
+      @Nullable SQLLimit limitClause,
+      @Nullable SQLOrderByItem primaryKeySortedInput,
+      boolean indexOrderedUpstream,
+      CommandContext ctx,
+      long timeoutMillis,
+      boolean profilingEnabled,
+      SliceMode sliceMode, List<String> scalarColumns) {
     super(ctx, profilingEnabled);
     this.orderBy = orderBy;
+    this.sliceMode = sliceMode;
+    this.scalarColumns = scalarColumns;
     this.fixedMaxResults = null;
     this.skipClause = skipClause;
     this.limitClause = limitClause;
@@ -164,6 +193,8 @@ public class OrderByStep extends AbstractExecutionStep {
       boolean profilingEnabled) {
     super(ctx, profilingEnabled);
     this.orderBy = orderBy;
+    this.sliceMode = SliceMode.ROWS;
+    this.scalarColumns = List.of();
     this.fixedMaxResults = maxResults != null && maxResults >= 0 ? maxResults : null;
     this.skipClause = null;
     this.limitClause = null;
@@ -180,21 +211,26 @@ public class OrderByStep extends AbstractExecutionStep {
    *
    * @return the maximum number of rows this execution needs, or {@code null} when unbounded
    */
-  @Nullable private Integer resolveMaxResults(CommandContext ctx) {
+  @Nullable private Long resolveMaxResults(CommandContext ctx) {
     if (limitClause == null) {
-      return fixedMaxResults;
+      return fixedMaxResults == null ? null : fixedMaxResults.longValue();
     }
     var limitSize = limitClause.getValue(ctx);
     if (limitSize < 0) {
       return null;
     }
     var skipSize = skipClause == null ? 0 : skipClause.getValue(ctx);
-    // Summed in long, because two large ints overflow: SKIP 2000000000 LIMIT 2000000000 wrapped
-    // to a negative bound, which is neither null nor zero nor above the element cap, so it
-    // reached PriorityQueue and raised an argument error. A bound past what any heap may hold
-    // is the same thing as no bound, so it falls back to the unbounded sort.
+    // SKIP probes its input even with LIMIT 0, and can probe one past the skipped prefix.
+    // Leave that path unbounded so the usual downstream steps still decide what to evaluate.
+    if (sliceMode != SliceMode.ROWS && limitSize == 0 && skipClause != null) {
+      return null;
+    }
     var total = (long) limitSize + Math.max(skipSize, 0);
-    return total > Integer.MAX_VALUE ? null : (int) total;
+    if (sliceMode == SliceMode.MATCH_DISTINCT_MATERIALIZED || total <= 1) {
+      return total;
+    }
+    // A raw top-K heap can discard distinct values, except when only the first row is needed.
+    return sliceMode == SliceMode.ROWS && total <= Integer.MAX_VALUE ? total : null;
   }
 
   @Override
@@ -203,7 +239,10 @@ public class OrderByStep extends AbstractExecutionStep {
       return ExecutionStream.empty();
     }
 
-    // Start the upstream pipeline FIRST. IndexOrderedEdgeStep sets the
+    // Resolve the MATCH bound before opening the upstream so a bad binding cannot leak it.
+    var bound = sliceMode == SliceMode.ROWS ? null : resolveMaxResults(ctx);
+
+    // Start the upstream before checking the order flag. IndexOrderedEdgeStep sets the
     // VAR_INDEX_ORDERED_PRE_SORTED context variable inside its
     // internalStart(), which runs when we call prev.start(). Checking the
     // flag before starting upstream would always see null (unset) because
@@ -223,8 +262,17 @@ public class OrderByStep extends AbstractExecutionStep {
       return upstream;
     }
 
-    var results = init(upstream, ctx, resolveMaxResults(ctx));
+    if (sliceMode == SliceMode.ROWS) {
+      bound = resolveMaxResults(ctx);
+    }
+    var results = usesDistinctBuffer(bound)
+        ? initBoundedDistinct(upstream, ctx, bound)
+        : init(upstream, ctx, bound == null ? null : bound.intValue());
     return ExecutionStream.resultIterator(results.iterator());
+  }
+
+  private boolean usesDistinctBuffer(@Nullable Long bound) {
+    return sliceMode == SliceMode.MATCH_DISTINCT_MATERIALIZED && bound != null && bound > 1;
   }
 
   /**
@@ -238,6 +286,10 @@ public class OrderByStep extends AbstractExecutionStep {
    * from O(|all results|) to O(maxResults) and avoids repeated full sorts.
    *
    * <p>When {@code maxResults} is not set, all rows are collected and sorted once.
+   *
+   * <p>The heap also handles a one-row bound. Some pairs of sort values have no guaranteed order.
+   * For those values, LIMIT or SKIP may return different rows than the same part of the full sort.
+   * The query author must use comparable values in each sort field to rely on the order.
    *
    * @param upstream   the already-started upstream stream to pull from
    * @param ctx        the command context
@@ -295,6 +347,101 @@ public class OrderByStep extends AbstractExecutionStep {
     return orderBy.compareKeys(a.row, a.keys, b.row, b.keys, ctx, nullsDefault);
   }
 
+  private record DistinctSortRow(SortRow input, Object key, long ordinal) {
+  }
+
+  private List<Result> initBoundedDistinct(
+      ExecutionStream upstream, CommandContext ctx, long bound) {
+    var timeoutBegin = System.currentTimeMillis();
+    try {
+      var cap = GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+      var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
+      var workItems = orderBy.storedKeyCount();
+      // The tree can compare pairs in a different order from the full sort.
+      // If a sort field has values that the comparator cannot order, LIMIT or SKIP may change
+      // which distinct rows the query returns. Use comparable values in each sort field.
+      var retained = new TreeSet<DistinctSortRow>((a, b) -> {
+        // TreeSet can compare a candidate to itself on insertion or removal.
+        if (a == b) {
+          return 0;
+        }
+        var order = compare(a.input(), b.input(), ctx, nullsDefault);
+        return order == 0 ? Long.compare(a.ordinal(), b.ordinal()) : order;
+      });
+      var byKey = new HashMap<Object, DistinctSortRow>();
+      long ordinal = 0;
+      while (upstream.hasNext(ctx)) {
+        if (timeoutMillis > 0 && timeoutBegin + timeoutMillis < System.currentTimeMillis()) {
+          sendTimeout();
+        }
+        var candidate = new SortRow(upstream.next(ctx), workItems);
+        var worst = retained.size() == bound ? retained.last() : null;
+        // A later candidate equal to the worst row also loses on input order.
+        if (worst != null && compare(candidate, worst.input(), ctx, nullsDefault) >= 0) {
+          continue;
+        }
+        var key = distinctKey(candidate.row);
+        var existing = byKey.get(key);
+        if (existing != null) {
+          if (compare(candidate, existing.input(), ctx, nullsDefault) >= 0) {
+            continue;
+          }
+          retained.remove(existing);
+          byKey.remove(existing.key());
+        } else if (worst != null) {
+          // Evicted keys need no history. The threshold only improves, so any later
+          // occurrence must beat it on its own merits.
+          retained.pollLast();
+          byKey.remove(worst.key());
+        }
+        if (cap >= 0 && retained.size() >= cap) {
+          throw heapLimitExceeded(cap, ctx);
+        }
+        var row = new DistinctSortRow(candidate, key, ordinal++);
+        retained.add(row);
+        byKey.put(key, row);
+      }
+
+      var results = new ArrayList<Result>(retained.size());
+      for (var row : retained) {
+        results.add(row.input().row);
+      }
+      return results;
+    } finally {
+      upstream.close(ctx);
+    }
+  }
+
+  private Object distinctKey(Result row) {
+    if (!scalarColumns.isEmpty()) {
+      // All rows have the same named columns. Tuple equality in this fixed order is
+      // projected-result equality without the synthetic sort columns. Nulls are valid.
+      var values = new ArrayList<>(scalarColumns.size());
+      for (var name : scalarColumns) {
+        values.add(row.getProperty(name));
+      }
+      return values;
+    }
+    var rid = DistinctExecutionStep.distinctIdentity(row);
+    return rid == null ? row : rid;
+  }
+
+  private static void checkBound(long bound, CommandContext ctx) {
+    var maxElementsAllowed =
+        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
+    if (maxElementsAllowed >= 0 && bound > maxElementsAllowed) {
+      throw heapLimitExceeded(maxElementsAllowed, ctx);
+    }
+  }
+
+  private static CommandExecutionException heapLimitExceeded(long cap, CommandContext ctx) {
+    return new CommandExecutionException(ctx.getDatabaseSession(),
+        "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
+            + cap + ") . You can set " + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP
+                .getKey()
+            + " to increase this limit");
+  }
+
   /**
    * Bounded top-N selection using a min-heap. The heap holds at most {@code maxResults}
    * elements, with the <em>worst</em> element (last in ORDER BY order) at the root.
@@ -304,17 +451,8 @@ public class OrderByStep extends AbstractExecutionStep {
   private List<Result> initBoundedHeap(
       ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults,
       int workItems) {
-    var maxElementsAllowed =
-        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
     try {
-      if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
-                + maxElementsAllowed
-                + ") . You can set "
-                + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
-                + " to increase this limit");
-      }
+      checkBound(maxResults, ctx);
       // Null placement is fixed for the whole scan, exactly like the early-termination flag below.
       // Resolving per comparison would take a storage read lock on every null-involved compare. A
       // configuration change mid-sort would also break the comparator contract.
@@ -428,16 +566,8 @@ public class OrderByStep extends AbstractExecutionStep {
   // All-cheap sorts use row-only selection and output algorithms, without key wrappers.
   private List<Result> initDirectBoundedHeap(
       ExecutionStream upstream, CommandContext ctx, long timeoutBegin, int maxResults) {
-    var maxElementsAllowed =
-        GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getValueAsLong();
     try {
-      if (maxElementsAllowed >= 0 && maxResults > maxElementsAllowed) {
-        throw new CommandExecutionException(ctx.getDatabaseSession(),
-            "Limit of allowed entities for in-heap ORDER BY in a single query exceeded ("
-                + maxElementsAllowed + ") . You can set "
-                + GlobalConfiguration.QUERY_MAX_HEAP_ELEMENTS_ALLOWED_PER_OP.getKey()
-                + " to increase this limit");
-      }
+      checkBound(maxResults, ctx);
       var nullsDefault = OrderByNullsUtil.resolvePlacementsForSort(ctx);
       var heap = new PriorityQueue<Result>(
           maxResults, (a, b) -> orderBy.compare(b, a, ctx, nullsDefault));
@@ -506,7 +636,10 @@ public class OrderByStep extends AbstractExecutionStep {
     // Printed with the step's own context, so a parameterized bound shows the value that
     // context carries rather than a value frozen into the step.
     var printedMaxResults = resolveMaxResults(this.ctx);
-    result += (printedMaxResults != null ? "\n  (buffer size: " + printedMaxResults + ")" : "");
+    if (printedMaxResults != null) {
+      var buffer = usesDistinctBuffer(printedMaxResults) ? "distinct buffer" : "buffer";
+      result += "\n  (" + buffer + " size: " + printedMaxResults + ")";
+    }
     return result;
   }
 
@@ -527,7 +660,8 @@ public class OrderByStep extends AbstractExecutionStep {
     if (limitClause != null) {
       return new OrderByStep(
           copiedOrderBy, skipClause == null ? null : skipClause.copy(), limitClause.copy(),
-          copiedHint, indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled);
+          copiedHint, indexOrderedUpstream, ctx, timeoutMillis, profilingEnabled, sliceMode,
+          scalarColumns);
     }
     return new OrderByStep(
         copiedOrderBy, fixedMaxResults, copiedHint,

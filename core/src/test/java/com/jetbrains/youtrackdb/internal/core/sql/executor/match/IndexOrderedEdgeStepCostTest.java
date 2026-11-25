@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.GlobalConfigurationScope;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.index.engine.EquiDepthHistogram;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.CostModel;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.IndexOrderedCostModel.MultiSourceStrategy;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
@@ -20,6 +21,367 @@ import org.junit.experimental.categories.Category;
  */
 @Category(SequentialTest.class)
 public class IndexOrderedEdgeStepCostTest {
+
+  /** The candidate scan pays its own seek and reads, but never repeats the RID-set setup. */
+  @Test
+  public void candidateScanPricesOnlyItsOwnWork() {
+    double seek = IndexOrderedCostModel.indexSeekEntryUnits();
+    double read = IndexOrderedCostModel.recordReadEntryUnits();
+    assertEquals(seek + 112 + 20 * read,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 20), 0);
+    assertEquals(seek + 1001 + 180 * read,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 200), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(180, 0, 20), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(0, 1000, 20), 0);
+    assertEquals(Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.candidateScanCost(180, 1000, 0), 0);
+    assertTrue(IndexOrderedCostModel.candidateScanCost(5000, 100000, 1)
+        < IndexOrderedCostModel.candidateLoadCost(5000, 5000, 1));
+    // The final load price contains no already-paid intersection probes.
+    assertEquals(180 * read + 180 * Math.log(20) / Math.log(2)
+        * IndexOrderedCostModel.reverseEdgeEntryUnits(),
+        IndexOrderedCostModel.candidateLoadCost(180, 180, 20), 0.000001);
+  }
+
+  /** Exact-bound charges pass, overflow and invalid charges do not replenish the scan cap. */
+  @Test
+  public void candidateScanAccountRejectsUnfundedReads() {
+    var account = new IndexOrderedCostModel.CandidateScanAccount(100);
+    assertTrue(account.spend(40));
+    assertFalse(account.spend(61));
+    assertFalse(account.spend(Double.NaN));
+    assertFalse(account.spend(Double.POSITIVE_INFINITY));
+    assertFalse(account.spend(0));
+    assertFalse(account.spend(-1));
+    assertTrue(account.spend(60));
+    assertFalse(account.spend(1));
+    assertEquals(100, account.spent(), 0);
+  }
+
+  /** Independence-priced linked hits cap stale speculation below the full bag load price. */
+  @Test
+  public void prefilteredLoadBoundsStaleEqualityWork() {
+    var load = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000);
+    var old = IndexOrderedCostModel.equalityCosts(
+        800, 800, 1000, 1000, -1, 180, 1000, null, true);
+    assertTrue(old.equalityFetch() < old.linkBagLoad());
+    var costs = new IndexOrderedCostModel.EqualityCosts(
+        Double.POSITIVE_INFINITY, old.equalityFetch(), load);
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+        new IndexOrderedCostModel.WorkAccount(800).choose(costs));
+    // A stale tiny estimate can start equality, but every read remains capped by the new price.
+    var stale = new IndexOrderedCostModel.EqualityCosts(Double.POSITIVE_INFINITY, 1, load);
+    var account = new IndexOrderedCostModel.WorkAccount(800);
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(stale));
+    assertEquals(load, account.allowance(stale), 0);
+    assertTrue(account.spend(load));
+    assertFalse(account.spend(1));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(costs));
+    assertTrue(IndexOrderedCostModel.prefilteredLoadCost(800, 180, 800) > load);
+  }
+
+  /** Estimate-only load pricing includes the build, cheap probes and the expected intersection. */
+  @Test
+  public void prefilteredLoadUsesIndependenceAndCapsIntersection() {
+    double seek = IndexOrderedCostModel.indexSeekEntryUnits();
+    double edge = IndexOrderedCostModel.reverseEdgeEntryUnits();
+    double record = IndexOrderedCostModel.recordReadEntryUnits();
+    assertEquals(seek + 200 * edge,
+        IndexOrderedCostModel.prefilteredLoadCost(100, 0, 1000), 0.00001);
+    assertEquals(seek + 10 + 200 * edge + record,
+        IndexOrderedCostModel.prefilteredLoadCost(100, 10, 1000), 0.00001);
+    double capped = seek + 10 + 200 * edge + 10 * record
+        + 10 * (Math.log(10) / Math.log(2)) * edge;
+    assertEquals(capped, IndexOrderedCostModel.prefilteredLoadCost(100, 10, 1), 0.00001);
+    assertEquals(seek + 100 + 2 * edge + record,
+        IndexOrderedCostModel.prefilteredLoadCost(1, 100, 0), 0.00001);
+  }
+
+  /** LIMIT uses top-K comparison work, while downstream local sorting still prices all hits. */
+  @Test
+  public void prefilteredLimitPricesTopKAndBoundsTheWholeAccount() {
+    double full = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000);
+    double top = IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000, 2);
+    double edge = IndexOrderedCostModel.reverseEdgeEntryUnits();
+    assertEquals(144 * (Math.log(144) / Math.log(2) - 1) * edge, full - top, 0.00001);
+    assertEquals(full, IndexOrderedCostModel.prefilteredLoadCost(800, 180, 1000, 200), 0);
+    var account = new IndexOrderedCostModel.WorkAccount(top);
+    var first = new IndexOrderedCostModel.EqualityCosts(1, 100, top);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED, account.choose(first));
+    assertTrue(account.spend(100));
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(first));
+    assertEquals(top - 100, account.allowance(first), 0);
+    assertTrue(account.spend(top - 100));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(first));
+  }
+
+  /** A miss prices a full ordering scan but only the equality-index seek for equality fetch. */
+  @Test
+  public void equalityMissPrefersEqualityFetch() {
+    var costs = equalityCosts(0, 100_000);
+    assertTrue(costs.equalityFetch() < costs.orderedScan());
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY,
+        new IndexOrderedCostModel.WorkAccount(1000).choose(costs));
+  }
+
+  /** A frequent title and dense membership keep the cheap early ordering-index match. */
+  @Test
+  public void commonEqualityPrefersEarlyOrderedScan() {
+    var costs = IndexOrderedCostModel.equalityCosts(
+        1000, 1000, 1000, 1000, 1, 900, 1000, null, true);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED,
+        new IndexOrderedCostModel.WorkAccount(1000).choose(costs));
+  }
+
+  /** Unknown statistics disable equality fetch and do not invent extra selectivity. */
+  @Test
+  public void unknownEqualityKeepsUnfilteredScanPrice() {
+    var unknown = equalityCosts(-1, 100_000);
+    var all = equalityCosts(100_000, 100_000);
+    assertEquals(all.orderedScan(), unknown.orderedScan(), 0.0);
+    assertEquals(Double.POSITIVE_INFINITY, unknown.equalityFetch(), 0.0);
+    assertTrue(equalityCosts(10, 100_000).orderedScan() >= unknown.orderedScan());
+  }
+
+  /** The memory cap admits its boundary, rejects an overflow, and unknown class size is safe. */
+  @Test
+  public void equalityMemoryAndPopulationGuards() {
+    assertTrue(Double.isFinite(equalityCosts(100_000, 100_000).equalityFetch()));
+    assertEquals(Double.POSITIVE_INFINITY, equalityCosts(100_001, 100_000).equalityFetch(), 0);
+    var noClassCount = IndexOrderedCostModel.equalityCosts(
+        1000, 1000, 100_000, 0, 5, 1, 1000, null, true);
+    assertEquals(Double.POSITIVE_INFINITY, noClassCount.equalityFetch(), 0);
+    assertEquals(equalityCosts(-1, 1000).orderedScan(), noClassCount.orderedScan(), 0);
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_SCAN_CPU_FACTOR, Double.NaN)) {
+      assertEquals(Double.POSITIVE_INFINITY, equalityCosts(1, 1000).equalityFetch(), 0);
+    }
+  }
+
+  /** Sparse class membership increases scan work, not the cost of loading the entire LinkBag. */
+  @Test
+  public void classFilteredDensityDoesNotDiscountLoadAlternative() {
+    var dense = equalityCosts(100_000, 100_000);
+    var sparse = IndexOrderedCostModel.equalityCosts(
+        1000, 100, 100_000, 100_000, 5, 100_000, 100_000, null, true);
+    assertTrue(sparse.orderedScan() >= dense.orderedScan());
+    assertEquals(dense.linkBagLoad(), sparse.linkBagLoad(), 0);
+    var belowThreshold = IndexOrderedCostModel.equalityCosts(
+        1000, 1, 100_000, 100_000, 5, 1, 100_000, null, true);
+    assertEquals(Double.POSITIVE_INFINITY, belowThreshold.orderedScan(), 0);
+  }
+
+  /** The corrected scan admits the exact cutoff, rejects one entry above, and caps at index size. */
+  @Test
+  public void selectiveScanReappliesCutoffAfterIndexSizeCap() {
+    var cutoff = GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_SCAN;
+    // The unfiltered estimate is only 50 entries. Selectivity expands it to 25 million.
+    try (var ignored = GlobalConfigurationScope.set(cutoff, 25_000_000L)) {
+      var boundary = IndexOrderedCostModel.equalityCosts(
+          2_000_000, 2_000_000, 100_000_000, 100_000_000, 1, 200, 0, null, true);
+      assertTrue(Double.isFinite(boundary.orderedScan()));
+      assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED,
+          new IndexOrderedCostModel.WorkAccount(2_000_000).choose(boundary));
+      cutoff.setValue(24_999_999L);
+      var above = IndexOrderedCostModel.equalityCosts(
+          2_000_000, 2_000_000, 100_000_000, 100_000_000, 1, 200, 0, null, true);
+      assertEquals(Double.POSITIVE_INFINITY, above.orderedScan(), 0);
+      assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+          new IndexOrderedCostModel.WorkAccount(2_000_000).choose(above));
+      cutoff.setValue(100_000L);
+      assertTrue(Double.isFinite(equalityCosts(0, 100_000).orderedScan()));
+    }
+  }
+
+  /** Sorting 99,000 unsorted candidates makes equality fetch dearer than loading 100,000 links. */
+  @Test
+  public void equalitySortCostCanMakeLoadCheaper() {
+    var costs = IndexOrderedCostModel.equalityCosts(
+        100_000, 100_000, 100_000, 100_000, 100_000, 99_000, 100_000, null, true);
+    double perEntry = IndexOrderedCostModel.scanCostPerEntry();
+    double unsorted = CostModel.indexSeekCost() / perEntry
+        + 99_000 * (1 + IndexOrderedCostModel.recordReadCost() / perEntry
+            + CostModel.perRowCpuCost() / perEntry);
+    double sort = 99_000 * (Math.log(99_000) / Math.log(2))
+        * CostModel.perRowCpuCost() / perEntry;
+    assertEquals(unsorted + sort, costs.equalityFetch(), 0.00001);
+    assertTrue(unsorted < costs.linkBagLoad());
+    assertTrue(costs.equalityFetch() > costs.linkBagLoad());
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+        new IndexOrderedCostModel.WorkAccount(100_000).choose(costs));
+    // Even LIMIT 5 must price every candidate for local downstream ordering.
+    var bounded = equalityCosts(500, 100_000);
+    double candidateWork = CostModel.indexSeekCost() / perEntry
+        + 500 * (1 + IndexOrderedCostModel.recordReadCost() / perEntry
+            + CostModel.perRowCpuCost() / perEntry);
+    assertEquals(candidateWork + 500 * (Math.log(500) / Math.log(2))
+        * CostModel.perRowCpuCost() / perEntry, bounded.equalityFetch(), 0.00001);
+  }
+
+  /** Equality selectivity never discounts the full LinkBag load, even near a path crossover. */
+  @Test
+  public void equalitySelectivityDoesNotDiscountLoadAlternative() {
+    double load = equalityCosts(-1, 100_000).linkBagLoad();
+    for (long matches : new long[] {0, 1, 500, 100_000}) {
+      assertEquals(load, equalityCosts(matches, 100_000).linkBagLoad(), 0);
+    }
+    var selective = equalityCosts(500, 100_000);
+    assertTrue(selective.equalityFetch() > load / 2);
+    assertTrue(selective.equalityFetch() < load);
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY,
+        new IndexOrderedCostModel.WorkAccount(1000).choose(selective));
+  }
+
+  /** Selectivity expands cursor and record reads. A capped scan still prices all source loads. */
+  @Test
+  public void selectiveScanCapsEntriesButNeverDiscountsRecordLoads() {
+    var baseline = IndexOrderedCostModel.computeCosts(1000, 100_000, 5, null, true);
+    assertNotNull(baseline);
+    double perEntry = IndexOrderedCostModel.scanCostPerEntry();
+    double bias = GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS.getValueAsDouble();
+    double seek = CostModel.indexSeekCost();
+    double cpu = CostModel.perRowCpuCost();
+    double random = CostModel.randomPageReadCost();
+    double expected = (1000 * cpu + seek + 100_000 * perEntry + 1000 * random)
+        * bias / perEntry;
+    assertEquals(expected, equalityCosts(1, 100_000).orderedScan(), 0.00001);
+    assertEquals(expected, equalityCosts(0, 100_000).orderedScan(), 0.00001);
+    var unbounded = IndexOrderedCostModel.equalityCosts(
+        1000, 1000, 100_000, 100_000, -1, 1, 100_000, null, false);
+    assertTrue(Double.isFinite(unbounded.linkBagLoad()));
+    assertTrue(unbounded.linkBagLoad() >= equalityCosts(1, 100_000).linkBagLoad());
+    var denseReverse = IndexOrderedCostModel.equalityCosts(
+        1000, 1000, 100_000, 1, 5, 1, 100_000, null, true);
+    assertTrue(denseReverse.equalityFetch() > equalityCosts(1, 100_000).equalityFetch());
+  }
+
+  /** Repricing after an underestimate can choose ordered scan, but cannot retry equality. */
+  @Test
+  public void equalityBailoutRepricesOnlyUntriedPathsAndEndsAtLoad() {
+    var account = new IndexOrderedCostModel.WorkAccount(1000);
+    var first = new IndexOrderedCostModel.EqualityCosts(100, 10, 1000);
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(first));
+    assertEquals("The chosen price cannot cap itself", 100, account.allowance(first), 0);
+    assertTrue(account.spend(100));
+    assertFalse(account.spend(1));
+    var repriced = new IndexOrderedCostModel.EqualityCosts(200, 1, 1000);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED, account.choose(repriced));
+    assertEquals("A tried path cannot cap the next attempt", 1000,
+        account.allowance(repriced), 0);
+    assertTrue(account.spend(1000));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(first));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(first));
+    assertEquals(0, account.allowance(first), 0);
+    assertFalse(account.spend(1));
+  }
+
+  /** An ordered bailout may try equality once. Zero remaining work forces terminal load. */
+  @Test
+  public void orderedBailoutCanTryEqualityButCannotReplenishAccount() {
+    var account = new IndexOrderedCostModel.WorkAccount(1000);
+    var costs = new IndexOrderedCostModel.EqualityCosts(1, 100, 1_000_000);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED, account.choose(costs));
+    assertEquals(100, account.allowance(costs), 0);
+    assertTrue(account.spend(100));
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(costs));
+    double rest = account.allowance(costs);
+    assertEquals(IndexOrderedCostModel.entriesWorthTheLoadAlternative(1000) - 100, rest, 0);
+    assertTrue(account.spend(rest));
+    assertFalse(account.spend(1));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD, account.choose(costs));
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+        new IndexOrderedCostModel.WorkAccount(0).choose(costs));
+  }
+
+  /** Record reads use record-cost units, remain memory bounded, and reject invalid charges. */
+  @Test
+  public void candidateLimitUsesRecordUnitsAndRemainingBalance() {
+    var account = new IndexOrderedCostModel.WorkAccount(1000);
+    var costs = new IndexOrderedCostModel.EqualityCosts(10_000, 1, 20_000);
+    assertEquals(0, account.allowance(costs), 0);
+    assertFalse(account.spend(1));
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(costs));
+    long expected = (long) (account.allowance(costs)
+        / (1 + IndexOrderedCostModel.recordReadCost() / IndexOrderedCostModel.scanCostPerEntry()));
+    assertEquals(expected, account.candidateReadLimit(costs, Long.MAX_VALUE));
+    assertEquals(2, account.candidateReadLimit(costs, 2));
+    assertEquals(0, account.candidateReadLimit(costs, -1));
+  }
+
+  /** Every refused charge preserves both the active allowance and the shared remaining account. */
+  @Test
+  public void rejectedChargesPreserveVisibleBalance() {
+    var costs = new IndexOrderedCostModel.EqualityCosts(1, 2, Double.MAX_VALUE);
+    for (double charge : new double[] {0, -1, Double.NaN, Double.POSITIVE_INFINITY,
+        IndexOrderedCostModel.entriesWorthTheLoadAlternative(1000) + 1}) {
+      var account = new IndexOrderedCostModel.WorkAccount(1000);
+      assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED, account.choose(costs));
+      assertTrue(account.spend(1));
+      assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(costs));
+      // Both speculative paths are tried. Only the remaining balance caps this allowance.
+      double before = account.allowance(costs);
+      assertEquals(IndexOrderedCostModel.entriesWorthTheLoadAlternative(1000) - 1, before, 0);
+      assertFalse(account.spend(charge));
+      assertEquals(before, account.allowance(costs), 0);
+      assertTrue(account.spend(before));
+      assertEquals(0, account.allowance(costs), 0);
+    }
+  }
+
+  /** Unavailable alternatives choose load. Equal speculative prices prefer the ordered path. */
+  @Test
+  public void unavailableAndTiedPathsHaveDeterministicChoices() {
+    var unavailable = new IndexOrderedCostModel.EqualityCosts(
+        Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, 100);
+    assertEquals(IndexOrderedCostModel.EqualityPath.LOAD,
+        new IndexOrderedCostModel.WorkAccount(1000).choose(unavailable));
+    var tied = new IndexOrderedCostModel.EqualityCosts(10, 10, 100);
+    assertEquals(IndexOrderedCostModel.EqualityPath.ORDERED,
+        new IndexOrderedCostModel.WorkAccount(1000).choose(tied));
+  }
+
+  /** Seek, record and reverse-edge charges use exactly the same units as equality pricing. */
+  @Test
+  public void equalityPriceIncludesSeekRecordAndReverseEdgeWork() {
+    double perEntry = IndexOrderedCostModel.scanCostPerEntry();
+    double seek = CostModel.indexSeekCost() / perEntry;
+    double record = (CostModel.randomPageReadCost() + CostModel.perRowCpuCost()) / perEntry;
+    double edge = CostModel.perRowCpuCost() / perEntry;
+    assertEquals(seek, IndexOrderedCostModel.indexSeekEntryUnits(), 0);
+    assertEquals(record, IndexOrderedCostModel.recordReadEntryUnits(), 0);
+    assertEquals(edge, IndexOrderedCostModel.reverseEdgeEntryUnits(), 0);
+    assertEquals(seek, equalityCosts(0, 1000).equalityFetch(), 0);
+    assertEquals(seek + (1 + record + edge), equalityCosts(1, 1000).equalityFetch(), 0);
+    var account = new IndexOrderedCostModel.WorkAccount(1000);
+    var costs = equalityCosts(1, 1000);
+    assertEquals(IndexOrderedCostModel.EqualityPath.EQUALITY, account.choose(costs));
+    double start = account.allowance(costs);
+    assertTrue(account.spend(seek));
+    assertTrue(account.spend(1 + record));
+    assertTrue(account.spend(edge));
+    assertEquals(start - costs.equalityFetch(), account.allowance(costs), 0.00001);
+  }
+
+  /** New equality memory setting uses the prefilter default, independently of explicit overrides. */
+  @Test
+  public void equalityMemoryDefaultMatchesPrefilterDefault() {
+    try (var prefilter = GlobalConfigurationScope.capture(
+        GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE);
+        var equality = GlobalConfigurationScope.capture(
+            GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES)) {
+      GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.resetToDefault();
+      GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.resetToDefault();
+      assertEquals(GlobalConfiguration.QUERY_PREFILTER_MAX_RIDSET_SIZE.getValueAsInteger(),
+          GlobalConfiguration.QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES.getValueAsInteger());
+    }
+  }
+
+  private static IndexOrderedCostModel.EqualityCosts equalityCosts(long matches, long memoryLimit) {
+    return IndexOrderedCostModel.equalityCosts(
+        1000, 1000, 100_000, 100_000, 5, matches, memoryLimit, null, true);
+  }
 
   // ---- computeCostsStatic: threshold guards ----
 

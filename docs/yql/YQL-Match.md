@@ -113,6 +113,7 @@ A MATCH sort item accepts the same optional direction, null placement, and colla
 as a SELECT sort item. The shipped placement is `FIRST` for ascending order and `LAST` for
 descending order. See the [`ORDER BY` section](YQL-Query.md#order-by) for clause order and
 configuration details.
+See also the ordering limits in that section if YouTrackDB cannot compare values in a sort field.
 
 - **`<class>`** Defines a valid target class.
 - **`as: <alias>`** Defines an alias for a node in the pattern.

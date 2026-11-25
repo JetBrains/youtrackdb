@@ -836,7 +836,7 @@ public class RecordsGcIntegrationTest {
   /**
    * Returns all {@link PaginatedCollectionV2} instances (clusters) for the given class.
    * A class may have multiple clusters because {@code RoundRobinCollectionSelectionStrategy}
-   * distributes records randomly across {@code CLASS_COLLECTIONS_COUNT} clusters (default 8).
+   * distributes records across the configured collections (one by default).
    */
   private static java.util.List<PaginatedCollectionV2> findAllCollections(
       DatabaseSessionEmbedded session,

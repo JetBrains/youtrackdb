@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Set;
+import javax.annotation.Nullable;
 
 /**
  * Interface for the log which keeps data of pages before they will be finally fsync-ed to the data
@@ -18,20 +20,35 @@ import java.util.ArrayList;
  * <p>As the second step we write pages to the data files.
  *
  * <p>At third step we fsync data files in background process and then truncate log calling {@link
- * #truncate()} method. Write to the file and truncation of data should be done in single lock to
+ * #truncate(Set)} method. Write to the file and truncation of data should be done in single lock to
  * prevent situation when data are written to the log but not to the pages and then truncated. That
  * is typically not a problem because write cache uses single thread model.
  *
  * <p>If during the write of pages we reach log threshold {@link #write(ArrayList, IntArrayList,
- * IntArrayList)} method will return true. If that happens fsync of pages should be called to
- * truncate page log.
+ * IntArrayList)} method requests synchronization after an uncovered rotation.
+ * A successful flush-executor synchronization acknowledges the returned token before cleanup.
  */
 public interface DoubleWriteLog {
 
-  boolean write(ArrayList<ByteBuffer> buffers, IntArrayList fileId, IntArrayList pageIndex)
+  /** The segment is null for a no-operation log. The token covers rotations before this append. */
+  record AppendResult(@Nullable Long segment, boolean syncRequired, long syncToken) {
+  }
+
+  AppendResult write(ArrayList<ByteBuffer> buffers, IntArrayList fileId, IntArrayList pageIndex)
       throws IOException;
 
-  void truncate() throws IOException;
+  default void truncate() throws IOException {
+    truncate(Set.of());
+  }
+
+  /** Deletes only non-active segments not retained by the caller. Suppressed in restore mode. */
+  void truncate(Set<Long> retainedSegments) throws IOException;
+
+  /**
+   * Stages coverage after successful synchronization on the serial flush executor. Coverage is
+   * published by cleanup outside restore mode, so a skipped cleanup leaves its request pending.
+   */
+  void acknowledgeSync(long syncToken);
 
   void open(String storageName, String baseName, Path storagePath, int pageSize) throws IOException;
 

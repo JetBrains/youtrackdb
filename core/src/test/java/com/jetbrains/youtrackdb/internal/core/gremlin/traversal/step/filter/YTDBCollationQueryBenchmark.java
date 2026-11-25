@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.YTDBGraphTraversalSource;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.AbstractMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import java.util.ArrayList;
@@ -51,6 +52,8 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
  * <p>Trial setup requires {@code -Dytdb.collation.mixedCaseExpectation=current} on YTDB-1297 or
  * {@code baseline} on its pre-change parent. The option defaults to {@code current}. Untimed
  * mixed-case witnesses prove every collated native shape and the translated control before timing.
+ * The translated control scopes the test-only force-MATCH override to strategy application on the
+ * calling worker thread. Its scalar query measures MATCH rather than production engine routing.
  *
  * <p>Recommended comparison settings are the annotation defaults. This benchmark requires exactly
  * one worker thread because its benchmark-scoped graph and transaction state is not thread-safe.
@@ -104,7 +107,7 @@ public class YTDBCollationQueryBenchmark {
   private ExpectedRevision expectedRevision;
 
   @Setup(Level.Trial)
-  public void setUp() {
+  public void setUp() throws Exception {
     expectedRevision = ExpectedRevision.parse(
         System.getProperty(EXPECTATION_PROPERTY, "current"));
     youTrackDB = YourTracks.instance("./target/databases/YTDBCollationQueryBenchmark");
@@ -262,9 +265,18 @@ public class YTDBCollationQueryBenchmark {
 
   /** Leading scalar equality is a translated MATCH control outside the native machinery. */
   @Benchmark
-  public void translatedScalarControl(Blackhole blackhole) {
-    drain(run(true, tx -> tx.V().hasLabel("ScalarRecord")
-        .has("collatedName", "match").asAdmin()), blackhole);
+  public void translatedScalarControl(Blackhole blackhole) throws Exception {
+    drain(translatedScalar("match"), blackhole);
+  }
+
+  private Traversal.Admin<?, Vertex> translatedScalar(String operand) throws Exception {
+    return ForceMatchTranslationRule.callWithMatch(() -> {
+      var traversal = run(true, tx -> tx.V().hasLabel("ScalarRecord")
+          .has("collatedName", operand).asAdmin());
+      // Strategies are lazy. Apply them inside the scope on the measuring thread, before draining.
+      traversal.applyStrategies();
+      return traversal;
+    });
   }
 
   private Traversal.Admin<?, Vertex> nativeScalar(String property, String operand) {
@@ -318,7 +330,7 @@ public class YTDBCollationQueryBenchmark {
     }
   }
 
-  private void validateScenarios() {
+  private void validateScenarios() throws Exception {
     requireCount("defaultScalarFallback", nativeScalar("declaredName", "match"), SCALAR_RECORDS);
     requireCount("undeclaredScalarFallback",
         nativeScalar("undeclaredName", "match"), SCALAR_RECORDS);
@@ -338,13 +350,12 @@ public class YTDBCollationQueryBenchmark {
 
     requireTranslated(
         "translatedScalarControl",
-        run(true, tx -> tx.V().hasLabel("ScalarRecord")
-            .has("collatedName", "match").asAdmin()),
+        translatedScalar("match"),
         SCALAR_RECORDS);
     validateCollationWitnesses();
   }
 
-  private void validateCollationWitnesses() {
+  private void validateCollationWitnesses() throws Exception {
     var nativeExpected = expectedRevision == ExpectedRevision.CURRENT ? COLLECTION_RECORDS : 0;
     var scalarExpected = expectedRevision == ExpectedRevision.CURRENT ? SCALAR_RECORDS : 0;
     var byIdExpected = expectedRevision == ExpectedRevision.CURRENT ? 1 : 0;
@@ -376,8 +387,7 @@ public class YTDBCollationQueryBenchmark {
     requireNativeById("definitely-not-a-match", 0, "by-ID negative predicate witness");
     requireTranslated(
         "translated scalar mixed-case witness",
-        run(true, tx -> tx.V().hasLabel("ScalarRecord")
-            .has("collatedName", "MATCH").asAdmin()),
+        translatedScalar("MATCH"),
         SCALAR_RECORDS);
   }
 
@@ -421,7 +431,7 @@ public class YTDBCollationQueryBenchmark {
 
   private void requireTranslated(
       String scenario, Traversal.Admin<?, Vertex> traversal, int expected) {
-    traversal.applyStrategies();
+    // translatedScalar applies strategies while the calling thread's force-MATCH scope is active.
     if (traversal.getSteps().stream().noneMatch(AbstractMatchPlanStep.class::isInstance)) {
       rollbackAndFail(scenario + " did not install a MATCH boundary");
     }

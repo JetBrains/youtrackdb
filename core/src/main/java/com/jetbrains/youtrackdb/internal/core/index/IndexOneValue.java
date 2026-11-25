@@ -229,8 +229,10 @@ public abstract class IndexOneValue extends IndexAbstract {
   public Stream<RawPair<Object, RID>> streamEntriesBetween(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, Object toKey,
       boolean toInclusive, boolean ascOrder) {
-    fromKey = getCollatingValue(fromKey);
-    toKey = getCollatingValue(toKey);
+    var lowerBound = prepareLowerBound(fromKey, fromInclusive);
+    fromKey = lowerBound.key();
+    fromInclusive = lowerBound.inclusive();
+    toKey = collateOnly(toKey);
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -294,7 +296,9 @@ public abstract class IndexOneValue extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMajor(
       DatabaseSessionEmbedded session, Object fromKey, boolean fromInclusive, boolean ascOrder) {
-    fromKey = getCollatingValue(fromKey);
+    var lowerBound = prepareLowerBound(fromKey, fromInclusive);
+    fromKey = lowerBound.key();
+    fromInclusive = lowerBound.inclusive();
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -332,8 +336,6 @@ public abstract class IndexOneValue extends IndexAbstract {
       return stream;
     }
 
-    fromKey = getCollatingValue(fromKey);
-
     final Stream<RawPair<Object, RID>> txStream;
 
     final var lastKey = indexChanges.getLastKey();
@@ -362,7 +364,7 @@ public abstract class IndexOneValue extends IndexAbstract {
   @Override
   public Stream<RawPair<Object, RID>> streamEntriesMinor(
       DatabaseSessionEmbedded session, Object toKey, boolean toInclusive, boolean ascOrder) {
-    toKey = getCollatingValue(toKey);
+    toKey = collateOnly(toKey);
     Stream<RawPair<Object, RID>> stream;
     acquireSharedLock();
     try {
@@ -399,8 +401,6 @@ public abstract class IndexOneValue extends IndexAbstract {
     if (indexChanges == null) {
       return stream;
     }
-
-    toKey = getCollatingValue(toKey);
 
     final Stream<RawPair<Object, RID>> txStream;
 
