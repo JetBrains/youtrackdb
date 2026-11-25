@@ -78,7 +78,7 @@ public class FreeSpaceMapTest {
     withCreationLock(op -> map.create(op));
   }
 
-  // Identity-owned creation and auxiliary reconstruction hold the state lock through commit.
+  // Hold the state lock through commit for identity-owned file operations.
   private void withCreationLock(
       com.jetbrains.youtrackdb.internal.common.function.TxConsumer action)
       throws IOException {
@@ -107,7 +107,16 @@ public class FreeSpaceMapTest {
     map = new FreeSpaceMap(storage, "map", ".fsm", "map",
         identity(PageFileRole.FREE_SPACE_MAP, 9000));
     if (reopen) {
-      manager.executeInsideAtomicOperation(op -> map.open(op));
+      if (format == StorageFormat.LAYOUT_28) {
+        withCreationLock(op -> {
+          // This standalone fixture has no catalog component to admit its existing file.
+          Assert.assertTrue(storage.getWriteCache().admitExpectedFile(
+              identity(PageFileRole.FREE_SPACE_MAP, 9000)));
+          map.open(op);
+        });
+      } else {
+        manager.executeInsideAtomicOperation(op -> map.open(op));
+      }
     }
   }
 
