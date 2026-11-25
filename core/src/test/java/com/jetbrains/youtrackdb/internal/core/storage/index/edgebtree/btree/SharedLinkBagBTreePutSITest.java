@@ -127,15 +127,15 @@ public class SharedLinkBagBTreePutSITest {
       assertThat(current.second().counter()).isEqualTo(99);
 
       // Verify old value is preserved in snapshot index
-      final int componentId = (int) bTree.getFileId();
-      var snapshotKey = new EdgeSnapshotKey(componentId, 200L, 10, 100L, 5L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 200L, 10, 100L, 5L);
       var snapshotValue = atomicOperation.getEdgeSnapshotEntry(snapshotKey);
       assertThat(snapshotValue).isNotNull();
       assertThat(snapshotValue.counter()).isEqualTo(42);
       assertThat(snapshotValue.tombstone()).isFalse();
 
       // Verify visibility index entry was created
-      var visKey = new EdgeVisibilityKey(5L, componentId, 200L, 10, 100L);
+      var visKey = new EdgeVisibilityKey(5L, linkBagFileId, 200L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isTrue();
     });
   }
@@ -176,8 +176,8 @@ public class SharedLinkBagBTreePutSITest {
       bTree.put(atomicOperation, new EdgeKey(400L, 10, 100L, 5L),
           new LinkBagValue(5, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
-      var snap1 = new EdgeSnapshotKey(componentId, 400L, 10, 100L, 1L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snap1 = new EdgeSnapshotKey(linkBagFileId, 400L, 10, 100L, 1L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1).counter()).isEqualTo(1);
     });
@@ -186,8 +186,8 @@ public class SharedLinkBagBTreePutSITest {
       bTree.put(atomicOperation, new EdgeKey(400L, 10, 100L, 10L),
           new LinkBagValue(10, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
-      var snap5 = new EdgeSnapshotKey(componentId, 400L, 10, 100L, 5L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snap5 = new EdgeSnapshotKey(linkBagFileId, 400L, 10, 100L, 5L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap5)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap5).counter()).isEqualTo(5);
 
@@ -216,9 +216,9 @@ public class SharedLinkBagBTreePutSITest {
 
       // No snapshot entry was created for the same-ts overwrite
       // (checking local buffer only — fresh atomic operation has no residual)
-      final int componentId = (int) bTree.getFileId();
-      var snapshotKey = new EdgeSnapshotKey(componentId, 500L, 10, 100L, 5L);
-      var visKey = new EdgeVisibilityKey(5L, componentId, 500L, 10, 100L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 500L, 10, 100L, 5L);
+      var visKey = new EdgeVisibilityKey(5L, linkBagFileId, 500L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isFalse();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey)).isNull();
     });
@@ -245,10 +245,10 @@ public class SharedLinkBagBTreePutSITest {
       bTree.put(atomicOperation, new EdgeKey(700L, 10, 100L, 5L),
           new LinkBagValue(31, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
+      final int linkBagFileId = (int) bTree.getFileId();
 
       // First edge: old value (ts=1, counter=10) preserved
-      var snap1 = new EdgeSnapshotKey(componentId, 600L, 10, 100L, 1L);
+      var snap1 = new EdgeSnapshotKey(linkBagFileId, 600L, 10, 100L, 1L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap1).counter()).isEqualTo(10);
 
@@ -258,7 +258,7 @@ public class SharedLinkBagBTreePutSITest {
       assertThat(current2.first().ts).isEqualTo(1L);
 
       // Third edge: old value (ts=1, counter=30) preserved
-      var snap3 = new EdgeSnapshotKey(componentId, 700L, 10, 100L, 1L);
+      var snap3 = new EdgeSnapshotKey(linkBagFileId, 700L, 10, 100L, 1L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap3)).isNotNull();
       assertThat(atomicOperation.getEdgeSnapshotEntry(snap3).counter()).isEqualTo(30);
     });
@@ -277,8 +277,8 @@ public class SharedLinkBagBTreePutSITest {
       bTree.put(atomicOperation, new EdgeKey(800L, 10, 100L, 10L),
           new LinkBagValue(99, 0, 0, false));
 
-      final int componentId = (int) bTree.getFileId();
-      var snapshotKey = new EdgeSnapshotKey(componentId, 800L, 10, 100L, 5L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 800L, 10, 100L, 5L);
       var snapshotValue = atomicOperation.getEdgeSnapshotEntry(snapshotKey);
       assertThat(snapshotValue).isNotNull();
       assertThat(snapshotValue.tombstone()).isTrue();
@@ -300,12 +300,12 @@ public class SharedLinkBagBTreePutSITest {
 
     // Update every 10th entry with new ts
     atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
-      final int componentId = (int) bTree.getFileId();
+      final int linkBagFileId = (int) bTree.getFileId();
       for (int i = 0; i < entryCount; i += 10) {
         bTree.put(atomicOperation, new EdgeKey(900L, i, i, 5L),
             new LinkBagValue(i + 1000, 0, 0, false));
 
-        var snapshotKey = new EdgeSnapshotKey(componentId, 900L, i, i, 1L);
+        var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 900L, i, i, 1L);
         assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey))
             .as("Snapshot for entry %d", i)
             .isNotNull();
@@ -340,10 +340,10 @@ public class SharedLinkBagBTreePutSITest {
           .isEqualTo(99);
 
       // No snapshot entry was created (same-ts overwrite)
-      final int componentId = (int) bTree.getFileId();
-      var visKey = new EdgeVisibilityKey(5L, componentId, 960L, 10, 100L);
+      final int linkBagFileId = (int) bTree.getFileId();
+      var visKey = new EdgeVisibilityKey(5L, linkBagFileId, 960L, 10, 100L);
       assertThat(atomicOperation.containsEdgeVisibilityEntry(visKey)).isFalse();
-      var snapshotKey = new EdgeSnapshotKey(componentId, 960L, 10, 100L, 5L);
+      var snapshotKey = new EdgeSnapshotKey(linkBagFileId, 960L, 10, 100L, 5L);
       assertThat(atomicOperation.getEdgeSnapshotEntry(snapshotKey)).isNull();
     });
   }

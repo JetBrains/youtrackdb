@@ -17,12 +17,17 @@ import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -299,6 +304,33 @@ public class BTreeVerifyAndTruncateOrphansTest {
             + " present in the captured handler events (capturedRecords=%s)",
             capturedRecords)
         .isNotNull();
+  }
+
+  // Explicit bootstrap ownership must cover both files in create and load, not only the data stem.
+  @Test
+  public void propertyBootstrapUsesBothRoleIdentitiesInCreateAndLoad() throws IOException {
+    var data = new PageFileIdentity(PageFileRole.PROPERTY_DATA, 0);
+    var nullBucket = new PageFileIdentity(PageFileRole.PROPERTY_NULL_BUCKET, 0);
+    when(mockStorage.getStorageFormat()).thenReturn(StorageFormat.LAYOUT_28);
+    when(mockWriteCache.getId()).thenReturn(17);
+    for (var identity : new PageFileIdentity[] {data, nullBucket}) {
+      var name = PageFileNames.layout28(identity);
+      var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+      when(atomicOperation.addFile(name, id, false, false)).thenReturn(id);
+      when(atomicOperation.loadFile(name, id)).thenReturn(id);
+    }
+    var factory =
+        BinarySerializerFactory.create(BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+    var propertyTree = new BTree<String>("config", ".bd", ".nd", mockStorage, factory,
+        data, nullBucket);
+    propertyTree.create(atomicOperation, UTF8Serializer.INSTANCE, null, 1);
+    propertyTree.load("config", 1, null, UTF8Serializer.INSTANCE, atomicOperation);
+    for (var identity : new PageFileIdentity[] {data, nullBucket}) {
+      var name = PageFileNames.layout28(identity);
+      var id = AbstractWriteCache.composeFileId(17, identity.internalId());
+      verify(atomicOperation).addFile(name, id, false, false);
+      verify(atomicOperation).loadFile(name, id);
+    }
   }
 
   // ---------------------------------------------------------------------------

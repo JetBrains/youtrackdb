@@ -9,6 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -37,11 +40,20 @@ public final class SharedLinkBagBTree extends StorageComponent {
 
   private volatile long fileId;
   private final BinarySerializerFactory serializerFactory;
+  private final @Nullable PageFileIdentity identity;
 
   public SharedLinkBagBTree(final AbstractStorage storage, final String name,
       final String fileExtension) {
-    super(storage, name, fileExtension, name + fileExtension, true);
+    this(storage, name, fileExtension, null);
+  }
 
+  /** Prepares an explicitly owned tree without changing name-based callers. */
+  public SharedLinkBagBTree(AbstractStorage storage, String name, String fileExtension,
+      @Nullable PageFileIdentity identity) {
+    super(storage, name, fileExtension,
+        identity == null ? name + fileExtension : PageFileNames.layout28(identity), true);
+    validateIdentity(storage, fileExtension, identity, PageFileRole.LINK_BAG_TREE);
+    this.identity = identity;
     this.serializerFactory = storage.getComponentsFactory().binarySerializerFactory;
   }
 
@@ -56,7 +68,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         (operation) -> {
           acquireExclusiveLock();
           try {
-            fileId = addFile(atomicOperation, getFullName());
+            fileId = addFile(atomicOperation, getFullName(), identity);
 
             // Fresh file: entry point lives at the well-known ENTRY_POINT_INDEX (0).
             try (final var entryPointCacheEntry =
@@ -81,7 +93,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   public void load(AtomicOperation atomicOperation) {
     acquireExclusiveLock();
     try {
-      fileId = openFile(atomicOperation, getFullName());
+      fileId = openFile(atomicOperation, getFullName(), identity);
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -98,7 +110,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
         operation -> {
           acquireExclusiveLock();
           try {
-            deleteFile(atomicOperation, fileId);
+            deleteFile(atomicOperation, fileId, identity);
           } finally {
             releaseExclusiveLock();
           }
@@ -413,14 +425,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final long currentOperationTs,
       final AtomicOperationsSnapshot snapshot,
       final AtomicOperation atomicOp) {
-    final int componentId = AbstractWriteCache.extractFileId(getFileId());
-    assert componentId > 0 : "componentId must be positive, got " + componentId;
+    final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
+    assert linkBagFileId > 0 : "linkBagFileId must be positive, got " + linkBagFileId;
 
     // Range: all versions of this logical edge (from MIN to MAX)
     final var lowerKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
     final var upperKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
 
     for (Map.Entry<EdgeSnapshotKey, LinkBagValue> entry : atomicOp
         .edgeSnapshotSubMapDescending(lowerKey, upperKey)) {
@@ -715,14 +727,14 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final AtomicOperation atomicOperation,
       final EdgeKey oldKey,
       final LinkBagValue oldValue) {
-    final int componentId = AbstractWriteCache.extractFileId(getFileId());
+    final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
     final var snapshotKey = new EdgeSnapshotKey(
-        componentId, oldKey.ridBagId, oldKey.targetCollection,
+        linkBagFileId, oldKey.ridBagId, oldKey.targetCollection,
         oldKey.targetPosition, oldKey.ts);
 
     atomicOperation.putEdgeSnapshotEntry(snapshotKey, oldValue);
     atomicOperation.putEdgeVisibilityEntry(
-        new EdgeVisibilityKey(oldKey.ts, componentId, oldKey.ridBagId,
+        new EdgeVisibilityKey(oldKey.ts, linkBagFileId, oldKey.ridBagId,
             oldKey.targetCollection, oldKey.targetPosition),
         snapshotKey);
   }
@@ -1269,9 +1281,9 @@ public final class SharedLinkBagBTree extends StorageComponent {
         gcAttempted = true;
         final long lwm = storage.computeGlobalLowWaterMark();
         assert lwm > 0 : "Global LWM must be positive, got " + lwm;
-        final int componentId = AbstractWriteCache.extractFileId(getFileId());
+        final int linkBagFileId = AbstractWriteCache.extractFileId(getFileId());
         final int removedCount =
-            filterAndRebuildBucket(keyBucket, lwm, componentId, atomicOperation);
+            filterAndRebuildBucket(keyBucket, lwm, linkBagFileId, atomicOperation);
         if (removedCount > 0) {
           // Tree size accounting: updateSize(-removedCount) is correct for
           // all callers — see put() and remove() for the full case analysis.
@@ -1332,15 +1344,15 @@ public final class SharedLinkBagBTree extends StorageComponent {
    * covers both — no separate local/shared queries are needed.
    */
   private boolean hasEdgeSnapshotEntries(
-      final int componentId,
+      final int linkBagFileId,
       final long ridBagId,
       final int targetCollection,
       final long targetPosition,
       final AtomicOperation atomicOp) {
     final var lowerKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MIN_VALUE);
     final var upperKey = new EdgeSnapshotKey(
-        componentId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
+        linkBagFileId, ridBagId, targetCollection, targetPosition, Long.MAX_VALUE);
     return atomicOp.edgeSnapshotSubMapDescending(lowerKey, upperKey)
         .iterator().hasNext();
   }
@@ -1365,7 +1377,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final EdgeKey key,
       final LinkBagValue value,
       final long lwm,
-      final int componentId,
+      final int linkBagFileId,
       final AtomicOperation atomicOp) {
     if (!value.tombstone()) {
       return false;
@@ -1374,7 +1386,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       return false;
     }
     return !hasEdgeSnapshotEntries(
-        componentId, key.ridBagId, key.targetCollection, key.targetPosition, atomicOp);
+        linkBagFileId, key.ridBagId, key.targetCollection, key.targetPosition, atomicOp);
   }
 
   /**
@@ -1389,7 +1401,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   private int filterAndRebuildBucket(
       final Bucket keyBucket,
       final long lwm,
-      final int componentId,
+      final int linkBagFileId,
       final AtomicOperation atomicOp) {
     assert AbstractWriteCache.extractFileId(fileId) != 0
         : "fileId must be assigned before GC (fileId=" + fileId + ")";
@@ -1404,7 +1416,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final var key = keyBucket.getKey(i, serializerFactory);
       final var value = keyBucket.getValue(i, serializerFactory);
 
-      if (isRemovableTombstone(key, value, lwm, componentId, atomicOp)) {
+      if (isRemovableTombstone(key, value, lwm, linkBagFileId, atomicOp)) {
         removedCount++;
       } else {
         survivors.add(keyBucket.getRawEntry(i, serializerFactory));

@@ -1,10 +1,12 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.io.IOException;
-import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * A durable bit set that tracks which data pages in a {@link PaginatedCollectionV2} contain at
@@ -36,27 +38,48 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   /** Internal file ID assigned by the disk cache when the .dpb file is opened/created. */
   private long fileId;
 
-  public CollectionDirtyPageBitSet(
-      @Nonnull AbstractStorage storage,
-      @Nonnull String name,
-      String extension,
+  private final @Nullable PageFileIdentity identity;
+
+  public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
       String lockName) {
+    this(storage, name, extension, lockName, null);
+  }
+
+  public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
+      String lockName,
+      @Nullable PageFileIdentity identity) {
     super(storage, name, extension, lockName, true);
+    validateIdentity(storage, extension, identity, PageFileRole.DIRTY_PAGE_BIT_SET,
+        PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET);
+    this.identity = identity;
   }
 
   /**
    * Returns {@code true} if the backing file already exists on disk.
    */
   public boolean exists(final AtomicOperation atomicOperation) {
-    return isFileExists(atomicOperation, getFullName());
+    return isFileExists(atomicOperation, getFullName(), identity);
   }
 
   /**
    * Creates a new dirty page bit set file and initializes the first page to all zeros.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
-    fileId = addFile(atomicOperation, getFullName());
+    fileId = addFile(atomicOperation, getFullName(), identity);
+    init(atomicOperation);
+  }
 
+  /** Rebuilds an absent auxiliary after its collection owner has been opened. */
+  void reconstruct(final AtomicOperation atomicOperation) throws IOException {
+    if (identity == null) {
+      create(atomicOperation);
+      return;
+    }
+    fileId = reconstructAuxiliary(atomicOperation, identity);
+    init(atomicOperation);
+  }
+
+  private void init(final AtomicOperation atomicOperation) throws IOException {
     // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
     try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
@@ -68,7 +91,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Opens an existing dirty page bit set file.
    */
   public void open(final AtomicOperation atomicOperation) throws IOException {
-    fileId = openFile(atomicOperation, getFullName());
+    fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
   /**
@@ -91,14 +114,17 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
    * Deletes the dirty page bit set file.
    */
   public void delete(final AtomicOperation atomicOperation) throws IOException {
-    deleteFile(atomicOperation, fileId);
+    deleteFile(atomicOperation, fileId, identity);
   }
 
   /**
-   * Renames the dirty page bit set file to match a new collection name.
+   * Updates the component name and renames the file only for a legacy identity.
    */
   void rename(final String newName) throws IOException {
-    writeCache.renameFile(fileId, newName + getExtension());
+    // Explicit identities keep canonical file names independent of the collection name.
+    if (identity == null) {
+      writeCache.renameFile(fileId, newName + getExtension());
+    }
     setName(newName);
   }
 

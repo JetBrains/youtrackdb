@@ -1540,6 +1540,15 @@ public enum GlobalConfiguration {
       OrderByNullsPlacement.LAST,
       true),
 
+  QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES(
+      "youtrackdb.query.indexOrdered.maxEqualityCandidates",
+      "Maximum candidate RIDs retained by an index-ordered MATCH equality fetch."
+          + " Auto-scaled to 0.5% of max heap, clamped to [100K, 10M]",
+      Integer.class,
+      (int) Math.min(10_000_000L,
+          Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200)),
+      true),
+
   QUERY_INDEX_ORDERED_MIN_LINKBAG(
       "youtrackdb.query.indexOrdered.minLinkBag",
       "Minimum LinkBag size below which the index-ordered MATCH optimization"

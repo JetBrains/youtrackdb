@@ -1,15 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection;
 
 /**
- * Typed key for the visibility index used during snapshot cleanup. Replaces {@code
- * CompositeKey(newRecordVersion, collectionPosition)} with a type-safe, primitive-based record
- * that supports efficient {@code Comparable} ordering for range-scan eviction via {@code
- * headMap(lowWaterMark)}.
+ * Typed key for the visibility index used during snapshot cleanup. Identifies a record by its
+ * storage collection id and position, with its transaction timestamp first for efficient range-scan
+ * eviction via {@code headMap(lowWaterMark)}.
  *
  * <p>Natural ordering: {@code recordTs} first (enables efficient range-scan by timestamp), then
- * {@code componentId}, then {@code collectionPosition}.
+ * {@code collectionId}, then {@code collectionPosition}.
  */
-public record VisibilityKey(long recordTs, int componentId, long collectionPosition)
+public record VisibilityKey(long recordTs, int collectionId, long collectionPosition)
     implements Comparable<VisibilityKey> {
 
   @Override
@@ -18,7 +17,7 @@ public record VisibilityKey(long recordTs, int componentId, long collectionPosit
     if (cmp != 0) {
       return cmp;
     }
-    cmp = Integer.compare(componentId, other.componentId);
+    cmp = Integer.compare(collectionId, other.collectionId);
     if (cmp != 0) {
       return cmp;
     }

@@ -33,7 +33,7 @@ public class PreparedBackupChainTest {
 
   private static final String DATABASE = "preparedChainDatabase";
 
-  /** The layout-27 descriptor is unavailable before admission and after cleanup. */
+  /** The source descriptor is unavailable before admission and after cleanup for either layout. */
   @Test
   public void sourceDescriptorHasThePreparedRequestLifetime() throws Exception {
     for (var format : StorageFormat.values()) {
@@ -278,7 +278,7 @@ public class PreparedBackupChainTest {
 
     chain.addUnit(fullBackup, true);
     chain.addUnit(increment, false);
-    chain.completePreparation(11, StorageFormat.LAYOUT_27);
+    chain.completePreparation(11, StorageFormat.LAYOUT_28);
 
     assertEquals("the chain must keep two units", 2, chain.units().size());
     assertSame("the full backup must open the chain", fullBackup, chain.units().getFirst().left());

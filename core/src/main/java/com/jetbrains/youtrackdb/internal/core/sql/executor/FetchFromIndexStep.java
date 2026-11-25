@@ -116,6 +116,9 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   /** Sort direction for the index scan (true = ascending, false = descending). */
   private boolean orderAsc;
 
+  private Runnable beforeRangeLookup = () -> {
+  };
+
   /**
    * Whether null-key index entries are emitted before non-null keys. Independent of {@link
    * #orderAsc} when the ORDER BY item specifies {@code NULLS FIRST}/{@code NULLS LAST}; otherwise
@@ -141,6 +144,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     this.nullsFirst = nullsFirst;
   }
 
+  /** Creates a lookup that reserves work before acquiring each individual range stream. */
+  public FetchFromIndexStep(
+      IndexSearchDescriptor desc, boolean orderAsc, CommandContext ctx, boolean profilingEnabled,
+      Runnable beforeRangeLookup) {
+    this(desc, orderAsc, ctx, profilingEnabled);
+    this.beforeRangeLookup = beforeRangeLookup;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     var prev = this.prev;
@@ -152,7 +163,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     var tx = session.getTransactionInternal();
     tx.preProcessRecordsAndExecuteCallCallbacks();
 
-    var streams = init(desc, orderAsc, nullsFirst, ctx);
+    var streams = init(desc, orderAsc, nullsFirst, ctx, beforeRangeLookup);
     var res =
         new ExecutionStreamProducer() {
           private final Iterator<Stream<RawPair<Object, RID>>> iter = streams.iterator();
@@ -229,6 +240,13 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   static List<Stream<RawPair<Object, RID>>> init(
       IndexSearchDescriptor desc, boolean isOrderAsc, boolean nullsFirst, CommandContext ctx) {
 
+    return init(desc, isOrderAsc, nullsFirst, ctx, () -> {
+    });
+  }
+
+  private static List<Stream<RawPair<Object, RID>>> init(
+      IndexSearchDescriptor desc, boolean isOrderAsc, boolean nullsFirst, CommandContext ctx,
+      Runnable beforeRangeLookup) {
     var index = desc.getIndex();
     var condition = desc.getKeyCondition();
     var additionalRangeCondition = desc.getAdditionalRangeCondition();
@@ -239,7 +257,8 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     return switch (condition) {
       case null -> processFlatIteration(ctx.getDatabaseSession(), index, isOrderAsc, nullsFirst);
       case SQLAndBlock ignored ->
-          processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx);
+          processAndBlock(index, condition, additionalRangeCondition, isOrderAsc, ctx,
+              beforeRangeLookup);
       default -> throw new CommandExecutionException(ctx.getDatabaseSession(),
           "search for index for " + condition + " is not supported yet");
     };
@@ -258,7 +277,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       SQLBooleanExpression condition,
       SQLBinaryCondition additionalRangeCondition,
       boolean isOrderAsc,
-      CommandContext ctx) {
+      CommandContext ctx, Runnable beforeRangeLookup) {
     var fromKey = indexKeyFrom((SQLAndBlock) condition, additionalRangeCondition);
     var toKey = indexKeyTo((SQLAndBlock) condition, additionalRangeCondition);
     var fromKeyIncluded = indexKeyFromIncluded((SQLAndBlock) condition,
@@ -272,7 +291,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         toKeyIncluded,
         condition,
         isOrderAsc,
-        ctx);
+        ctx, beforeRangeLookup);
   }
 
   /**
@@ -397,7 +416,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       boolean toKeyIncluded,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
-      CommandContext ctx) {
+      CommandContext ctx, Runnable beforeRangeLookup) {
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
     // Acquire streams into `streams` across all range combinations. If a later acquisition throws
     // partway through, the streams already acquired would leak: the caller closes streams only once
@@ -407,7 +426,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     try {
       collectRangeStreams(
           streams, index, fromKey, fromKeyIncluded, toKey, toKeyIncluded, condition, isOrderAsc,
-          ctx);
+          ctx, beforeRangeLookup);
     } catch (RuntimeException | Error e) {
       closeAllSuppressing(streams, e);
       throw e;
@@ -429,7 +448,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       boolean toKeyIncluded,
       SQLBooleanExpression condition,
       boolean isOrderAsc,
-      CommandContext ctx) {
+      CommandContext ctx, Runnable beforeRangeLookup) {
     var session = ctx.getDatabaseSession();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
@@ -489,9 +508,11 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                       // manage null value explicitly, as the index API does not seem to work
                       // correctly in this
                       // case
+                      beforeRangeLookup.run();
                       stream = getStreamForNullKey(session, index, isOrderAsc);
                       addStreamIfNew(stream, streams, acquiredStreams);
                     } else {
+                      beforeRangeLookup.run();
                       stream =
                           index.streamEntriesBetween(session,
                               from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
@@ -521,6 +542,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       if (from == null && to == null) {
         // manage null value explicitly, as the index API does not seem to work correctly in this
         // case
+        beforeRangeLookup.run();
         stream = getStreamForNullKey(session, index, isOrderAsc);
         addStreamIfNew(stream, streams, acquiredStreams);
       } else {
@@ -539,12 +561,14 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             var fromVal = fromIter.next();
             var toVal = toIter.next();
 
+            beforeRangeLookup.run();
             stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
                 toKeyIncluded,
                 isOrderAsc);
             addStreamIfNew(stream, streams, acquiredStreams);
           }
         } else {
+          beforeRangeLookup.run();
           stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
               isOrderAsc);
           addStreamIfNew(stream, streams, acquiredStreams);

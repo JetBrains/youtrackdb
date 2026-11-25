@@ -1,11 +1,11 @@
 {
-  "defaultProvider": "openai",
-  "defaultModel": "gpt-6.2-astra",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-fable-5-2",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "packages": [
     "npm:pi-mcp-adapter@7.0.1",
-    "npm:ytdb-slate@0.19.0",
+    "npm:ytdb-slate@0.21.0",
     "npm:pi-smart-fetch@0.3.23",
     "npm:pi-web-search@1.7.0"
   ]
