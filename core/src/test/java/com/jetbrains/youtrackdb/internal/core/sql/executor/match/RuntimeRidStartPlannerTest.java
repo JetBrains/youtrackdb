@@ -341,8 +341,9 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
       assertThat(literal != null).as(mode).isEqualTo(!mode.equals("Mismatch"));
       assertThat(runtime != null).as(mode).isEqualTo(literal != null);
       if (literal != null) {
-        assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
-            .isThrownBy(() -> plan(query, classes, true)).withMessageContaining("Index-ordered");
+        var accepted = plan(query, classes, true);
+        assertThat(accepted.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
+        accepted.close();
       }
       var unlimited = plan(query.replace(" LIMIT 2", ""), classes, true);
       try {
@@ -857,9 +858,9 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     }
   }
 
-  /** The index-ordered path is refused while the ordinary sort path remains available. */
+  /** Both indexed and ordinary ordering keep the runtime singleton source. */
   @Test
-  public void indexedOrderRequiresLiteralStartWhileUnindexedOrderKeepsRuntimeStart() {
+  public void indexedAndUnindexedOrderKeepRuntimeStart() {
     var target = session.createVertexClass("TargetPerson");
     target.createProperty("score",
         com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER)
@@ -872,14 +873,241 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     session.execute("CREATE VERTEX TargetPerson SET score = 1").close();
     session.commit();
     var order = "MATCH {as:s}.out('Knows'){as:t} RETURN t ORDER BY t.score ASC LIMIT 1";
-    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
-        .isThrownBy(() -> plan(order, Map.of("s", "StartPerson", "t", "TargetPerson"), true))
-        .withMessageContaining("Index-ordered");
+    var indexed = plan(order, Map.of("s", "StartPerson", "t", "TargetPerson"), true);
+    assertThat(indexed.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
+    assertThat(indexed.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
     var ordinary = plan("MATCH {as:s}.out('Knows'){as:t} RETURN t"
         + " ORDER BY t.other ASC LIMIT 1",
         Map.of("s", "StartPerson", "t", "TargetPerson"), true);
     assertThat(ordinary.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
     assertThat(ordinary.prettyPrint(0, 2)).doesNotContain("INDEX ORDERED MATCH");
+  }
+
+  private static final String ORDERED_SLOT =
+      "MATCH {as:s}.out('Knows'){as:t, where:(tag = :tag)}"
+          + " RETURN t.score AS score ORDER BY t.score ASC LIMIT 5";
+  private static final String ORDERED_KEY = "track10-ordered-slot";
+
+  private List<Object> orderedSlotFixture() {
+    session.createVertexClass("StartPerson");
+    var target = session.createVertexClass("TargetPerson");
+    target.createProperty("score",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
+    target.createProperty("tag",
+        com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
+    session.execute("CREATE INDEX TargetPerson_score ON TargetPerson (score) NOTUNIQUE").close();
+    session.execute("CREATE INDEX TargetPerson_tag ON TargetPerson (tag) NOTUNIQUE").close();
+    session.createEdgeClass("Knows");
+    session.begin();
+    for (var name : List.of("tiny", "hub", "empty", "deleted")) {
+      session.execute("CREATE VERTEX StartPerson SET name = ?", name).close();
+    }
+    for (int i = 0; i < 200; i++) {
+      session.execute("CREATE VERTEX TargetPerson SET score = ?, tag = ?",
+          i, i == 150 ? "rare" : "common").close();
+    }
+    session.execute("CREATE EDGE Knows FROM (SELECT FROM StartPerson WHERE name = 'hub')"
+        + " TO (SELECT FROM TargetPerson)").close();
+    session.execute("CREATE EDGE Knows FROM (SELECT FROM StartPerson WHERE name = 'hub')"
+        + " TO (SELECT FROM TargetPerson WHERE score = 150)").close();
+    session.execute("CREATE EDGE Knows FROM (SELECT FROM StartPerson WHERE name = 'tiny')"
+        + " TO (SELECT FROM TargetPerson WHERE score IN [0,150])").close();
+    // The wrong-class start has matching adjacency, so only class rejection keeps it empty.
+    session.execute("CREATE EDGE Knows FROM (SELECT FROM TargetPerson WHERE score = 150)"
+        + " TO (SELECT FROM TargetPerson WHERE score IN [0,150])").close();
+    session.commit();
+    session.getIndex("TargetPerson_tag").analyzeHistogram(session);
+    session.begin();
+    var starts = new ArrayList<Object>();
+    for (var name : List.of("tiny", "hub", "empty", "deleted")) {
+      try (var rows = session.query("SELECT @rid AS rid FROM StartPerson WHERE name = ?", name)) {
+        starts.add(rows.next().getProperty("rid"));
+      }
+    }
+    try (var rows = session.query("SELECT @rid AS rid FROM TargetPerson WHERE score = 150")) {
+      starts.add(rows.next().getProperty("rid"));
+    }
+    session.execute("DELETE VERTEX StartPerson WHERE name = 'deleted'").close();
+    session.commit();
+    return starts;
+  }
+
+  private InternalExecutionPlan cacheOrderedSlot() {
+    var ctx = new BasicCommandContext(session);
+    ctx.setInputParameters(Map.of("tag", "common"));
+    var built = new MatchExecutionPlanner(inputs(ORDERED_SLOT,
+        Map.of("s", "StartPerson", "t", "TargetPerson"), true))
+        .createExecutionPlan(ctx, false, false);
+    assertThat(built.getSteps().getFirst()).isInstanceOf(RuntimeRidStartStep.class);
+    assertThat(built.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
+    assertThat(built.prettyPrint(0, 2)).doesNotContain("PREFETCH");
+    RuntimeRidStartTestFactory.cache(ORDERED_KEY, built, session);
+    built.close();
+    return com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache
+        .template(ORDERED_KEY, session);
+  }
+
+  private static IndexOrderedEdgeStep orderedStep(InternalExecutionPlan plan) {
+    return plan.getSteps().stream().filter(IndexOrderedEdgeStep.class::isInstance)
+        .map(IndexOrderedEdgeStep.class::cast).findFirst().orElseThrow();
+  }
+
+  private static List<Integer> runOrderedSlot(DatabaseSessionEmbedded db,
+      InternalExecutionPlan template, Object rid, String tag, CyclicBarrier barrier)
+      throws Exception {
+    var ctx = new BasicCommandContext(db);
+    ctx.setInputParameters(Map.of(0, rid, "tag", tag));
+    var copy = com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache
+        .get(ORDERED_KEY, ctx, db);
+    assertThat(copy).isNotNull().isNotSameAs(template);
+    assertThat(orderedStep(copy)).isNotSameAs(orderedStep(template));
+    try {
+      var stream = copy.start();
+      try {
+        // Buffer the first row in both executions before either drains its rows.
+        if (barrier != null) {
+          assertThat(stream.hasNext(ctx)).isTrue();
+          barrier.await(30, TimeUnit.SECONDS);
+        }
+        var values = stream.stream(ctx).map(row -> row.<Integer>getProperty("score")).toList();
+        var step = orderedStep(copy);
+        if (values.size() == 5) {
+          assertThat(step.getChosenRuntimePath()).isEqualTo(
+              IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+          assertThat(step.lastScanConsumedEntries()).isBetween(1L, 10L);
+        } else if (values.size() == 2) {
+          assertThat(step.getChosenRuntimePath()).isEqualTo(
+              IndexOrderedEdgeStep.RuntimePath.EQUALITY_FETCH);
+          assertThat(step.lastScanConsumedEntries()).isEqualTo(-1);
+          assertThat(step.lastEqualityObservation().entries()).isEqualTo(1);
+        } else if (values.size() == 1) {
+          assertThat(step.getChosenRuntimePath()).isEqualTo(
+              IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+        }
+        return values;
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      copy.close();
+    }
+  }
+
+  private static List<Integer> plainOrderedSlot(DatabaseSessionEmbedded db,
+      Object rid, String tag) {
+    // Sorting outside MATCH prevents ordered-edge detection in the reference plan.
+    // A literal RID takes precedence over class, so enforce this fixture's source class explicitly.
+    var reference = "SELECT FROM (MATCH {class:StartPerson, as:s, rid:" + rid
+        + ", where:(@class = 'StartPerson')}"
+        + ".out('Knows'){class:TargetPerson, as:t, where:(tag = :tag)}"
+        + " RETURN t.score AS score) ORDER BY score ASC LIMIT 5";
+    try (var rows = db.query(reference, Map.of("tag", tag))) {
+      var values = rows.stream().map(row -> row.<Integer>getProperty("score")).toList();
+      assertThat(rows.getExecutionPlan().prettyPrint(0, 2)).doesNotContain("INDEX ORDERED MATCH");
+      return values;
+    }
+  }
+
+  /** One real cached template serves tiny, hub, empty, missing and wrong-class RIDs and both keys. */
+  @Test
+  public void cachedOrderedSlotReusesPlanAcrossRecordsAndEqualityValues() throws Exception {
+    var starts = orderedSlotFixture();
+    var template = cacheOrderedSlot();
+    assertThat(template).isNotNull();
+    session.begin();
+    assertThat(runOrderedSlot(session, template, starts.get(1), "rare", null))
+        .containsExactly(150, 150);
+    assertThat(runOrderedSlot(session, template, starts.get(1), "common", null))
+        .containsExactly(0, 1, 2, 3, 4);
+    assertThat(runOrderedSlot(session, template, starts.getFirst(), "common", null))
+        .containsExactly(0);
+    for (var tag : List.of("rare", "common")) {
+      assertThat(runOrderedSlot(session, template, starts.getLast(), tag, null)).isEmpty();
+    }
+    session.rollback();
+    var before = template.prettyPrint(0, 2);
+    for (var tag : List.of("rare", "common")) {
+      for (var rid : starts) {
+        session.begin();
+        assertThat(runOrderedSlot(session, template, rid, tag, null))
+            .as("RID %s and equality %s", rid, tag)
+            .isEqualTo(plainOrderedSlot(session, rid, tag));
+        session.rollback();
+        assertThat(
+            com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinPlanCache
+                .template(ORDERED_KEY, session))
+            .isSameAs(template);
+      }
+    }
+    assertThat(template.prettyPrint(0, 2)).isEqualTo(before);
+    assertThat(orderedStep(template).getChosenRuntimePath()).isNull();
+  }
+
+  /** Two sessions overlap copies of one cache entry with different RIDs and equality keys. */
+  @Test
+  public void cachedOrderedSlotIsIsolatedBetweenConcurrentSessions() throws Exception {
+    var starts = orderedSlotFixture();
+    var template = cacheOrderedSlot();
+    var before = template.prettyPrint(0, 2);
+    var barrier = new CyclicBarrier(2);
+    var workers = Executors.newFixedThreadPool(2);
+    try {
+      var futures = new ArrayList<java.util.concurrent.Future<?>>();
+      for (int i = 0; i < 2; i++) {
+        final int index = i;
+        futures.add(workers.submit(() -> {
+          try (var db = openDatabase()) {
+            db.begin();
+            var rid = starts.get(index);
+            var tag = index == 0 ? "common" : "rare";
+            assertThat(runOrderedSlot(db, template, rid, tag, barrier))
+                .isEqualTo(plainOrderedSlot(db, rid, tag));
+            db.rollback();
+          } catch (Exception e) {
+            throw new AssertionError(e);
+          }
+        }));
+      }
+      for (var future : futures) {
+        future.get(60, TimeUnit.SECONDS);
+      }
+    } finally {
+      workers.shutdownNow();
+      assertThat(workers.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+      session.activateOnCurrentThread();
+    }
+    assertThat(template.prettyPrint(0, 2)).isEqualTo(before);
+    assertThat(orderedStep(template).getChosenRuntimePath()).isNull();
+  }
+
+  /** An ordered edge after another hop is not rooted at the runtime slot and stays refused. */
+  @Test
+  public void indexedOrderAwayFromRuntimeRootIsRefused() {
+    var starts = orderedSlotFixture();
+    session.begin();
+    var query = "MATCH {as:s}.out('Knows'){as:p, rid:" + starts.getLast()
+        + "}.in('Knows'){as:t} RETURN t ORDER BY t.score ASC LIMIT 1";
+    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+        .isThrownBy(() -> plan(query,
+            Map.of("s", "StartPerson", "p", "TargetPerson", "t", "TargetPerson"), true))
+        .withMessageContaining("Index-ordered");
+  }
+
+  /** An ordered edge from the slot must still be refused when another edge is scheduled first. */
+  @Test
+  public void indexedOrderFromRuntimeRootAfterAnotherEdgeIsRefused() {
+    orderedSlotFixture();
+    session.begin();
+    var filteredHop = "{as:s}.out('Knows'){as:a, where:(tag='rare')}";
+    var orderedHop = "{as:s}.out('Knows'){as:t}";
+    for (var hops : List.of(filteredHop + ", " + orderedHop,
+        orderedHop + ", " + filteredHop)) {
+      var query = "MATCH " + hops + " RETURN t ORDER BY t.score ASC LIMIT 1";
+      assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
+          .isThrownBy(() -> plan(query,
+              Map.of("s", "StartPerson", "a", "TargetPerson", "t", "TargetPerson"), true))
+          .withMessageContaining("Index-ordered");
+    }
   }
 
   /** A selected hash anti-join scans its NOT pattern before opening the runtime source. */
@@ -1343,9 +1571,9 @@ public class RuntimeRidStartPlannerTest extends DbTestBase {
     assertThat(legacyFiltered.detect(sorted, context, estimated)).isNull();
     assertThat(literalPin.detect(sorted, context, estimated)).isNotNull();
     assertThat(runtime.detect(sorted, context, estimated)).isNotNull();
-    assertThatExceptionOfType(RuntimeRidStartPlanningException.class)
-        .isThrownBy(() -> plan(query, Map.of("s", "StartPerson", "t", "TargetPerson"), true))
-        .withMessageContaining("Index-ordered");
+    var accepted = plan(query, Map.of("s", "StartPerson", "t", "TargetPerson"), true);
+    assertThat(accepted.getSteps()).anyMatch(IndexOrderedEdgeStep.class::isInstance);
+    accepted.close();
   }
 
   private static IndexOrderedPlanner indexProbe(MatchPlanInputs input,

@@ -352,11 +352,42 @@ public class RuntimeRidStartEligibilityTest {
         __.V(A).out("a").values("name").order().range(1, 3),
         __.V(A).out("a").and(__.out("b"), __.has("name", "x")),
         __.V(A).out("a").limit(1).count(),
-        __.V(A).out("a").order().by("name").limit(1),
+        __.V(A).out("a").order().by("name").range(1, 3),
         __.V(A).out("a").order().by("name").range(1, -1),
         __.V(A).out("a").order().by("name").skip(1),
         __.V(A).out("a").order().by("name").values("name"),
         __.V(A).outE("a").has("weight", 1).count());
+  }
+
+  // The new suffix uses the existing order validator and only admits a finite zero-offset limit.
+  @Test
+  public void orderedLimitReusesOrderValidationAndRejectsOtherSuffixes() {
+    for (var direction : List.of(Order.asc, Order.desc)) {
+      for (long limit : List.of(0L, 1L, 5L)) {
+        var query = __.V(A).in("a").order().by(new ValueTraversal<>("name"), direction)
+            .by(new RecordIdSortKeyTraversal(), direction).limit(limit).asAdmin();
+        assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNotNull();
+      }
+    }
+    reject(__.V(A).out().order().by("name").limit(1),
+        __.V(A).outE("a").order().by("name").limit(1),
+        __.V(A).out("a").order().by("name").limit(1).values("name"),
+        __.V(A).out("a").order().by("name").limit(1).out("b"));
+    for (Long[] bounds : new Long[][] {{null, 1L}, {0L, null}, {-1L, 1L}, {1L, 2L},
+        {0L, -1L}, {0L, Long.MAX_VALUE}}) {
+      var query = __.V(A).out("a").order().by(new ValueTraversal<>("name")).asAdmin();
+      var range = mock(RangeGlobalStep.class);
+      when(range.getLowRange()).thenReturn(bounds[0]);
+      when(range.getHighRange()).thenReturn(bounds[1]);
+      query.addStep(range);
+      assertThat(RuntimeRidStartEligibility.evaluate(query, true)).isNull();
+    }
+    for (var query : List.of(__.V(A).out("a").order().limit(1),
+        __.V(A).out("a").order().by(new ValueTraversal<>("name"), Order.shuffle).limit(1),
+        __.V(A).out("a").order().by(new ValueTraversal<>("name"))
+            .by(new ValueTraversal<>("age")).limit(1))) {
+      assertThat(RuntimeRidStartEligibility.evaluate(query.asAdmin(), true)).isNull();
+    }
   }
 
   // Boxed null bounds and malformed finite bounds decline without unboxing or normalization.

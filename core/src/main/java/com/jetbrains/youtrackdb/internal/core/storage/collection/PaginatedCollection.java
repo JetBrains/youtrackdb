@@ -33,6 +33,9 @@ public abstract class PaginatedCollection extends StorageComponent implements St
   public abstract RECORD_STATUS getRecordStatus(final long collectionPosition,
       @Nonnull AtomicOperation atomicOperation) throws IOException;
 
+  /** Configures a newly created collection with its separately allocated component identity. */
+  public abstract void configure(int id, String name, Integer componentId) throws IOException;
+
   public abstract StoragePaginatedCollectionConfiguration generateCollectionConfig();
 
   @Override

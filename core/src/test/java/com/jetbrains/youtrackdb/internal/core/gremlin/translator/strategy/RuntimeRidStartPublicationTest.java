@@ -200,7 +200,7 @@ public class RuntimeRidStartPublicationTest extends GraphBaseTest {
       case 7 -> g.V(a).out("negativeLink").values("name", "other");
       case 8 -> g.V(a).out("negativeLink").out("negativeLink");
       case 9 -> g.V(a).outE("negativeLink");
-      case 10 -> g.V(a).out("negativeLink").order().by("name").limit(1);
+      case 10 -> g.V(a).out("negativeLink").order().by("name").range(1, 3);
       case 11 -> g.V(a).barrier(1).as("kept").out("negativeLink");
       case 12 -> g.V(a).out("negativeLink").barrier(1).as("kept");
       case 13 -> g.V(a).union(__.out("negativeLink"), __.in("negativeLink")).count();

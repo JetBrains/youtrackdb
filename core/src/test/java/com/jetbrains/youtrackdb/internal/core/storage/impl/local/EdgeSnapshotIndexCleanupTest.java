@@ -125,11 +125,11 @@ public class EdgeSnapshotIndexCleanupTest {
     assertThat(sizeCounter.get()).isEqualTo(1L);
   }
 
-  // --- Multi-component and ridBag isolation ---
+  // --- Multi-link-bag file and ridBag isolation ---
 
   @Test
-  public void testEvictAcrossMultipleComponents() {
-    // Entries from different components at different timestamps
+  public void testEvictAcrossMultipleLinkBagFiles() {
+    // Entries from different link-bag files at different timestamps
     var esk1 = new EdgeSnapshotKey(1, 50L, 10, 200L, 5L);
     var esk2 = new EdgeSnapshotKey(2, 60L, 20, 300L, 8L);
     var esk3 = new EdgeSnapshotKey(3, 70L, 30, 400L, 12L);
@@ -142,7 +142,7 @@ public class EdgeSnapshotIndexCleanupTest {
     edgeVisibilityIndex.put(new EdgeVisibilityKey(15L, 2, 60L, 20, 300L), esk2);
     edgeVisibilityIndex.put(new EdgeVisibilityKey(20L, 3, 70L, 30, 400L), esk3);
 
-    // lwm = 16: evicts components 1 and 2 (recordTs=10, 15), preserves component 3 (recordTs=20)
+    // lwm = 16: evicts link-bag files 1 and 2 (recordTs=10, 15), preserves link-bag file 3 (recordTs=20)
     AbstractStorage.evictStaleEdgeSnapshotEntries(
         16L, edgeSnapshotIndex, edgeVisibilityIndex, sizeCounter);
 
