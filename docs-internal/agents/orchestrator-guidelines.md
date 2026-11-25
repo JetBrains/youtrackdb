@@ -5,6 +5,10 @@
 When planning, verifying, naming branches, committing, or publishing pull requests, read
 `docs-internal/dev-workflow/track-development.md` for YTDB rules.
 
+Before creating or linking a YTDB issue, read the
+[issue tracking rules](../dev-workflow/issue-tracking.md).
+Read the same rules before starting implementation of a change with a YTDB issue.
+
 The orchestrator does not wait for continuous integration (CI) builds and does not check their
 status. See `docs-internal/dev-workflow/track-development.md` § CI build handling.
 

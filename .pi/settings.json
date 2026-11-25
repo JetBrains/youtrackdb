@@ -1,12 +1,12 @@
 {
-  "defaultProvider": "anthropic",
-  "defaultModel": "claude-opus-5-5",
+  "defaultProvider": "openai",
+  "defaultModel": "gpt-6.2-astra",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "packages": [
-    "npm:pi-mcp-adapter@3.3.0",
-    "npm:ytdb-slate@0.17.0",
-    "npm:pi-smart-fetch@0.3.17",
-    "npm:pi-web-search@1.6.0"
+    "npm:pi-mcp-adapter@7.0.1",
+    "npm:ytdb-slate@0.21.0",
+    "npm:pi-smart-fetch@0.3.23",
+    "npm:pi-web-search@1.7.0"
   ]
 }

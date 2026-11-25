@@ -3,7 +3,10 @@
 ## Upgrade trigger and workflow
 
 Use this procedure when bumping a pinned agent package version in `.pi/settings.json`.
-Treat a `ytdb-slate` pin bump as a tracked change.
+Treat a `ytdb-slate` pin bump as a tracked change. Before a Slate upgrade, use
+`pi --list-models` to check that Pi lists the exact routes needed by the target release.
+After the upgrade, run the policy and availability checks in
+[machine-local setup](machine-local-setup.md#model-routing).
 
 ## Package-document reconciliation
 
@@ -17,7 +20,7 @@ understood without it. Give each YTDB-specific rule one owning project document.
 
 ## Reconciliation record
 
-Last reconciled against **ytdb-slate 0.17.0**.
+Last reconciled against **ytdb-slate 0.21.0**.
 
 This reconciliation read these package documents:
 
@@ -53,3 +56,5 @@ This reconciliation read these package documents:
 
 The check covered the YTDB configuration in `.pi/slate.json` and its prompt documents.
 It also covered worker action folders and `change-records.md` § Manual records and safe writes.
+The project inherits the package ordinary and compressor models without a `router` override.
+Local model and adapter acceptance checks live in `machine-local-setup.md`.
