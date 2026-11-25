@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -58,7 +58,7 @@ public final class LockFreeReadCache implements ReadCache {
    */
   private static final int READ_BATCH_SIZE = 16;
 
-  private final ConcurrentLongIntHashMap<CacheEntry> data;
+  private final ConcurrentFilePageMap<CacheEntry> data;
   private final Lock evictionLock = new ReentrantLock();
 
   private final WTinyLFUPolicy policy;
@@ -98,10 +98,10 @@ public final class LockFreeReadCache implements ReadCache {
 
       this.maxCacheSize = (int) (maxCacheSizeInBytes / pageSize);
       // Section count rounded up to power of two from N_CPU << 1 (matching
-      // ConcurrentHashMap's concurrency level). ConcurrentLongIntHashMap requires
+      // ConcurrentHashMap's concurrency level). ConcurrentFilePageMap requires
       // power-of-two section count for bit-mask section selection.
       this.data =
-          new ConcurrentLongIntHashMap<>(this.maxCacheSize, ceilingPowerOfTwo(N_CPU << 1));
+          new ConcurrentFilePageMap<>(this.maxCacheSize, ceilingPowerOfTwo(N_CPU << 1));
       policy = new WTinyLFUPolicy(data, new FrequencySketch(), cacheSize);
       policy.setMaxSize(this.maxCacheSize);
     } finally {

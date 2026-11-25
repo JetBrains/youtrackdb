@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -25,7 +25,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -122,7 +122,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -163,7 +163,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -204,7 +204,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -216,8 +216,8 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 0))).thenReturn(0);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 12))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 0))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 12))).thenReturn(1);
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
@@ -253,7 +253,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -265,8 +265,8 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 0))).thenReturn(1);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 12))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 0))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 12))).thenReturn(0);
 
     for (var i = 0; i < 16; i++) {
       cacheSize.incrementAndGet();
@@ -302,7 +302,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -314,11 +314,11 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 0))).thenReturn(0);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 12))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 0))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 12))).thenReturn(1);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 1))).thenReturn(0);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 13))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 1))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 13))).thenReturn(1);
 
     cacheEntries[0].acquireEntry();
 
@@ -360,7 +360,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -372,11 +372,11 @@ public class WTinyLFUPolicyTest {
 
     generateEntries(cacheEntries, cachePointers, pool);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 0))).thenReturn(1);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 12))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 0))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 12))).thenReturn(0);
 
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 0))).thenReturn(1);
-    when(admittor.frequency(ConcurrentLongIntHashMap.hashForFrequencySketch(1, 13))).thenReturn(0);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 0))).thenReturn(1);
+    when(admittor.frequency(ConcurrentFilePageMap.hashForFrequencySketch(1, 13))).thenReturn(0);
 
     cacheEntries[12].acquireEntry();
 
@@ -418,7 +418,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -463,7 +463,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -523,7 +523,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -562,7 +562,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();
@@ -614,7 +614,7 @@ public class WTinyLFUPolicyTest {
     var memoryAllocator = new DirectMemoryAllocator();
     var pool = new ByteBufferPool(1, memoryAllocator, 0);
 
-    var data = new ConcurrentLongIntHashMap<CacheEntry>();
+    var data = new ConcurrentFilePageMap<CacheEntry>();
     var admittor = mock(Admittor.class);
 
     var cacheSize = new AtomicInteger();

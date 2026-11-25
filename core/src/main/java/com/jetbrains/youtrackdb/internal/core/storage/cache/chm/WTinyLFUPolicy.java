@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -15,7 +15,7 @@ public final class WTinyLFUPolicy {
   private static final int PROBATIONARY_PERCENT = 20;
 
   private volatile int maxSize;
-  private final ConcurrentLongIntHashMap<CacheEntry> data;
+  private final ConcurrentFilePageMap<CacheEntry> data;
   private final Admittor admittor;
 
   private final AtomicInteger cacheSize;
@@ -29,7 +29,7 @@ public final class WTinyLFUPolicy {
   private int maxSecondLevelSize;
 
   WTinyLFUPolicy(
-      final ConcurrentLongIntHashMap<CacheEntry> data,
+      final ConcurrentFilePageMap<CacheEntry> data,
       final Admittor admittor,
       final AtomicInteger cacheSize) {
     this.data = data;
@@ -57,7 +57,7 @@ public final class WTinyLFUPolicy {
 
   public void onAccess(CacheEntry cacheEntry) {
     admittor.increment(
-        ConcurrentLongIntHashMap.hashForFrequencySketch(
+        ConcurrentFilePageMap.hashForFrequencySketch(
             cacheEntry.getFileId(), cacheEntry.getPageIndex()));
 
     if (!cacheEntry.isDead()) {
@@ -84,7 +84,7 @@ public final class WTinyLFUPolicy {
 
   void onAdd(final CacheEntry cacheEntry) {
     admittor.increment(
-        ConcurrentLongIntHashMap.hashForFrequencySketch(
+        ConcurrentFilePageMap.hashForFrequencySketch(
             cacheEntry.getFileId(), cacheEntry.getPageIndex()));
 
     if (cacheEntry.isAlive()) {
@@ -113,10 +113,10 @@ public final class WTinyLFUPolicy {
         final var victim = probation.peek();
 
         final var candidateKeyHashCode =
-            ConcurrentLongIntHashMap.hashForFrequencySketch(
+            ConcurrentFilePageMap.hashForFrequencySketch(
                 candidate.getFileId(), candidate.getPageIndex());
         final var victimKeyHashCode =
-            ConcurrentLongIntHashMap.hashForFrequencySketch(
+            ConcurrentFilePageMap.hashForFrequencySketch(
                 victim.getFileId(), victim.getPageIndex());
 
         final var candidateFrequency = admittor.frequency(candidateKeyHashCode);
