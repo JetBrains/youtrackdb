@@ -183,6 +183,18 @@ final class RuntimeRidStartEligibility {
       // An unlabeled vertex hop can end here only when it has no target filters.
       return !edgeOutput && (hop.getEdgeLabels().length != 0 || cursor == index + 1);
     }
+    if (remaining == 2 && !edgeOutput && hop.getEdgeLabels().length != 0
+        && steps.get(cursor).getClass() == OrderGlobalStep.class
+        && (steps.getLast().getClass() == RangeGlobalStep.class
+            || steps.getLast().getClass() == RangeGlobalStepPlaceholder.class)) {
+      // Only a finite limit directly after the validated order joins the cached grammar.
+      // Keep its literal bound in the existing shape and physical-plan keys.
+      var limit = (RangeGlobalStepContract<?>) steps.getLast();
+      var low = limit.getLowRange();
+      var high = limit.getHighRange();
+      return low != null && high != null && low == 0 && high >= 0 && high < Long.MAX_VALUE
+          && allowedOrder(root, (OrderGlobalStep<?, ?>) steps.get(cursor));
+    }
     if (remaining != 1) {
       return false;
     }
