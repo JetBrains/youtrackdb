@@ -4830,13 +4830,13 @@ public class WOWCacheLoadOrAddTest {
   @Test
   public void orderedShrinkWrapsPublishedDiscardErrorWithoutChangingFileOrExtents()
       throws Exception {
-    assertPublishedShrinkWrapsDiscardError(new LinkageError("Discard body failed"));
+    assertPublishedShrinkWrapsDiscardFailure(new LinkageError("Discard body failed"));
   }
 
   @Test
   public void orderedShrinkWrapsHighLevelDiscardErrorWithoutChangingFileOrExtents()
       throws Exception {
-    assertPublishedShrinkWrapsDiscardError(new HighLevelDiscardError());
+    assertPublishedShrinkWrapsDiscardFailure(new HighLevelDiscardError());
   }
 
   @Test
@@ -4922,12 +4922,25 @@ public class WOWCacheLoadOrAddTest {
     }
   }
 
-  private void assertPublishedShrinkWrapsDiscardError(Error error) throws Exception {
+  @Test
+  public void orderedShrinkWrapsPublishedDiscardIOExceptionWithoutChangingFileExtentsOrRetention()
+      throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new IOException("Discard body failed"));
+  }
+
+  @Test
+  public void
+      orderedShrinkWrapsPublishedDiscardRuntimeExceptionWithoutChangingFileExtentsOrRetention()
+          throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new IllegalStateException("Discard body failed"));
+  }
+
+  private void assertPublishedShrinkWrapsDiscardFailure(Throwable failure) throws Exception {
     final long id = preparePublishedFileWithRetainedPrefixAndTail();
     final var path = pendingPath(id);
     final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
 
-    assertDiscardErrorIsWrapped(id, error);
+    assertDiscardFailureIsWrapped(id, failure);
 
     assertEquals(File.HEADER_SIZE + 3L * PAGE_SIZE, Files.size(path));
     assertEquals(3, state.logicalExtent());
@@ -4951,7 +4964,7 @@ public class WOWCacheLoadOrAddTest {
     assertNull(files.get(id));
     assertRetainedSegments(Set.of(42L));
 
-    assertDiscardErrorIsWrapped(id, new LinkageError("Discard body failed"));
+    assertDiscardFailureIsWrapped(id, new LinkageError("Discard body failed"));
 
     assertTrue(Files.notExists(path));
     assertNull(files.get(id));
@@ -4960,26 +4973,37 @@ public class WOWCacheLoadOrAddTest {
     assertRetainedSegments(Set.of(42L));
   }
 
-  private void assertDiscardErrorIsWrapped(long id, Error error) throws Exception {
+  private void assertDiscardFailureIsWrapped(long id, Throwable failure) throws Exception {
     wowCache = Mockito.spy(wowCache);
-    final var commitThread = flushExecutor().submit(Thread::currentThread)
-        .get(10, TimeUnit.SECONDS);
+    final var commitThread = commitExecutorThread();
     final int internalId = wowCache.internalFileId(id);
     Mockito.doAnswer(call -> {
       assertSame("Discard must run on the commitExecutor() thread",
           commitThread, Thread.currentThread());
-      throw error;
+      throw failure;
     }).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 2);
 
     final var wrapped = assertThrows(WriteCacheException.class,
         () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE));
-    assertCause(wrapped, error);
+    assertCause(wrapped, failure);
     assertTrue(wrapped.getMessage().contains("File data removal was abnormally terminated"));
     assertTrue(wrapped.getMessage().contains(storageName));
   }
 
   @Test
   public void orderedShrinkPropagatesSameErrorFromPhysicalTruncate() throws Exception {
+    assertOrderedShrinkPropagatesTruncateFailure(LinkageError.class,
+        new LinkageError("Channel truncate failed"));
+  }
+
+  @Test
+  public void orderedShrinkPropagatesSameIOExceptionFromPhysicalTruncate() throws Exception {
+    assertOrderedShrinkPropagatesTruncateFailure(IOException.class,
+        new IOException("Channel truncate failed"));
+  }
+
+  private <T extends Throwable> void assertOrderedShrinkPropagatesTruncateFailure(
+      Class<T> type, T failure) throws Exception {
     final long id = preparePendingPage(9351, null);
     wowCache.flush(id);
     final var file = files.get(id);
@@ -4988,13 +5012,11 @@ public class WOWCacheLoadOrAddTest {
     final var realChannel = (AsynchronousFileChannel) channelField.get(file);
     final var channel = mock(AsynchronousFileChannel.class,
         org.mockito.AdditionalAnswers.delegatesTo(realChannel));
-    final var error = new LinkageError("Channel truncate failed");
-    Mockito.doThrow(error).when(channel).truncate(Mockito.anyLong());
+    Mockito.doThrow(failure).when(channel).truncate(Mockito.anyLong());
 
     try {
       channelField.set(file, channel);
-      assertSame(error, assertThrows(LinkageError.class,
-          () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE)));
+      assertSame(failure, assertThrows(type, () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE)));
     } finally {
       channelField.set(file, realChannel);
     }

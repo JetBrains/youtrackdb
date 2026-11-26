@@ -3072,9 +3072,9 @@ public final class WOWCache extends AbstractWriteCache
   private void discardPagesForOrderedShrink(int intId, int minPageIndex) {
     try {
       doRemoveCachePages(intId, minPageIndex);
-    } catch (Error failure) {
-      // Use the same cause chain as close so a HighLevelException marker on the Error cannot
-      // trigger the exception builder's shortcut.
+    } catch (Exception | Error failure) {
+      // Discard declares no checked exceptions. Catch Exception to include any checked failures.
+      // Keep the original behind a wrapper to avoid the HighLevelException shortcut.
       throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal",
           new ExecutionException("File data removal failed", failure));
     }
