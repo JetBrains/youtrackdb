@@ -6912,11 +6912,15 @@ public class MatchExecutionPlanner {
 
   /**
    * True only when every pinned RID has a resolvable collection and at least one
-   * lies outside {@code className}'s hierarchy. Unresolvable pins return
-   * {@code false} so the caller keeps the RID FROM unchanged.
+   * lies outside {@code className}'s hierarchy. Unresolvable pins, or a missing
+   * session/schema, return {@code false} so the caller keeps the RID FROM —
+   * uncertainty must not become an empty result.
    */
   private static boolean pinnedRidsDefinitelyOutsideClass(
       List<SQLRid> rids, String className, @Nullable CommandContext ctx) {
+    if (ctx == null || ctx.getDatabaseSession() == null) {
+      return false;
+    }
     for (var rid : rids) {
       var collection = rid.getCollection();
       if (collection == null || collection.getValue() == null) {
