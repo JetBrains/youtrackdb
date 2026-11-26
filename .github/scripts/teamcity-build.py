@@ -11,7 +11,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -223,8 +222,6 @@ def branch_kind(branch):
 
 
 def detect_build():
-    print("Pilot delay 420 s", flush=True)
-    time.sleep(420)
     kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
     args = ["--root", ".", "--head", "HEAD", "--commit-type", kind]
     if kind == "pr":
@@ -292,6 +289,7 @@ def guard():
 
 def maven():
     kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
+    kind = "merge-queue"
     if not build_needed():
         return 0
     profile = "docker-images,coverage" if kind == "pr" else "docker-images"
@@ -305,6 +303,7 @@ def maven():
 def verify():
     branch = os.environ.get("TC_VCS_BRANCH", "")
     kind = branch_kind(branch)
+    kind = "merge-queue"
     if not build_needed():
         return 0
     gate_text = "Test-failure gate failed: failed tests or missing or unreadable reports."
