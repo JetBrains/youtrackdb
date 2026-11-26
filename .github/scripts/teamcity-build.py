@@ -106,20 +106,21 @@ def commit_sha(value):
 
 
 def earlier_develop_build(head):
-    # Include skipped and failed-to-start builds here, but not in the test baseline.
-    entries, next_path = history_page(history_path(f"revision:(version:{head})", REVISION_FIELDS))
-    found = False
-    for build in entries:
-        matching = [revision for revision in build_revisions(build)
-                    if commit_sha(revision.get("version")) == head]
-        if not matching:
-            raise ValueError("Unexpected TeamCity build revision")
-        if any(revision["vcsBranchName"] == DEVELOP for revision in matching):
-            found = True
-    # If the bounded lookup is inconclusive, do not risk skipping Maven.
-    if not found and next_path:
-        raise ValueError("Incomplete TeamCity revision history")
-    return found
+    # Count only finished attempts. Ignore running and queued builds.
+    path = history_path(f"revision:(version:{head})", REVISION_FIELDS)
+    while path:
+        entries, path = history_page(path)
+        found = False
+        for build in entries:
+            matching = [revision for revision in build_revisions(build)
+                        if commit_sha(revision.get("version")) == head]
+            if not matching:
+                raise ValueError("Unexpected TeamCity build revision")
+            if any(revision["vcsBranchName"] == DEVELOP for revision in matching):
+                found = True
+        if found:
+            return True
+    return False
 
 
 class TestBuild(NamedTuple):

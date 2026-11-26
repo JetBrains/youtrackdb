@@ -593,12 +593,52 @@ class TeamCityTest(unittest.TestCase):
     def test_develop_uses_full_build_with_warning_if_repeat_lookup_is_unreadable(self):
         with self.develop_repo():
             self.commit("README.md")
-            for unreadable in (OSError(), {"count": 1}, {"count": 0, "nextHref": 42},
-                               {"count": 0, "nextHref": "/app/rest/builds?next"}):
+            for unreadable in (OSError(), {"count": 1}, {"count": 0, "nextHref": 42}):
                 with self.subTest(unreadable=unreadable), \
                      patch.object(tc, "rest", side_effect=[unreadable]) as rest:
                     self.assert_detect_decision(True, warning=True)
                     self.assertEqual(rest.call_count, 1)
+
+    def test_develop_reads_revision_pages_until_a_finished_develop_attempt_or_end(self):
+        with self.develop_repo() as base:
+            head = self.commit("README.md")
+            queue = self.build(2, "refs/heads/gh-readonly-queue/develop/pr-12", revision=head)
+            attempt = self.build(3, tc.DEVELOP, revision=head)
+            next_path = "/app/rest/builds?next"
+            empty = {"count": 0}
+            tested = {"build": [self.build(1, tc.DEVELOP, revision=base)]}
+            cases = (
+                ("empty pages", empty, empty, False),
+                ("queue then develop", {"build": [queue]},
+                 {"build": [attempt], "nextHref": "/app/rest/builds?unneeded"}, True),
+                ("queue only", {"build": [queue]}, empty, False),
+            )
+            for name, first, second, needs_build in cases:
+                pages = [first | {"nextHref": next_path}, second, tested]
+                with self.subTest(history=name), patch.object(tc, "rest", side_effect=pages) as rest:
+                    self.assert_detect_decision(needs_build)
+                    self.assertEqual(rest.call_count, 2 if needs_build else 3)
+                    self.assertEqual(rest.call_args_list[1].args, (next_path,))
+                    if not needs_build:
+                        self.assert_tagged_history_locator(rest.call_args_list[2].args[0])
+
+    def test_develop_uses_full_build_with_warning_if_a_revision_continuation_fails(self):
+        with self.develop_repo() as base:
+            self.commit("README.md")
+            next_path = "/app/rest/builds?next"
+            first = {"count": 0, "nextHref": next_path}
+            cases = (
+                ("unreadable continuation", OSError()),
+                ("invalid next path", {"count": 0, "nextHref": "/app/rest/other?next"}),
+                ("malformed page", {"count": 1}),
+                ("wrong revision", {"build": [self.build(1, tc.DEVELOP, revision=base)]}),
+            )
+            for name, second in cases:
+                with self.subTest(history=name), \
+                     patch.object(tc, "rest", side_effect=[first, second]) as rest:
+                    self.assert_detect_decision(True, warning=True)
+                    self.assertEqual(rest.call_count, 2)
+                    self.assertEqual(rest.call_args_list[1].args, (next_path,))
 
     def test_verify_real_surefire_gate_passes_green_and_names_failures(self):
         # Run the actual gate from the fixture checkout, without a subprocess mock.
