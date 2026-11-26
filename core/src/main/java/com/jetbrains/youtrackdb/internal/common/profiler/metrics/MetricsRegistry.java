@@ -53,13 +53,18 @@ public class MetricsRegistry {
       new ConcurrentHashMap<>();
   private final Set<ObjectName> registeredMBeans = ConcurrentHashMap.newKeySet();
 
-  private final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+  private final MBeanServer mBeanServer;
   private volatile boolean closed = false;
   private volatile Runnable beforeDiskUsageMBeanRegistration = () -> {
   };
 
   public MetricsRegistry(Ticker ticker) {
+    this(ticker, ManagementFactory.getPlatformMBeanServer());
+  }
+
+  MetricsRegistry(Ticker ticker, MBeanServer mBeanServer) {
     this.ticker = ticker;
+    this.mBeanServer = mBeanServer;
     this.globalMetrics = new GlobalMetrics();
   }
 
