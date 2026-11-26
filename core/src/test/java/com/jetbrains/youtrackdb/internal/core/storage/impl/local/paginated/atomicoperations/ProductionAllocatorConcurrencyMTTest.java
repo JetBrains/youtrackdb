@@ -182,10 +182,7 @@ public class ProductionAllocatorConcurrencyMTTest {
    * deducted. Any payload above this threshold forces {@code serializeRecord}
    * to split across pages, so {@code findNewPageToWrite} fires on every call
    * (no existing page can fit the record) and both concurrent workers race the
-   * new-page allocator branch deterministically. The storage's default page
-   * size is 8 KiB ({@code GlobalConfiguration.DISK_CACHE_PAGE_SIZE = 8} KB), so
-   * the resulting payload is on the order of a few KiB, not the speculative
-   * 65536-byte page the prior draft referenced.
+   * new-page allocator branch deterministically. The threshold follows the process page size.
    */
   private static final int PCV2_LARGE_PAYLOAD_BYTES = CollectionPage.MAX_RECORD_SIZE + 1;
 

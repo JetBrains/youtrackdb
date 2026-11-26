@@ -499,9 +499,10 @@ public enum GlobalConfiguration {
 
   DISK_CACHE_PAGE_SIZE(
       "youtrackdb.storage.diskCache.pageSize",
-      "Size of page of disk buffer (in kilobytes). !!! NEVER CHANGE THIS VALUE !!!",
+      "Process-wide storage page size in kilobytes. The process fixes this size at startup."
+          + " Restart the process after changing it. The size must match the database.",
       Integer.class,
-      8),
+      4),
 
   DISK_CACHE_FREE_SPACE_LIMIT(
       "youtrackdb.storage.diskCache.diskFreeSpaceLimit",
@@ -608,9 +609,10 @@ public enum GlobalConfiguration {
 
   BTREE_MAX_KEY_SIZE(
       "youtrackdb.btree.maxKeySize",
-      "Maximum index key size in bytes (-1 uses 30% of the page size). Recorded at database"
-          + " creation. Oversized string and binary keys in single-field indexes are shortened"
-          + " to a fixed prefix when the recorded limit is positive.",
+      "Maximum index key size in bytes. The value -1 uses 30% of the page size, rounded down."
+          + " This gives 1,228 bytes at the default page size. The database records the limit"
+          + " at creation. Single-field indexes shorten oversized string and binary keys to"
+          + " a fixed prefix when the recorded limit is positive.",
       Integer.class,
       -1),
 

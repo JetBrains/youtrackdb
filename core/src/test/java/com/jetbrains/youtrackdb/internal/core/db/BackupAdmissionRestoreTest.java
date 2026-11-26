@@ -145,6 +145,8 @@ public class BackupAdmissionRestoreTest {
               () -> internalOf(manager).restore(TARGET, backupPath.toString(), null, null));
           assertPageSizeMessage(rejection, 8);
           assertTrue(rejection.getMessage().contains("8 KB is assumed"));
+          assertTrue(rejection.getMessage().contains(
+              "Do not set 8 unless the backup is known to come from an 8 KB process."));
           assertNoTargetExists(manager);
         }
       }

@@ -76,7 +76,7 @@ public final class CostModel {
   /**
    * Index seek cost = {@link #randomPageReadCost()} × tree depth.
    * Tree depth defaults to 4 (covers B-trees up to ~millions of entries
-   * with 8 KB pages and typical key sizes).
+   * with typical key sizes).
    */
   public static double indexSeekCost() {
     int depth = GlobalConfiguration.QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH.getValueAsInteger();

@@ -3021,7 +3021,10 @@ public class DiskStorage extends AbstractStorage {
           + (recorded == 0 ? " (8 KB is assumed for an old-format backup unit)" : "")
           + ". Configured page size is " + ProcessPageSize.kibibytes()
           + " KB. Set youtrackdb.storage.diskCache.pageSize to the backup page size."
-          + " Restart the process after you change the setting.");
+          + " Restart the process after you change the setting."
+          + (recorded == 0
+              ? " Do not set 8 unless the backup is known to come from an 8 KB process."
+              : ""));
     }
   }
 
