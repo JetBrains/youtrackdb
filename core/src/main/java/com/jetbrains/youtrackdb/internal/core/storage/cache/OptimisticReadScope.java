@@ -280,12 +280,19 @@ public final class OptimisticReadScope {
   }
 
   /**
-   * Returns the page frame at the given index. Used after validation succeeds to
-   * record optimistic accesses in the read cache's frequency sketch.
+   * Returns the page frame at the given index.
    */
   public PageFrame getFrame(int index) {
     assert index >= 0 && index < count : "Index out of bounds: " + index;
     return frames[index];
+  }
+
+  /**
+   * Returns the cache entry at the given index.
+   */
+  public CacheEntry getEntry(int index) {
+    assert index >= 0 && index < count : "Index out of bounds: " + index;
+    return entries[index];
   }
 
   private void grow() {

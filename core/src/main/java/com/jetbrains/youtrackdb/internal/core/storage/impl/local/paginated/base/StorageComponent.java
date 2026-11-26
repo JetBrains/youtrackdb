@@ -1047,13 +1047,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   }
 
   /**
-   * Records successful optimistic accesses for all pages tracked in the scope.
-   * Must be called after scope validation succeeds, before scope.reset().
-   *
-   * <p>Note: there is a benign TOCTOU between validateOrThrow() and reading frame
-   * coordinates here — an evictor could reassign the frame between validation and
-   * the coordinate reads. This would cause a frequency bump for the wrong page,
-   * which is harmless: it only slightly skews eviction heuristics.
+   * Records accesses for the cache entries that the outermost attempt validated.
+   * The pinned read path already records accesses for pinned pages.
    */
   private void recordOptimisticAccesses(final OptimisticReadScope scope) {
     if (!scope.isOutermostAttempt()) {
@@ -1063,8 +1058,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       if (scope.isPinned(i)) {
         continue;
       }
-      final PageFrame frame = scope.getFrame(i);
-      readCache.recordOptimisticAccess(frame.getFileId(), frame.getPageIndex());
+      readCache.recordOptimisticAccess(scope.getEntry(i));
     }
   }
 }

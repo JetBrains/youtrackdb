@@ -515,13 +515,9 @@ public final class LockFreeReadCache implements ReadCache {
   }
 
   @Override
-  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
-    final var cacheEntry = data.get(fileId, (int) pageIndex);
-
-    // Entry may have been evicted between scope validation and this call.
-    // One missed frequency bump is harmless — skip silently.
-    if (cacheEntry != null) {
-      afterRead(cacheEntry);
+  public void recordOptimisticAccess(final CacheEntry entry) {
+    if (entry.isAlive()) {
+      afterRead(entry);
     }
   }
 
