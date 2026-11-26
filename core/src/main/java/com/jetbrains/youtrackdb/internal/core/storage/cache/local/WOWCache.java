@@ -84,6 +84,7 @@ import java.io.StringWriter;
 import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
@@ -2753,6 +2754,11 @@ public final class WOWCache extends AbstractWriteCache
       throw new IllegalArgumentException("Internal file identifier must be positive");
     }
 
+    if (logicalFiles != null) {
+      orderedDeleteFile(fileId, intId);
+      return;
+    }
+
     filesLock.acquireWriteLock();
     try {
       checkForClose();
@@ -2771,32 +2777,71 @@ public final class WOWCache extends AbstractWriteCache
             storageName);
       }
 
-      // The caller excludes writers for this file through its component or lifecycle lock.
-      // Startup removal keeps both generations and their existing trust, even for an absent file.
-      // Ordinary deletion clears marks even for absent IDs.
-      if (!startupReplayPreservation) {
-        changedPageTracker.deleteFile(intId);
-      }
-      if (file != null || logicalFiles != null) {
-        // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
-        if (nonDurableFileIds.contains(intId)) {
-          final var updated = new IntOpenHashSet(nonDurableFileIds);
-          updated.remove(intId);
-          nonDurableFileIds = updated;
-
-          // During bulk recovery the caller batches a single registry write at the end,
-          // so skip the per-file I/O here to avoid redundant fsync overhead.
-          if (!suppressNonDurableRegistryPersist) {
-            writeNonDurableRegistry();
-          }
-        }
-
-        if (file != null && logicalFiles == null) {
-          writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
-        }
-      }
+      finishDeleteFile(intId, file);
     } finally {
       filesLock.releaseWriteLock();
+    }
+  }
+
+  private void orderedDeleteFile(long fileId, int intId) throws IOException {
+    FileLifecycleStep.requireCaller(commitExecutor());
+    try (var step = new FileLifecycleStep(storageName, "File data removal")) {
+      filesLock.acquireWriteLock();
+      try {
+        checkForClose();
+        final var future = submitDeleteStep(fileId);
+        final RawPair<String, String> file;
+        try {
+          file = step.awaitCompletion(future);
+        } catch (ExecutionException | CancellationException failure) {
+          // Keep the single-file delete exception contract, including the task's original cause.
+          throw BaseException.wrapException(
+              new WriteCacheException(storageName, "File data removal was abnormally terminated"),
+              failure, storageName);
+        }
+
+        try {
+          finishDeleteFile(intId, file);
+        } catch (ClosedByInterruptException failure) {
+          // Keep the I/O error primary even if registry I/O consumes the interrupt.
+          Thread.currentThread().interrupt();
+          throw failure;
+        }
+      } finally {
+        filesLock.releaseWriteLock();
+      }
+    }
+  }
+
+  Future<RawPair<String, String>> submitDeleteStep(long fileId) {
+    return commitExecutor().submit(() -> executeDeleteFile(fileId, true));
+  }
+
+  private void finishDeleteFile(int intId, @Nullable RawPair<String, String> file)
+      throws IOException {
+    // The caller excludes writers for this file through its component or lifecycle lock.
+    // Startup removal keeps both generations and their existing trust, even for an absent file.
+    // Ordinary deletion clears marks even for absent IDs.
+    if (!startupReplayPreservation) {
+      changedPageTracker.deleteFile(intId);
+    }
+    if (file != null || logicalFiles != null) {
+      // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
+      if (nonDurableFileIds.contains(intId)) {
+        final var updated = new IntOpenHashSet(nonDurableFileIds);
+        updated.remove(intId);
+        nonDurableFileIds = updated;
+
+        // During bulk recovery the caller batches a single registry write at the end,
+        // so skip the per-file I/O here to avoid redundant fsync overhead.
+        if (!suppressNonDurableRegistryPersist) {
+          writeNonDurableRegistry();
+        }
+      }
+
+      if (file != null && logicalFiles == null) {
+        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
+      }
     }
   }
 
@@ -5087,11 +5132,12 @@ public final class WOWCache extends AbstractWriteCache
     //     would deadlock against the submitter. Both structures touched are concurrent, and
     //     the per-key group lock would buy nothing because CachePointer fires
     //     addOnlyWriters/removeOnlyWriters without holding it.
-    //     Caveat on that exclusion: it is best-effort under interruption. If the submitter's
-    //     future.get() throws InterruptedException, the legacy purge wait and deleteFile rethrow
-    //     without cancelling or awaiting this task, so their finally releases the filesLock
-    //     write lock while the purge — including this sweep — may still be running, and a
-    //     concurrent store() can then proceed. Tracked as its own follow-up item.
+    //     The purge waits in a close without a flush, whole-cache delete, and layout 27
+    //     single-file delete and shrink can end early on interruption. In that case the caller
+    //     neither cancels the task nor waits for it to finish. The caller releases filesLock,
+    //     so a concurrent store() can proceed while the purge is still running. Layout 28
+    //     single-file delete and shrink keep filesLock until the step ends, even when the
+    //     submitter is interrupted.
     //
     // KNOWN LIMITATION: this sweep NARROWS the orphan window on every ordering, and closes it
     // on none. Two residual producers can publish a key into exclusiveWritePages after the
@@ -5105,11 +5151,9 @@ public final class WOWCache extends AbstractWriteCache
     //     structural blind spot: it builds its CacheEntryImpl with insideCache=false and never
     //     inserts it into the read cache's map, so clearFile can neither see nor freeze it, and
     //     the matching releaseFromRead calls decrementReadersReferrer with no filesLock held.
-    //     That blind spot is NOT demonstrated to be live today — subject to the same interruption
-    //     caveat noted above: the exclusion below is a stateLock argument, so it is independent of
-    //     filesLock, but if the submitter is interrupted out of future.get() then this sweep can
-    //     still be running after its caller returned, and a stateLock-based exclusion says nothing
-    //     about what the interrupted caller's thread does next. silentLoadForRead has exactly
+    //     That blind spot is NOT demonstrated to be live today. The exclusion below depends on
+    //     stateLock, not filesLock. If one of the waits above ends early on interruption,
+    //     the sweep can outlast the caller's stateLock protection. silentLoadForRead has exactly
     //     one production caller, DiskStorage.backupPagesWithChanges, and the whole per-page
     //     load/release loop runs under DiskStorage.backup's stateLock.readLock()
     //     (backup :930 acquires, :1000 releases, :979 calls storeBackupDataToStream, which calls
@@ -6848,6 +6892,11 @@ public final class WOWCache extends AbstractWriteCache
 
   @Nullable public RawPair<String, String> executeDeleteFile(long externalFileId)
       throws IOException, java.lang.InterruptedException {
+    return executeDeleteFile(externalFileId, false);
+  }
+
+  @Nullable private RawPair<String, String> executeDeleteFile(long externalFileId,
+      boolean repairUnlinkFailure) throws IOException, InterruptedException {
     final var internalFileId = extractFileId(externalFileId);
     final var fileId = composeFileId(id, internalFileId);
 
@@ -6868,15 +6917,18 @@ public final class WOWCache extends AbstractWriteCache
     }
     if (logicalFiles != null) {
       final var name = PageFileNames.layout28(identity);
-      var file = files.remove(fileId);
-      pendingCreationHandles.remove(internalFileId);
-      if (file == null) {
-        file = createFileHandle(name, internalFileId);
-      }
+      final var removed = files.remove(fileId);
+      final var owner = pendingCreationHandles.remove(internalFileId);
+      final var file = removed != null ? removed : createFileHandle(name, internalFileId);
       try {
         file.delete();
       } catch (NoSuchFileException missingFile) {
-        // Missing files still need logical deletion. All other I/O failures must reach the caller.
+        // A missing path still needs logical deletion.
+      } catch (IOException | RuntimeException | Error unlinkFailure) {
+        if (repairUnlinkFailure && removed != null) {
+          repairFailedUnlink(fileId, internalFileId, removed, owner, unlinkFailure);
+        }
+        throw unlinkFailure;
       }
       pageRetentionState.discardAfterRemoval(fileId, 0);
       logicalFiles.delete(name, internalFileId);
@@ -6907,6 +6959,46 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     return null;
+  }
+
+  private void repairFailedUnlink(long fileId, int internalFileId, File file,
+      @Nullable LogicalPageFileTable.Extents owner, Throwable unlinkFailure) {
+    try {
+      // Reuse the wrapper and its reservation. Regular open uses READ and WRITE, not CREATE.
+      file.open();
+    } catch (RuntimeException | Error reopenFailure) {
+      if (reopenFailure != unlinkFailure) {
+        unlinkFailure.addSuppressed(reopenFailure);
+      }
+      return;
+    }
+
+    try {
+      files.add(fileId, file);
+    } catch (InterruptedException | RuntimeException | Error registrationFailure) {
+      if (registrationFailure != unlinkFailure) {
+        unlinkFailure.addSuppressed(registrationFailure);
+      }
+      // Admission can publish the entry before it fails. The container then owns the channel.
+      if (files.get(fileId) != file) {
+        try {
+          if (file instanceof AsyncFile asyncFile) {
+            asyncFile.closeAfterFailedCreate();
+          } else {
+            file.close();
+          }
+        } catch (IOException | RuntimeException | Error closeFailure) {
+          if (closeFailure != unlinkFailure && closeFailure != registrationFailure) {
+            unlinkFailure.addSuppressed(closeFailure);
+          }
+        }
+        return;
+      }
+    }
+
+    if (owner != null && logicalFiles.isCurrent(internalFileId, owner)) {
+      pendingCreationHandles.put(internalFileId, owner);
+    }
   }
 
   public void executePeriodicFlush(PeriodicFlushTask task) {

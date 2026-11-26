@@ -29,15 +29,8 @@ final class FileLifecycleStep implements AutoCloseable {
   }
 
   <T> T await(Future<T> future) throws IOException {
-    accepted = true;
     try {
-      while (true) {
-        try {
-          return future.get();
-        } catch (InterruptedException interrupted) {
-          interruption = interrupted;
-        }
-      }
+      return awaitCompletion(future);
     } catch (ExecutionException failure) {
       switch (failure.getCause()) {
         case IOException io -> throw io;
@@ -46,6 +39,19 @@ final class FileLifecycleStep implements AutoCloseable {
         default -> throw BaseException.wrapException(
             new WriteCacheException(storageName, operation + " failed"), failure.getCause(),
             storageName);
+      }
+    }
+  }
+
+  <T> T awaitCompletion(Future<T> future) throws ExecutionException {
+    accepted = true;
+    try {
+      while (true) {
+        try {
+          return future.get();
+        } catch (InterruptedException interrupted) {
+          interruption = interrupted;
+        }
       }
     } finally {
       // A completed future need not check the interrupt bit.
