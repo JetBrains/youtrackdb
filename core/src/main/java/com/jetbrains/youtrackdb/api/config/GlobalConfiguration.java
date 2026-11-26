@@ -892,9 +892,9 @@ public enum GlobalConfiguration {
   // CLASS
   CLASS_COLLECTIONS_COUNT(
       "youtrackdb.class.collectionsCount",
-      "Minimum collections to create when a new class is created. 0 means Automatic",
+      "Minimum collections to create for a new class. Default is 1. 0 means automatic (1).",
       Integer.class,
-      8),
+      1),
 
   // LOG
   LOG_SUPPORTS_ANSI(
@@ -1538,6 +1538,15 @@ public enum GlobalConfiguration {
           + "An explicit NULLS FIRST/LAST clause overrides this setting.",
       OrderByNullsPlacement.class,
       OrderByNullsPlacement.LAST,
+      true),
+
+  QUERY_INDEX_ORDERED_MAX_EQUALITY_CANDIDATES(
+      "youtrackdb.query.indexOrdered.maxEqualityCandidates",
+      "Maximum candidate RIDs retained by an index-ordered MATCH equality fetch."
+          + " Auto-scaled to 0.5% of max heap, clamped to [100K, 10M]",
+      Integer.class,
+      (int) Math.min(10_000_000L,
+          Math.max(100_000L, Runtime.getRuntime().maxMemory() / 200)),
       true),
 
   QUERY_INDEX_ORDERED_MIN_LINKBAG(

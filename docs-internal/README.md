@@ -9,7 +9,8 @@ product documentation lives in the [user documentation index](../docs/README.md)
 | Document | Description |
 |---|---|
 | [Track-Based Development](dev-workflow/track-development.md) | YTDB workflow deltas |
-| [Machine-local Setup](dev-workflow/machine-local-setup.md) | Local model routing checks |
+| [Issue Tracking](dev-workflow/issue-tracking.md) | Rules for creating, linking, and updating YTDB issues |
+| [Machine-local Setup](dev-workflow/machine-local-setup.md) | Slate model routing and YouTrack access setup for worker threads |
 | [Agent Package Upgrades](dev-workflow/agent-package-upgrades.md) | Package upgrade procedure |
 | [Coverage Verification](dev-workflow/coverage-verification.md) | On-demand coverage procedure — command sequence, report-set assertion, result diagnosis, and local-versus-CI differences |
 | [Orchestrator Guidelines](agents/orchestrator-guidelines.md) | Planning and delivery rules for the orchestrator role — track workflow, test policy, verification scope, git/PR conventions, documentation sync |

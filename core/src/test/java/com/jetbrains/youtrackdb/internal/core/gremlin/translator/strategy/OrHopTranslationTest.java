@@ -16,6 +16,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.NotStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.FilterRankingStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.InlineFilterStrategy;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Test;
@@ -24,6 +25,10 @@ import org.junit.experimental.categories.Category;
 /** Differential witnesses for scoped OR checks, with explicit nonempty expected rows. */
 @Category(SequentialTest.class)
 public class OrHopTranslationTest extends GraphBaseTest {
+
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
 
   private final TranslatorEquivalenceSupport support =
       new TranslatorEquivalenceSupport(() -> session);
@@ -140,6 +145,71 @@ public class OrHopTranslationTest extends GraphBaseTest {
     var tx = (com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction) graph.tx();
     tx.readWrite();
     return tx.getDatabaseSession();
+  }
+
+  /** Child roles and every closing delimiter remain explicit, including global union children. */
+  @Test
+  public void cacheShapeRetainsLocalAndGlobalChildRolesAndArmBoundaries() {
+    seed();
+    var local = GremlinStepWalker.extractShape(cachedSelection("u", "yes").asAdmin(),
+        graphSession());
+    var global = GremlinStepWalker.extractShape(graph.traversal().V().hasLabel("Article")
+        .union(__.out("category"), __.identity()).asAdmin(), graphSession());
+    assertThat(local.complete()).isTrue();
+    // Union's opaque constant selector prevents caching, but global children still need roles.
+    assertThat(global.complete()).isFalse();
+    assertThat(local.key().toString()).contains("10:localChild", "8:childEnd", "6:armEnd");
+    assertThat(global.key().toString()).contains("11:globalChild", "8:childEnd");
+    assertThat(local.key()).isNotEqualTo(global.key());
+    var translation = GremlinStepWalker.production().walk(cachedSelection("u", "yes").asAdmin());
+    assertThat(translation).isNotNull();
+    assertThat(GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping()))
+        .contains(";B:");
+  }
+
+  /**
+   * Numeric guards in FILTER and PROBE leaves accept mixed numeric types, not strings, nulls or
+   * absent values. A dead hop keeps OR as a tree instead of folding it into a start predicate.
+   */
+  @Test
+  public void booleanNumericLeavesPreserveGremlinTypeGuards() {
+    for (var value : List.of(1, 2L, 3.5d, "4", "absent", "null")) {
+      var vertex = graph.addVertex(T.label, "NumericLeaf", "name", value.toString());
+      if (!value.equals("absent")) {
+        vertex.property("score", value.equals("null") ? null : value);
+      }
+      graph.addVertex(T.label, "NumericRoot").addEdge("numeric", vertex);
+    }
+    graph.tx().commit();
+    var shapes = List.<Supplier<GraphTraversal<?, ?>>>of(
+        () -> graph.traversal().V().hasLabel("NumericLeaf")
+            .or(__.has("score", P.gt(1)), __.out("missing")).values("name"),
+        () -> graph.traversal().V().hasLabel("NumericRoot")
+            .or(__.out("numeric").has("score", P.gt(1)), __.has("never", true)));
+    for (var shape : shapes) {
+      check("mixed numeric boolean leaf", Recognition.RECOGNIZED, shape);
+      support.withTranslator(true, () -> {
+        var raw = shape.get().asAdmin();
+        var translation = GremlinStepWalker.production().walk(raw);
+        assertThat(translation).isNotNull();
+        assertThat(translation.inputs().booleanCheck()).isNotNull();
+        GremlinToMatchStrategy.instance().apply(raw);
+        assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
+        assertThat(raw.toList()).hasSize(2);
+      });
+    }
+  }
+
+  /** A filter after dedup must not move before it through the post-cardinality recogniser gate. */
+  @Test
+  public void booleanAfterDedupRemainsDeclined() {
+    seed();
+    check("boolean after dedup", Recognition.DECLINED,
+        // Keep the filter after dedup so this test reaches the walker's continuation gate.
+        // FilterRankingStrategy would otherwise commute these pure filters before dedup.
+        () -> graph.traversal().withoutStrategies(FilterRankingStrategy.class)
+            .V().hasLabel("Source").out("entry").dedup()
+            .or(__.out("category"), __.has("slug", "yes")));
   }
 
   private GraphTraversal<?, ?> cachedSelection(String uid, String slug) {
@@ -307,8 +377,8 @@ public class OrHopTranslationTest extends GraphBaseTest {
       assertThat(ka.key()).isNotEqualTo(kb.key());
       // Removing all child delimiters reconstructs the ambiguous, unscoped representation.
       var childTokens = "children:1:[0-9]+|6:armEnd|10:localChild|11:globalChild|8:childEnd";
-      assertThat(ka.key().replaceAll(childTokens, ""))
-          .isEqualTo(kb.key().replaceAll(childTokens, ""));
+      assertThat(ka.key().toString().replaceAll(childTokens, ""))
+          .isEqualTo(kb.key().toString().replaceAll(childTokens, ""));
     });
     support.withTranslator(true, () -> {
       var cache = GremlinPlanCache.instance(graphSession());

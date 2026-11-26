@@ -399,33 +399,228 @@ public class IndexOrderedScanBudgetTest extends DbTestBase {
     session.rollback();
   }
 
+  /** Dirty ordering indexes still scan a short prefix and include pending inserts and deletes. */
+  @Test
+  public void dirtyIndexStopsAtLimitWithoutRecountInEveryCostedRuntimeMode() throws Exception {
+    seedSkewed();
+    session.begin();
+    var sourceRid = authorRid();
+    var tx = session.getTransactionInternal();
+    var index = session.getSharedContext().getIndexManager().getIndex("Message.creationDate");
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0)) {
+      session.execute("DELETE VERTEX Message WHERE mid = 'm0019'").close();
+      for (var i = 0; i < 2; i++) {
+        session.execute("CREATE VERTEX Message SET creationDate = '2027-" + i
+            + "', mid = 'pending" + i + "'").close();
+      }
+      session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+          + " TO (SELECT FROM Message WHERE mid = 'pending1')").close();
+      tx.preProcessRecordsAndExecuteCallCallbacks();
+      assertThat(tx.getIndexChanges(index.getName())).isNotNull();
+      assertThat(index.estimateEntryCount(session)).isEqualTo(ORPHANS + REACHABLE);
+      assertThat(index.size(session)).isEqualTo(ORPHANS + REACHABLE + 1);
+
+      var bound = orderedQuery("DESC", 1);
+      var unbound = bound.replace("a.name as an, ", "");
+      var singleton = unbound.replace("name LIKE 'author%'", "@rid = " + sourceRid)
+          .replace("RETURN ", "RETURN DISTINCT ");
+      var queries = List.of(singleton, bound, unbound);
+      var modes = List.of("MATCH DESC", "(FILTERED_BOUND)", "(FILTERED_UNBOUND)");
+      for (var i = 0; i < queries.size(); i++) {
+        assertDirtySlice(queries.get(i), modes.get(i), null, "pending1");
+        assertDirtySlice(queries.get(i), modes.get(i), 0L, "pending1");
+      }
+
+      session.execute("DELETE VERTEX Message WHERE mid = 'pending1'").close();
+      tx.preProcessRecordsAndExecuteCallCallbacks();
+      for (var i = 0; i < queries.size(); i++) {
+        assertDirtySlice(queries.get(i), modes.get(i), null, "m0018");
+        assertDirtySlice(queries.get(i), modes.get(i), -1L, "m0018");
+      }
+    } finally {
+      session.rollback();
+    }
+    try (var result = session.query(orderedQuery("DESC", 1))) {
+      assertThat(drain(result, "mid")).containsExactly("m0019");
+    }
+  }
+
+  /**
+   * Compound LIMIT sorts the leading tie but stops before the worse-key tail for both
+   * DISTINCT $paths and a plain custom RETURN.
+   */
+  @Test
+  public void compoundLimitStopsAfterSortingTheLeadingTie() throws ReflectiveOperationException {
+    seedSkewed();
+    session.begin();
+    session.execute("UPDATE Message SET creationDate = '2027' WHERE mid IN ['m0018', 'm0019']")
+        .close();
+    session.commit();
+
+    // Assign secondary keys in cursor order so passing the tie through would return the wrong row.
+    session.begin();
+    var index = session.getSharedContext().getIndexManager().getIndex("Message.creationDate");
+    String winner;
+    try (var entries = index.descStream(session)) {
+      var tie = entries.limit(2).toList();
+      assertThat(tie).hasSize(2).allSatisfy(entry -> assertThat(entry.first()).isEqualTo("2027"));
+      session.execute("UPDATE " + tie.getFirst().second() + " SET rank = 9").close();
+      session.execute("UPDATE " + tie.getLast().second() + " SET rank = 1").close();
+      winner = session.loadEntity(tie.getLast().second()).getProperty("mid");
+    }
+    session.commit();
+
+    session.begin();
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0)) {
+      var match = "MATCH {class: Author, as: a, where: (@rid = " + authorRid() + ")}"
+          + ".out('wrote'){class: Message, as: m} RETURN ";
+      var order = " ORDER BY m.creationDate DESC, m.rank ASC LIMIT 1";
+      for (var projection : List.of("DISTINCT $paths", "m.mid AS mid")) {
+        var ctx = new BasicCommandContext(session);
+        var statement = (SQLMatchStatement) SQLEngine.parse(match + projection + order, session);
+        var plan = statement.createExecutionPlanNoCache(ctx, false);
+        var step = findStep(plan.getSteps());
+        assertThat(step).as(plan.prettyPrint(0, 2)).isNotNull();
+        var reads = new AtomicLong();
+        var closed = new AtomicLong();
+        try {
+          observeIndex(step, reads, closed, null);
+          var stream = plan.start();
+          try {
+            var mids = stream.stream(ctx).map(row -> row.hasProperty("m")
+                ? row.getVertex("m").<String>getProperty("mid")
+                : row.<String>getProperty("mid")).toList();
+            assertThat(mids).as(projection).containsExactly(winner);
+          } finally {
+            stream.close(ctx);
+          }
+        } finally {
+          plan.close();
+        }
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+        assertThat(reads.get()).as(projection + " cursor advances through close").isBetween(3L, 8L);
+        assertThat(closed.get()).isPositive();
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private String authorRid() {
+    try (var source = session.query("SELECT FROM Author")) {
+      return source.next().getIdentity().toString();
+    }
+  }
+
+  private void assertDirtySlice(String query, String mode, @Nullable Long estimate, String expected)
+      throws ReflectiveOperationException {
+    var ctx = new BasicCommandContext(session);
+    var plan = ((SQLMatchStatement) SQLEngine.parse(query, session))
+        .createExecutionPlanNoCache(ctx, false);
+    var step = findStep(plan.getSteps());
+    assertThat(step).as(plan.prettyPrint(0, 2)).isNotNull();
+    assertThat(step.prettyPrint(0, 2)).contains(mode);
+    var reads = new AtomicLong();
+    var closed = new AtomicLong();
+    try {
+      observeIndex(step, reads, closed, estimate);
+      var stream = plan.start();
+      try {
+        assertThat(stream.stream(ctx).map(row -> row.<String>getProperty("mid")).toList())
+            .containsExactly(expected);
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      plan.close();
+    }
+    boolean singleton = query.contains("@rid");
+    if (estimate == null) {
+      assertThat(step.getChosenRuntimePath()).isEqualTo(singleton
+          ? IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN
+          : IndexOrderedEdgeStep.RuntimePath.UNION_SCAN);
+      assertThat(reads.get()).as("total cursor advances through close").isBetween(1L, 8L);
+      assertThat(closed.get()).isPositive();
+    } else {
+      assertThat(step.getChosenRuntimePath()).isEqualTo(singleton
+          ? IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED
+          : IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED_MULTI);
+      assertThat(reads.get()).isZero();
+      assertThat(closed.get()).isZero();
+    }
+  }
+
+  /** With parallel links, SKIP 1 takes the second occurrence of A rather than the next target. */
+  @Test
+  public void singletonParallelLinksPreserveOccurrencesAcrossTheSlice() {
+    seedSkewed();
+    session.begin();
+    var query = orderedQuery("DESC", 1).replace("name LIKE 'author%'", "@rid = " + authorRid())
+        .replace(" LIMIT", " SKIP 1 LIMIT");
+    try (var ignored = GlobalConfigurationScope.set(
+        GlobalConfiguration.QUERY_INDEX_ORDERED_COST_BIAS, 0.0)) {
+      try (var result = session.query(query)) {
+        var step = stepOf(result);
+        assertThat(drain(result, "mid")).containsExactly("m0018");
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.INDEX_SCAN);
+      }
+
+      session.execute("CREATE EDGE wrote FROM (SELECT FROM Author)"
+          + " TO (SELECT FROM Message WHERE mid = 'm0019')").close();
+      try (var result = session.query(query)) {
+        var step = stepOf(result);
+        assertThat(drain(result, "mid")).containsExactly("m0019");
+        assertThat(step.getChosenRuntimePath())
+            .isEqualTo(IndexOrderedEdgeStep.RuntimePath.LOAD_UNSORTED);
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  private static void observeIndex(IndexOrderedEdgeStep step, AtomicLong reads, AtomicLong closed,
+      @Nullable Long estimate) throws ReflectiveOperationException {
+    var indexField = IndexOrderedEdgeStep.class.getDeclaredField("index");
+    indexField.setAccessible(true);
+    var index = (Index) indexField.get(step);
+    var counting = (Index) Proxy.newProxyInstance(Index.class.getClassLoader(),
+        new Class<?>[] {Index.class}, (proxy, method, args) -> {
+          // Reject before delegation. IndexMultiValues.size can count a stream internally.
+          if (method.getName().equals("size")) {
+            throw new AssertionError("An ordered MATCH strategy must not call Index.size()");
+          }
+          if (estimate != null) {
+            if (method.getName().equals("estimateEntryCount")) {
+              return estimate;
+            }
+            if (method.getName().equals("getHistogram")) {
+              throw new AssertionError("An unusable estimate must skip histogram lookup");
+            }
+          }
+          Object value;
+          try {
+            value = method.invoke(index, args);
+          } catch (java.lang.reflect.InvocationTargetException e) {
+            throw e.getCause();
+          }
+          if (value instanceof Stream<?> stream) {
+            return stream.peek(entry -> reads.incrementAndGet()).onClose(closed::incrementAndGet);
+          }
+          return value;
+        });
+    indexField.set(step, counting);
+  }
+
   private static long characterizeContinuation(InternalExecutionPlan plan, int gapSize) {
     var step = findStep(plan.getSteps());
     var reads = new AtomicLong();
     var closed = new AtomicLong();
     try {
-      var indexField = IndexOrderedEdgeStep.class.getDeclaredField("index");
-      indexField.setAccessible(true);
-      var index = (Index) indexField.get(step);
-      // Delegate every operation. Instrument only index entry streams, not SQL output rows.
-      var counting = (Index) Proxy.newProxyInstance(Index.class.getClassLoader(),
-          new Class<?>[] {Index.class}, (proxy, method, args) -> {
-            Object value;
-            try {
-              value = method.invoke(index, args);
-            } catch (java.lang.reflect.InvocationTargetException e) {
-              throw e.getCause();
-            }
-            if (value instanceof Stream<?> stream && (method.getName().equals("stream")
-                || method.getName().equals("descStream")
-                || method.getName().equals("getRids")
-                || method.getName().equals("getNullKeyRids"))) {
-              return stream.peek(entry -> reads.incrementAndGet())
-                  .onClose(closed::incrementAndGet);
-            }
-            return value;
-          });
-      indexField.set(step, counting);
+      observeIndex(step, reads, closed, null);
       var ctx = plan.getContext();
       var stream = plan.start();
       var rows = new ArrayList<String>();

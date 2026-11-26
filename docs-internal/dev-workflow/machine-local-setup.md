@@ -5,58 +5,10 @@ The repository does not need machine-local model overrides to enable routing.
 
 ## Model routing
 
-The project requires Pi 1.5.2 or later and configures `openai/gpt-6.2-astra` at `high`
+The project requires Pi 1.6.0 or later and configures `anthropic/claude-fable-5-2` at `high`
 as Pi's startup default. Slate supplies the ordinary model pool and the worker-summary
 compressor unless home Slate settings override them. Completed worker content goes to the
 configured compressor, OpenAI by default.
-
-Check JSON and the basic object shapes locally:
-
-```bash
-node -e '
-const c = require("./.pi/slate.json")
-const object = v => v !== null && typeof v === "object" && !Array.isArray(v)
-if (!object(c)) throw new Error("slate configuration must be an object")
-if (Object.hasOwn(c, "router")) {
-  if (!object(c.router)) throw new Error("router must be an object")
-  for (const key of ["models", "compressor"]) {
-    if (Object.hasOwn(c.router, key) && !object(c.router[key])) {
-      throw new Error(`router.${key} must be an object`)
-    }
-  }
-  console.log("basic router shape checked, explicit policy still needs Slate validation")
-} else {
-  console.log("no project router override, home policy or Slate defaults apply")
-}
-'
-```
-
-This is a basic shape check, not a policy validator. It does not check nested fields, model
-names, efforts, unknown keys, empty pools, merged home settings, or credentials. Slate validates
-the merged policy. Some legacy settings produce warnings and are ignored rather than rejected.
-Do not treat a warning-backed fallback as acceptance of an explicit setting.
-
-After changing configuration, use `pi --list-models` to check for the exact routes.
-The OpenAI catalog bundled with Pi 1.5.2 lacks `gpt-6.2-astra` and `gpt-6.2-sol`.
-If a route is missing, run `pi update --models` to refresh the catalogs, not the packages.
-Check the list again before reopening Pi. A refresh cannot guarantee access.
-
-Start a fresh trusted Pi session without resume or model flags. Record the actual provider,
-model, and thinking level. An available model scoped by `enabledModels` can take precedence
-over the configured default. A scoped effort or an entry in `modelThinkingLevels` can override
-`high`.
-
-Without a scoped selection, Pi uses the configured Astra default only if the registry
-contains the exact route and the provider has configured authentication. Otherwise Pi can
-select another available model or no model. Only `openai/gpt-6.2-astra` at `high` passes the
-startup check.
-
-Run `/slate effective` and resolve every policy error and warning. With no home overrides,
-Slate 0.19 uses `luna-6` at `max`, `sol-6.2` at `high`, `astra-6.2` at `high`, and
-`fable-5-2` at `high`. The independent summary compressor uses `sol-6.2` at `low`.
-Check each permitted route separately for exact registry entry, authentication, and effort
-support. Policy membership does not prove availability or a successful call. If no configured
-compressor can run, Slate retains bounded, uncompressed worker output.
 
 For isolated checks, set both `HOME` and `PI_CODING_AGENT_DIR` to temporary locations, use a
 temporary project, and pass no real credentials. Use the documented Pi package commands.

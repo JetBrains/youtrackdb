@@ -50,6 +50,26 @@ public final class FilterBooleanMatchStep extends AbstractExecutionStep {
     this.hash = hash;
   }
 
+  Kind getKind() {
+    return kind;
+  }
+
+  List<FilterBooleanMatchStep> getChildren() {
+    return children;
+  }
+
+  String getAlias() {
+    return alias;
+  }
+
+  SQLWhereClause getCondition() {
+    return condition;
+  }
+
+  boolean hasProbeWork() {
+    return !probeSteps.isEmpty() || hash != null;
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) {
     if (prev == null) {

@@ -12,6 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexDefinitionMultiValue;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexOrderCollations;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchDescriptor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.TraversalPreFilterHelper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -111,6 +113,8 @@ public final class IndexOrderedPlanner {
   // multiple source rows, which the single-source path cannot handle (it reads
   // only the first upstream row), so those fall through to a multi-source mode.
   private final Map<String, List<SQLRid>> aliasPinnedRids;
+  /** At-most-one source proofs for planning an edge rooted at a runtime RID slot. */
+  private final Set<String> runtimeSingleSources;
   @Nullable private final SQLOrderBy orderBy;
   @Nullable private final SQLSkip skip;
   @Nullable private final SQLLimit limit;
@@ -127,6 +131,7 @@ public final class IndexOrderedPlanner {
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, List<SQLRid>> aliasPinnedRids,
+      Set<String> runtimeSingleSources,
       @Nullable SQLOrderBy orderBy,
       @Nullable SQLSkip skip,
       @Nullable SQLLimit limit,
@@ -142,6 +147,7 @@ public final class IndexOrderedPlanner {
     this.aliasFilters = aliasFilters;
     this.estimateFilters = aliasFilters;
     this.aliasPinnedRids = aliasPinnedRids;
+    this.runtimeSingleSources = runtimeSingleSources;
     this.orderBy = orderBy;
     this.skip = skip;
     this.limit = limit;
@@ -286,18 +292,18 @@ public final class IndexOrderedPlanner {
         matchedEdge.out ? matchedEdge.edge.out.alias : matchedEdge.edge.in.alias;
     var linkBagFieldName = linkBagDirection + "_" + edgeClassName;
 
-    // 7a. Early exit: if LIMIT is absent and the source alias has a WHERE
-    //     filter or RID constraint, this query can only land in single-source,
-    //     FILTERED_BOUND, or FILTERED_UNBOUND mode — all of which require LIMIT
-    //     at step 10b. Returning here skips the expensive schema/index lookup
-    //     below — planner setup that does not pay back when the scan cannot
-    //     cut on LIMIT). UNFILTERED_* modes still proceed because they require
-    //     source to have no filter and no RID constraint.
+    // 7a. Filtered no-LIMIT queries need a singleton proof before index lookup.
+    // The target equality gate requires an indexed equality. Runtime costs decide selectivity.
+    var sourcePins = aliasPinnedRids.get(sourceAlias);
+    var sourceHasRidConstraint = runtimeSingleSources.contains(sourceAlias)
+        || (sourcePins != null && sourcePins.size() == 1)
+        || hasSingleRowGuarantee(sourceAlias, aliasClasses, aliasFilters, context);
     var earlyLimitSize = limit != null && limit.getValue(context) >= 0
         ? limit.getValue(context) : -1;
-    if (earlyLimitSize < 0
+    if (earlyLimitSize < 0 && (!sourceHasRidConstraint || limit != null)
         && (aliasFilters.get(sourceAlias) != null
-            || aliasPinnedRids.get(sourceAlias) != null)) {
+            || aliasPinnedRids.get(sourceAlias) != null
+            || runtimeSingleSources.contains(sourceAlias))) {
       return null;
     }
 
@@ -372,9 +378,10 @@ public final class IndexOrderedPlanner {
     }
 
     // 9. Determine multi-source mode (null = single-source).
-    // Single-source is safe when the source is guaranteed to produce exactly 1 row:
-    //   (a) explicit RID constraint ({rid: #X:Y}), or
-    //   (b) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
+    // Single-source is safe when the source produces at most one row:
+    //   (a) explicit singleton RID constraint ({rid: #X:Y}),
+    //   (b) a runtime RID source, or
+    //   (c) WHERE equality on a UNIQUE-index field (e.g., id = :personId).
     // With class + non-unique WHERE, the estimator may undercount
     // (e.g., LIKE matching multiple rows estimated as 1). In single-source mode,
     // flatMap concatenates per-source results — but OrderByStep is suppressed,
@@ -385,10 +392,6 @@ public final class IndexOrderedPlanner {
     // safe. A multi-RID pin (@rid IN [...]) means multiple source rows, which
     // must NOT go single-source (see aliasPinnedRids field doc); leave those to
     // a multi-source mode below.
-    var sourcePins = aliasPinnedRids.get(sourceAlias);
-    var sourceHasRidConstraint = (sourcePins != null && sourcePins.size() == 1)
-        || hasSingleRowGuarantee(
-            sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
     if (!sourceHasRidConstraint) {
       // Verify reverse field can exist on target class. The in_/out_ LinkBag
@@ -483,24 +486,17 @@ public final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     long queryLimit = limitSize >= 0 ? skipSize + limitSize : -1;
 
-    // 10b. Require LIMIT for single-source and FILTERED multi-source modes.
-    // Without LIMIT, all source rows' edges must be scanned regardless of
-    // order, so the only saving is sort elision — which for small linkBags
-    // is negligible compared to the planner setup + per-source RidSet build
-    // + index cursor init overhead on small LinkBags without a LIMIT cut.
-    // UNFILTERED modes scan the whole index anyway — they stay enabled
-    // without LIMIT (see testIndexOrderedMatchNoLimitAllResults,
-    // testIndexOrderedMatchUnfilteredBoundNoLimit).
+    var targetFilter = filter != null ? filter.getFilter() : null;
+    // 10b. A singleton may fetch indexed equality candidates without LIMIT.
+    // Filtered several-source queries still require LIMIT. Whole-class modes are unchanged.
     if (queryLimit < 0
-        && (multiSourceMode == null
+        && ((multiSourceMode == null
+            && (limit != null || isEdgeTraversal
+                || indexedEquality(targetFilter, targetClassName, context) == null))
             || multiSourceMode == MultiSourceMode.FILTERED_BOUND
             || multiSourceMode == MultiSourceMode.FILTERED_UNBOUND)) {
       return null;
     }
-
-    // Extract target WHERE filter from the edge's path item filter.
-    // filter is the SQLMatchFilterItem; filter.getFilter() is the WHERE clause.
-    var targetFilter = filter != null ? filter.getFilter() : null;
 
     // A trailing record identifier item on the ordered alias describes exactly what the scan
     // already produces, so it does not make the sort a multi-field one — see
@@ -574,8 +570,8 @@ public final class IndexOrderedPlanner {
    *       null key, and a target filter that keeps only rows whose ordered property is not null.
    *   <li>The row projects the ordered alias alone, so the two items are a total order over what
    *       the caller receives, and no deduplication step follows.
-   *   <li>The mode binds no second alias. A bound mode emits one row per source per target, so
-   *       rows sharing a target tie on both items and the sort is not total.
+   *   <li>The logical mode projects no second alias. Equality execution may retain upstream
+   *       bindings internally, but rows sharing a target are identical after projection.
    * </ul>
    *
    * <p>Two further conditions cannot be decided here and are enforced at run time by
@@ -862,7 +858,10 @@ public final class IndexOrderedPlanner {
     if (sourceEstimate == Long.MAX_VALUE || sourceEstimate < 0) {
       sourceEstimate = MatchExecutionPlanner.THRESHOLD;
     }
-    long indexSize = matchedIndex.size(session);
+    long indexSize = matchedIndex.estimateEntryCount(session);
+    if (indexSize <= 0) {
+      return false;
+    }
     int defaultFanOut =
         GlobalConfiguration.QUERY_STATS_DEFAULT_FAN_OUT.getValueAsInteger();
     if (estimateFilters.get(sourceAlias) == null) {
@@ -905,10 +904,37 @@ public final class IndexOrderedPlanner {
       // Invalid configuration and uneconomic zero budgets both use the ordinary sort plan.
       return false;
     }
+    // Equality lookup is a third execution path. A RID pin is only a membership filter.
+    var target = matchedEdge.out ? matchedEdge.edge.in : matchedEdge.edge.out;
+    var targetWhere = matchedEdge.edge.item.getFilter();
+    var descriptor = indexedEquality(
+        targetWhere == null ? null : targetWhere.getFilter(), aliasClasses.get(target.alias),
+        context);
+    if (queryLimit > 0 && descriptor != null) {
+      return true;
+    }
     var costs = IndexOrderedCostModel.computeCosts(
         estimatedEdges, indexSize, queryLimit,
         matchedIndex.getHistogram(session), asc);
     return costs != null && costs.costUnionScan() < costs.costLoadSort();
+  }
+
+  /** Equality admission excludes RID pins, ranges and indexed membership predicates. */
+  @Nullable static IndexSearchDescriptor indexedEquality(SQLWhereClause filter, String targetClass,
+      CommandContext context) {
+    if (filter == null || targetClass == null) {
+      return null;
+    }
+    var schemaClass = context.getDatabaseSession().getMetadata()
+        .getImmutableSchemaSnapshot().getClassInternal(targetClass);
+    if (schemaClass == null || !schemaClass.isVertexType()) {
+      return null;
+    }
+    var descriptor = TraversalPreFilterHelper.findIndexForFilter(filter, targetClass, context);
+    if (descriptor == null) {
+      return null;
+    }
+    return descriptor.isEqualityLookup() ? descriptor : null;
   }
 
   /**

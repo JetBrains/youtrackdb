@@ -17,14 +17,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
 
 /**
  * Synthesises a value-independent fingerprint from post-walk {@link MatchPlanInputs} for the
  * {@link GremlinPlanCache}. The key enumerates every planner-visible field on the record: positive
- * pattern topology (including per-node {@code optional}), alias classes, alias filters, positive
- * {@code matchExpressions}, detached NOT and exists expressions, return projection (items / aliases / nested
+ * pattern topology (including per-node {@code optional}), alias classes, runtime RID starts,
+ * alias filters, positive {@code matchExpressions}, detached NOT and exists expressions,
+ * return projection (items / aliases / nested
  * projections), result-shaping ({@code GROUP BY} / {@code ORDER BY} / {@code UNWIND} / {@code LIMIT}
  * / {@code SKIP} / {@code DISTINCT}), and return-mode flags ({@code $elements} / {@code $paths} /
  * {@code $patterns} / {@code $pathElements}). It never uses {@link
@@ -95,6 +97,7 @@ final class GremlinPlanFingerprint {
     appendResultShaping(sb, inputs);
     appendReturnModes(sb, inputs);
     appendBoundaryShaping(sb, shaping);
+    appendRuntimeRidStarts(sb, inputs);
     return sb.toString();
   }
 
@@ -130,6 +133,20 @@ final class GremlinPlanFingerprint {
       sb.append(entry.getValue().size()).append('[');
       entry.getValue().stream().sorted().forEach(name -> appendToken(sb, name));
       sb.append(']');
+    }
+  }
+
+  /** Keep descriptor-free keys byte-for-byte unchanged while separating bound start shapes. */
+  private static void appendRuntimeRidStarts(StringBuilder sb, MatchPlanInputs inputs) {
+    if (inputs.runtimeRidStarts().isEmpty()) {
+      return;
+    }
+    sb.append(";RS:");
+    // A map's iteration order need not be stable across independent translations.
+    for (var entry : new TreeMap<>(inputs.runtimeRidStarts()).entrySet()) {
+      appendToken(sb, entry.getKey());
+      appendToken(sb, entry.getValue().aliasClass());
+      appendToken(sb, Integer.toString(entry.getValue().parameterSlot()));
     }
   }
 
@@ -359,6 +376,9 @@ final class GremlinPlanFingerprint {
         .append(shaping.elementMapTokens() ? '1' : '0')
         .append(shaping.emitGroupEntries() ? '1' : '0')
         .append(shaping.emptyBarrier() ? '1' : '0');
+    if (shaping.propertyMapBulkingCapacity() > 0) {
+      sb.append(";PMB:").append(shaping.propertyMapBulkingCapacity());
+    }
     var counting = shaping.propertyGroupCount();
     if (counting != null) {
       // Other shapes retain their established fingerprint, including pinned cache contracts.

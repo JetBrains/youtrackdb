@@ -1760,6 +1760,18 @@ public abstract class IndexAbstract implements Index {
         .acquireAtomicExclusiveLock(atomicOperation);
   }
 
+  @Override
+  public long estimateEntryCount(DatabaseSessionEmbedded session) {
+    if (isNeverBuilt(state())) {
+      return -1;
+    }
+    var engine = withOwnedEngine(current -> storage.getIndexEngine(
+        current.engineIdentifier(), current.engineReference()));
+    return engine instanceof BTreeIndexEngine btreeEngine
+        ? btreeEngine.getTotalCount(session.getActiveTransaction().getAtomicOperation())
+        : -1;
+  }
+
   @Nullable @Override
   public IndexStatistics getStatistics(DatabaseSessionEmbedded session) {
     return withOwnedEngine(current -> storage.getIndexEngine(

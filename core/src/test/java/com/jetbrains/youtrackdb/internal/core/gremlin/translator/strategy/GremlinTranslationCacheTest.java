@@ -54,6 +54,87 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class GremlinTranslationCacheTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
+  /** Equal hashes must not merge distinct shapes, and key storage must be immutable. */
+  @Test
+  public void compactKeysResolveHashCollisionsByFullEquality() {
+    Object[] tokens = {"Aa"};
+    var first = new GremlinShapeKey(tokens);
+    var second = new GremlinShapeKey(new Object[] {"BB"});
+    tokens[0] = "BB";
+    assertThat(first.hashCode()).isEqualTo(second.hashCode());
+    assertThat(first).isNotEqualTo(second);
+    assertThat(first).isEqualTo(new GremlinShapeKey(new Object[] {"Aa"}));
+    assertThat(first).isNotEqualTo("Aa");
+  }
+
+  /** Different hops with identical slot roles retain their own current values on replay. */
+  @Test
+  public void deferredHarvestReplaysHopSlotsWithoutRevisitingTheTraversal() {
+    for (boolean swapped : List.of(false, true)) {
+      var admin = graph.traversal().V().out().has("age", P.gt(swapped ? 40 : 30))
+          .out().has("age", P.lt(swapped ? 30 : 40)).asAdmin();
+      TextShapeOracle.verify(admin);
+      var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+      assertThat(extraction.encoder().harvested()).isFalse();
+      // Replay must use only the recorded slots, not the traversal or its current step list.
+      while (!admin.getSteps().isEmpty()) {
+        admin.removeStep(0);
+      }
+      assertThat(extraction.bindings().values())
+          .containsExactlyInAnyOrder(swapped ? 40 : 30, swapped ? 30 : 40);
+      assertThat(extraction.bindings().get(0)).isEqualTo(swapped ? 40 : 30);
+      assertThat(extraction.bindings().get(1)).isEqualTo(swapped ? 30 : 40);
+      assertThat(extraction.encoder().harvested()).isTrue();
+      assertThat(extraction.bindings()).hasSize(2);
+      assertThat(extraction.bindings()).isSameAs(extraction.bindings());
+      assertThat(extraction.hasContributions()).isSameAs(extraction.hasContributions());
+      assertThat(extraction.nativeOperands()).isSameAs(extraction.nativeOperands());
+    }
+  }
+
+  /** Collection arity, item types and strategy settings are decision inputs, not rebound values. */
+  @Test
+  public void compactKeysDistinguishCollectionsAndStrategyInputs() {
+    var one = new GremlinShapeEncoder(null);
+    var two = new GremlinShapeEncoder(null);
+    var typed = new GremlinShapeEncoder(null);
+    one.appendPredicate(P.within(List.of(1)), false);
+    two.appendPredicate(P.within(List.of(1, 2)), false);
+    typed.appendPredicate(P.within(List.of("1")), false);
+    assertThat(one.compactKey()).isNotEqualTo(two.compactKey()).isNotEqualTo(typed.compactKey());
+    var traversal = graph.traversal().V().has("name", "a").asAdmin();
+    var placements =
+        com.jetbrains.youtrackdb.internal.core.sql.ResolvedOrderByNullsPlacement.SHIPPED;
+    var base = new TranslationEnvironment(graphSession(), false, null);
+    var edge = new TranslationEnvironment(graphSession(), true, null);
+    var productive = new TranslationEnvironment(graphSession(), false, java.util.Set.of("name"));
+    var key = GremlinShapeExtractor.extract(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+        GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), null, placements, null,
+        base).key();
+    for (var environment : List.of(edge, productive)) {
+      var changed = GremlinShapeExtractor.extract(GremlinStepWalker.PRODUCTION_RECOGNISERS,
+          GremlinStepWalker.TRANSPARENT_STEPS, traversal, graphSession(), null, placements, null,
+          environment).key();
+      assertThat(changed).isNotEqualTo(key);
+    }
+  }
+
+  /** The plan fingerprint predicate renderer must match the independent text renderer exactly. */
+  @Test
+  public void predicateFingerprintTextMatchesFrozenBase() {
+    for (P<?> predicate : List.of(P.eq(null), P.within(1, 2), TextP.regex("a"),
+        TextP.notRegex("a"), P.gt(3).and(P.lt(9)))) {
+      var reference = new FrozenTextEncoder(null);
+      reference.appendPredicate(predicate, false);
+      assertThat(GremlinShapeEncoder.predicateStructure(predicate, false))
+          .isEqualTo(reference.key());
+    }
+  }
+
   private Object previousAscending;
   private Object previousDescending;
 
@@ -349,7 +430,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       var admin = observed(shape, observer);
       var extraction = GremlinStepWalker.extractShape(admin, graphSession());
       assertThat(analyses.get()).as("real extraction performs no merge analysis").isZero();
-      assertThat(extraction.key()).doesNotContain("sk:6:absent", "lp:6:absent");
+      assertThat(extraction.key().toString()).doesNotContain("sk:6:absent", "lp:6:absent");
       assertThat(extraction.orderedExpandAbsent()).isTrue();
       assertThat(extraction.nativeOperands()).isEmpty();
       assertThat(StepStreamCursor.requiresOrderedBarriers(admin.getSteps())).isFalse();
@@ -389,7 +470,8 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     for (int call = 0; call < 2; call++) {
       var compiled = observed(ordered, observer);
       strategy.apply(compiled);
-      assertThat(analyses.getAndSet(0)).as("cold extraction and walk, then warm extraction")
+      assertThat(analyses.getAndSet(0))
+          .as("PF4: cold extraction and walk, then exactly one warm MATCH extraction")
           .isEqualTo(call == 0 ? 2 : 1);
       assertThat(walks.get()).isEqualTo(1);
       assertThat(TranslatorEquivalenceSupport.countBoundarySteps(compiled)).isEqualTo(1);
@@ -503,7 +585,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         assertThat(extraction.nativeOperands()).hasSize(2);
         assertThat(extraction.hasContributions().get(1).slots()).isEmpty();
         var missing = new GremlinShapeExtractor.Extraction(extraction.key(), extraction.bindings(),
-            true, extraction.hasContributions(), List.of(), false);
+            true, extraction.hasContributions(), List.of(), false, 0);
         assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), missing)).isNull();
         assertThat(OrderedFilterBinding.fromExtraction(walk.shaping(), extraction)).isNotNull();
         assertThat(runCountedHop(shape, strategy)).containsExactlyElementsOf(runNativeHop(shape));
@@ -573,10 +655,15 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
       var wrongShaping = stored.shaping().withListShapingOps(
           List.of(new OrderedExpandSliceListShapingOp(stages)));
       assertThat(OrderedFilterBinding.fromExtraction(wrongShaping, extraction)).isNull();
-      GremlinPlanCache.putTranslation(extraction.key(), new GremlinTranslationTemplate.Translate(
+      var poisoned = new GremlinTranslationTemplate.Translate(
           stored.planTemplate(), stored.boundaryAlias(), stored.outputType(), stored.returnClass(),
-          wrongShaping, stored.bindingCount(), stored.hasContributions()), graphSession(),
-          GremlinPlanCache.instance(graphSession()).getGeneration());
+          wrongShaping, stored.bindingCount(), stored.hasContributions(), stored.decision());
+      var cache = GremlinPlanCache.instance(graphSession());
+      cache.invalidate();
+      GremlinPlanCache.putTranslation(extraction.key(), poisoned, graphSession(),
+          cache.getGeneration());
+      assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession()))
+          .isSameAs(poisoned);
       var walks = new AtomicInteger();
       var failures = new ArrayList<String>();
       var strategy = countingStrategy(walks, failures::add);
@@ -685,16 +772,42 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var failures = new ArrayList<String>();
     var strategy = new GremlinToMatchStrategy(
         traversal -> GremlinStepWalker.production().walk(ordered.get().asAdmin()),
-        GremlinToMatchStrategy::buildPlan, true, failures::add);
+        productionPlanBuilder(), true, failures::add, null);
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> absent =
         () -> graph.traversal().withSack(1).V().hasLabel("MissedSource");
-    String key = GremlinStepWalker.extractShape(absent.get().asAdmin(), graphSession()).key();
+    GremlinShapeKey key =
+        GremlinStepWalker.extractShape(absent.get().asAdmin(), graphSession()).key();
     var expected = runNativeHop(ordered);
     assertThat(expected).as("live paths keep the two converging sources distinct").hasSize(3);
     assertThat(expected.getFirst()).isEqualTo(expected.getLast()).isNotEqualTo(expected.get(1));
     assertThat(runCountedHop(absent, strategy)).containsExactlyElementsOf(expected);
     assertThat(failures).containsExactly("Ordered expand contradicts extraction absence");
     assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isNull();
+  }
+
+  /** A cold binding mismatch refuses publication before the publication hook can run. */
+  @Test
+  public void failedBindingAgreement_skipsPublicationHookAndTranslationStore() {
+    graph.addVertex(T.label, "AgreementPerson", "age", 30);
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var admin = graph.traversal().V().hasLabel("AgreementPerson").asAdmin();
+    var extraction = GremlinStepWalker.extractShape(admin, graphSession());
+    assertThat(extraction.complete()).isTrue();
+    var failures = new ArrayList<String>();
+    var publications = new AtomicInteger();
+    var strategy = new GremlinToMatchStrategy(
+        traversal -> GremlinToMatchTranslator.translate(
+            graph.traversal().V().hasLabel("AgreementPerson").has("age", 30).asAdmin()),
+        productionPlanBuilder(), true, failures::add, publications::incrementAndGet);
+
+    strategy.apply(admin);
+
+    assertThat(TranslatorEquivalenceSupport.countBoundarySteps(admin)).isEqualTo(1);
+    assertThat(failures).containsExactly("Cold translation binding agreement failed");
+    assertThat(publications.get()).isZero();
+    assertThat(cache.containsTranslation(extraction.key())).isFalse();
+    assertThat(GremlinPlanCache.getTranslation(extraction.key(), graphSession())).isNull();
   }
 
   /** Empty and finite deferred prefixes use their own layouts on either side of the slice. */
@@ -1141,20 +1254,71 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         GremlinPredicateAdapter.SlotRole.OPERAND));
     var wrong = new ArrayList<>(original);
     wrong.set(wrong.size() - 1, new HasBindingContext.Contribution(contribution.context(), slots));
-    GremlinPlanCache.putTranslation(key, new GremlinTranslationTemplate.Translate(
+    var poisoned = new GremlinTranslationTemplate.Translate(
         stored.planTemplate(), stored.boundaryAlias(), stored.outputType(),
-        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong), graphSession(),
-        GremlinPlanCache.instance(graphSession()).getGeneration());
+        stored.returnClass(), stored.shaping(), stored.bindingCount(), wrong, stored.decision());
+    var cache = GremlinPlanCache.instance(graphSession());
+    cache.invalidate();
+    GremlinPlanCache.putTranslation(key, poisoned, graphSession(), cache.getGeneration());
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isSameAs(poisoned);
     var walks = new AtomicInteger();
     Supplier<org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> next =
         () -> graph.traversal().V().hasLabel("MismatchPerson")
             .has("name", TextP.startingWith("bo")).values("name");
     var failures = new ArrayList<String>();
     var nativeRows = runNativeHop(next);
-    assertThat(runCountedHop(next, countingStrategy(walks, failures::add)))
-        .containsExactlyElementsOf(nativeRows);
+    var strategy = countingStrategy(walks, failures::add);
+    assertThat(runCountedHop(next, strategy)).containsExactlyElementsOf(nativeRows);
     assertThat(walks.get()).as("equal count but wrong slot role must walk again").isEqualTo(1);
     assertThat(failures).containsExactly("Translation cache binding agreement failed");
+    assertThat(GremlinPlanCache.getTranslation(key, graphSession())).isNotSameAs(poisoned);
+    assertThat(runCountedHop(next, strategy)).containsExactlyElementsOf(nativeRows);
+    assertThat(walks.get()).as("the repaired slot layout must splice on the next call")
+        .isEqualTo(1);
+  }
+
+  /** Invalidation during warm binding harvest walks again without an agreement warning or error. */
+  @Test
+  public void invalidationBetweenWarmGenerationChecksFallsBackSilently() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    Supplier<GraphTraversal<?, ?>> query =
+        () -> graph.traversal().V().hasLabel("Person").has("name", "Bob").values("name");
+    var walks = new AtomicInteger();
+    var strategy = countingStrategy(walks);
+    assertThat(runCountedHop(query, strategy)).containsExactly("Bob");
+    assertThat(walks).hasValue(1);
+    var db = graphSession();
+    var cache = GremlinPlanCache.instance(db);
+    var generation = cache.getGeneration();
+    var hits = cache.getTranslationHits();
+    var metrics = GremlinTranslationMetrics.of(db);
+    var errors = metrics.getErrors();
+    var invalidations = new AtomicInteger();
+    strategy.extractionObserver = extraction -> {
+      assertThat(extraction.encoder().harvested()).isFalse();
+      // This existing deferred-harvest seam runs after lookup and the first generation check.
+      extraction.encoder().deferHarvest(() -> {
+        assertThat(cache.getTranslationHits()).isEqualTo(hits + 1);
+        invalidations.incrementAndGet();
+        cache.invalidate();
+      });
+    };
+    try (var logs = com.jetbrains.youtrackdb.internal.LogRecordCollector
+        .attachTo(GremlinToMatchStrategy.class)) {
+      var raw = query.get().asAdmin();
+      strategy.apply(raw);
+      assertThat(invalidations).hasValue(1);
+      assertThat(cache.getGeneration()).isGreaterThan(generation);
+      assertThat(walks).as("a stale warm template must fall back to a fresh walk").hasValue(2);
+      assertThat(TranslatorEquivalenceSupport.countBoundarySteps(raw)).isEqualTo(1);
+      assertThat(metrics.getErrors()).isEqualTo(errors);
+      assertThat(logs.warnedWithAll("Gremlin translation agreement failed")).isFalse();
+      assertThat(raw.toList().stream().map(String::valueOf).toList()).containsExactly("Bob");
+    } finally {
+      strategy.extractionObserver = null;
+    }
   }
 
   /** A compiled regex must be reconstructed, not have only its P value replaced. */
@@ -1297,6 +1461,10 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     return ordered.out("unsafeHopEdge").has(key, predicate).limit(1).values("name");
   }
 
+  private static GremlinToMatchStrategy.MatchPlanBuilder productionPlanBuilder() {
+    return GremlinToMatchStrategy::buildPlanEntry;
+  }
+
   private GremlinToMatchStrategy countingStrategy(AtomicInteger walks) {
     return countingStrategy(walks, GremlinToMatchStrategy::assertAgreement);
   }
@@ -1319,7 +1487,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         return GremlinToMatchTranslator.translate(traversal, includesMissing, placements,
             polymorphic);
       }
-    }, GremlinToMatchStrategy::buildPlan, true, agreementFailure);
+    }, productionPlanBuilder(), true, agreementFailure, null);
   }
 
   private List<String> runNativeHop(Supplier<
@@ -1977,6 +2145,46 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     assertThat(second.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
     assertThat(cache.getTranslationHits()).isEqualTo(hitsBefore + 1);
     assertThat(cache.getTranslationMisses()).isEqualTo(missesBefore + 1);
+  }
+
+  /**
+   * A real declined walk inside a schema transaction neither reads a committed Decline nor
+   * publishes a new Decline. Once the transaction ends, the walk can cache the new shape.
+   */
+  @Test
+  public void declinedWalkInSchemaTransactionBypassesBothTranslationCacheDirections() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+    var cache = GremlinPlanCache.instance(graphSession());
+    var existing = graph.traversal().V().barrier(0).asAdmin();
+    var existingKey = shapeKey(existing);
+    GremlinToMatchStrategy.instance().apply(existing);
+    assertThat(GremlinPlanCache.getTranslation(existingKey, graphSession()))
+        .isInstanceOf(GremlinTranslationTemplate.Decline.class);
+
+    var newKey = shapeKey(() -> graph.traversal().V().barrier(0).out("knows"));
+    // Distinct step structure prevents the committed Decline from answering this walk.
+    assertThat(newKey).isNotEqualTo(existingKey);
+    var hits = cache.getTranslationHits();
+    var misses = cache.getTranslationMisses();
+    graphSession().getMetadata().getSchema().createClass("TxDeclineOnly");
+    assertThat(graphSession().getTxSchemaState()).isNotNull();
+    var oldWalk = graph.traversal().V().barrier(0).asAdmin();
+    var newWalk = graph.traversal().V().barrier(0).out("knows").asAdmin();
+    GremlinToMatchStrategy.instance().apply(oldWalk);
+    GremlinToMatchStrategy.instance().apply(newWalk);
+    assertThat(oldWalk.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(newWalk.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(cache.getTranslationHits()).isEqualTo(hits);
+    assertThat(cache.getTranslationMisses()).isEqualTo(misses);
+    assertThat(cache.containsTranslation(newKey)).isFalse();
+    graph.tx().rollback();
+    var outside = graph.traversal().V().barrier(0).out("knows").asAdmin();
+    GremlinToMatchStrategy.instance().apply(outside);
+    assertThat(outside.getStartStep()).isNotInstanceOf(YTDBMatchPlanStep.class);
+    assertThat(GremlinPlanCache.getTranslation(newKey, graphSession()))
+        .as("the same declined shape must cache normally outside the schema transaction")
+        .isInstanceOf(GremlinTranslationTemplate.Decline.class);
   }
 
   /**
@@ -2775,19 +2983,52 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
         () -> graph.traversal().V().hasId(P.eq(id)));
   }
 
-  /** Successful RID routes rewalk with private physical plans and never publish translation templates. */
+  /** Runtime RID routes copy shared templates on open, while predicate RID routes stay private. */
   @Test
-  public void ridRoutesKeepPhysicalPlansAndTranslationTemplatesPrivate() {
+  public void ridRoutesKeepPhysicalPlansAndTranslationTemplatesPrivate() throws Exception {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     alice.addEdge("knows", bob);
     graph.tx().commit();
     var db = graphSession();
     var cache = GremlinPlanCache.instance(db);
+    for (var runtimeRoute = 0; runtimeRoute < 2; runtimeRoute++) {
+      var raw = runtimeRoute == 0
+          ? graph.traversal().V(alice.id()).out("knows").asAdmin()
+          : graph.traversal().V().hasId(alice.id()).out("knows").asAdmin();
+      var decision = RuntimeRidStartEligibility.evaluate(raw, true);
+      var translation = GremlinToMatchTranslator.translate(raw, null, null, null, decision);
+      assertThat(translation.cacheEligible()).isTrue();
+      var fingerprint =
+          GremlinPlanFingerprint.fingerprint(translation.inputs(), translation.shaping());
+      var entry = GremlinToMatchStrategy.buildPlanEntry(db, translation,
+          new GremlinToMatchStrategy.CacheScope(cache.getGeneration(), true));
+      var publisher = org.mockito.Mockito.spy(entry.value);
+      org.mockito.Mockito
+          .doAnswer(invocation -> org.mockito.Mockito.spy(invocation.callRealMethod()))
+          .when(publisher).copy(org.mockito.ArgumentMatchers.any());
+      cache.putInternal(fingerprint, publisher, db, cache.getGeneration());
+      var template = cache.peekStored(fingerprint);
+      org.mockito.Mockito.clearInvocations(template);
+      for (var call = 0; call < 2; call++) {
+        var traversal = runtimeRoute == 0
+            ? graph.traversal().V(alice.id()).out("knows").asAdmin()
+            : graph.traversal().V().hasId(alice.id()).out("knows").asAdmin();
+        GremlinToMatchStrategy.instance().apply(traversal);
+        assertThat(traversal.getStartStep()).isInstanceOf(YTDBMatchPlanStep.class);
+        var step = (YTDBMatchPlanStep<?, ?>) traversal.getStartStep();
+        assertThat(step.getPlan()).isSameAs(template);
+        assertThat(sortedNames(traversal.toList())).containsExactly("Bob");
+        assertThat(step.getPlan()).isNotSameAs(template);
+        traversal.close();
+        org.mockito.Mockito.verify(template, org.mockito.Mockito.never()).start();
+        org.mockito.Mockito.verify(template, org.mockito.Mockito.never()).close();
+      }
+      // Each route starts with a fresh physical and translation publication.
+      cache.invalidate();
+    }
     for (var call = 0; call < 2; call++) {
       var routes = List.of(
-          graph.traversal().V(alice.id()).out("knows").asAdmin(),
-          graph.traversal().V().hasId(alice.id()).out("knows").asAdmin(),
           graph.traversal().V().where(__.hasId(alice.id())).out("knows").asAdmin());
       for (var traversal : routes) {
         var extraction = GremlinStepWalker.extractShape(traversal, db);
@@ -2830,7 +3071,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     var strategy = new GremlinToMatchStrategy(t -> {
       walks.incrementAndGet();
       return GremlinToMatchTranslator.translate(t);
-    }, GremlinToMatchStrategy::buildPlan, true);
+    }, GremlinToMatchStrategy::buildPlanEntry, true);
     var extraction = GremlinStepWalker.extractShape(
         graph.traversal().V(alice.id(), alice.id()).out("knows").asAdmin(), db);
     assertThat(extraction.complete()).isTrue();
@@ -2858,7 +3099,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     }
     assertThat(cache.getHits()).isEqualTo(physicalHits);
     assertThat(cache.getMisses()).isEqualTo(physicalMisses);
-    assertThat(cache.getTranslationInternal(extraction.key(), db))
+    assertThat(cache.getTranslationInternal(extraction.key(), db, cache.getGeneration()))
         .isInstanceOf(GremlinTranslationTemplate.Decline.class);
   }
 
@@ -3103,22 +3344,25 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     return extraction;
   }
 
-  private String shapeKey(
+  private GremlinShapeKey shapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
     return shapeKey(supplier.get().asAdmin());
   }
 
-  private String shapeKey(Traversal.Admin<?, ?> admin) {
+  private GremlinShapeKey shapeKey(Traversal.Admin<?, ?> admin) {
+    TextShapeOracle.verify(admin);
     var extraction = GremlinStepWalker.extractShape(admin, graphSession());
     assertThat(extraction.complete()).isTrue();
     return extraction.key();
   }
 
-  private String rawShapeKey(
+  private GremlinShapeKey rawShapeKey(
       java.util.function.Supplier<
           org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal<?, ?>> supplier) {
-    return GremlinStepWalker.extractShape(supplier.get().asAdmin(), graphSession()).key();
+    var admin = supplier.get().asAdmin();
+    TextShapeOracle.verify(admin);
+    return GremlinStepWalker.extractShape(admin, graphSession()).key();
   }
 
   private List<?> apply(
@@ -3157,7 +3401,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
   }
 
   /** Returns the order shape key for the supplied order mode. */
-  private String captureOrderShapeKeyWith(boolean value) {
+  private GremlinShapeKey captureOrderShapeKeyWith(boolean value) {
     var config = graphSession().getConfiguration();
     var previous =
         config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_ORDER_INCLUDES_MISSING_KEY);
@@ -3169,7 +3413,7 @@ public class GremlinTranslationCacheTest extends GraphBaseTest {
     }
   }
 
-  private String captureShapeKeyWithPolymorphic(boolean value) {
+  private GremlinShapeKey captureShapeKeyWithPolymorphic(boolean value) {
     var config = graphSession().getConfiguration();
     var previous =
         config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);

@@ -177,6 +177,10 @@ public class SQLOrderByItem {
   /**
    * Compares two rows by this sort key.
    *
+   * <p>A sort field has no guaranteed order if this method cannot order some pairs of values.
+   * LIMIT or SKIP may return different rows than taking the same portion of the unsliced result.
+   * Use one comparable kind of value per sort field.
+   *
    * @param nullsDefault the null-placement default resolved once for the whole sort (see {@link
    *     OrderByNullsUtil#resolvePlacementsForSort}). It is a parameter rather than a per-comparison
    *     read for two reasons. A change in the middle of a sort would break the comparator contract,
@@ -412,12 +416,12 @@ public class SQLOrderByItem {
       try {
         result = comparison.compareForOrderBy(aVal, bVal);
       } catch (Exception e) {
-        // Two values of incompatible types reach this, e.g. a String against an Integer in one
-        // schema-less column. Reporting them equal keeps the sort from failing the whole query.
+        // Treat a failed comparison as a tie instead of failing the query here.
         LogManager.instance().error(this, "Error during comparision", e);
         result = 0;
       }
     }
+    // A pair with no comparison rule also ties here. Later sort fields can still decide.
     if (type == DESC) {
       result = -1 * result;
     }

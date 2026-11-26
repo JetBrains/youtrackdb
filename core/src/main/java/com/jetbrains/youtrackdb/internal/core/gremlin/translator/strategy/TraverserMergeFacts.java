@@ -30,7 +30,7 @@ record TraverserMergeFacts(boolean sackPresent, boolean sackGated, boolean sackS
       extends AbstractTraversalStrategy<TraversalStrategy.DecorationStrategy>
       implements TraversalStrategy.DecorationStrategy {
 
-    private final Runnable onAnalysis;
+    final Runnable onAnalysis;
 
     AnalysisObserver(Runnable onAnalysis) {
       this.onAnalysis = onAnalysis;
@@ -43,11 +43,24 @@ record TraverserMergeFacts(boolean sackPresent, boolean sackGated, boolean sackS
   }
 
   static TraverserMergeFacts from(Traversal.Admin<?, ?> traversal) {
-    traversal.getStrategies().getStrategy(AnalysisObserver.class)
-        .ifPresent(observer -> observer.onAnalysis.run());
+    return from(traversal, null);
+  }
+
+  static TraverserMergeFacts from(Traversal.Admin<?, ?> traversal,
+      TranslationEnvironment environment) {
+    var refs = TranslationEnvironment.references(traversal, environment);
+    var observer = refs == null
+        ? traversal.getStrategies().getStrategy(AnalysisObserver.class).orElse(null)
+        : refs.observer;
+    if (observer != null) {
+      observer.onAnalysis.run();
+    }
     // Shape extraction can precede decoration. Installing the supplier does not invoke it.
-    traversal.getStrategies().getStrategy(SackStrategy.class)
-        .ifPresent(strategy -> strategy.apply(traversal));
+    var sack = refs == null
+        ? traversal.getStrategies().getStrategy(SackStrategy.class).orElse(null) : refs.sack;
+    if (sack != null) {
+      sack.apply(traversal);
+    }
     var effects = traversal.getSideEffects();
     boolean present = effects.getSackInitialValue() != null;
     boolean gated = present && effects.getSackMerger() == null;

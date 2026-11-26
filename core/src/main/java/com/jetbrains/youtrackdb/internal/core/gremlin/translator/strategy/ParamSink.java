@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
+import javax.annotation.Nullable;
 
 /**
  * Allocates positional-parameter slots ({@code ?}) during predicate AST emission and during shape
@@ -9,13 +10,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLPositionalParameter;
  * predicate translation cannot reach boundary state, pattern contributions, or sub-walk seams.
  *
  * <p>Slot numbering is shape-pure: each call allocates the next slot in bind order, independent of
- * the bound value. Structural tokens (class names, {@code ~label}, RIDs) stay inline and must not
- * call this. Harvest ({@link GremlinPredicateAdapter#bindParams}) must push the same values in the
+ * the bound value. Class names and {@code ~label} stay inline. Literal RIDs stay inline too,
+ * while an approved runtime start binds its immutable RID snapshot through this sink. Harvest ({@link GremlinPredicateAdapter#bindParams}) must push the same values in the
  * same order as walker {@link GremlinPredicateAdapter#toFilter}, or a cache hit binds the wrong
  * {@code ?}.
  */
 @FunctionalInterface
 interface ParamSink {
 
-  SQLPositionalParameter bindParam(Object value);
+  /** Harvest-only sinks return null. AST-emitting sinks return the allocated parameter. */
+  @Nullable SQLPositionalParameter bindParam(Object value);
 }

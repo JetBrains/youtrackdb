@@ -118,9 +118,13 @@ final class WalkerContext implements RecognitionContext {
    *  call regardless of value. */
   private int nextParamSlot;
 
-  /** When {@code true}, this walk carries inline RIDs or unbound deferred has literals and must
-   *  bypass the plan cache. */
+  /** Inline RIDs or unsafe deferred has operands bypass the plan cache. Runtime starts do not
+   *  set this flag. */
   private boolean ridBearing;
+
+  @Nullable RuntimeRidStartEligibility.EligibleStart runtimeRidStart;
+  @Nullable String runtimeStartAlias;
+  int runtimeStartSlot = -1;
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
@@ -285,7 +289,7 @@ final class WalkerContext implements RecognitionContext {
       // Production demands derive from the walked traversal, never an extraction verdict.
       mergeFacts = walkedTraversal == null
           ? new TraverserMergeFacts(false, false, false, 0, false, List.of(), List.of(), Map.of())
-          : TraverserMergeFacts.from(walkedTraversal);
+          : TraverserMergeFacts.from(walkedTraversal, environment);
     }
     return mergeFacts;
   }
@@ -345,6 +349,9 @@ final class WalkerContext implements RecognitionContext {
    *  re-typing; a {@code null} schema resolves every property as "not a declared String" and every
    *  class check as false. */
   @Nullable private final Schema schema;
+
+  // Owned by this walk, never attached to the traversal or its shared strategies.
+  @Nullable TranslationEnvironment environment;
 
   /** The recogniser registry a {@link #walkChild} sub-walk drives child sub-traversals against — the
    *  same registry the walker dispatches the top-level walk with, so a child dispatches identically.
@@ -834,6 +841,21 @@ final class WalkerContext implements RecognitionContext {
     var slot = nextParamSlot++;
     inputParameters.put(slot, value);
     return SQLPositionalParameter.forSlot(slot);
+  }
+
+  @Nullable @Override
+  public RuntimeRidStartEligibility.EligibleStart runtimeRidStart() {
+    return runtimeRidStart;
+  }
+
+  @Override
+  public void bindRuntimeRidStart(String alias) {
+    if (runtimeRidStart == null || runtimeStartAlias != null) {
+      throw new IllegalStateException("Runtime RID start must bind exactly once");
+    }
+    runtimeStartSlot = nextParamSlot;
+    bindParam(runtimeRidStart.rid());
+    runtimeStartAlias = alias;
   }
 
   @Override

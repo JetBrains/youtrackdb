@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.EndAtomicOperationHookTestSupport.primeFreezer;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
@@ -28,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
@@ -38,6 +40,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.PageSetTrackin
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -697,9 +700,9 @@ public class CommitPageSetApplyTest {
     }
   }
 
-  // Same-name recreation must match legacy for full content, page/end LSNs, the
-  // actual dirty-table record and a fresh backup mark. Reclassifying the operation as
-  // non-durable must retain an already dirty physical page's WAL flush dependency.
+  // Same-durability recreation must match legacy for content, page/end LSNs, dirty
+  // records and backup marks. Durable pages retain their existing WAL dependency.
+  // Non-durable pages keep sentinel LSNs without dirty records or backup marks.
   @Test
   public void recreatedPagesMatchLegacyAndPreserveExistingWalDependency() throws Exception {
     for (boolean nonDurable : new boolean[] {false, true}) {
@@ -709,7 +712,7 @@ public class CommitPageSetApplyTest {
       Map<Long, LogSequenceNumber> legacyDirty = null;
       for (boolean enabled : new boolean[] {false, true}) {
         try (var f = new Fixture()) {
-          long file = f.write.addFile("recreated");
+          long file = f.write.addFile("recreated", f.write.bookFileId("recreated"), nonDurable);
           var oldStart = new LogSequenceNumber(5, 1);
           var oldPage = new LogSequenceNumber(5, 10);
           var oldEnd = new LogSequenceNumber(6, 20);
@@ -745,8 +748,9 @@ public class CommitPageSetApplyTest {
             assertEquals(21, bytes[100]);
             assertEquals(nonDurable ? oldEnd : end, entry.getEndLSN());
             assertEquals(nonDurable ? oldPage.getSegment() : 7, pageLsn.getSegment());
-            assertEquals(Map.of(0L, oldStart), dirty);
-            PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(file), 0);
+            assertEquals(nonDurable ? Map.of() : Map.of(0L, oldStart), dirty);
+            PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(file),
+                nonDurable ? new long[0] : new long[] {0});
             if (!enabled) {
               legacyBytes = bytes;
               legacyPageLsn = pageLsn;
@@ -764,6 +768,57 @@ public class CommitPageSetApplyTest {
           verify(f.read, times(enabled ? 1 : 0)).tryReserveWritePins(1);
           assertEquals(0, f.read.reservedWritePins());
         }
+      }
+    }
+  }
+
+  // A rejected name-only durability flip must not reach the real cache. Manager rollback
+  // preserves registration, classification, page contents, dirty records and backup marks.
+  @Test
+  public void rejectedRecreationPreservesWriteCacheStateAfterRollback() throws Exception {
+    for (boolean nonDurable : new boolean[] {false, true}) {
+      try (var f = new Fixture()) {
+        long file = f.write.addFile("rejected-recreation",
+            f.write.bookFileId("rejected-recreation"), nonDurable);
+        var seed = f.operation(true);
+        seed.loadFile("rejected-recreation");
+        f.change(seed, file, 0, nonDurable);
+        seed.commitChanges(42, f.wal);
+        PageSetTrackingAssertions.beginBackup(f.tracker);
+        var dirtyBefore = PageSetTrackingAssertions.dirtyPages(f.write,
+            f.write.internalFileId(file));
+        assertEquals(nonDurable, dirtyBefore.isEmpty());
+
+        var op = f.operation(true);
+        op.loadFile("rejected-recreation");
+        op.deleteFile(file);
+        var failure = assertThrows(StorageException.class,
+            () -> op.addFile("rejected-recreation", !nonDurable));
+        assertEquals(nonDurable, f.write.isNonDurable(file));
+        assertEquals(dirtyBefore, PageSetTrackingAssertions.dirtyPages(f.write,
+            f.write.internalFileId(file)));
+        PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(file));
+
+        var storage = mock(AbstractStorage.class);
+        var table = mock(AtomicOperationsTable.class);
+        when(storage.getWALInstance()).thenReturn(f.wal);
+        var manager = new AtomicOperationsManager(storage, table);
+        primeFreezer(manager);
+        manager.endAtomicOperation(op, failure);
+        verify(table).rollbackOperation(42);
+        assertTrue(f.write.exists("rejected-recreation"));
+        assertEquals(file, f.write.loadFile("rejected-recreation"));
+        assertEquals(nonDurable, f.write.isNonDurable(file));
+        assertEquals(dirtyBefore, PageSetTrackingAssertions.dirtyPages(f.write,
+            f.write.internalFileId(file)));
+        PageSetTrackingAssertions.assertPages(f.tracker, f.write.internalFileId(file));
+        var entry = f.read.loadForRead(file, 0, f.write, false);
+        try {
+          assertEquals(21, entry.getCachePointer().getBuffer().get(100));
+        } finally {
+          f.read.releaseFromRead(entry);
+        }
+        assertEquals(0, f.read.reservedWritePins());
       }
     }
   }

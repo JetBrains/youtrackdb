@@ -36,6 +36,10 @@ import org.junit.Test;
  */
 public class OrderRidTieBreakEquivalenceTest extends GraphBaseTest {
 
+  @org.junit.Rule
+  public final com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule forceMatch =
+      new com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.ForceMatchTranslationRule();
+
   /** The tags of {@link #seedDuplicateIdPeople} in the order they were inserted. */
   private static final List<String> INSERTION_ORDER_TAGS =
       List.of("b-first", "a-first", "b-second", "a-second");

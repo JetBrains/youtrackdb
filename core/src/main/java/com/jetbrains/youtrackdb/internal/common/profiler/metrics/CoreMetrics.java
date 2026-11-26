@@ -193,6 +193,16 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
+  /** Share of attempts routed natively by the complete plain-plan rule. */
+  public static final MetricDefinition<MetricScope.Global,
+      Ratio> GREMLIN_TRANSLATION_RULE_NATIVE_RATIO = new MetricDefinition<>(
+          "GremlinTranslationRuleNativeRatio",
+          "Gremlin Translation Rule Native Ratio",
+          "The ratio of rule-native Gremlin choices to translation attempts (in percents)"
+              + " for the last 60 seconds",
+          MetricType.ratio(TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS), 100.0));
+
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       DATA_FILE_FSYNC_COUNT,
       DIRECT_MEMORY_BYTES,
@@ -209,7 +219,8 @@ public class CoreMetrics {
       GREMLIN_PLAN_CACHE_MISS_RATE,
       GREMLIN_TRANSLATION_SUCCESS_RATIO,
       GREMLIN_TRANSLATION_DECLINE_RATIO,
-      GREMLIN_TRANSLATION_ERROR_RATIO);
+      GREMLIN_TRANSLATION_ERROR_RATIO,
+      GREMLIN_TRANSLATION_RULE_NATIVE_RATIO);
 
   // ===================== DATABASE ===================== //
 
