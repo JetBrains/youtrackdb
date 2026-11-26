@@ -466,9 +466,15 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         var sourceMap = new LinkedHashMap<RID, List<Result>>();
         for (var row : rows) {
           var sourceRid = extractSourceRid(row);
-          if (sourceRid != null) {
+          if (sourceRid != null
+              && MatchEdgeTraverser.ridBelongsToClass(
+                  sourceRid, sourceClassName, ctx.getDatabaseSession())) {
             sourceMap.computeIfAbsent(sourceRid, k -> new ArrayList<>(1)).add(row);
           }
+        }
+        if (sourceMap.isEmpty()) {
+          ctx.setSystemVariable(CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+          return ExecutionStream.empty();
         }
         // Local per-source ordering cannot satisfy global ORDER BY. Do not use the singleton
         // cost path, which can signal pre-sorted after sorting only one source's targets.
@@ -505,6 +511,13 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
     var session = ctx.getDatabaseSession();
     var sourceRid = extractSourceRid(upstreamRow);
     if (sourceRid == null) {
+      ctx.setSystemVariable(
+          CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
+      return ExecutionStream.empty();
+    }
+    // Refuse a source whose collection is outside the declared source class so a stray
+    // upstream row cannot load its LinkBag when the class+rid conjunction failed earlier.
+    if (!MatchEdgeTraverser.ridBelongsToClass(sourceRid, sourceClassName, session)) {
       ctx.setSystemVariable(
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
