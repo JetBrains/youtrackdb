@@ -132,11 +132,13 @@ public class FetchEdgesFromToVerticesStep extends AbstractExecutionStep {
     return (Iterator<?>) fromValues;
   }
 
+  // Reject edges whose destination is outside toList; otherwise DELETE EDGE FROM … TO …
+  // would delete every other outgoing edge of each FROM vertex.
   private boolean filterResult(DatabaseSessionEmbedded db, Edge edge, Set<RID> toList) {
-    if (toList == null || toList.contains(edge.getTo().getIdentity())) {
-      return matchesClass(db, edge) && matchesCollection(edge);
+    if (toList != null && !toList.contains(edge.getTo().getIdentity())) {
+      return false;
     }
-    return true;
+    return matchesClass(db, edge) && matchesCollection(edge);
   }
 
   private static Iterable<Edge> loadNextResults(DatabaseSessionEmbedded session, Object from) {
