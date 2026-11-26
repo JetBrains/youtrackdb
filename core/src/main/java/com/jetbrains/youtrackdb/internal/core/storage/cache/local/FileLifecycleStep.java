@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.thread.ScheduledThreadPoolExecutorWithLogging;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import java.io.IOException;
 import java.util.concurrent.CancellationException;
@@ -83,6 +84,31 @@ final class FileLifecycleStep implements AutoCloseable {
             storageName);
       }
     }
+  }
+
+  void awaitClose(Future<Void> future) {
+    try {
+      awaitCompletion(future);
+    } catch (CancellationException failure) {
+      throw fileWorkFailure(storageName, operation, failure);
+    } catch (ExecutionException failure) {
+      switch (failure.getCause()) {
+        case RuntimeException runtime -> throw runtime;
+        case Error error -> throw error;
+        default -> throw fileWorkFailure(storageName, operation, failure);
+      }
+    }
+  }
+
+  static BaseException fileWorkFailure(String storageName, String operation, Throwable failure) {
+    return BaseException.wrapException(
+        new WriteCacheException(storageName, operation + " was abnormally terminated"),
+        failure, storageName);
+  }
+
+  static StorageException closeInUse(String storageName, int fileId) {
+    return new StorageException(storageName,
+        "Can not close file with id " + fileId + " because it is still in use");
   }
 
   <T> T awaitCompletion(Future<T> future) throws ExecutionException {

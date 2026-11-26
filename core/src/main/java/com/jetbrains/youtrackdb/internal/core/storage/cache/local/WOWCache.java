@@ -3037,7 +3037,7 @@ public final class WOWCache extends AbstractWriteCache
                 state.identity())))) {
           throw new IOException("Cannot confirm absence of pending page file " + intId);
         }
-        doRemoveCachePages(intId, minPageIndex);
+        discardPagesForOrderedShrink(intId, minPageIndex);
         state.extents().shrink(minPageIndex);
         pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
         return;
@@ -3054,7 +3054,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       final var file = entry.get();
       final long reservedBytes = file.getFileSize();
-      doRemoveCachePages(intId, minPageIndex);
+      discardPagesForOrderedShrink(intId, minPageIndex);
       file.shrink(Math.min(targetBytes, reservedBytes));
       // A failed channel truncate can leave the wrapper counter at the target. Check the disk
       // length before lowering extents or discarding protection, including on retry.
@@ -3066,6 +3066,17 @@ public final class WOWCache extends AbstractWriteCache
       pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
     } finally {
       files.release(entry);
+    }
+  }
+
+  private void discardPagesForOrderedShrink(int intId, int minPageIndex) {
+    try {
+      doRemoveCachePages(intId, minPageIndex);
+    } catch (Exception | Error failure) {
+      // Discard declares no checked exceptions. Catch Exception to include any checked failures.
+      // Keep the original behind a wrapper to avoid the HighLevelException shortcut.
+      throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal",
+          new ExecutionException("File data removal failed", failure));
     }
   }
 
@@ -3440,6 +3451,10 @@ public final class WOWCache extends AbstractWriteCache
   public void close(long fileId, final boolean flush) {
     final var intId = extractFileId(fileId);
     fileId = composeFileId(id, intId);
+    if (logicalFiles != null) {
+      orderedCloseFile(fileId, intId, flush);
+      return;
+    }
 
     filesLock.acquireWriteLock();
     try {
@@ -3451,12 +3466,48 @@ public final class WOWCache extends AbstractWriteCache
         removeCachedPages(intId);
       }
 
-      if (!files.close(fileId)) {
-        throw new StorageException(storageName,
-            "Can not close file with id " + internalFileId(fileId) + " because it is still in use");
-      }
+      closePageFileHandle(fileId, intId);
     } finally {
       filesLock.releaseWriteLock();
+    }
+  }
+
+  private void orderedCloseFile(long fileId, int intId, boolean flush) {
+    FileLifecycleStep.requireCaller(commitExecutor());
+    final var operation = flush ? "File flush" : "File data removal";
+    try (var step = new FileLifecycleStep(storageName, operation)) {
+      filesLock.acquireWriteLock();
+      try {
+        checkForClose();
+        step.awaitClose(submitCloseStep(fileId, intId, flush, operation));
+      } finally {
+        filesLock.releaseWriteLock();
+      }
+    }
+  }
+
+  Future<Void> submitCloseStep(long fileId, int intId, boolean flush, String operation) {
+    return commitExecutor().submit(() -> {
+      try {
+        if (flush) {
+          executeFileFlush(new IntOpenHashSet(new int[] {intId}));
+        } else {
+          doRemoveCachePages(intId, 0);
+        }
+      } catch (IOException | InterruptedException | RuntimeException | Error failure) {
+        throw FileLifecycleStep.fileWorkFailure(storageName, operation,
+            new ExecutionException(operation + " failed", failure));
+      }
+
+      // Close on the commitExecutor() thread without dropping registration or pending ownership.
+      closePageFileHandle(fileId, intId);
+      return null;
+    });
+  }
+
+  private void closePageFileHandle(long fileId, int intId) {
+    if (!files.close(fileId)) {
+      throw FileLifecycleStep.closeInUse(storageName, intId);
     }
   }
 
@@ -4615,17 +4666,9 @@ public final class WOWCache extends AbstractWriteCache
 
   /**
    * Drops the {@code writeCachePages} entries at {@code pageIndex >= minPageIndex} for the
-   * given file via {@link RemoveFilePagesTask} on the single-threaded commit executor.
-   * Routing through the commit executor matters because the periodic-flush task runs on the
-   * same executor, so dispatching the purge there orders it cleanly against any in-flight
-   * flush.
-   *
-   * <p>With {@code minPageIndex = 0} this is "drop every dirty entry for this fileId" — the
-   * shape used by {@code closeFile} and {@code deleteFile}. With a
-   * positive {@code minPageIndex} the entries below the minimum survive — the shape used by
-   * {@link #shrinkFile(long, long)} for the recovery-time orphan-truncation pass (those
-   * entries belong to file regions the truncate does NOT drop and must survive the next
-   * periodic flush).
+   * given layout 27 file via {@link RemoveFilePagesTask} on the commitExecutor() thread.
+   * Layout 27 close purges from page zero. Layout 27 shrink preserves pages below the minimum.
+   * Ordered layout 28 steps and delete invoke the sweep directly on the same thread.
    */
   private void removeCachedPages(final int fileId, final int minPageIndex) {
     final var future =
@@ -5214,12 +5257,12 @@ public final class WOWCache extends AbstractWriteCache
     //     would deadlock against the submitter. Both structures touched are concurrent, and
     //     the per-key group lock would buy nothing because CachePointer fires
     //     addOnlyWriters/removeOnlyWriters without holding it.
-    //     The purge waits in a close without a flush, whole-cache delete, and layout 27
-    //     single-file delete and shrink can end early on interruption. In that case the caller
+    //     The purge waits in whole-cache delete and layout 27 single-file close without a
+    //     flush, delete and shrink can end early on interruption. In that case the caller
     //     neither cancels the task nor waits for it to finish. The caller releases filesLock,
     //     so a concurrent store() can proceed while the purge is still running. Layout 28
-    //     single-file delete and shrink keep filesLock until the step ends, even when the
-    //     submitter is interrupted.
+    //     single-file close, delete and shrink keep filesLock until the step ends, even when
+    //     the submitter is interrupted.
     //
     // KNOWN LIMITATION: this sweep NARROWS the orphan window on every ordering, and closes it
     // on none. Two residual producers can publish a key into exclusiveWritePages after the

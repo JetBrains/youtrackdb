@@ -15,6 +15,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -64,6 +65,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -75,8 +77,13 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -85,10 +92,12 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.function.ThrowingRunnable;
 import org.junit.rules.TestRule;
 import org.junit.rules.Timeout;
 import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 
 /**
  * Smoke coverage for {@link WOWCache#loadOrAdd} and its three branches
@@ -1956,12 +1965,813 @@ public class WOWCacheLoadOrAddTest {
     return name.startsWith("orderedRegistration")
         || name.startsWith("orderedDirectCreation")
         || name.startsWith("orderedCreatingForms")
+        || name.startsWith("orderedClose")
+        || name.startsWith("pendingFixtureShutdown")
         || name.startsWith("pendingFixtureBackgroundAdmission")
         || name.equals("pendingReservationFailureIsFatalAfterAdmission")
         || name.equals("pendingBlankInitializationFailureIsFatalAfterAdmission")
         || name.equals("pendingNonDurableBackgroundFailureRetriesOwnedHandle")
             ? Timeout.seconds(90).apply(base, description) : base;
   };
+
+  @Test
+  public void orderedCloseAfterCreationClosesHandleAndPreservesPagesInPendingFixture()
+      throws Exception {
+    int component = 9460;
+    for (boolean flush : List.of(false, true)) {
+      for (boolean sync : List.of(false, true)) {
+        setCacheField("callFsync", sync);
+        final long id = preparePendingPage(component++, null);
+        final var probe = new CloseProbe(id);
+        final var gate = new ShrinkGate();
+        final var submitted = witnessCloseSubmission();
+        try (var observation = wowCache.observePhysicalCreation(created -> {
+          probe.created(created);
+          gate.block();
+        })) {
+          final var tasks = new RegistrationTasks<Void>(gate);
+          try (tasks) {
+            tasks.predecessor = submitTestFileFlush(id);
+            awaitShrinkGate(gate.entered);
+            tasks.caller = asyncFileExecutor.submit(() -> {
+              wowCache.close(id, flush);
+              return null;
+            });
+            awaitShrinkGate(submitted);
+            assertFalse("Close must wait for first creation", tasks.caller.isDone());
+            assertNull(files.get(id));
+          }
+          probe.assertClosed();
+          assertClosedPageBytes(id, 728);
+          cacheUnwrittenImage(id, 2, 719);
+          wowCache.flush(id);
+          assertSame(probe.handle, files.get(id));
+          assertTrue(probe.handle.isOpen());
+          assertClosedPageBytes(id, 719);
+          assertEquals(1, probe.creations);
+        } finally {
+          wowCache.deleteFile(id);
+        }
+      }
+    }
+  }
+
+  @Test
+  public void orderedCloseBeforeQueuedFlushWritesOrDiscardsPagesInPendingFixture()
+      throws Exception {
+    int component = 9470;
+    for (boolean flush : List.of(false, true)) {
+      for (boolean sync : List.of(false, true)) {
+        setCacheField("callFsync", sync);
+        final long id = preparePendingPage(component++, null);
+        final var probe = new CloseProbe(id);
+        final var gate = new ShrinkGate();
+        final var submitted = witnessCloseSubmission();
+        try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+          final var tasks = new RegistrationTasks<Void>(gate);
+          try (tasks) {
+            tasks.predecessor = flushExecutor().submit(gate::block);
+            awaitShrinkGate(gate.entered);
+            tasks.caller = asyncFileExecutor.submit(() -> {
+              wowCache.close(id, flush);
+              return null;
+            });
+            awaitShrinkGate(submitted);
+            final var later = flushExecutor().submit(() -> {
+              if (flush) {
+                probe.assertClosed();
+                assertClosedPageBytes(id, 728);
+              } else {
+                assertAbsentPendingClose(id, probe);
+              }
+              return new FileFlushTask(wowCache, Set.of(wowCache.internalFileId(id))).call();
+            });
+            gate.release.countDown();
+            later.get(10, TimeUnit.SECONDS);
+          }
+          wowCache.flush(id);
+          wowCache.flush();
+          if (flush) {
+            assertEquals(1, probe.creations);
+            assertSame(probe.handle, files.get(id));
+            // Explicit flush may reopen an existing handle for fsync.
+            assertEquals(sync, probe.handle.isOpen());
+            assertEquals(sync ? 1 : 0, files.openFilesCount());
+            assertClosedPageBytes(id, 728);
+          } else {
+            assertAbsentPendingClose(id, probe);
+            cacheUnwrittenImage(id, 2, 719);
+            wowCache.flush(id);
+            assertEquals(1, probe.creations);
+            assertSame(probe.handle, files.get(id));
+            assertTrue(probe.handle.isOpen());
+            assertClosedPageBytes(id, 719);
+          }
+          assertNull(cacheField("flushError"));
+        } finally {
+          wowCache.deleteFile(id);
+        }
+      }
+    }
+  }
+
+  @Test
+  public void orderedCloseWithNoPagesOrWithWriterHeldPageLeavesPendingFixture()
+      throws Exception {
+    for (boolean held : List.of(false, true)) {
+      final long id = held ? preparePendingPage(9481, null) : registerPendingFixture(9480, null);
+      final var probe = new CloseProbe(id);
+      final var pointer = held ? wowCache.loadIfPresent(id, 2, false) : null;
+      try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+        final long writeStamp = held ? pointer.acquireExclusiveLock() : 0;
+        try {
+          wowCache.close(id, true);
+          assertAbsentPendingClose(id, probe);
+        } finally {
+          if (held) {
+            pointer.releaseExclusiveLock(writeStamp);
+            pointer.decrementReadersReferrer();
+          }
+        }
+        if (held) {
+          wowCache.flush(id);
+          assertEquals(1, probe.creations);
+          assertTrue(probe.handle.isOpen());
+          assertClosedPageBytes(id, 728);
+        }
+      } finally {
+        wowCache.deleteFile(id);
+      }
+    }
+  }
+
+  @Test
+  public void orderedCloseRetryableWriteLeavesPageForLaterFlushInPendingFixture() throws Exception {
+    final long id = prepareSavedNonDurablePendingPage(9496);
+    final var probe = new CloseProbe(id);
+    failFirstChangedPageWrite(probe);
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.close(id, true);
+      probe.assertClosed();
+      assertPendingExtents(id);
+      assertNull(cacheField("flushError"));
+
+      wowCache.flush(id);
+      assertClosedPageBytes(id, 728);
+      assertSame(probe.handle, files.get(id));
+      assertTrue(probe.handle.isOpen());
+      assertEquals(1, files.openFilesCount());
+      assertEquals(1, probe.creations);
+      assertNull(cacheField("flushError"));
+    }
+  }
+
+  @Test
+  public void orderedCloseKeepsUnpublishedHandleForAllRecoveryFormsAndFlushInPendingFixture()
+      throws Exception {
+    final long id = prepareSavedNonDurablePendingPage(9482);
+    final var probe = new CloseProbe(id);
+    failFirstChangedPageWrite(probe);
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      // The first close attempts the write, and the retryable failure leaves work for later.
+      wowCache.close(id, true);
+      probe.assertClosed();
+      assertPendingExtents(id);
+      assertNull(cacheField("flushError"));
+      final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+      final var original = probe.handle;
+
+      // Close without a flush must close the real channel and leave the unpublished owner.
+      final var acquired = files.acquire(id);
+      assertSame(original, acquired.get());
+      files.release(acquired);
+      probe.closeThread = null;
+      wowCache.close(id, false);
+      probe.assertClosed();
+      assertPendingExtents(id);
+      assertNull(wowCache.loadIfPresent(id, 2, false));
+      assertSame(state.extents(), pendingOwners().get(wowCache.internalFileId(id)));
+      final var bytes = Files.readAllBytes(pendingPath(id));
+      assertArrayEquals(new byte[File.HEADER_SIZE],
+          java.util.Arrays.copyOf(bytes, File.HEADER_SIZE));
+      for (var permission : registrationModes()) {
+        assertTrue(registerRecoveryMode(id, permission));
+        assertSame(original, files.get(id));
+        assertFalse(original.isOpen());
+        assertArrayEquals(bytes, Files.readAllBytes(pendingPath(id)));
+        assertPendingExtents(id);
+      }
+      cacheUnwrittenImage(id, 2, 719);
+      wowCache.flush(id);
+      assertSame(original, files.get(id));
+      assertTrue(original.isOpen());
+      assertEquals(1, probe.creations);
+      assertClosedPageBytes(id, 719);
+    }
+  }
+
+  private static void failFirstChangedPageWrite(CloseProbe probe) {
+    final var retry = new AtomicBoolean(true);
+    probe.onHandle = handle -> Mockito.doAnswer(call -> {
+      final List<
+          com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+              call.getArgument(0);
+      if (buffers.getFirst().first == 2L * PAGE_SIZE && retry.getAndSet(false)) {
+        throw new IOException("Retryable non-durable write failure");
+      }
+      return call.callRealMethod();
+    }).when(handle).write(Mockito.anyList());
+  }
+
+  @Test
+  public void orderedCloseRunsBodyAndHandleCloseInOneTask() throws Exception {
+    final var taskGaps = new ArrayList<Long>();
+    final var executor = (ScheduledThreadPoolExecutor) flushExecutor();
+    for (boolean flush : List.of(false, true)) {
+      // Materialize the pending fixture so both close modes reach a real channel.
+      final long id = preparePendingPage(flush ? 9498 : 9497, null);
+      final var probe = new CloseProbe(id);
+      try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+        wowCache.flush(id);
+        cacheUnwrittenImage(id, 2, 719);
+        final var bodyTask = new AtomicLong(-1);
+        final Answer<Object> recordBody = call -> {
+          assertSame("Close work must run on the commitExecutor() thread",
+              probe.commitThread, Thread.currentThread());
+          bodyTask.set(executor.getCompletedTaskCount());
+          return call.callRealMethod();
+        };
+        final int internal = wowCache.internalFileId(id);
+        if (flush) {
+          final var ids = new IntOpenHashSet(new int[] {internal});
+          Mockito.doAnswer(recordBody).when(wowCache).executeFileFlush(eq(ids));
+        } else {
+          Mockito.doAnswer(recordBody).when(wowCache).doRemoveCachePages(internal, 0);
+        }
+        Mockito.doAnswer(call -> {
+          probe.closeThread = Thread.currentThread();
+          // On this single worker the count advances only between tasks.
+          taskGaps.add(executor.getCompletedTaskCount() - bodyTask.get());
+          return call.callRealMethod();
+        }).when(probe.handle).close();
+        wowCache.close(id, flush);
+        probe.assertClosed();
+        assertClosedPageBytes(id, flush ? 719 : 728);
+        wowCache.deleteFile(id);
+      }
+    }
+    assertEquals("Discard and flush must each close the handle in the same task",
+        List.of(0L, 0L), taskGaps);
+  }
+
+  @Test
+  public void orderedCloseRejectsCommitExecutorThreadBeforeTakingFilesLock() throws Exception {
+    // The pending fixture supplies a live file without opening a channel.
+    final long id = preparePendingPage(9483, null);
+    final var lock = (ReadersWriterSpinLock) cacheField("filesLock");
+    lock.acquireWriteLock();
+    try {
+      onFlushExecutor(() -> assertThrows(IllegalStateException.class,
+          () -> wowCache.close(id, true)));
+    } finally {
+      lock.releaseWriteLock();
+    }
+    assertNull(files.get(id));
+    assertFalse(Files.exists(pendingPath(id)));
+    assertPendingExtents(id);
+  }
+
+  @Test
+  public void orderedCloseKeepsLockAcrossInterruptAndReportsStepFailureFirstInPendingFixture()
+      throws Exception {
+    int component = 9484;
+    for (var result : List.of(ThreadInterruptedException.class, StorageException.class,
+        WriteCacheException.class, AssertionError.class)) {
+      final long id = preparePendingPage(component++, null);
+      final var probe = new CloseProbe(id);
+      final var flushFailure = new IOException("File flush failed");
+      final var error = new AssertionError("File flush invariant");
+      try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+        wowCache.flush(id);
+        final boolean refuse = result == StorageException.class;
+        final var entry = refuse ? files.acquire(id) : null;
+        final var gate = new ShrinkGate();
+        final var retrying = new CountDownLatch(1);
+        final var submitted = witnessCloseSubmission(retrying);
+        final var callerThread = new AtomicReference<Thread>();
+        final var tasks = new RegistrationTasks<Throwable>(gate);
+        try {
+          if (result == WriteCacheException.class || result == AssertionError.class) {
+            final var ids = new IntOpenHashSet(new int[] {wowCache.internalFileId(id)});
+            Mockito.doThrow(result == AssertionError.class ? error : flushFailure)
+                .when(wowCache).executeFileFlush(eq(ids));
+          }
+          try (tasks) {
+            tasks.predecessor = flushExecutor().submit(gate::block);
+            awaitShrinkGate(gate.entered);
+            tasks.caller = asyncFileExecutor.submit(() -> {
+              callerThread.set(Thread.currentThread());
+              try {
+                final var type = result == AssertionError.class ? WriteCacheException.class
+                    : result;
+                final var failure = assertThrows(type, () -> wowCache.close(id, !refuse));
+                assertTrue("Close must restore interruption",
+                    Thread.currentThread().isInterrupted());
+                return failure;
+              } finally {
+                Thread.interrupted();
+              }
+            });
+            awaitShrinkGate(submitted);
+            callerThread.get().interrupt();
+            assertTrue("Close must retry the wait after consuming the interrupt",
+                retrying.await(5, TimeUnit.SECONDS));
+            final var lock = (ReadersWriterSpinLock) cacheField("filesLock");
+            final boolean acquired = lock.tryAcquireReadLock(TimeUnit.MILLISECONDS.toNanos(100));
+            if (acquired) {
+              lock.releaseReadLock();
+            }
+            assertFalse("An accepted close must retain the write lock", acquired);
+            assertFalse(tasks.caller.isDone());
+          }
+          if (result == ThreadInterruptedException.class) {
+            probe.assertClosed();
+            assertTrue(tasks.result.getCause() instanceof InterruptedException);
+          } else {
+            assertTrue(probe.handle.isOpen());
+            assertEquals(1, tasks.result.getSuppressed().length);
+            assertTrue(tasks.result.getSuppressed()[0] instanceof ThreadInterruptedException);
+            if (result == WriteCacheException.class) {
+              assertCause(tasks.result, flushFailure);
+            } else if (result == AssertionError.class) {
+              assertCause(tasks.result, error);
+            } else {
+              assertTrue(tasks.result.getMessage().contains("because it is still in use"));
+            }
+          }
+          assertClosedPageBytes(id, 728);
+        } finally {
+          if (entry != null) {
+            files.release(entry);
+          }
+          wowCache.deleteFile(id);
+        }
+      }
+    }
+  }
+
+  @Test
+  public void orderedCloseReportsExistingFileRefusalAndFlushFailureWithoutClosingHandle()
+      throws Exception {
+    // The pending fixture file becomes an existing file before either close attempt.
+    final long id = preparePendingPage(9488, null);
+    final var probe = new CloseProbe(id);
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.flush(id);
+      cacheUnwrittenImage(id, 2, 719);
+      final var entry = files.acquire(id);
+      try {
+        final var refused = assertThrows(StorageException.class, () -> wowCache.close(id, true));
+        assertTrue(refused.getMessage().contains("because it is still in use"));
+        assertTrue(probe.handle.isOpen());
+        assertClosedPageBytes(id, 719);
+      } finally {
+        files.release(entry);
+      }
+      final var ids = new IntOpenHashSet(new int[] {wowCache.internalFileId(id)});
+      final var io = new IOException("File flush failed");
+      Mockito.doThrow(io).doCallRealMethod().when(wowCache).executeFileFlush(eq(ids));
+      final var failed = assertThrows(WriteCacheException.class, () -> wowCache.close(id, true));
+      assertCause(failed, io);
+      assertTrue(probe.handle.isOpen());
+      assertEquals(1, files.openFilesCount());
+      wowCache.close(id, true);
+      probe.assertClosed();
+      assertClosedPageBytes(id, 719);
+    }
+  }
+
+  @Test
+  public void orderedCloseWrapsFlushBodyErrorWithoutClosingHandle() throws Exception {
+    assertOrderedCloseWrapsBodyError(true);
+  }
+
+  @Test
+  public void orderedCloseWrapsDiscardBodyErrorWithoutClosingHandle() throws Exception {
+    assertOrderedCloseWrapsBodyError(false);
+  }
+
+  private void assertOrderedCloseWrapsBodyError(boolean flush) throws Exception {
+    // Materialize the pending fixture file before injecting a failure in the close step.
+    final long id = preparePendingPage(9494, null);
+    final var probe = new CloseProbe(id);
+    final var error = new LinkageError("Close body failed");
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.flush(id);
+      final int internal = wowCache.internalFileId(id);
+      if (flush) {
+        final var ids = new IntOpenHashSet(new int[] {internal});
+        Mockito.doThrow(error).when(wowCache).executeFileFlush(eq(ids));
+      } else {
+        Mockito.doThrow(error).doCallRealMethod().when(wowCache).doRemoveCachePages(internal, 0);
+      }
+      assertCause(assertThrows(WriteCacheException.class, () -> wowCache.close(id, flush)), error);
+      assertSame(probe.handle, files.get(id));
+      assertTrue(probe.handle.isOpen());
+      assertNull(probe.closeThread);
+      assertEquals(1, files.openFilesCount());
+      assertClosedPageBytes(id, 728);
+    }
+  }
+
+  @Test
+  public void orderedCloseReportsDiscardErrorBeforeFormattingInPendingFixture() throws Exception {
+    // Materialize the pending fixture file so a successful close would close its channel.
+    final long id = preparePendingPage(9494, null);
+    final var probe = new CloseProbe(id);
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.flush(id);
+      final var error = new BlockingFormattingError(probe.commitThread);
+      final int internalId = wowCache.internalFileId(id);
+      Mockito.doThrow(error).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 0);
+
+      assertFailureCompletesBeforeFormatting(error, () -> wowCache.close(id, false));
+
+      assertSame(probe.handle, files.get(id));
+      assertTrue(probe.handle.isOpen());
+      assertNull(probe.closeThread);
+    }
+  }
+
+  @Test
+  public void orderedClosePropagatesSameErrorFromHandleClose() throws Exception {
+    // Materialize the pending fixture file so the close reaches an open channel.
+    final long id = preparePendingPage(9495, null);
+    final var probe = new CloseProbe(id);
+    final var error = new LinkageError("Channel close failed");
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.flush(id);
+      Mockito.doThrow(error).doCallRealMethod().when(probe.handle).close();
+      assertSame(error, assertThrows(LinkageError.class, () -> wowCache.close(id, true)));
+      assertTrue(probe.handle.isOpen());
+      assertClosedPageBytes(id, 728);
+    }
+  }
+
+  @Test
+  public void orderedCloseLeavesLayout27HandleCloseOnCallerThread() throws Exception {
+    final long id = wowCache.addFile(AUX, 123456);
+    files = Mockito.spy(files);
+    setCacheField("files", files);
+    final var caller = Thread.currentThread();
+    final var file = files.get(id);
+    Mockito.doAnswer(call -> {
+      assertSame(caller, Thread.currentThread());
+      return call.callRealMethod();
+    }).when(files).close(id);
+    wowCache.close(id, false);
+    Mockito.verify(files).close(id);
+    assertSame(file, files.get(id));
+    assertFalse(file.isOpen());
+    assertEquals(0, files.openFilesCount());
+  }
+
+  @Test
+  public void pendingFixtureShutdownWholeCloseWritesAllPagesBeforeLaterFlush() throws Exception {
+    assertWholeCloseOrder(true);
+  }
+
+  @Test
+  public void pendingFixtureShutdownWholeCloseWaitsForPriorPhysicalCreation() throws Exception {
+    assertWholeCloseOrder(false);
+  }
+
+  private void assertWholeCloseOrder(boolean closeFirst) throws Exception {
+    setCacheField("callFsync", true);
+    final long first = preparePendingPage(9490, null);
+    final long second = preparePendingPage(9491, null);
+    cacheUnwrittenImage(second, 2, 719);
+    final var firstProbe = new CloseProbe(first);
+    final var secondProbe = new CloseProbe(second);
+    final int firstInternal = wowCache.internalFileId(first);
+    final var gate = new ShrinkGate();
+    final var caller = new AtomicReference<Thread>();
+    final var tasks = new RegistrationTasks<long[]>(gate);
+    final var cache = wowCache;
+    try (var observation = cache.observePhysicalCreation(internal -> {
+      if (internal == firstInternal) {
+        firstProbe.created(internal);
+        gate.block();
+      } else {
+        secondProbe.created(internal);
+      }
+    })) {
+      try (tasks) {
+        if (!closeFirst) {
+          tasks.predecessor = submitTestFileFlush(first);
+          awaitShrinkGate(gate.entered);
+        }
+        tasks.caller = asyncFileExecutor.submit(() -> {
+          caller.set(Thread.currentThread());
+          return cache.close();
+        });
+        if (closeFirst) {
+          awaitShrinkGate(gate.entered);
+          tasks.predecessor = flushExecutor().submit(() -> {
+            final var state = cache.logicalFiles().live(firstInternal);
+            assertTrue("Whole-cache close must publish before the queued flush",
+                state.diskPresent());
+            assertEquals(3, state.diskExtent());
+            assertRawClosePages(first, 728);
+            return new FileFlushTask(cache, Set.of(firstInternal)).call();
+          });
+        } else {
+          awaitShutdownWait(caller, "close");
+        }
+        assertFalse("Whole-cache close must wait for physical creation", tasks.caller.isDone());
+      }
+      assertEquals(Set.of(first, second),
+          java.util.Arrays.stream(tasks.result).boxed()
+              .collect(java.util.stream.Collectors.toSet()));
+      assertEquals(0, files.openFilesCount());
+      assertEquals(2, tasks.result.length);
+      assertRegistrationPathCount(2);
+      for (final var probe : List.of(firstProbe, secondProbe)) {
+        assertEquals(1, probe.creations);
+        assertNull(files.get(probe.id));
+        assertFalse(probe.handle.isOpen());
+        assertSame(caller.get(), probe.closeThread);
+        assertNull(cache.fileNameById(probe.id));
+      }
+      assertEquals(true, cacheField("closed"));
+      assertRawClosePages(first, 728);
+      assertRawClosePages(second, 719);
+    } finally {
+      // The fixture must not call delete on a cache that completed close.
+      if (Boolean.TRUE.equals(cacheField("closed"))) {
+        wowCache = null;
+        for (final var probe : List.of(firstProbe, secondProbe)) {
+          if (probe.handle != null && probe.handle.isOpen()) {
+            probe.handle.close();
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  public void pendingFixtureShutdownWholeDeletePrecedesQueuedCreation() throws Exception {
+    assertWholeDeleteOrder(true, false);
+  }
+
+  @Test
+  public void pendingFixtureShutdownWholeDeleteRemovesPublishedCreation() throws Exception {
+    assertWholeDeleteOrder(false, false);
+  }
+
+  @Test
+  public void pendingFixtureShutdownWholeDeleteRemovesUnpublishedCreation() throws Exception {
+    assertWholeDeleteOrder(false, true);
+  }
+
+  private void assertWholeDeleteOrder(boolean deleteFirst, boolean unpublished) throws Exception {
+    final long id = unpublished ? prepareSavedNonDurablePendingPage(9493)
+        : preparePendingPage(9492, null);
+    final int internal = wowCache.internalFileId(id);
+    final var probe = new CloseProbe(id);
+    final var deleteThread = new AtomicReference<Thread>();
+    probe.onHandle = file -> {
+      if (unpublished) {
+        Mockito.doAnswer(write -> {
+          final List<
+              com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+                  write.getArgument(0);
+          if (buffers.getFirst().first == 2L * PAGE_SIZE) {
+            throw new IOException("Retryable first write failure");
+          }
+          return write.callRealMethod();
+        }).when(file).write(Mockito.anyList());
+      }
+      Mockito.doAnswer(call -> {
+        if (probe.handle == file) {
+          assertTrue("Delete must close the admitted channel", file.isOpen());
+        } else {
+          // Delete can construct an unopened channel wrapper for an absent canonical path.
+          assertTrue(deleteFirst);
+          assertFalse(file.isOpen());
+        }
+        final var result = call.callRealMethod();
+        assertFalse(file.isOpen());
+        deleteThread.set(Thread.currentThread());
+        return result;
+      }).when(file).delete();
+    };
+    final var gate = new ShrinkGate();
+    Mockito.doAnswer(call -> {
+      if (deleteFirst) {
+        gate.block();
+      } else if (unpublished) {
+        final var state = wowCache.logicalFiles().live(internal);
+        assertFalse(state.diskPresent());
+        assertSame(state.extents(), pendingOwners().get(internal));
+        assertSame(probe.handle, files.get(id));
+        assertTrue(Files.exists(standaloneIdentityPath(id)));
+      } else {
+        assertClosedPageBytes(id, 728);
+      }
+      return call.callRealMethod();
+    }).when(wowCache).executeDeleteFile(id);
+    final var caller = new AtomicReference<Thread>();
+    final var tasks = new RegistrationTasks<long[]>(gate);
+    try (var observation = wowCache.observePhysicalCreation(created -> {
+      probe.created(created);
+      if (!deleteFirst) {
+        gate.block();
+      }
+    })) {
+      try (tasks) {
+        if (!deleteFirst) {
+          tasks.predecessor = submitTestFileFlush(id);
+          awaitShrinkGate(gate.entered);
+        }
+        tasks.caller = asyncFileExecutor.submit(() -> {
+          caller.set(Thread.currentThread());
+          return wowCache.delete();
+        });
+        if (deleteFirst) {
+          awaitShrinkGate(gate.entered);
+          assertFalse(Files.exists(standaloneIdentityPath(id)));
+          tasks.predecessor = submitTestFileFlush(id);
+        } else {
+          awaitShutdownWait(caller, "delete");
+        }
+        assertFalse("Whole-cache delete must wait for its ordered work", tasks.caller.isDone());
+      }
+      assertFalse("Whole-cache delete must remove the canonical path",
+          Files.exists(standaloneIdentityPath(id)));
+      assertRegistrationPathCount(0);
+      assertNull(files.get(id));
+      assertEquals(0, files.openFilesCount());
+      assertNull(wowCache.logicalFiles().live(internal));
+      assertNull(pendingOwners().get(internal));
+      assertEquals(deleteFirst ? 0 : 1, probe.creations);
+      if (deleteFirst) {
+        assertNull(probe.handle);
+        assertArrayEquals(new long[0], tasks.result);
+      } else {
+        assertFalse(probe.handle.isOpen());
+        assertSame("Unlink must run on the commitExecutor() thread",
+            probe.commitThread, deleteThread.get());
+        assertArrayEquals(new long[] {id}, tasks.result);
+      }
+    }
+  }
+
+  private static void awaitShutdownWait(AtomicReference<Thread> caller, String method) {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    while (System.nanoTime() < deadline) {
+      final var thread = caller.get();
+      if (thread != null && thread.getState() == Thread.State.WAITING
+          && java.util.Arrays.stream(thread.getStackTrace())
+              .anyMatch(frame -> frame.getClassName().equals(WOWCache.class.getName())
+                  && frame.getMethodName().equals(method))) {
+        return;
+      }
+      Thread.yield();
+    }
+    throw new AssertionError("Caller did not wait in whole-cache " + method);
+  }
+
+  private Future<Void> submitTestFileFlush(long id) {
+    return flushExecutor().submit(new FileFlushTask(wowCache, Set.of(wowCache.internalFileId(id))));
+  }
+
+  private CountDownLatch witnessCloseSubmission() {
+    return witnessCloseSubmission(null);
+  }
+
+  private CountDownLatch witnessCloseSubmission(CountDownLatch retrying) {
+    final var submitted = new CountDownLatch(1);
+    Mockito.doAnswer(call -> {
+      final var future = (Future<?>) call.callRealMethod();
+      if (retrying != null) {
+        // Observe only the untimed wait. Other calls go to the real future.
+        final var observed = mock(Future.class, AdditionalAnswers.delegatesTo(future));
+        final var interrupted = new AtomicBoolean();
+        Mockito.doAnswer(wait -> {
+          if (interrupted.get()) {
+            retrying.countDown();
+          }
+          try {
+            return future.get(20, TimeUnit.SECONDS);
+          } catch (InterruptedException failure) {
+            interrupted.set(true);
+            throw failure;
+          }
+        }).when(observed).get();
+        submitted.countDown();
+        return observed;
+      }
+      submitted.countDown();
+      return future;
+    }).when(wowCache).submitCloseStep(Mockito.anyLong(), Mockito.anyInt(), Mockito.anyBoolean(),
+        any());
+    return submitted;
+  }
+
+  private void assertAbsentPendingClose(long id, CloseProbe probe) throws Exception {
+    assertPendingExtents(id);
+    assertEquals(0, probe.creations);
+    assertEquals(0, files.openFilesCount());
+    assertNull(probe.handle);
+    assertNull(files.get(id));
+    assertFalse(Files.exists(pendingPath(id)));
+    assertRegistrationPathCount(0);
+    assertNull(cacheField("flushError"));
+  }
+
+  private void assertClosedPageBytes(long id, int value) throws Exception {
+    final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+    assertTrue(state.diskPresent());
+    assertEquals(3, state.diskExtent());
+    assertEquals(3, state.logicalExtent());
+    assertRegistrationPathCount(1);
+    assertRawClosePages(id, value);
+  }
+
+  private void assertRawClosePages(long id, int value) throws IOException {
+    final var bytes = Files.readAllBytes(standaloneIdentityPath(id));
+    assertEquals(File.HEADER_SIZE + 3 * PAGE_SIZE, bytes.length);
+    assertArrayEquals(new byte[File.HEADER_SIZE],
+        java.util.Arrays.copyOf(bytes, File.HEADER_SIZE));
+    for (int page = 0; page < 3; page++) {
+      final var raw = ByteBuffer.wrap(bytes, File.HEADER_SIZE + page * PAGE_SIZE, PAGE_SIZE)
+          .slice().order(ByteOrder.nativeOrder());
+      assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM, raw.getLong(0));
+      final var crc = new java.util.zip.CRC32();
+      crc.update(raw.duplicate().position(WOWCache.CHECKSUM_OFFSET + Integer.BYTES));
+      assertEquals((int) crc.getValue(), raw.getInt(WOWCache.CHECKSUM_OFFSET));
+      if (page < 2) {
+        assertEquals("blank LSN page " + page, new LogSequenceNumber(-1, -1),
+            DurablePage.getLogSequenceNumberFromPage(raw));
+      }
+      assertEquals("raw payload page " + page, page == 2 ? value : 0,
+          raw.getInt(DurablePage.NEXT_FREE_POSITION));
+    }
+  }
+
+  @FunctionalInterface
+  private interface CloseHandleSetup {
+
+    void configure(File handle) throws IOException, InterruptedException;
+  }
+
+  private final class CloseProbe {
+
+    private final long id;
+    private final Thread commitThread;
+    private File candidate;
+    private File handle;
+    private Thread closeThread;
+    private int creations;
+    private CloseHandleSetup onHandle = file -> {
+    };
+
+    private CloseProbe(long id) throws Exception {
+      this.id = id;
+      commitThread = flushExecutor().submit(Thread::currentThread).get(10, TimeUnit.SECONDS);
+      if (!Mockito.mockingDetails(wowCache).isSpy()) {
+        wowCache = Mockito.spy(wowCache);
+      }
+      Mockito.doAnswer(call -> {
+        final var file = Mockito.spy((File) call.callRealMethod());
+        candidate = file;
+        Mockito.doAnswer(close -> {
+          closeThread = Thread.currentThread();
+          return close.callRealMethod();
+        }).when(file).close();
+        onHandle.configure(file);
+        return file;
+      }).when(wowCache).createFileHandle(any(), eq((int) id));
+    }
+
+    private void created(int internal) {
+      assertEquals(wowCache.internalFileId(id), internal);
+      assertSame("Creation must run on the commitExecutor() thread",
+          commitThread, Thread.currentThread());
+      handle = candidate;
+      creations++;
+    }
+
+    private void assertClosed() {
+      assertEquals(1, creations);
+      assertNotNull(handle);
+      assertSame(handle, files.get(id));
+      assertFalse(handle.isOpen());
+      assertEquals(0, files.openFilesCount());
+      assertSame("Close must run on the commitExecutor() thread", commitThread, closeThread);
+    }
+  }
 
   @Test(timeout = 60_000)
   public void orderedRegistrationReusesBackgroundPublishedFileFromPendingFixture()
@@ -4017,6 +4827,201 @@ public class WOWCacheLoadOrAddTest {
     }
   }
 
+  @Test
+  public void orderedShrinkWrapsPublishedDiscardErrorWithoutChangingFileOrExtents()
+      throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new LinkageError("Discard body failed"));
+  }
+
+  @Test
+  public void orderedShrinkWrapsHighLevelDiscardErrorWithoutChangingFileOrExtents()
+      throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new HighLevelDiscardError());
+  }
+
+  @Test
+  public void orderedShrinkReportsPublishedDiscardErrorBeforeFormatting() throws Exception {
+    final long id = preparePublishedFileWithRetainedPrefixAndTail();
+    final var path = pendingPath(id);
+    final int internalId = wowCache.internalFileId(id);
+    final var state = wowCache.logicalFiles().live(internalId);
+    wowCache = Mockito.spy(wowCache);
+    final var error = new BlockingFormattingError(commitExecutorThread());
+    Mockito.doThrow(error).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 2);
+
+    assertFailureCompletesBeforeFormatting(error, () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE));
+
+    assertEquals(File.HEADER_SIZE + 3L * PAGE_SIZE, Files.size(path));
+    assertEquals(3, state.logicalExtent());
+    assertEquals(3, state.diskExtent());
+  }
+
+  private Thread commitExecutorThread() throws Exception {
+    return flushExecutor().submit(Thread::currentThread).get(10, TimeUnit.SECONDS);
+  }
+
+  private void assertFailureCompletesBeforeFormatting(BlockingFormattingError error,
+      ThrowingRunnable operation) throws Exception {
+    final var result =
+        new FutureTask<>(() -> assertThrows(WriteCacheException.class, operation));
+    final var caller = Thread.ofPlatform().daemon().start(result);
+    try {
+      // The caller must receive the failure while formatting is still blocked.
+      assertCause(result.get(10, TimeUnit.SECONDS), error);
+    } catch (TimeoutException timeout) {
+      throw new AssertionError(
+          "Caller must receive WriteCacheException before the formatting latch opens", timeout);
+    } finally {
+      error.allowFormatting.countDown();
+      // Drain any failure logging that runs on the commitExecutor() thread after completion.
+      caller.join(10_000);
+      flushExecutor().submit(() -> {
+      }).get(10, TimeUnit.SECONDS);
+      assertFalse("Caller must stop after the formatting latch opens", caller.isAlive());
+    }
+  }
+
+  private static final class BlockingFormattingError extends Error {
+
+    private final Thread commitThread;
+    private final CountDownLatch allowFormatting = new CountDownLatch(1);
+
+    private BlockingFormattingError(Thread commitThread) {
+      super("Discard body failed");
+      this.commitThread = commitThread;
+    }
+
+    @Override
+    public String toString() {
+      awaitFormattingPermission();
+      return super.toString();
+    }
+
+    @Override
+    public String getLocalizedMessage() {
+      awaitFormattingPermission();
+      return super.getLocalizedMessage();
+    }
+
+    private void awaitFormattingPermission() {
+      if (Thread.currentThread() == commitThread) {
+        try {
+          // Keep a failed regression bounded even if the caller cannot release the latch.
+          allowFormatting.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
+  }
+
+  private static final class HighLevelDiscardError extends Error implements HighLevelException {
+
+    private HighLevelDiscardError() {
+      super("Discard body failed");
+    }
+  }
+
+  @Test
+  public void orderedShrinkWrapsPublishedDiscardIOExceptionWithoutChangingFileExtentsOrRetention()
+      throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new IOException("Discard body failed"));
+  }
+
+  @Test
+  public void
+      orderedShrinkWrapsPublishedDiscardRuntimeExceptionWithoutChangingFileExtentsOrRetention()
+          throws Exception {
+    assertPublishedShrinkWrapsDiscardFailure(new IllegalStateException("Discard body failed"));
+  }
+
+  private void assertPublishedShrinkWrapsDiscardFailure(Throwable failure) throws Exception {
+    final long id = preparePublishedFileWithRetainedPrefixAndTail();
+    final var path = pendingPath(id);
+    final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+
+    assertDiscardFailureIsWrapped(id, failure);
+
+    assertEquals(File.HEADER_SIZE + 3L * PAGE_SIZE, Files.size(path));
+    assertEquals(3, state.logicalExtent());
+    assertEquals(3, state.diskExtent());
+    assertRetainedSegments(Set.of(41L, 42L));
+  }
+
+  @Test
+  public void orderedShrinkWrapsDiscardErrorWithoutChangingExtentsInPendingFixture()
+      throws Exception {
+    final long id = preparePendingPage(9351, null);
+    final var path = pendingPath(id);
+    final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+    // Retain the tail through an attempted first write that cannot create its file.
+    Files.write(path, new byte[] {1});
+    final var dwl = mock(DoubleWriteLog.class);
+    when(dwl.write(any(), any(), any())).thenReturn(new DoubleWriteLog.AppendResult(42L, false, 0));
+    setCacheField("doubleWriteLog", dwl);
+    assertThrows(InvocationTargetException.class, () -> flushWithSelector(id, 1));
+    Files.delete(path);
+    assertNull(files.get(id));
+    assertRetainedSegments(Set.of(42L));
+
+    assertDiscardFailureIsWrapped(id, new LinkageError("Discard body failed"));
+
+    assertTrue(Files.notExists(path));
+    assertNull(files.get(id));
+    assertEquals(3, state.logicalExtent());
+    assertEquals(0, state.diskExtent());
+    assertRetainedSegments(Set.of(42L));
+  }
+
+  private void assertDiscardFailureIsWrapped(long id, Throwable failure) throws Exception {
+    wowCache = Mockito.spy(wowCache);
+    final var commitThread = commitExecutorThread();
+    final int internalId = wowCache.internalFileId(id);
+    Mockito.doAnswer(call -> {
+      assertSame("Discard must run on the commitExecutor() thread",
+          commitThread, Thread.currentThread());
+      throw failure;
+    }).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 2);
+
+    final var wrapped = assertThrows(WriteCacheException.class,
+        () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE));
+    assertCause(wrapped, failure);
+    assertTrue(wrapped.getMessage().contains("File data removal was abnormally terminated"));
+    assertTrue(wrapped.getMessage().contains(storageName));
+  }
+
+  @Test
+  public void orderedShrinkPropagatesSameErrorFromPhysicalTruncate() throws Exception {
+    assertOrderedShrinkPropagatesTruncateFailure(LinkageError.class,
+        new LinkageError("Channel truncate failed"));
+  }
+
+  @Test
+  public void orderedShrinkPropagatesSameIOExceptionFromPhysicalTruncate() throws Exception {
+    assertOrderedShrinkPropagatesTruncateFailure(IOException.class,
+        new IOException("Channel truncate failed"));
+  }
+
+  private <T extends Throwable> void assertOrderedShrinkPropagatesTruncateFailure(
+      Class<T> type, T failure) throws Exception {
+    final long id = preparePendingPage(9351, null);
+    wowCache.flush(id);
+    final var file = files.get(id);
+    final var channelField = AsyncFile.class.getDeclaredField("fileChannel");
+    channelField.setAccessible(true);
+    final var realChannel = (AsynchronousFileChannel) channelField.get(file);
+    final var channel = mock(AsynchronousFileChannel.class,
+        org.mockito.AdditionalAnswers.delegatesTo(realChannel));
+    Mockito.doThrow(failure).when(channel).truncate(Mockito.anyLong());
+
+    try {
+      channelField.set(file, channel);
+      assertSame(failure, assertThrows(type, () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE)));
+    } finally {
+      channelField.set(file, realChannel);
+    }
+  }
+
   private long preparePublishedFileWithRetainedPrefixAndTail() throws Exception {
     final long id = preparePendingPage(9351, null);
     cacheUnwrittenImage(id, 1, 119);
@@ -5241,6 +6246,12 @@ public class WOWCacheLoadOrAddTest {
   }
 
   private long preparePendingPage(int component, LogSequenceNumber creating) throws Exception {
+    final long fileId = registerPendingFixture(component, creating);
+    cacheUnwrittenImage(fileId, 2, 728);
+    return fileId;
+  }
+
+  private long registerPendingFixture(int component, LogSequenceNumber creating) throws Exception {
     wowCache.pauseBackgroundFlush();
     if (wowCache.logicalFiles() == null) {
       wowCache.setStorageFormat(
@@ -5252,7 +6263,6 @@ public class WOWCacheLoadOrAddTest {
         false, 3, 0, false, creating);
     assertNull(files.get(fileId));
     assertFalse(Files.exists(pendingPath(fileId)));
-    cacheUnwrittenImage(fileId, 2, 728);
     return fileId;
   }
 

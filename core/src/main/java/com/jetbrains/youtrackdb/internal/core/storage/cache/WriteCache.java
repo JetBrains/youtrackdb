@@ -485,6 +485,13 @@ public interface WriteCache {
 
   long[] close() throws IOException;
 
+  /**
+   * Closes the handle without unregistering the file. The layout 28 disk cache flushes or
+   * discards cached pages and closes the handle in one step on the commitExecutor() thread.
+   * A flushing close runs the file flush. It can leave a changed page that a writer holds or
+   * whose write failed and can be retried. A later flush can write that page.
+   * A caller interrupted while waiting for that step reports the interruption after it ends.
+   */
   void close(long fileId, boolean flush);
 
   PageDataVerificationError[] checkStoredPages(CommandOutputListener commandOutputListener);
