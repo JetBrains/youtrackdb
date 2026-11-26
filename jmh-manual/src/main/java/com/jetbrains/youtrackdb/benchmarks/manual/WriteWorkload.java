@@ -45,6 +45,9 @@ import org.openjdk.jmh.infra.ThreadParams;
 @Fork(1)
 public class WriteWorkload {
 
+  private static final String BENCH_USER = "bench";
+  private static final String BENCH_PASSWORD = "benchmark-password";
+
   @Param("2")
   public int databases;
   @Param("1")
@@ -63,9 +66,12 @@ public class WriteWorkload {
   public int fixedEngineThreads;
   @Param("")
   public String extra;
+  @Param("true")
+  public boolean fileEvents;
 
   private Path directory;
   private YouTrackDB instance;
+  private IterationMetrics metrics;
   private final List<String> created = new ArrayList<>();
   private final List<Worker> workers = new ArrayList<>();
   private Object[] records;
@@ -115,18 +121,11 @@ public class WriteWorkload {
       instance = YourTracks.instance(directory);
       for (int db = 0; db < databases; db++) {
         String name = "bench" + db;
-        instance.create(name, DatabaseType.DISK, "bench", "benchmark-password", "admin");
+        instance.create(name, DatabaseType.DISK, BENCH_USER, BENCH_PASSWORD, "admin");
         created.add(name);
-        try (var g = instance.openTraversal(name, "bench", "benchmark-password")) {
-          for (int writer = 0; writer < writers; writer++) {
-            if (databaseFor(writer) == db) {
-              final int index = writer;
-              g.executeInTx(tx -> records[index] = tx.addV("Bench")
-                  .property("payload", writerPayload(index)[0]).next().id());
-            }
-          }
-        }
       }
+      metrics = new IterationMetrics(directory, created, fileEvents);
+      seed(writers);
       int observed = Math.max(0, ManagementFactory.getThreadMXBean().getThreadCount() - before);
       System.out.println("JVM " + System.getProperty("java.runtime.version")
           + " args=" + ManagementFactory.getRuntimeMXBean().getInputArguments()
@@ -150,6 +149,29 @@ public class WriteWorkload {
         failure.addSuppressed(cleanup);
       }
       throw failure;
+    }
+  }
+
+  private void seed(int writers) {
+    List<YTDBGraphTraversalSource> graphs = new ArrayList<>();
+    try {
+      for (String name : created) {
+        graphs.add(instance.openTraversal(name, BENCH_USER, BENCH_PASSWORD));
+      }
+      metrics.reportStartup();
+      for (int db = 0; db < graphs.size(); db++) {
+        for (int writer = 0; writer < writers; writer++) {
+          if (databaseFor(writer) == db) {
+            final int index = writer;
+            graphs.get(db).executeInTx(tx -> records[index] = tx.addV("Bench")
+                .property("payload", writerPayload(index)[0]).next().id());
+          }
+        }
+      }
+    } finally {
+      for (var graph : graphs) {
+        graph.close();
+      }
     }
   }
 
@@ -310,8 +332,14 @@ public class WriteWorkload {
     }
   }
 
+  @Setup(Level.Iteration)
+  public void startMetrics(Control control) {
+    metrics.start(control);
+  }
+
   @TearDown(Level.Iteration)
-  public void report(IterationParams iteration) {
+  public void report(IterationParams iteration) throws InterruptedException {
+    metrics.report(iteration.getType());
     for (boolean quiet : new boolean[] {false, true}) {
       var service = new Histogram();
       var response = new Histogram();
@@ -348,20 +376,26 @@ public class WriteWorkload {
   @TearDown(Level.Trial)
   public void close() throws IOException {
     try {
-      if (instance != null) {
-        try {
-          for (String name : created) {
-            instance.drop(name);
-          }
-        } finally {
-          instance.close();
-        }
+      if (metrics != null) {
+        metrics.close();
       }
     } finally {
-      if (directory != null) {
-        try (var paths = Files.walk(directory)) {
-          for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
-            Files.delete(path);
+      try {
+        if (instance != null) {
+          try {
+            for (String name : created) {
+              instance.drop(name);
+            }
+          } finally {
+            instance.close();
+          }
+        }
+      } finally {
+        if (directory != null) {
+          try (var paths = Files.walk(directory)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+              Files.delete(path);
+            }
           }
         }
       }
@@ -404,7 +438,7 @@ public class WriteWorkload {
         record = state.records[index];
         payloads = state.writerPayload(index);
         graph = state.instance.openTraversal("bench" + state.databaseFor(index),
-            "bench", "benchmark-password");
+            BENCH_USER, BENCH_PASSWORD);
       }
       synchronized (state.workers) {
         state.workers.add(this);

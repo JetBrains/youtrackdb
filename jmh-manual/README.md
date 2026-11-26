@@ -55,6 +55,7 @@ Pass each parameter with `-p name=value`. Only JMH Throughput mode is supported.
 | quietPaceMicros | 10000 | Intended interval per quiet writer, from 1 through 60000000 microseconds |
 | fixedEngineThreads | 6 | Nonnegative bound on engine threads outside the two elastic pools |
 | extra | empty | Semicolon-separated `youtrackdb.key=value` settings |
+| fileEvents | true | Record file operations with Java Flight Recorder (JFR) |
 
 Set JMH `-t` to the sum of writer counts, or 1 for idle-only.
 Every busy database needs at least one writer. Busy writers need at least one busy database.
@@ -104,8 +105,9 @@ Warm-up and measurement iteration lengths must be positive multiples of the effe
 commit timeout, which must itself be positive.
 
 For example, use `-p 'extra=youtrackdb.storage.wal.maxSize=512;youtrackdb.storage.diskCache.bufferSize=128'`.
-Extra settings override pins and can express disk pressure or future configuration keys.
-They cannot move WAL files outside the temporary databases.
+Extra settings override pins and can express disk pressure.
+Use configuration keys that the product version under test supports.
+Overrides cannot move WAL files outside the temporary databases.
 
 Unknown keys remain system properties, with effective values reported as `not available`.
 Check that the running product recognizes every key needed for a comparison.
@@ -226,12 +228,112 @@ Bounded histograms round percentiles upward by at most 1/64 of the bucket magnit
 Maxima are exact. A zero sample count reports `not available`, never zero latency.
 Idle-only has zero commits and no latency samples.
 
-The optional `-prof gc` figures describe the whole fork, not a writer role:
+Use `-prof gc` to enable the standard JMH garbage collection (GC) profiler.
+Its figures describe the whole fork, not a writer role:
 - `gc.alloc.rate` is the allocation rate in MiB per second.
 - `gc.alloc.rate.norm` is allocated bytes per harness invocation, not per committed transaction.
   Idle waits and the mix of roles affect its denominator.
 - `gc.count` is the number of garbage collections in the profiler interval.
 - `gc.time` is their accumulated elapsed time in milliseconds.
 
-JMH summarizes profiler and throughput results across measured iterations.
-Profiler intervals can include boundary overhead, so they need not match the latency sample window exactly.
+JMH prints profiler figures, including allocation, only for measurement iterations.
+The profiler interval is wider than the collector window and includes fixture work.
+For example, it includes the collector report and can include seeding.
+Keep profiler figures separate from the collector figures below.
+
+The command also works on a build with `WriteWorkload` but no collector.
+That build gives throughput, latency and profiler results.
+It cannot supply the startup, process or database figures in the collector records.
+Only builds with the collector pay the sampling cost and, by default, the JFR recording cost.
+`-p fileEvents=false` removes only the JFR cost.
+A difference in throughput, CPU time or allocation can come from these costs.
+
+### Iteration metrics
+
+Keep the JMH fork headers with the console records. Collector records are per fork.
+The final JMH table merges results from measured forks, including allocation and throughput.
+
+`METRICS_STARTUP` reports engine direct bytes after all databases open and before seeding.
+Each iteration has one `METRICS` record and one `METRICS_DATABASE` record per database.
+The collector does not split process totals by writer role. It also reports idle-only iterations.
+
+`phase` distinguishes warm-up from measurement. `iteration` counts across both phases in each fork.
+
+The observer samples only while JMH marks work as timed. It discards reads that cross the stop flag.
+It aims for the reported interval in milliseconds. Operating system scheduling can delay samples.
+
+The collector window runs between the start times of the first and last accepted samples.
+It excludes setup and teardown and can omit time at the edges of timed work.
+`windowNanos` measures its length with a monotonic clock.
+One accepted sample can give gauges but cannot give a delta.
+
+A sample is not an atomic snapshot. The collector reads counters and then gauges.
+`counterReadMaxNanos` bounds the time to finish reading counters after either endpoint starts.
+Process CPU, GC and product deltas are differences of those readings, not clipped to the window.
+
+`processCpuNanos` is processor time in nanoseconds for the whole process.
+`gcCount` counts collections and `gcTimeMillis` gives their reported elapsed time in milliseconds.
+`gcTimePercent` divides that time by the window length.
+
+`heapUsedObservedMaxBytes` is the largest sampled value of total used Java heap, in bytes.
+Usage can be higher between samples. This observed maximum is a lower bound on the real peak.
+It cannot prove compliance with a hard memory limit.
+
+Engine direct memory, WAL-owned direct memory and retained WAL segments use bytes.
+Each gives the observed maximum and last sample.
+
+The collector tracks registration of the global metrics bean in Java Management Extensions (JMX).
+The direct memory gauges require a known, unchanged registration across samples and at reporting.
+If the engine restarts inside the JVM during an iteration, JMX notifications can arrive late.
+In that case, the maximum and final values can come from different registrations.
+The benchmark fixture never restarts the engine during a trial.
+
+`RetainedWalBytesScanEstimate` fields sum logical file sizes, not disk blocks.
+The scan reads sizes at different times. Concurrent vacuum and growth can bias it in either direction.
+
+The collector reads named product metrics through JMX.
+It reports changes in cumulative counters, not their lifetime totals.
+Fields ending in `Nanos` use nanoseconds. Other counter fields count events.
+
+`DataFileFsyncCount` counts force attempts on data files that use asynchronous input and output.
+The product counts attempts before the call, including attempts that fail.
+The counter excludes ordinary-channel files.
+The per-database counters describe waits for WAL queue space or blocks, and WAL vacuum runs.
+The removal count includes only runs that removed at least one segment.
+
+The current product does not publish `WalDirectMemoryBytes`, `WalBlockWaitCount` or
+`WalBlockWaitTimeNanos`.
+The collector reads these metrics where the product version publishes them.
+
+Databases with the same name share counters. The workload gives each database a distinct name.
+An engine restart can reset counters. A change of registration or a counter decrease invalidates the delta.
+
+JFR timestamps its own markers for the first and last accepted samples.
+It counts only events wholly inside those bounds on numbered WAL files in the benchmark databases.
+It reports write bytes and total force duration in nanoseconds.
+It uses no duration cutoff and records no file-event stack traces.
+Neither a JFR force event nor the product attempt counter proves that data reached durable storage.
+Use `-p fileEvents=false` for a comparison without the cost of file event recording.
+
+A zero is a measured value at the scope and resolution of its field.
+For example, a short collection can leave the millisecond GC time unchanged.
+A zero file event count means the recording has no qualifying event.
+`not available` means the collector cannot give a reading. It does not mean zero.
+
+File figures are unavailable if the collector cannot read a usable window.
+The collector accepts the OpenJDK JFR 2.1 file format.
+It requires a dump with exactly one chunk, a physical block of the recording.
+
+The collector reports `fileEvents=rotated` when data after the first chunk passes the framing check.
+Chunk rotation is the usual cause.
+A damaged dump can also produce this status.
+In both cases, all four file figures are `not available`.
+
+Starting or stopping another recording can rotate chunks in the benchmark fork.
+To make size-based rotation less likely, try adding
+`-XX:FlightRecorderOptions=maxchunksize=64m` to `JAVA_OPTS` before launch.
+Keep this setting the same across compared runs.
+
+A loss report anywhere in a single-chunk dump makes file figures unavailable.
+All accepted markers must be present in that chunk.
+This check cannot detect silent loss within the chunk if all accepted markers survive.
