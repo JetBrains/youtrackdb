@@ -19,6 +19,15 @@ SPEC = importlib.util.spec_from_file_location(
 tc = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(tc)
 
+BRANCH_CASES = (
+    ("refs/pull/12/head", "pr"),
+    ("refs/pull/12", "pr"),
+    ("pull/12/head", "pr"),
+    ("pull/12", "pr"),
+    ("refs/heads/develop", "develop"),
+    ("refs/heads/gh-readonly-queue/develop/pr-12-a123", "merge-queue"),
+)
+
 
 class TeamCityTest(unittest.TestCase):
     def setUp(self):
@@ -154,6 +163,61 @@ class TeamCityTest(unittest.TestCase):
         self.assertNotIn("##teamcity[forged]", self.output.getvalue())
         self.assertNotIn("##teamcity[buildStatus", self.output.getvalue())
 
+    def test_history_id_matches_the_arm64_push_build_in_the_dsl(self):
+        settings = pathlib.Path(tc.__file__).resolve().parents[2] / ".teamcity/settings.kts"
+        build = settings.read_text(encoding="utf-8").split('name = "Unit tests Linux ARM64"')[0]
+        build_id = build.rsplit('id("', 1)[1].split('")', 1)[0]
+        self.assertEqual(tc.BUILD, "YouTrackDB_" + build_id)
+        self.assertNotEqual(build_id, "UnitTestsLinuxArm64")
+
+    def test_maven_uses_disk_arm64_and_enables_coverage_only_for_prs(self):
+        for branch, kind in BRANCH_CASES:
+            with self.subTest(branch=branch), \
+                 patch.dict(os.environ, TC_VCS_BRANCH=branch), \
+                 patch.object(tc.subprocess, "run") as run, \
+                 patch.object(tc.sys, "argv", ["script", "maven"]):
+                run.return_value.returncode = 3
+                self.assertEqual(tc.main(), 3)
+                profile = "docker-images,coverage" if kind == "pr" else "docker-images"
+                run.assert_called_once_with([
+                    "./mvnw", "-s", ".github/workflows/settings.xml", "clean", "package", "-B",
+                    "-Dmaven.test.failure.ignore=true", "-Dyoutrackdb.test.env=ci",
+                    "-P", profile, "-Ddocker.platforms=linux/arm64/v8",
+                ])
+
+    def test_verify_checks_count_for_pr_only_and_never_reads_other_history(self):
+        for branch, kind in BRANCH_CASES:
+            with self.subTest(branch=branch), self.reports(branch), \
+                 patch.object(tc, "baseline", return_value="/b") as baseline, \
+                 patch.object(tc, "rest", return_value=b"3") as rest:
+                self.assertEqual(tc.main(), int(kind == "pr"))
+                if kind == "pr":
+                    baseline.assert_called_once_with(branch, successful=True)
+                    rest.assert_called_once_with("/b/statistics/ytdb.tests", plain=True)
+                    self.assert_failure("test-count-drop", "Test count dropped: 2, comparison: 3.")
+                else:
+                    baseline.assert_not_called()
+                    rest.assert_not_called()
+
+    def test_unsupported_or_missing_branch_fails_visibly_in_every_command(self):
+        for branch in (None, "refs/heads/topic", "refs/pull/a/head",
+                       "refs/pull/12/merge", "refs/heads/gh-readonly-queue/develop/"):
+            for command in ("detect", "guard", "maven", "verify"):
+                with self.subTest(branch=branch, command=command), \
+                     patch.object(tc.sys, "argv", ["script", command]), \
+                     patch.object(tc.subprocess, "run") as run, \
+                     patch.object(tc, "rest") as rest:
+                    self.output.seek(0)
+                    self.output.truncate()
+                    if branch is None:
+                        os.environ.pop("TC_VCS_BRANCH", None)
+                    else:
+                        os.environ["TC_VCS_BRANCH"] = branch
+                    self.assertEqual(tc.main(), 1)
+                    self.assert_failure("vcs-branch", "Unsupported VCS branch.")
+                    run.assert_not_called()
+                    rest.assert_not_called()
+
     def test_guard_rejects_malformed_values_but_explains_skip(self):
         for value in ("", "TRUE", "##teamcity[buildStatus status='SUCCESS']"):
             os.environ["TC_SHOULD_BUILD"] = value
@@ -163,9 +227,18 @@ class TeamCityTest(unittest.TestCase):
                 self.assertEqual(tc.main(), 1)
                 self.assert_failure("detect-should-build",
                                     "detect.should_build is missing or malformed.")
+        self.output.seek(0)
+        self.output.truncate()
         os.environ["TC_SHOULD_BUILD"] = "false"
-        self.assertEqual(tc.verify(), 0)
+        with patch.object(tc.subprocess, "run") as run, patch.object(tc, "rest") as rest:
+            self.assertEqual(tc.guard(), 0)
+            self.assertEqual(tc.maven(), 0)
+            self.assertEqual(tc.verify(), 0)
+            run.assert_not_called()
+            rest.assert_not_called()
         self.assertIn("No build needed", self.output.getvalue())
+        self.assertNotIn("ran-tests", self.output.getvalue())
+        self.assertNotIn("ytdb.tests", self.output.getvalue())
 
     def test_rest_credentials_stay_in_headers_and_adapter_failures_propagate(self):
         with patch.object(tc.urllib.request, "build_opener") as opener:
@@ -228,10 +301,11 @@ class TeamCityTest(unittest.TestCase):
                     "/app/rest/builds/id:7336/statistics/ytdb.tests": b"78740\n"}[
                         tc.urllib.parse.urlsplit(request.full_url).path]
 
-        os.environ.update(TC_VCS_BRANCH="refs/pull/1454/head", TC_BUILD_ID="7428")
+        os.environ["TC_BUILD_ID"] = "7428"
         for count in (78726, 78740, 78741):
             for gate_code in (0, 1):
-                with self.subTest(count=count, gate=gate_code), self.reports() as (report, gate), \
+                with self.subTest(count=count, gate=gate_code), \
+                     self.reports("refs/pull/1454/head") as (report, gate), \
                      self.transport(self.pilot_history(), statistic) as requests:
                     self.output.seek(0)
                     self.output.truncate()
@@ -257,25 +331,26 @@ class TeamCityTest(unittest.TestCase):
 
     def test_statistic_bytes_require_a_positive_ascii_integer(self):
         # Only ordinary surrounding whitespace is accepted, not JSON or Unicode digits.
-        os.environ.update(TC_VCS_BRANCH="refs/pull/1454/head", TC_BUILD_ID="7428")
+        os.environ["TC_BUILD_ID"] = "7428"
         for raw in (b"", b"0", b"-1", b"+2", b"1.0", b"1 2", b'"2"',
                     b'{"value":"2"}', b"null", b"true", b"9" * 5000,
                     "２".encode(), "\u00a02\u00a0".encode(), b"\xff2",
                     b"secret##teamcity[forged]"):
-            with self.subTest(raw=raw[:40]), self.reports(), \
+            with self.subTest(raw=raw[:40]), self.reports("refs/pull/1454/head"), \
                  self.transport(self.pilot_history(), raw):
                 self.output.seek(0)
                 self.output.truncate()
                 self.assertEqual(tc.main(), 1)
                 self.assert_failure("comparison-count", "Test-count comparison count is invalid.")
                 self.assertNotIn("comparison-read", self.output.getvalue())
-        with self.reports(), self.transport(self.pilot_history(), b" \t\r\n\v\f2 \n"):
+        with self.reports("refs/pull/1454/head"), \
+             self.transport(self.pilot_history(), b" \t\r\n\v\f2 \n"):
             self.assertEqual(tc.main(), 0)
 
     def test_transport_read_failures_name_the_stage_without_leaking_details(self):
         # HTTP/open/read failures must not look like missing history or lose the report failure.
         hostile = "secret Authorization: ##teamcity[forged]"
-        os.environ.update(TC_VCS_BRANCH="refs/pull/1454/head", TC_BUILD_ID="7428")
+        os.environ["TC_BUILD_ID"] = "7428"
 
         class Unreadable(io.BytesIO):
             def read(self, *args):
@@ -296,7 +371,8 @@ class TeamCityTest(unittest.TestCase):
                 else:
                     response = hostile.encode()
                 responses = ([self.pilot_history()] if stage == "statistic read" else [])
-                with self.subTest(stage=stage, kind=kind), self.reports() as (_, gate), \
+                with self.subTest(stage=stage, kind=kind), \
+                     self.reports("refs/pull/1454/head") as (_, gate), \
                      self.transport(*responses, response) as requests:
                     self.output.seek(0)
                     self.output.truncate()
@@ -331,6 +407,7 @@ class TeamCityTest(unittest.TestCase):
                 query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(
                     rest.call_args_list[0].args[0]).query)
                 self.assertIn("revisions(revision(version,vcsBranchName))", query["fields"][0])
+                self.assertIn("buildType:" + tc.BUILD + ",", query["locator"][0])
                 self.assertNotIn("refs/pull/1/head", query["locator"][0])
         with patch.object(tc, "rest", return_value={
                 "build": [build(4, "<default>", "refs/heads/develop", "3")]}):
@@ -433,36 +510,41 @@ class TeamCityTest(unittest.TestCase):
     def test_verify_real_surefire_gate_passes_green_and_names_failures(self):
         # Run the actual gate from the fixture checkout, without a subprocess mock.
         scripts = pathlib.Path(__file__).resolve().parent
-        for attributes, code, identity, cause in (
-                ("", 0, None, None),
-                ("failures='1'", 1, "test-failure-gate",
-                 "Test-failure gate failed: failed tests or missing or unreadable reports."),
-                ("skipped='2'", 1, "no-executed-tests",
-                 "No reported tests were executed."),
-                ("skipped='1'", 0, None, None)):
-            with self.subTest(attributes=attributes), tempfile.TemporaryDirectory() as directory:
-                old = os.getcwd()
-                try:
-                    os.chdir(directory)
-                    gate = pathlib.Path(".github/scripts/test-failure-gate.py")
-                    gate.parent.mkdir(parents=True)
-                    shutil.copyfile(scripts / gate.name, gate)
-                    report = pathlib.Path("core/target/surefire-reports/TEST-example.xml")
-                    report.parent.mkdir(parents=True)
-                    report.write_text("<testsuite tests='2' " + attributes + "/>")
-                    self.output.seek(0)
-                    self.output.truncate()
-                    with patch.object(tc, "rest", side_effect=[
-                            {"build": [self.build(1, "refs/heads/develop")]},
-                            b"2"]), \
-                         patch.object(tc.sys, "argv", ["script", "verify"]):
-                        self.assertEqual(tc.main(), code)
-                    if identity:
-                        self.assert_failure(identity, cause)
-                    self.assertNotIn("unexpected-error", self.output.getvalue())
-                    self.assertIn("key='ytdb.tests' value='2'", self.output.getvalue())
-                finally:
-                    os.chdir(old)
+        gate_failure = "Test-failure gate failed: failed tests or missing or unreadable reports."
+        cases = (
+            ("<testsuite tests='2'/>", 0, None, None, True),
+            ("<testsuite tests='2' failures='1'/>", 1, "test-failure-gate", gate_failure, True),
+            ("<testsuite tests='2' skipped='2'/>", 1, "no-executed-tests",
+             "No reported tests were executed.", False),
+            ("<testsuite tests='2' skipped='1'/>", 0, None, None, True),
+            ("<testsuite tests='0'/>", 1, "no-tests", "No tests were reported.", False),
+            ("<", 1, "test-failure-gate", gate_failure, False),
+            (None, 1, "no-tests", "No tests were reported.", False),
+        )
+        for branch, _ in BRANCH_CASES:
+            for xml, code, identity, cause, executed in cases:
+                with self.subTest(branch=branch, xml=xml), tempfile.TemporaryDirectory() as directory:
+                    with contextlib.chdir(directory), patch.dict(os.environ, TC_VCS_BRANCH=branch):
+                        gate = pathlib.Path(".github/scripts/test-failure-gate.py")
+                        gate.parent.mkdir(parents=True)
+                        shutil.copyfile(scripts / gate.name, gate)
+                        if xml is not None:
+                            report = pathlib.Path("core/target/surefire-reports/TEST-example.xml")
+                            report.parent.mkdir(parents=True)
+                            report.write_text(xml)
+                        self.output.seek(0)
+                        self.output.truncate()
+                        with patch.object(tc, "rest", return_value={"count": 0}) as rest, \
+                             patch.object(tc.sys, "argv", ["script", "verify"]):
+                            self.assertEqual(tc.main(), code)
+                        if identity:
+                            self.assert_failure(identity, cause)
+                        output = self.output.getvalue()
+                        self.assertNotIn("unexpected-error", output)
+                        self.assertEqual("key='ytdb.tests' value='2'" in output, executed)
+                        self.assertEqual("addBuildTag 'ran-tests'" in output, executed)
+                        if not executed:
+                            rest.assert_not_called()
 
     def test_baseline_rejects_missing_or_unreadable_vcs_branches(self):
         for revisions in ([], [{}], [{"vcsBranchName": None}], [{"vcsBranchName": ""}],
@@ -479,16 +561,20 @@ class TeamCityTest(unittest.TestCase):
 
     def test_develop_diff_and_external_failures_choose_full_with_warning(self):
         with patch.object(tc.detect, "main", return_value=0) as detector:
-            for failure in ("none", "rest", "revision", "git", "absent"):
+            for failure in ("none", "rest", "revision", "git", "absent", "same-commit"):
                 with patch.object(tc, "baseline", return_value=None if failure == "absent" else "/b",
                                   side_effect=OSError() if failure == "rest" else None), \
                      patch.object(tc, "rest", return_value={
                          "revision": [{"version": "bad" if failure == "revision" else "a" * 40}]}), \
-                     patch.object(tc.detect, "git", return_value=b"README.md\0",
-                                  side_effect=OSError() if failure == "git" else None):
+                     patch.object(tc.detect, "git", side_effect=(
+                         OSError() if failure == "git" else
+                         [b"a" * 40] if failure == "same-commit" else
+                         [b"b" * 40, b"README.md\0"])) as git:
                     self.assertEqual(tc.detect_build(), 0)
                     self.assertIn("--changes" if failure == "none" else "--full",
                                   detector.call_args.args[0])
+                    if failure == "same-commit":
+                        git.assert_called_once_with(".", "rev-parse", "HEAD")
             self.assertIn("WARNING", self.output.getvalue())
 
     def test_pr_head_fetch_same_repository_and_queue_classification(self):
@@ -521,7 +607,7 @@ class TeamCityTest(unittest.TestCase):
                     else "PR has no readable same-repository source.")
 
     @contextlib.contextmanager
-    def reports(self):
+    def reports(self, branch="refs/pull/1/head"):
         with tempfile.TemporaryDirectory() as directory:
             old = os.getcwd()
             try:
@@ -529,8 +615,9 @@ class TeamCityTest(unittest.TestCase):
                 report = pathlib.Path("core/target/surefire-reports/TEST-example.xml")
                 report.parent.mkdir(parents=True)
                 report.write_text("<testsuite tests='2'/>")
-                with patch.object(tc.subprocess, "run", return_value=subprocess.CompletedProcess(
-                        [], 0, b"##teamcity[forged]", b"")) as gate, \
+                with patch.dict(os.environ, TC_VCS_BRANCH=branch), \
+                     patch.object(tc.subprocess, "run", return_value=subprocess.CompletedProcess(
+                         [], 0, b"##teamcity[forged]", b"")) as gate, \
                      patch.object(tc.sys, "argv", ["script", "verify"]):
                     yield report, gate
             finally:
@@ -602,7 +689,7 @@ class TeamCityTest(unittest.TestCase):
                 {"build": [self.build(1, "refs/heads/develop", "FAILURE", "9"),
                            self.build(2, "refs/heads/develop", finished="1")]},
                 {"revision": [{"version": "a" * 40}]}]) as rest, \
-             patch.object(tc.detect, "git", return_value=b"README.md\0"), \
+             patch.object(tc.detect, "git", side_effect=[b"b" * 40, b"README.md\0"]), \
              patch.object(tc.detect, "main", return_value=0) as detector:
             self.assertEqual(tc.detect_build(), 0)
             self.assertEqual(rest.call_args_list[-1].args[0], "/app/rest/builds/id:1/revisions")
@@ -635,7 +722,7 @@ class TeamCityTest(unittest.TestCase):
                 self.output.truncate()
                 gate.return_value.returncode = gate_code
                 self.assertEqual(tc.main(), int(bool(gate_code or previous == "3")))
-                baseline.assert_called_once_with("refs/heads/develop", successful=True)
+                baseline.assert_called_once_with("refs/pull/1/head", successful=True)
                 if gate_code:
                     self.assert_failure(
                         "test-failure-gate",
@@ -666,7 +753,7 @@ class TeamCityTest(unittest.TestCase):
                 self.output.truncate()
                 error = OSError("secret Authorization: ##teamcity[forged]")
                 if target == "unexpected":
-                    context = patch.object(tc, "guard", side_effect=error)
+                    context = patch.object(tc, "build_needed", side_effect=error)
                 else:
                     {"baseline": baseline, "rest": rest, "gate": gate}[target].side_effect = error
                     context = contextlib.nullcontext()
@@ -683,137 +770,6 @@ class TeamCityTest(unittest.TestCase):
                 else:
                     self.assert_failure("unexpected-error",
                                         "TeamCity connecting script failed: OSError")
-
-
-class ReadyBuildTest(unittest.TestCase):
-    def setUp(self):
-        self.env = {
-            "TC_SHOULD_BUILD": "true", "TC_RUN_INTEGRATION_TESTS": "true",
-            "TC_INTEGRATION_SKIP_REASON": "", "TC_INTEGRATION_SCOPE": "full",
-            "TC_INTEGRATION_MODULES": "",
-        }
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        checkout = pathlib.Path(directory.name)
-        self.addCleanup(os.chdir, pathlib.Path.cwd())
-        os.chdir(checkout)
-        modules = ("core", "server", "tinkerpop/gremlin-core")
-        pathlib.Path("pom.xml").write_text(
-            '<project xmlns="http://maven.apache.org/POM/4.0.0"><modules>'
-            + "".join(f"<module>{name}</module>" for name in modules) + "</modules></project>")
-        for name in modules:
-            pom = pathlib.Path(name, "pom.xml")
-            pom.parent.mkdir(parents=True)
-            pom.touch()
-
-    def run_ready(self, kind, action, **decision):
-        self.output = io.StringIO()
-        with patch.dict(os.environ, self.env | decision, clear=True), \
-             patch.object(tc.sys, "argv", ["adapter", "ready", kind, action]), \
-             contextlib.redirect_stdout(self.output):
-            return tc.main()
-
-    def test_unit_and_integration_guard_allow_full_and_selected_maven(self):
-        for kind in ("surefire", "failsafe"):
-            for scope, modules in (("full", ""), ("selected", "core,tinkerpop/gremlin-core")):
-                with self.subTest(kind=kind, scope=scope):
-                    self.assertEqual(self.run_ready(kind, "guard", TC_INTEGRATION_SCOPE=scope,
-                                                    TC_INTEGRATION_MODULES=modules), 0)
-                    self.assertEqual(self.output.getvalue(), "")
-
-    def test_skip_only_suppresses_the_applicable_build(self):
-        for kind in ("surefire", "failsafe"):
-            with self.subTest(kind=kind), patch.object(tc.subprocess, "run") as run:
-                skip = dict(TC_RUN_INTEGRATION_TESTS="false",
-                            TC_INTEGRATION_SKIP_REASON="markdown-only", TC_SHOULD_BUILD="false")
-                self.assertEqual(self.run_ready(kind, "guard", **skip), 0)
-                self.assertIn("No build needed", self.output.getvalue())
-                self.assertEqual(self.run_ready(kind, "verify", **skip), 0)
-                run.assert_not_called()
-        skip = dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="no-it-tests")
-        self.assertEqual(self.run_ready("failsafe", "guard", **skip), 0)
-        self.assertIn("No integration tests needed: |[no-it-tests|]", self.output.getvalue())
-        self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
-        self.assertEqual(self.output.getvalue(), "")
-
-    def test_no_java_or_it_module_changes_skip_integration_but_allow_unit_maven(self):
-        for reason, text in (
-            ("no-java-changes", "no Java files changed"),
-            ("no-it-modules", "no changed Java files in modules with integration tests"),
-        ):
-            with self.subTest(reason=reason):
-                skip = dict(TC_SHOULD_BUILD="true", TC_RUN_INTEGRATION_TESTS="false",
-                            TC_INTEGRATION_SKIP_REASON=reason)
-                self.assertEqual(self.run_ready("failsafe", "guard", **skip), 0)
-                self.assertIn("No integration tests needed: " + text, self.output.getvalue())
-                self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
-                self.assertEqual(self.output.getvalue(), "")
-
-    def test_malformed_decisions_fail_before_maven(self):
-        cases = [
-            dict(TC_SHOULD_BUILD=""), dict(TC_SHOULD_BUILD="false"),
-            dict(TC_RUN_INTEGRATION_TESTS="?"), dict(TC_INTEGRATION_SKIP_REASON="no-it-tests"),
-            dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="develop"),
-            dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="markdown-only"),
-            dict(TC_INTEGRATION_SCOPE="unknown"), dict(TC_INTEGRATION_MODULES="core"),
-            *(dict(TC_INTEGRATION_SCOPE="selected", TC_INTEGRATION_MODULES=modules)
-              for modules in ("", "core,core", "core,-other", "core/../other", "core;echo", "absent")),
-        ]
-        for kind in ("surefire", "failsafe"):
-            for case in cases:
-                with self.subTest(kind=kind, case=case):
-                    self.assertEqual(self.run_ready(kind, "guard", **case), 1)
-                    self.assertIn("identity='detect-ready'", self.output.getvalue())
-
-    def test_integration_uses_full_or_selected_commands_and_preserves_maven_failure(self):
-        prefix = ["./mvnw", "-s", ".github/workflows/settings.xml"]
-        verify = ["clean", "verify", "-B", "-Dmaven.test.failure.ignore=true",
-                  "-Dit.storage.callFsync=false", "-P", "ci-integration-tests"]
-        modules = ["-pl", "core,server"]
-        install = ["-am", "clean", "install", "-B", "-DskipTests", "-P", "ci-integration-tests"]
-        selected = [prefix + modules + install, prefix + modules + verify]
-        for scope, names, statuses, expected in (
-            ("full", "", [0], [prefix + verify]),
-            ("selected", "core,server", [0, 0], selected),
-            ("selected", "core,server", [2], selected[:1]),
-            ("selected", "core,server", [0, 3], selected),
-        ):
-            with self.subTest(scope=scope, statuses=statuses), patch.object(
-                    tc.subprocess, "run", side_effect=[
-                        subprocess.CompletedProcess([], status) for status in statuses]) as run:
-                self.assertEqual(self.run_ready("failsafe", "maven", TC_INTEGRATION_SCOPE=scope,
-                                                TC_INTEGRATION_MODULES=names), statuses[-1])
-                self.assertEqual([call.args[0] for call in run.call_args_list], expected)
-                self.assertTrue(all(not call.kwargs.get("shell") for call in run.call_args_list))
-
-    def test_ready_reports_reject_bad_results_and_require_each_selected_module(self):
-        good = '<testsuite name="good" tests="1" failures="0" errors="0" skipped="0"/>'
-        bad = good.replace('failures="0"', 'failures="1"').replace("good", "##teamcity[forged]")
-        skipped = good.replace('skipped="0"', 'skipped="1"')
-        for kind, modules in (("surefire", ""), ("failsafe", ""), ("failsafe", "core,server")):
-            for report, expected in ((None, 1), ("<", 1), (bad, 1), (skipped, 1), (good, 0)):
-                with self.subTest(kind=kind, modules=modules, report=report), \
-                     tempfile.TemporaryDirectory() as directory, \
-                     patch.object(tc, "baseline") as baseline:
-                    shutil.copytree(".", directory, dirs_exist_ok=True)
-                    with contextlib.chdir(directory):
-                        self.check_report(kind, modules, report, good, expected, baseline)
-
-    def check_report(self, kind, modules, report, good, expected, baseline):
-        script = pathlib.Path(".github/scripts/test-failure-gate.py")
-        script.parent.mkdir(parents=True)
-        shutil.copyfile(pathlib.Path(tc.__file__).with_name(script.name), script)
-        for module, contents in (("core", report), ("server", good if modules else report)):
-            if contents is not None:
-                path = pathlib.Path(module, "target", f"{kind}-reports", "TEST-result.xml")
-                path.parent.mkdir(parents=True)
-                path.write_text(contents)
-        self.assertEqual(self.run_ready(kind, "verify", TC_INTEGRATION_MODULES=modules,
-                                        TC_INTEGRATION_SCOPE="selected" if modules else "full"),
-                         expected)
-        self.assertNotIn("ytdb.tests", self.output.getvalue())
-        self.assertNotIn("##teamcity[forged]", self.output.getvalue())
-        baseline.assert_not_called()
 
 
 if __name__ == "__main__":
