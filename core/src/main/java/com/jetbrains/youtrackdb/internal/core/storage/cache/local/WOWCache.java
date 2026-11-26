@@ -582,7 +582,7 @@ public final class WOWCache extends AbstractWriteCache
     final var identity = name == null
         ? PageFileIdentity.decode(extractFileId(fileId))
         : LogicalPageFileTable.resolve(name, extractFileId(fileId));
-    if (logicalFiles != null && permission == RecoveryFilePermission.OPEN_ONLY) {
+    if (logicalFiles != null) {
       return orderedFileRegistration(identity, permission);
     }
 
@@ -627,7 +627,7 @@ public final class WOWCache extends AbstractWriteCache
       // First creation and its completion run on the same commitExecutor() thread.
       final var state = logicalState(internalId);
       if (state != null && !state.diskPresent()) {
-        return resolvePendingPageFile(state, file);
+        return resolvePendingPageFile(state, file, permission);
       }
     }
 
@@ -638,6 +638,10 @@ public final class WOWCache extends AbstractWriteCache
     if (!file.exists()) {
       if (permission == RecoveryFilePermission.OPEN_ONLY) {
         return false;
+      }
+      if (ordered && !firstAdmission) {
+        // A missed probe cannot authorize creation on a registered handle.
+        throw new IOException("Registered page file is not visible: " + canonicalName);
       }
       // A complete creating WAL unit or an admitted restore entry authorizes creation.
       createFile(file, callFsync);
@@ -659,8 +663,8 @@ public final class WOWCache extends AbstractWriteCache
     return true;
   }
 
-  private boolean resolvePendingPageFile(LogicalPageFileTable.State state, @Nullable File file)
-      throws IOException {
+  private boolean resolvePendingPageFile(LogicalPageFileTable.State state, @Nullable File file,
+      RecoveryFilePermission permission) throws IOException, java.lang.InterruptedException {
     final int internalId = state.identity().internalId();
     final var failure = flushError;
     if (failure != null) {
@@ -676,10 +680,27 @@ public final class WOWCache extends AbstractWriteCache
       if (file != null || !Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
         throw new IOException("Cannot admit an unowned pending page file " + internalId);
       }
-      return false;
     } catch (RuntimeException unexpected) {
       throw new IOException("Cannot inspect pending page file " + internalId, unexpected);
     }
+    if (permission == RecoveryFilePermission.OPEN_ONLY) {
+      return false;
+    }
+    if (!logicalFiles.isCurrent(internalId, state.extents())) {
+      throw new IOException("Obsolete pending page-file incarnation " + internalId);
+    }
+    if (state.nonDurable() && !savedNonDurableFileIds.contains(internalId)) {
+      throw new IOException("Pending non-durable file lacks registry evidence " + internalId);
+    }
+
+    final var created = createFileHandle(PageFileNames.layout28(state.identity()), internalId);
+    createFile(created, callFsync, true);
+    admitRegistrationHandle(externalFileId(internalId), created);
+    // Only the header is initialized. Keep the live lifetime and its cached pages.
+    if (!logicalFiles.publishCompleted(internalId, state.extents(), 0)) {
+      throw new IOException("Cannot publish pending page file " + internalId);
+    }
+    return true;
   }
 
   private void admitRegistrationHandle(long fileId, File file)
@@ -6241,16 +6262,7 @@ public final class WOWCache extends AbstractWriteCache
     final var file = createFileHandle(PageFileNames.layout28(state.identity()), internalId);
     try {
       createFile(file, false, true);
-      try {
-        files.add(externalFileId(internalId), file);
-      } catch (java.lang.InterruptedException | RuntimeException | Error admissionFailure) {
-        try {
-          file.close();
-        } catch (RuntimeException closeFailure) {
-          admissionFailure.addSuppressed(closeFailure);
-        }
-        throw admissionFailure;
-      }
+      admitRegistrationHandle(externalFileId(internalId), file);
       pendingCreationHandles.put(internalId, state.extents());
       // Handle admission is not reader-visible materialization. Completion publishes the prefix.
     } catch (IOException | java.lang.InterruptedException | RuntimeException | Error failure) {
