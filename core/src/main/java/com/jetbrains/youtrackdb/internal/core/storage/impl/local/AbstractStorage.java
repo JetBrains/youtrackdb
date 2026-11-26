@@ -10032,7 +10032,7 @@ public abstract class AbstractStorage
       return fetch(position, true);
     }
 
-    private List<WriteableWALRecord> fetch(LogSequenceNumber position, boolean next)
+    private List<WriteableWALRecord> fetch(final LogSequenceNumber position, final boolean next)
         throws IOException {
       checkFailure();
       failedPosition = next ? null : position;
@@ -10050,9 +10050,11 @@ public abstract class AbstractStorage
         }
         // Some page failures discard the whole batch. Recover its bounded prefix.
         var prefix = new ArrayList<WriteableWALRecord>();
+        var retryPosition = position;
+        var readAfterRetryPosition = next;
         try {
           while (prefix.size() < 1_000) {
-            var records = fetch(position, next, 1);
+            var records = fetch(retryPosition, readAfterRetryPosition, 1);
             if (records.isEmpty()) {
               break;
             }
@@ -10062,11 +10064,11 @@ public abstract class AbstractStorage
             }
             prefix.add(record);
             failedPosition = null;
-            position = record.getLsn();
-            if (position.equals(readableEnd)) {
+            retryPosition = record.getLsn();
+            if (retryPosition.equals(readableEnd)) {
               break;
             }
-            next = true;
+            readAfterRetryPosition = true;
           }
         } catch (WALRecordDecodeException retry) {
           prefix.addAll(retry.getRecords());
