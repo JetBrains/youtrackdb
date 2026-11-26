@@ -3019,7 +3019,8 @@ public class MatchExecutionPlanner {
 
     var buildPlan = new SelectExecutionPlan(context);
     buildPlan.chain(new MatchFirstStep(
-        context, originNode, select.createExecutionPlan(context, enableProfiling),
+        context, originNode,
+        executionPlanForSelectOrEmpty(select, context, enableProfiling),
         enableProfiling));
 
     // Keep independent step chains for the build and the per-row fallback.
@@ -3074,7 +3075,8 @@ public class MatchExecutionPlanner {
 
     var buildPlan = new SelectExecutionPlan(context);
     buildPlan.chain(new MatchFirstStep(
-        context, scanNode, select.createExecutionPlan(subCtx, profilingEnabled),
+        context, scanNode,
+        executionPlanForSelectOrEmpty(select, subCtx, profilingEnabled),
         profilingEnabled));
 
     // Build a directed path from scanAlias through intermediates to the other
@@ -3325,11 +3327,14 @@ public class MatchExecutionPlanner {
                 ? singleNodeIndexOrder.selectOrderBy()
                 : null;
         var select = createSelectStatement(clazz, pinnedRids, filter, selectOrderBy, context);
-        var selectPlan = selectOrderBy == null
-            ? select.createExecutionPlan(context, profilingEnabled)
-            : new SelectExecutionPlanner(select).createExecutionPlanForOrderRequest(
-                context, profilingEnabled, singleNodeIndexOrder.hasRidTieBreak(), false);
-        if (selectOrderBy != null) {
+        InternalExecutionPlan selectPlan;
+        if (select == null) {
+          selectPlan = executionPlanForSelectOrEmpty(null, context, profilingEnabled);
+        } else if (selectOrderBy == null) {
+          selectPlan = select.createExecutionPlan(context, profilingEnabled);
+        } else {
+          selectPlan = new SelectExecutionPlanner(select).createExecutionPlanForOrderRequest(
+              context, profilingEnabled, singleNodeIndexOrder.hasRidTieBreak(), false);
           singleNodeIndexOrder.consume(((SelectExecutionPlan) selectPlan).getOrderReport());
         }
         var signalRidIndexOrder =
@@ -6698,7 +6703,7 @@ public class MatchExecutionPlanner {
         // to a post-filter — and the prefetch filter only spares aliases estimated under
         // THRESHOLD, so the aliases that reached here were exactly the large RID lists that most
         // needed the fetch. createSelectStatement keeps the RID FROM when pins sit inside the
-        // class (same path as before); out-of-class pins become zero rows.
+        // class; out-of-class pins return null and the sub-plan is an EmptyStep.
         var select =
             createSelectStatement(
                 clazz, pinnedRids, where == null ? null : where.copy(), null, context);
@@ -6708,7 +6713,7 @@ public class MatchExecutionPlanner {
             new MatchFirstStep(
                 context,
                 patternNode,
-                select.createExecutionPlan(subContext, profilingEnabled),
+                executionPlanForSelectOrEmpty(select, subContext, profilingEnabled),
                 profilingEnabled));
       }
     }
@@ -6841,11 +6846,28 @@ public class MatchExecutionPlanner {
       var step =
           new MatchPrefetchStep(
               context,
-              prefetchStm.createExecutionPlan(context, profilingEnabled),
+              executionPlanForSelectOrEmpty(prefetchStm, context, profilingEnabled),
               alias,
               profilingEnabled);
       result.chain(step);
     }
+  }
+
+  /**
+   * Sub-plan for {@link MatchFirstStep} / {@link MatchPrefetchStep}: the select's plan, or a
+   * plan whose only step is {@link EmptyStep} when {@code select} is null (class+rid pins
+   * definitely outside the alias class).
+   */
+  private static InternalExecutionPlan executionPlanForSelectOrEmpty(
+      @Nullable SQLSelectStatement select,
+      CommandContext context,
+      boolean profilingEnabled) {
+    if (select == null) {
+      var empty = new SelectExecutionPlan(context);
+      empty.chain(new EmptyStep(context, profilingEnabled));
+      return empty;
+    }
+    return select.createExecutionPlan(context, profilingEnabled);
   }
 
   /**
@@ -6855,15 +6877,22 @@ public class MatchExecutionPlanner {
    *
    * <p>When the alias has pinned RIDs and a class, membership is one check:
    * inside the class (or a subclass) → same RID FROM as before; outside the
-   * class → empty RID FROM (zero rows). Unresolvable pins keep the RID FROM
-   * (same as before that edge case). No class → RID FROM. No RIDs → class scan.
+   * class → {@code null} so the caller chains an {@link EmptyStep} sub-plan.
+   * Unresolvable pins keep the RID FROM (same as before that edge case). No
+   * class → RID FROM. No RIDs → class scan.
    */
-  private static SQLSelectStatement createSelectStatement(
+  @Nullable private static SQLSelectStatement createSelectStatement(
       @Nullable String targetClass,
       @Nullable List<SQLRid> targetRids,
       @Nullable SQLWhereClause filter,
       @Nullable SQLOrderBy orderBy,
       @Nullable CommandContext ctx) {
+    var hasRids = targetRids != null && !targetRids.isEmpty();
+    if (hasRids
+        && targetClass != null
+        && pinnedRidsDefinitelyOutsideClass(targetRids, targetClass, ctx)) {
+      return null;
+    }
     var prefetchStm = new SQLSelectStatement(-1);
     prefetchStm.setWhereClause(filter);
     if (orderBy != null) {
@@ -6871,14 +6900,8 @@ public class MatchExecutionPlanner {
     }
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
-    var hasRids = targetRids != null && !targetRids.isEmpty();
     if (hasRids) {
-      if (targetClass != null
-          && pinnedRidsDefinitelyOutsideClass(targetRids, targetClass, ctx)) {
-        fromItem.setRids(List.of());
-      } else {
-        fromItem.setRids(targetRids);
-      }
+      fromItem.setRids(targetRids);
     } else if (targetClass != null) {
       fromItem.setIdentifier(new SQLIdentifier(targetClass));
     }
@@ -6970,9 +6993,10 @@ public class MatchExecutionPlanner {
     // size, so a 2M-row class restricted to a few RIDs stops losing root selection
     // to a 10K-row unfiltered class.
     // The promotion also feeds createSelectStatement()'s RID list. In-class pins keep the RID
-    // FROM; out-of-class pins become zero rows. aliasClasses is still passed in: the promoter
-    // declines pins that are not provably inside the class so estimateRootEntries and schedule
-    // cost stay honest (see pinnedRidsProvablyInClass).
+    // FROM; out-of-class pins make createSelectStatement return null (EmptyStep sub-plan).
+    // aliasClasses is still passed in: the promoter declines pins that are not provably inside
+    // the class so estimateRootEntries and schedule cost stay honest (see
+    // pinnedRidsProvablyInClass).
     // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
     // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
     // join in the pre-filter pass.
@@ -7167,16 +7191,8 @@ public class MatchExecutionPlanner {
       collectionIds.add(collection.getValue().intValue());
     }
     var session = ctx == null ? null : ctx.getDatabaseSession();
-    if (session == null) {
-      return false;
-    }
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    if (schema == null) {
-      return false;
-    }
     for (var collectionId : collectionIds) {
-      var owner = schema.getClassByCollectionId(collectionId);
-      if (owner == null || !owner.isSubClassOf(className)) {
+      if (!MatchEdgeTraverser.collectionBelongsToClass(collectionId, className, session)) {
         return false;
       }
     }

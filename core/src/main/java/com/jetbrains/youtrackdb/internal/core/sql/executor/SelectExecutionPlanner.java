@@ -1807,13 +1807,8 @@ public class SelectExecutionPlanner {
       result.chain(new ParallelExecStep(plans, ctx, profilingEnabled));
     } else if (target.getMetadata() != null) {
       handleMetadataAsTarget(result, target.getMetadata(), ctx, profilingEnabled);
-    } else if (target.getRids() != null) {
-      if (target.getRids().isEmpty()) {
-        // MATCH class+rid outside the class builds an empty RID target.
-        result.chain(new EmptyStep(ctx, profilingEnabled));
-      } else {
-        handleRidsAsTarget(result, target.getRids(), ctx, profilingEnabled);
-      }
+    } else if (target.getRids() != null && !target.getRids().isEmpty()) {
+      handleRidsAsTarget(result, target.getRids(), ctx, profilingEnabled);
     } else {
       throw new UnsupportedOperationException();
     }

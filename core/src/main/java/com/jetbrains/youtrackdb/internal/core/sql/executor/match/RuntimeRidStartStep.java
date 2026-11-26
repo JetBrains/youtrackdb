@@ -47,10 +47,8 @@ public final class RuntimeRidStartStep extends AbstractExecutionStep {
     // changes at commit, but neither the step nor its template may retain that object.
     var boundRid = new RecordId(rid);
     var session = ctx.getDatabaseSession();
-    var owner = session.getMetadata().getImmutableSchemaSnapshot()
-        .getClassByCollectionId(boundRid.getCollectionId());
-    // Unlike the general MATCH class helper, an unowned collection must not trigger a load.
-    if (owner == null || !owner.isSubClassOf(start.aliasClass())) {
+    // Unlike MatchEdgeTraverser.matchesClass, an unowned collection must not trigger a load.
+    if (!MatchEdgeTraverser.ridBelongsToClass(boundRid, start.aliasClass(), session)) {
       return ExecutionStream.empty();
     }
 

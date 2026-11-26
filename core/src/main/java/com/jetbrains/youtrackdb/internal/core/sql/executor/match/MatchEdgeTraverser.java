@@ -610,6 +610,47 @@ public class MatchEdgeTraverser implements ExecutionStream {
   }
 
   /**
+   * Zero-I/O membership: whether {@code collectionId} is owned by {@code className} or a
+   * subclass in the session's immutable schema snapshot. No class constraint → {@code true}.
+   * Missing session/schema or an unowned collection → {@code false} (callers that must load
+   * the record for unowned clusters use {@link #matchesClass} instead).
+   */
+  static boolean collectionBelongsToClass(
+      int collectionId,
+      @Nullable String className,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (className == null) {
+      return true;
+    }
+    if (session == null) {
+      return false;
+    }
+    var schema = session.getMetadata().getImmutableSchemaSnapshot();
+    if (schema == null) {
+      return false;
+    }
+    var owner = schema.getClassByCollectionId(collectionId);
+    return owner != null && owner.isSubClassOf(className);
+  }
+
+  /**
+   * Zero-I/O membership for a RID: delegates to {@link #collectionBelongsToClass} on the RID's
+   * collection. No class constraint → {@code true}. Null RID → {@code false}.
+   */
+  static boolean ridBelongsToClass(
+      @Nullable RID rid,
+      @Nullable String className,
+      @Nullable DatabaseSessionEmbedded session) {
+    if (className == null) {
+      return true;
+    }
+    if (rid == null) {
+      return false;
+    }
+    return collectionBelongsToClass(rid.getCollectionId(), className, session);
+  }
+
+  /**
    * Checks whether the result's entity is an instance of (or subclass of) the given
    * class name. Returns `true` if no class constraint is specified.
    *
@@ -634,7 +675,9 @@ public class MatchEdgeTraverser implements ExecutionStream {
     }
 
     // Zero-I/O path: resolve the class from the RID's cluster ID via the
-    // immutable schema snapshot. No record load needed.
+    // immutable schema snapshot. No record load needed. (Cannot call
+    // ridBelongsToClass here: that method returns false for unowned clusters,
+    // and this path must fall through to a load for those.)
     var rid = origin.getIdentity();
     if (rid != null && session != null) {
       var schema = session.getMetadata().getImmutableSchemaSnapshot();

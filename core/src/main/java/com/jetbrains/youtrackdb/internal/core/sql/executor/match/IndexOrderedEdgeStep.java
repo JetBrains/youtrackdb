@@ -467,7 +467,8 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
         for (var row : rows) {
           var sourceRid = extractSourceRid(row);
           if (sourceRid != null
-              && sourceMatchesDeclaredClass(sourceRid, ctx.getDatabaseSession())) {
+              && MatchEdgeTraverser.ridBelongsToClass(
+                  sourceRid, sourceClassName, ctx.getDatabaseSession())) {
             sourceMap.computeIfAbsent(sourceRid, k -> new ArrayList<>(1)).add(row);
           }
         }
@@ -514,10 +515,9 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
     }
-    // Parser rid: + class used to fetch by RID alone and drop the class.
-    // MatchFirstStep now keeps the class; still refuse a source whose collection is
-    // outside the declared source class so a stray upstream row cannot load its LinkBag.
-    if (!sourceMatchesDeclaredClass(sourceRid, session)) {
+    // Refuse a source whose collection is outside the declared source class so a stray
+    // upstream row cannot load its LinkBag when the class+rid conjunction failed earlier.
+    if (!MatchEdgeTraverser.ridBelongsToClass(sourceRid, sourceClassName, session)) {
       ctx.setSystemVariable(
           CommandContext.VAR_INDEX_ORDERED_PRE_SORTED, Boolean.FALSE);
       return ExecutionStream.empty();
@@ -2382,20 +2382,6 @@ public class IndexOrderedEdgeStep extends AbstractExecutionStep {
    */
   private RID ridFromPair(RidPair pair) {
     return edgeTraversal ? pair.primaryRid() : pair.secondaryRid();
-  }
-
-  /**
-   * Whether {@code sourceRid}'s collection is owned by {@link #sourceClassName}
-   * or a subclass. No declared source class means every RID is accepted.
-   */
-  private boolean sourceMatchesDeclaredClass(
-      RID sourceRid, DatabaseSessionEmbedded session) {
-    if (sourceClassName == null) {
-      return true;
-    }
-    var owner = session.getMetadata().getImmutableSchemaSnapshot()
-        .getClassByCollectionId(sourceRid.getCollectionId());
-    return owner != null && owner.isSubClassOf(sourceClassName);
   }
 
   /**
