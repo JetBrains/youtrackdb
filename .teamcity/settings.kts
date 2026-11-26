@@ -7,10 +7,7 @@ version = "2026.03"
 
 val token = "tc_token_id:CID_6f70430be90149234d7210e12aa15ea9:-1:6eedf048-c2e9-4675-ba2f-6e73f59c04b0"
 // The root preserves develop and the full queue path as logical branch names.
-// The Linux x86 unit trigger handles develop and same-repository draft PR pushes.
-// The ready summary handles ready PR pushes. The REST helper handles ready flips.
-val queueBranches = "+:gh-readonly-queue/develop/*"
-val unitTrigger = "+:develop\n+pr: draft=true sourceRepo=same"
+val unitTrigger = "+:develop\n+:gh-readonly-queue/develop/*\n+pr: sourceRepo=same"
 val allBranches = "+:develop\n+:gh-readonly-queue/develop/*\n+:pull/*"
 // Test builds need this tag for the Spotless ratchet.
 val spotlessBaselineFetch = """
@@ -20,28 +17,25 @@ val spotlessBaselineFetch = """
     refs/tags/spotless-baseline:refs/tags/spotless-baseline
 """.trimIndent()
 
-fun BuildType.configure(
-    branches: String, agent: String? = null, status: String? = null, readyOnly: Boolean = false
-) {
+fun BuildType.configure(agent: String) {
   vcs {
     root(DslContext.settingsRoot)
-    branchFilter = branches
+    branchFilter = allBranches
     checkoutMode = CheckoutMode.ON_AGENT
     cleanCheckout = true
   }
-  if (agent != null) {
-    requirements { equals("cloud.amazon.agent-name-prefix", agent) }
+  requirements { equals("cloud.amazon.agent-name-prefix", agent) }
+  params {
+    param("env.TC_VCS_BRANCH", "%teamcity.build.vcs.branch.${DslContext.settingsRoot.id}%")
+    param("env.TC_URL", "%teamcity.serverUrl%")
+    param("env.TC_USER", "%system.teamcity.auth.userId%")
+    password("env.TC_PASSWORD", "%system.teamcity.auth.password%")
+    param("env.TC_BUILD_ID", "%teamcity.build.id%")
   }
-  if (agent != null && !readyOnly) {
-    params {
-      param("env.TC_VCS_BRANCH", "%teamcity.build.vcs.branch.${DslContext.settingsRoot.id}%")
-      param("env.TC_URL", "%teamcity.serverUrl%")
-      param("env.TC_USER", "%system.teamcity.auth.userId%")
-      password("env.TC_PASSWORD", "%system.teamcity.auth.password%")
-      param("env.TC_BUILD_ID", "%teamcity.build.id%")
-    }
+  failureConditions {
+    nonZeroExitCode = true
+    testFailure = true
   }
-  failureConditions { nonZeroExitCode = true; testFailure = true }
   features {
     pullRequests {
       vcsRootExtId = "${DslContext.settingsRoot.id}"
@@ -49,7 +43,6 @@ fun BuildType.configure(
         authType = storedToken { tokenId = token }
         filterTargetBranch = "+:refs/heads/develop"
         filterAuthorRole = PullRequests.GitHubRoleFilter.EVERYBODY
-        // Discover draft PR branches too. The start paths enforce the draft rule.
         ignoreDrafts = false
       }
     }
@@ -58,25 +51,17 @@ fun BuildType.configure(
       publisher = github {
         githubUrl = "https://api.github.com"
         authType = storedToken { tokenId = token }
-        if (status != null) { statusCheckName = status }
       }
     }
-  }
-}
-
-fun Dependencies.require(build: BuildType) {
-  snapshot(build) {
-    synchronizeRevisions = true
-    reuseBuilds = ReuseBuilds.SUCCESSFUL
-    onDependencyFailure = FailureAction.FAIL_TO_START
-    onDependencyCancel = FailureAction.FAIL_TO_START
   }
 }
 
 val DetectChanges = BuildType({
   id("DetectChanges")
   name = "Detect changes"
-  configure(allBranches, "Linux-Small")
+  configure("Linux-Small")
+  maxRunningBuildsPerBranch = "pull/*:1"
+  runningBuildsLimitingMode = BuildsLimitingMode.CANCEL_OLDEST_RUNNING_BUILD
   params {
     for (key in listOf("should_build", "run_integration_tests", "integration_skip_reason",
         "integration_scope", "integration_modules")) {
@@ -111,10 +96,10 @@ fun BuildType.keepTestArtifacts() {
   publishArtifacts = PublishMode.ALWAYS
 }
 
-val UnitTestsLinuxX86 = BuildType({
-  id("UnitTestsLinuxX86")
-  name = "Unit tests Linux x86"
-  configure(allBranches, "Linux-Large")
+val UnitTestsLinuxArm64 = BuildType({
+  id("UnitTestsLinuxArm64")
+  name = "Unit tests Linux ARM64"
+  configure("Ubuntu-24.04-Large-Arm64")
   failureConditions { executionTimeoutMin = 360 }
   maxRunningBuildsPerBranch = "pull/*:1"
   runningBuildsLimitingMode = BuildsLimitingMode.CANCEL_OLDEST_RUNNING_BUILD
@@ -123,7 +108,15 @@ val UnitTestsLinuxX86 = BuildType({
     param("env.JAVA_HOME", "%env.JDK_21_0%")
     param("env.TC_SHOULD_BUILD", "%dep.${DetectChanges.id}.detect.should_build%")
   }
-  dependencies { require(DetectChanges) }
+  dependencies {
+    snapshot(DetectChanges) {
+      synchronizeRevisions = true
+      // The develop change base can change between builds of the same revision.
+      reuseBuilds = ReuseBuilds.NO
+      onDependencyFailure = FailureAction.FAIL_TO_START
+      onDependencyCancel = FailureAction.FAIL_TO_START
+    }
+  }
   steps {
     script {
       name = "Validate Detect changes result"
@@ -136,9 +129,7 @@ val UnitTestsLinuxX86 = BuildType({
         #!/bin/bash
         set -euo pipefail
         ${spotlessBaselineFetch.prependIndent("        ").trimStart()}
-        ./mvnw -s .github/workflows/settings.xml clean package -B \
-          -Dmaven.test.failure.ignore=true -Dyoutrackdb.test.env=ci \
-          -P docker-images,coverage -Ddocker.platforms=linux/amd64
+        python3 .github/scripts/teamcity-build.py maven
       """.trimIndent()
     }
     script {
@@ -158,116 +149,7 @@ val UnitTestsLinuxX86 = BuildType({
   triggers { vcs { branchFilter = unitTrigger } }
 })
 
-val SummaryMergeQueue = BuildType({
-  id("SummaryMergeQueue")
-  name = "Summary: merge queue"
-  type = BuildTypeSettings.Type.COMPOSITE
-  configure(queueBranches, status = "TeamCity CI")
-  dependencies { require(UnitTestsLinuxX86) }
-  triggers { vcs { branchFilter = queueBranches } }
-})
-
-val readyBranches = "+:pull/*"
-
-fun readyTests(
-    buildId: String, label: String, agent: String, integration: Boolean = false,
-    windows: Boolean = false
-) = BuildType({
-  id(buildId)
-  name = label
-  configure(readyBranches, agent, readyOnly = true)
-  failureConditions { executionTimeoutMin = 360 }
-  maxRunningBuildsPerBranch = "pull/*:1"
-  runningBuildsLimitingMode = BuildsLimitingMode.CANCEL_OLDEST_RUNNING_BUILD
-  dependencies { require(DetectChanges) }
-  mavenMirrorParameters()
-  params {
-    param("env.JAVA_HOME", "%env.JDK_21_0%")
-    for (key in listOf("should_build", "run_integration_tests", "integration_skip_reason",
-        "integration_scope", "integration_modules")) {
-      param("env.TC_${key.uppercase()}", "%dep.${DetectChanges.id}.detect.$key%")
-    }
-  }
-  val kind = if (integration) "failsafe" else "surefire"
-  val python = if (windows) "python" else "python3"
-  val adapter = "$python .github/scripts/teamcity-build.py ready $kind"
-  val bash = "#!/bin/bash\nset -euo pipefail\n"
-  steps {
-    script {
-      name = "Validate Detect changes result"
-      scriptContent = "$adapter guard"
-    }
-    script {
-      name = "Run tests"
-      conditions {
-        equals("env.TC_SHOULD_BUILD", "true")
-        if (integration) { equals("env.TC_RUN_INTEGRATION_TESTS", "true") }
-      }
-      val unit = "./mvnw -s .github/workflows/settings.xml clean package -B " +
-          "-Dmaven.test.failure.ignore=true"
-      scriptContent = when {
-        integration -> bash + spotlessBaselineFetch + "\n$adapter maven"
-        windows -> {
-          // Windows runs the step under cmd.exe. Only the fixed command goes to Git Bash.
-          val fetch = spotlessBaselineFetch.replace("\\\n", " ")
-          """"C:\Program Files\Git\bin\bash.exe" -ec "$fetch && $unit""""
-        }
-        else -> bash + spotlessBaselineFetch + "\n$unit " +
-            "-P docker-images -Ddocker.platforms=linux/arm64/v8"
-      }
-    }
-    script {
-      name = "Check test reports"
-      conditions {
-        equals("env.TC_SHOULD_BUILD", "true")
-        if (integration) { equals("env.TC_RUN_INTEGRATION_TESTS", "true") }
-      }
-      scriptContent = "$adapter verify"
-      executionMode = BuildStep.ExecutionMode.RUN_ON_FAILURE
-    }
-  }
-  keepTestArtifacts()
-  features {
-    xmlReport {
-      reportType = XmlReport.XmlReportType.SUREFIRE
-      rules = "+:**/target/surefire-reports/TEST-*.xml" +
-          if (integration) "\n+:**/target/failsafe-reports/TEST-*.xml" else ""
-    }
-  }
-})
-
-val UnitTestsWindowsX64 = readyTests(
-    "UnitTestsWindowsX64", "Unit tests Windows x64", "Windows-Large", windows = true)
-val UnitTestsLinuxArm64 = readyTests(
-    "UnitTestsLinuxArm64", "Unit tests Linux ARM64", "Ubuntu-24.04-Large-Arm64")
-val IntegrationTestsLinuxX86 = readyTests(
-    "IntegrationTestsLinuxX86", "Integration tests Linux x86", "Linux-Large", integration = true)
-val IntegrationTestsLinuxArm64 = readyTests(
-    "IntegrationTestsLinuxArm64", "Integration tests Linux ARM64", "Ubuntu-24.04-Large-Arm64",
-    integration = true)
-
-val SummaryReadyForReview = BuildType({
-  id("SummaryReadyForReview")
-  name = "Summary: ready for review"
-  type = BuildTypeSettings.Type.COMPOSITE
-  configure(readyBranches, status = "TeamCity CI", readyOnly = true)
-  dependencies {
-    require(UnitTestsLinuxX86)
-    require(UnitTestsWindowsX64)
-    require(UnitTestsLinuxArm64)
-    require(IntegrationTestsLinuxX86)
-    require(IntegrationTestsLinuxArm64)
-  }
-  triggers { vcs { branchFilter = "+pr: draft=false sourceRepo=same" } }
-})
-
 project {
-  buildType(UnitTestsWindowsX64)
-  buildType(UnitTestsLinuxArm64)
-  buildType(IntegrationTestsLinuxX86)
-  buildType(IntegrationTestsLinuxArm64)
-  buildType(SummaryReadyForReview)
   buildType(DetectChanges)
-  buildType(UnitTestsLinuxX86)
-  buildType(SummaryMergeQueue)
+  buildType(UnitTestsLinuxArm64)
 }

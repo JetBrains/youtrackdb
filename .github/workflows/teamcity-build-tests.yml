@@ -4,8 +4,7 @@ on:
   push:
     branches: [develop, main]
     paths:
-      - '.github/scripts/teamcity-ready-for-review*.py'
-      - '.github/workflows/teamcity-ready-for-review.yml'
+      - '.teamcity/settings.kts'
       - '.github/scripts/teamcity-build.py'
       - '.github/scripts/teamcity-build-test.py'
       - '.github/scripts/detect-changes.py'
@@ -13,8 +12,7 @@ on:
       - '.github/workflows/teamcity-build-tests.yml'
   pull_request:
     paths:
-      - '.github/scripts/teamcity-ready-for-review*.py'
-      - '.github/workflows/teamcity-ready-for-review.yml'
+      - '.teamcity/settings.kts'
       - '.github/scripts/teamcity-build.py'
       - '.github/scripts/teamcity-build-test.py'
       - '.github/scripts/detect-changes.py'
@@ -37,4 +35,3 @@ jobs:
       - name: Run unit tests
         run: |
           python3 .github/scripts/teamcity-build-test.py
-          python3 .github/scripts/teamcity-ready-for-review-test.py
