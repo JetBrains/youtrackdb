@@ -31,4 +31,5 @@ jobs:
         with:
           python-version: '3.11'
       - name: Run unit tests
-        run: python3 .github/scripts/teamcity-build-test.py
+        run: |
+          python3 .github/scripts/teamcity-build-test.py

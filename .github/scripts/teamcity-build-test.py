@@ -685,5 +685,136 @@ class TeamCityTest(unittest.TestCase):
                                         "TeamCity connecting script failed: OSError")
 
 
+class ReadyBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.env = {
+            "TC_SHOULD_BUILD": "true", "TC_RUN_INTEGRATION_TESTS": "true",
+            "TC_INTEGRATION_SKIP_REASON": "", "TC_INTEGRATION_SCOPE": "full",
+            "TC_INTEGRATION_MODULES": "",
+        }
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        checkout = pathlib.Path(directory.name)
+        self.addCleanup(os.chdir, pathlib.Path.cwd())
+        os.chdir(checkout)
+        modules = ("core", "server", "tinkerpop/gremlin-core")
+        pathlib.Path("pom.xml").write_text(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0"><modules>'
+            + "".join(f"<module>{name}</module>" for name in modules) + "</modules></project>")
+        for name in modules:
+            pom = pathlib.Path(name, "pom.xml")
+            pom.parent.mkdir(parents=True)
+            pom.touch()
+
+    def run_ready(self, kind, action, **decision):
+        self.output = io.StringIO()
+        with patch.dict(os.environ, self.env | decision, clear=True), \
+             patch.object(tc.sys, "argv", ["adapter", "ready", kind, action]), \
+             contextlib.redirect_stdout(self.output):
+            return tc.main()
+
+    def test_unit_and_integration_guard_allow_full_and_selected_maven(self):
+        for kind in ("surefire", "failsafe"):
+            for scope, modules in (("full", ""), ("selected", "core,tinkerpop/gremlin-core")):
+                with self.subTest(kind=kind, scope=scope):
+                    self.assertEqual(self.run_ready(kind, "guard", TC_INTEGRATION_SCOPE=scope,
+                                                    TC_INTEGRATION_MODULES=modules), 0)
+                    self.assertEqual(self.output.getvalue(), "")
+
+    def test_skip_only_suppresses_the_applicable_build(self):
+        for kind in ("surefire", "failsafe"):
+            with self.subTest(kind=kind), patch.object(tc.subprocess, "run") as run:
+                skip = dict(TC_RUN_INTEGRATION_TESTS="false",
+                            TC_INTEGRATION_SKIP_REASON="markdown-only", TC_SHOULD_BUILD="false")
+                self.assertEqual(self.run_ready(kind, "guard", **skip), 0)
+                self.assertIn("No build needed", self.output.getvalue())
+                self.assertEqual(self.run_ready(kind, "verify", **skip), 0)
+                run.assert_not_called()
+        skip = dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="no-it-tests")
+        self.assertEqual(self.run_ready("failsafe", "guard", **skip), 0)
+        self.assertIn("No integration tests needed: |[no-it-tests|]", self.output.getvalue())
+        self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
+        self.assertEqual(self.output.getvalue(), "")
+
+    def test_no_java_or_it_module_changes_skip_integration_but_allow_unit_maven(self):
+        for reason, text in (
+            ("no-java-changes", "no Java files changed"),
+            ("no-it-modules", "no changed Java files in modules with integration tests"),
+        ):
+            with self.subTest(reason=reason):
+                skip = dict(TC_SHOULD_BUILD="true", TC_RUN_INTEGRATION_TESTS="false",
+                            TC_INTEGRATION_SKIP_REASON=reason)
+                self.assertEqual(self.run_ready("failsafe", "guard", **skip), 0)
+                self.assertIn("No integration tests needed: " + text, self.output.getvalue())
+                self.assertEqual(self.run_ready("surefire", "guard", **skip), 0)
+                self.assertEqual(self.output.getvalue(), "")
+
+    def test_malformed_decisions_fail_before_maven(self):
+        cases = [
+            dict(TC_SHOULD_BUILD=""), dict(TC_SHOULD_BUILD="false"),
+            dict(TC_RUN_INTEGRATION_TESTS="?"), dict(TC_INTEGRATION_SKIP_REASON="no-it-tests"),
+            dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="develop"),
+            dict(TC_RUN_INTEGRATION_TESTS="false", TC_INTEGRATION_SKIP_REASON="markdown-only"),
+            dict(TC_INTEGRATION_SCOPE="unknown"), dict(TC_INTEGRATION_MODULES="core"),
+            *(dict(TC_INTEGRATION_SCOPE="selected", TC_INTEGRATION_MODULES=modules)
+              for modules in ("", "core,core", "core,-other", "core/../other", "core;echo", "absent")),
+        ]
+        for kind in ("surefire", "failsafe"):
+            for case in cases:
+                with self.subTest(kind=kind, case=case):
+                    self.assertEqual(self.run_ready(kind, "guard", **case), 1)
+                    self.assertIn("identity='detect-ready'", self.output.getvalue())
+
+    def test_integration_uses_full_or_selected_commands_and_preserves_maven_failure(self):
+        prefix = ["./mvnw", "-s", ".github/workflows/settings.xml"]
+        verify = ["clean", "verify", "-B", "-Dmaven.test.failure.ignore=true",
+                  "-Dit.storage.callFsync=false", "-P", "ci-integration-tests"]
+        modules = ["-pl", "core,server"]
+        install = ["-am", "clean", "install", "-B", "-DskipTests", "-P", "ci-integration-tests"]
+        selected = [prefix + modules + install, prefix + modules + verify]
+        for scope, names, statuses, expected in (
+            ("full", "", [0], [prefix + verify]),
+            ("selected", "core,server", [0, 0], selected),
+            ("selected", "core,server", [2], selected[:1]),
+            ("selected", "core,server", [0, 3], selected),
+        ):
+            with self.subTest(scope=scope, statuses=statuses), patch.object(
+                    tc.subprocess, "run", side_effect=[
+                        subprocess.CompletedProcess([], status) for status in statuses]) as run:
+                self.assertEqual(self.run_ready("failsafe", "maven", TC_INTEGRATION_SCOPE=scope,
+                                                TC_INTEGRATION_MODULES=names), statuses[-1])
+                self.assertEqual([call.args[0] for call in run.call_args_list], expected)
+                self.assertTrue(all(not call.kwargs.get("shell") for call in run.call_args_list))
+
+    def test_ready_reports_reject_bad_results_and_require_each_selected_module(self):
+        good = '<testsuite name="good" tests="1" failures="0" errors="0" skipped="0"/>'
+        bad = good.replace('failures="0"', 'failures="1"').replace("good", "##teamcity[forged]")
+        skipped = good.replace('skipped="0"', 'skipped="1"')
+        for kind, modules in (("surefire", ""), ("failsafe", ""), ("failsafe", "core,server")):
+            for report, expected in ((None, 1), ("<", 1), (bad, 1), (skipped, 1), (good, 0)):
+                with self.subTest(kind=kind, modules=modules, report=report), \
+                     tempfile.TemporaryDirectory() as directory, \
+                     patch.object(tc, "baseline") as baseline:
+                    shutil.copytree(".", directory, dirs_exist_ok=True)
+                    with contextlib.chdir(directory):
+                        self.check_report(kind, modules, report, good, expected, baseline)
+
+    def check_report(self, kind, modules, report, good, expected, baseline):
+        script = pathlib.Path(".github/scripts/test-failure-gate.py")
+        script.parent.mkdir(parents=True)
+        shutil.copyfile(pathlib.Path(tc.__file__).with_name(script.name), script)
+        for module, contents in (("core", report), ("server", good if modules else report)):
+            if contents is not None:
+                path = pathlib.Path(module, "target", f"{kind}-reports", "TEST-result.xml")
+                path.parent.mkdir(parents=True)
+                path.write_text(contents)
+        self.assertEqual(self.run_ready(kind, "verify", TC_INTEGRATION_MODULES=modules,
+                                        TC_INTEGRATION_SCOPE="selected" if modules else "full"),
+                         expected)
+        self.assertNotIn("ytdb.tests", self.output.getvalue())
+        self.assertNotIn("##teamcity[forged]", self.output.getvalue())
+        baseline.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

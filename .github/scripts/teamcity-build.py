@@ -276,9 +276,88 @@ def verify():
     return result
 
 
+def ready_decision():
+    """Validate the whole PR decision, even when the job will skip Maven."""
+    build, run, reason, scope, modules = (os.environ.get("TC_" + key) for key in (
+        "SHOULD_BUILD", "RUN_INTEGRATION_TESTS", "INTEGRATION_SKIP_REASON",
+        "INTEGRATION_SCOPE", "INTEGRATION_MODULES"))
+    skip_reasons = {
+        "no-it-tests": "[no-it-tests] in the head commit subject",
+        "markdown-only": "only Markdown files changed",
+        "no-java-changes": "no Java files changed",
+        "no-it-modules": "no changed Java files in modules with integration tests",
+    }
+    invalid = BuildFailure("detect-ready", "Detect changes returned a malformed PR decision.")
+    if (build not in ("true", "false")
+            or run not in ("true", "false")
+            or (reason != "" if run == "true" else reason not in skip_reasons)
+            or (reason == "markdown-only" and build != "false")
+            or (run == "true" and build != "true")):
+        raise invalid
+    if scope == "selected" and run == "true" and modules:
+        names = modules.split(",")
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "select_it_modules", pathlib.Path(__file__).with_name("select-it-modules.py"))
+            selector = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(selector)
+            reactor = selector.reactor_modules(pathlib.Path("."))
+        except (OSError, ValueError, ET.ParseError):
+            raise invalid from None
+        if len(set(names)) != len(names) or any(not re.match(r"[A-Za-z0-9]", name)
+                                                or name not in reactor for name in names):
+            raise invalid
+    elif scope != "full" or modules != "":
+        raise invalid
+    return build == "true", skip_reasons.get(reason), modules
+
+
+def ready_build(kind, action):
+    build, skip, modules = ready_decision()
+    if not build or (kind == "failsafe" and skip):
+        if action == "guard":
+            text = ("No build needed: no build-relevant files changed" if not build
+                    else "No integration tests needed: " + skip)
+            message("buildStatus", text=text)
+        return 0
+    selected = ["-pl", modules] if modules else []
+    if action == "guard":
+        return 0
+    if action == "maven":
+        # Module paths are one argument and never enter a shell.
+        maven = ["./mvnw", "-s", ".github/workflows/settings.xml"] + selected
+        profile = ["-P", "ci-integration-tests"]
+        if selected:
+            result = subprocess.run(maven + ["-am", "clean", "install", "-B", "-DskipTests"]
+                                    + profile).returncode
+            if result:
+                return result
+        return subprocess.run(maven + ["clean", "verify", "-B", "-Dmaven.test.failure.ignore=true",
+                                       "-Dit.storage.callFsync=false"] + profile).returncode
+    gate = [sys.executable, ".github/scripts/test-failure-gate.py", "--root", ".", "--require", kind]
+    if kind == "failsafe" and modules:
+        gate += ["--expected-modules", modules]
+    result = subprocess.run(gate, capture_output=True)
+    output = result.stdout + result.stderr
+    print(detect.escape(output.decode(errors="replace")))
+    if result.returncode:
+        return failure("test-failure-gate", "Test-failure gate failed. See the report diagnostics.")
+    # The shared gate checks per-module executions for Failsafe. Also reject an
+    # entirely skipped required report kind, without recording a count baseline.
+    for path in pathlib.Path(".").glob(f"**/target/{kind}-reports/TEST-*.xml"):
+        root = ET.parse(path).getroot()
+        if any(int(suite.get("tests", "0")) > int(suite.get("skipped", "0"))
+               for suite in root.iter("testsuite")):
+            return 0
+    return failure("no-executed-tests", "No reported tests were executed.")
+
+
 def main():
     try:
-        return {"detect": detect_build, "guard": guard, "verify": verify}[sys.argv[1]]()
+        args = sys.argv[1:]
+        if args[0] == "ready":
+            return ready_build(*args[1:])
+        return {"detect": detect_build, "guard": guard, "verify": verify}[args[0]]()
     except BuildFailure as error:
         return failure(error.identity, error.text)
     except Exception as error:
