@@ -3076,7 +3076,7 @@ public final class WOWCache extends AbstractWriteCache
       // Use the same cause chain as close so a HighLevelException marker on the Error cannot
       // trigger the exception builder's shortcut.
       throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal",
-          new ExecutionException(failure));
+          new ExecutionException("File data removal failed", failure));
     }
   }
 
@@ -3496,7 +3496,7 @@ public final class WOWCache extends AbstractWriteCache
         }
       } catch (IOException | InterruptedException | RuntimeException | Error failure) {
         throw FileLifecycleStep.fileWorkFailure(storageName, operation,
-            new ExecutionException(failure));
+            new ExecutionException(operation + " failed", failure));
       }
 
       // Close on the commitExecutor() thread without dropping registration or pending ownership.

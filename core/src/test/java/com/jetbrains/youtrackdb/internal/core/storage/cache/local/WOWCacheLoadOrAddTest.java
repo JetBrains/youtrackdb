@@ -77,9 +77,11 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -90,6 +92,7 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.function.ThrowingRunnable;
 import org.junit.rules.TestRule;
 import org.junit.rules.Timeout;
 import org.mockito.AdditionalAnswers;
@@ -2378,6 +2381,25 @@ public class WOWCacheLoadOrAddTest {
       assertNull(probe.closeThread);
       assertEquals(1, files.openFilesCount());
       assertClosedPageBytes(id, 728);
+    }
+  }
+
+  @Test
+  public void orderedCloseReportsDiscardErrorBeforeFormattingInPendingFixture() throws Exception {
+    // Materialize the pending fixture file so a successful close would close its channel.
+    final long id = preparePendingPage(9494, null);
+    final var probe = new CloseProbe(id);
+    try (var observation = wowCache.observePhysicalCreation(probe::created)) {
+      wowCache.flush(id);
+      final var error = new BlockingFormattingError(probe.commitThread);
+      final int internalId = wowCache.internalFileId(id);
+      Mockito.doThrow(error).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 0);
+
+      assertFailureCompletesBeforeFormatting(error, () -> wowCache.close(id, false));
+
+      assertSame(probe.handle, files.get(id));
+      assertTrue(probe.handle.isOpen());
+      assertNull(probe.closeThread);
     }
   }
 
@@ -4815,6 +4837,82 @@ public class WOWCacheLoadOrAddTest {
   public void orderedShrinkWrapsHighLevelDiscardErrorWithoutChangingFileOrExtents()
       throws Exception {
     assertPublishedShrinkWrapsDiscardError(new HighLevelDiscardError());
+  }
+
+  @Test
+  public void orderedShrinkReportsPublishedDiscardErrorBeforeFormatting() throws Exception {
+    final long id = preparePublishedFileWithRetainedPrefixAndTail();
+    final var path = pendingPath(id);
+    final int internalId = wowCache.internalFileId(id);
+    final var state = wowCache.logicalFiles().live(internalId);
+    wowCache = Mockito.spy(wowCache);
+    final var error = new BlockingFormattingError(commitExecutorThread());
+    Mockito.doThrow(error).doCallRealMethod().when(wowCache).doRemoveCachePages(internalId, 2);
+
+    assertFailureCompletesBeforeFormatting(error, () -> wowCache.shrinkFile(id, 2L * PAGE_SIZE));
+
+    assertEquals(File.HEADER_SIZE + 3L * PAGE_SIZE, Files.size(path));
+    assertEquals(3, state.logicalExtent());
+    assertEquals(3, state.diskExtent());
+  }
+
+  private Thread commitExecutorThread() throws Exception {
+    return flushExecutor().submit(Thread::currentThread).get(10, TimeUnit.SECONDS);
+  }
+
+  private void assertFailureCompletesBeforeFormatting(BlockingFormattingError error,
+      ThrowingRunnable operation) throws Exception {
+    final var result =
+        new FutureTask<>(() -> assertThrows(WriteCacheException.class, operation));
+    final var caller = Thread.ofPlatform().daemon().start(result);
+    try {
+      // The caller must receive the failure while formatting is still blocked.
+      assertCause(result.get(10, TimeUnit.SECONDS), error);
+    } catch (TimeoutException timeout) {
+      throw new AssertionError(
+          "Caller must receive WriteCacheException before the formatting latch opens", timeout);
+    } finally {
+      error.allowFormatting.countDown();
+      // Drain any failure logging that runs on the commitExecutor() thread after completion.
+      caller.join(10_000);
+      flushExecutor().submit(() -> {
+      }).get(10, TimeUnit.SECONDS);
+      assertFalse("Caller must stop after the formatting latch opens", caller.isAlive());
+    }
+  }
+
+  private static final class BlockingFormattingError extends Error {
+
+    private final Thread commitThread;
+    private final CountDownLatch allowFormatting = new CountDownLatch(1);
+
+    private BlockingFormattingError(Thread commitThread) {
+      super("Discard body failed");
+      this.commitThread = commitThread;
+    }
+
+    @Override
+    public String toString() {
+      awaitFormattingPermission();
+      return super.toString();
+    }
+
+    @Override
+    public String getLocalizedMessage() {
+      awaitFormattingPermission();
+      return super.getLocalizedMessage();
+    }
+
+    private void awaitFormattingPermission() {
+      if (Thread.currentThread() == commitThread) {
+        try {
+          // Keep a failed regression bounded even if the caller cannot release the latch.
+          allowFormatting.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
   }
 
   private static final class HighLevelDiscardError extends Error implements HighLevelException {
