@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -222,6 +223,8 @@ def branch_kind(branch):
 
 
 def detect_build():
+    print("Pilot delay 420 s", flush=True)
+    time.sleep(420)
     kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
     args = ["--root", ".", "--head", "HEAD", "--commit-type", kind]
     if kind == "pr":
