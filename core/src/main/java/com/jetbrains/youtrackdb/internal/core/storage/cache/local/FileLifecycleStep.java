@@ -5,9 +5,12 @@ import com.jetbrains.youtrackdb.internal.common.thread.ScheduledThreadPoolExecut
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import java.io.IOException;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Supplier;
 
 /** Defers interruption reporting until caller-side cleanup of accepted file work has finished. */
 final class FileLifecycleStep implements AutoCloseable {
@@ -23,8 +26,47 @@ final class FileLifecycleStep implements AutoCloseable {
   }
 
   static void requireCaller(ScheduledExecutorService executor) {
-    if (((ScheduledThreadPoolExecutorWithLogging) executor).isExecutingOnCurrentThread()) {
+    if (onCommitExecutor(executor)) {
       throw new IllegalStateException("File lifecycle call from the commitExecutor() thread");
+    }
+  }
+
+  static void requireRegistrationCaller(ScheduledExecutorService executor) throws IOException {
+    if (onCommitExecutor(executor)) {
+      throw new IOException("File registration call from the commitExecutor() thread");
+    }
+  }
+
+  private static boolean onCommitExecutor(ScheduledExecutorService executor) {
+    return ((ScheduledThreadPoolExecutorWithLogging) executor).isExecutingOnCurrentThread();
+  }
+
+  static <T> T awaitRegistration(String storageName, Supplier<Future<T>> submit)
+      throws IOException {
+    final var step = new FileLifecycleStep(storageName, "File registration");
+    Throwable failure = null;
+    try {
+      return step.awaitRegistrationResult(submit);
+    } catch (IOException | RuntimeException | Error primary) {
+      failure = primary;
+      throw primary;
+    } finally {
+      step.finishRegistration(failure);
+    }
+  }
+
+  private <T> T awaitRegistrationResult(Supplier<Future<T>> submit) throws IOException {
+    try {
+      return awaitCompletion(submit.get());
+    } catch (RejectedExecutionException | CancellationException failure) {
+      throw new IOException("File registration step did not run", failure);
+    } catch (ExecutionException failure) {
+      switch (failure.getCause()) {
+        case IOException io -> throw io;
+        case RuntimeException runtime -> throw runtime;
+        case Error error -> throw error;
+        default -> throw new IOException("File registration failed", failure.getCause());
+      }
     }
   }
 
@@ -61,13 +103,36 @@ final class FileLifecycleStep implements AutoCloseable {
     }
   }
 
-  @Override
-  public void close() {
+  private void finishRegistration(Throwable failure) throws IOException {
+    if (!restoreInterruption()) {
+      return;
+    }
+    final var report = new IOException(operation + " was interrupted", interruption);
+    if (failure == null) {
+      throw report;
+    }
+    if (failure instanceof RuntimeException) {
+      // Replay can log an unchecked failure and continue. The interrupt must stop replay.
+      report.addSuppressed(failure);
+      throw report;
+    }
+    failure.addSuppressed(report);
+  }
+
+  private boolean restoreInterruption() {
     if (accepted && Thread.interrupted() && interruption == null) {
       interruption = new InterruptedException();
     }
     if (interruption != null) {
       Thread.currentThread().interrupt();
+      return true;
+    }
+    return false;
+  }
+
+  @Override
+  public void close() {
+    if (restoreInterruption()) {
       throw BaseException.wrapException(
           new ThreadInterruptedException(operation + " was interrupted"), interruption,
           storageName);

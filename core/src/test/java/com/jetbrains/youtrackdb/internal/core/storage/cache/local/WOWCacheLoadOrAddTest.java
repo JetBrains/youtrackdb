@@ -35,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
@@ -85,6 +86,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 import org.junit.rules.TestRule;
 import org.junit.rules.Timeout;
+import org.mockito.AdditionalAnswers;
 import org.mockito.Mockito;
 
 /**
@@ -1946,6 +1948,501 @@ public class WOWCacheLoadOrAddTest {
           || description.getMethodName()
               .equals("legacyDeleteInterruptedCallerReturnsBeforeStepEnds")
                   ? Timeout.seconds(90).apply(base, description) : base;
+
+  @Rule
+  public final TestRule orderedRegistrationTimeout = (base, description) -> {
+    final var name = description.getMethodName();
+    return name.startsWith("orderedRegistration")
+        || name.equals("pendingReservationFailureIsFatalAfterAdmission")
+        || name.equals("pendingBlankInitializationFailureIsFatalAfterAdmission")
+        || name.equals("pendingNonDurableBackgroundFailureRetriesOwnedHandle")
+            ? Timeout.seconds(90).apply(base, description) : base;
+  };
+
+  @Test
+  public void orderedRegistrationReusesBackgroundPublishedFileFromPendingFixture()
+      throws Exception {
+    for (final boolean expected : List.of(true, false)) {
+      final long id = preparePendingPage(expected ? 9420 : 9421, null);
+      final int internalId = wowCache.internalFileId(id);
+      final var gate = new ShrinkGate();
+      final var submitted = witnessRegistrationSubmission();
+      final int openBefore = files.openFilesCount();
+      try (var observation = wowCache.observePhysicalCreation(created -> gate.block())) {
+        final var write = asyncFileExecutor.submit(() -> {
+          flushWithSelector(id, 1);
+          return null;
+        });
+        Future<Boolean> admission = null;
+        try {
+          awaitShrinkGate(gate.entered);
+          admission = asyncFileExecutor.submit(() -> {
+            final var admitted = registerOpenOnly(id, expected);
+            assertEquals(3, wowCache.logicalFiles().live(internalId).diskExtent());
+            return admitted;
+          });
+          awaitShrinkGate(submitted);
+          assertFalse(admission.isDone());
+          assertNull(files.get(id));
+        } finally {
+          gate.release.countDown();
+          write.get(10, TimeUnit.SECONDS);
+          if (admission != null) {
+            assertTrue(admission.get(10, TimeUnit.SECONDS));
+          }
+        }
+      }
+      assertPendingFileWritten(id, openBefore + 1);
+      Mockito.verify(wowCache).createFileHandle(any(), eq(internalId));
+    }
+  }
+
+  @Test
+  public void orderedRegistrationLeavesAbsentPendingFixtureForLaterBackgroundCreation()
+      throws Exception {
+    for (final boolean expected : List.of(true, false)) {
+      final long id = preparePendingPage(expected ? 9422 : 9423, null);
+      final var gate = new ShrinkGate();
+      final var head = flushExecutor().submit(gate::block);
+      final int openBefore = files.openFilesCount();
+      Future<Boolean> admission = null;
+      try {
+        awaitShrinkGate(gate.entered);
+        final var submitted = witnessRegistrationSubmission();
+        admission = asyncFileExecutor.submit(() -> registerOpenOnly(id, expected));
+        awaitShrinkGate(submitted);
+        assertFalse(admission.isDone());
+      } finally {
+        gate.release.countDown();
+        head.get(10, TimeUnit.SECONDS);
+        if (admission != null) {
+          assertFalse(admission.get(10, TimeUnit.SECONDS));
+        }
+      }
+      assertNull(files.get(id));
+      assertFalse(Files.exists(pendingPath(id)));
+      assertEquals(openBefore, files.openFilesCount());
+      assertPendingExtents(id);
+      flushWithSelector(id, 1);
+      assertPendingFileWritten(id, openBefore + 1);
+    }
+  }
+
+  @Test
+  public void orderedRegistrationRefusesForeignPathInPendingFixture() throws Exception {
+    final long id = preparePendingPage(9424, null);
+    final var path = pendingPath(id);
+    final byte[] sentinel = {4, 7, 8};
+    Files.write(path, sentinel);
+    wowCache = Mockito.spy(wowCache);
+    try {
+      for (final boolean expected : List.of(true, false)) {
+        assertThrows(IOException.class, () -> registerOpenOnly(id, expected));
+        assertPendingExtents(id);
+        assertEquals(0, files.openFilesCount());
+        assertNull(files.get(id));
+        assertArrayEquals(sentinel, Files.readAllBytes(path));
+        Mockito.verify(wowCache, Mockito.never()).createFileHandle(any(), Mockito.anyInt());
+      }
+    } finally {
+      Files.delete(path);
+    }
+    flushWithSelector(id, 1);
+    assertPendingFileWritten(id, 1);
+  }
+
+  @Test
+  public void orderedRegistrationRejectsCommitExecutorThreadBeforeLockAndSubmission()
+      throws Exception {
+    final long id = useIdentityRecovery(9425);
+    wowCache = Mockito.spy(wowCache);
+    final var lock = (ReadersWriterSpinLock) cacheField("filesLock");
+    lock.acquireWriteLock();
+    try {
+      onFlushExecutor(() -> {
+        for (final boolean expected : List.of(true, false)) {
+          assertTrue(assertThrows(IOException.class, () -> registerOpenOnly(id, expected))
+              .getMessage().contains("commitExecutor() thread"));
+        }
+      });
+    } finally {
+      lock.releaseWriteLock();
+    }
+    Mockito.verify(wowCache, Mockito.never()).submitRegistrationStep(any(), any());
+    assertNull(files.get(id));
+  }
+
+  @Test
+  public void orderedRegistrationOpensFreshExistingFilesOnCommitExecutor() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    final var commitThread = flushExecutor().submit(Thread::currentThread)
+        .get(10, TimeUnit.SECONDS);
+    final var openThread = new AtomicReference<Thread>();
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doAnswer(call -> {
+      final var handle = Mockito.spy((File) call.callRealMethod());
+      Mockito.doAnswer(open -> {
+        openThread.set(Thread.currentThread());
+        return open.callRealMethod();
+      }).when(handle).open();
+      return handle;
+    }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
+
+    for (final boolean expected : List.of(true, false)) {
+      final long id = wowCache.externalFileId(
+          new PageFileIdentity(PageFileRole.RECORD_DATA, expected ? 9432 : 9433).internalId());
+      final int count = files.openFilesCount() + 1;
+      final var bytes = new byte[File.HEADER_SIZE + PAGE_SIZE];
+      bytes[bytes.length - 1] = 42;
+      final var path = standaloneIdentityPath(id);
+      Files.write(path, bytes);
+      openThread.set(null);
+      assertTrue(registerOpenOnly(id, expected));
+      assertSame("Fresh file must open on the commit executor", commitThread, openThread.get());
+      assertTrue(files.get(id).isOpen());
+      assertEquals(1, wowCache.getFilledUpTo(id));
+      assertEquals(count, files.openFilesCount());
+      assertRegistrationPathCount(count);
+      assertArrayEquals(bytes, Files.readAllBytes(path));
+    }
+  }
+
+  @Test
+  public void orderedRegistrationRefusesRegisteredHandleWithoutOwnerInPendingFixture()
+      throws Exception {
+    final long id = prepareUnpublishedHandleWithRetainedTail();
+    final int internal = wowCache.internalFileId(id);
+    final var path = pendingPath(id);
+    final var handle = files.get(id);
+    final var bytes = Files.readAllBytes(path);
+    final var state = wowCache.logicalFiles().live(internal);
+    assertSame(state.extents(), pendingOwners().remove(internal));
+    assertPendingExtents(id);
+    for (final boolean expected : List.of(true, false)) {
+      assertThrows(IOException.class, () -> registerOpenOnly(id, expected));
+      assertSame(handle, files.get(id));
+      assertTrue(handle.isOpen());
+      assertNull(pendingOwners().get(internal));
+      assertSame(state, wowCache.logicalFiles().live(internal));
+      assertPendingExtents(id);
+      assertEquals(1, files.openFilesCount());
+      assertRegistrationPathCount(1);
+      assertArrayEquals(bytes, Files.readAllBytes(path));
+    }
+  }
+
+  @Test
+  public void orderedRegistrationPreservesRetainedTailAndCachedPageInOwnedPendingFixture()
+      throws Exception {
+    final long id = prepareUnpublishedHandleWithRetainedTail();
+    final int internal = wowCache.internalFileId(id);
+    final var path = pendingPath(id);
+    final var handle = files.get(id);
+    final var bytes = Files.readAllBytes(path);
+    final var state = wowCache.logicalFiles().live(internal);
+    final var retention = pageRetentionState();
+    final var cached = wowCache.loadIfPresent(id, 2, false);
+    assertNotNull(cached);
+    try {
+      final var image = new byte[PAGE_SIZE];
+      cached.getBuffer().get(0, image);
+      assertEquals(728, cached.getBuffer().getInt(DurablePage.NEXT_FREE_POSITION));
+      assertRetainedSegments(Set.of(1L));
+      assertTrue(retention.hasRetainedContents(id));
+      assertPendingExtents(id);
+      for (final boolean expected : List.of(true, false)) {
+        assertTrue(registerOpenOnly(id, expected));
+        assertRetainedSegments(Set.of(1L));
+        assertTrue(retention.hasRetainedContents(id));
+        final var after = wowCache.loadIfPresent(id, 2, false);
+        assertNotNull(after);
+        try {
+          final var actualImage = new byte[PAGE_SIZE];
+          after.getBuffer().get(0, actualImage);
+          assertSame(cached, after);
+          assertArrayEquals(image, actualImage);
+        } finally {
+          after.decrementReadersReferrer();
+        }
+        assertSame(state, wowCache.logicalFiles().live(internal));
+        assertSame(state.extents(), pendingOwners().get(internal));
+        assertPendingExtents(id);
+        assertSame(handle, files.get(id));
+        assertEquals(1, files.openFilesCount());
+        assertRegistrationPathCount(1);
+        assertArrayEquals(bytes, Files.readAllBytes(path));
+      }
+    } finally {
+      cached.decrementReadersReferrer();
+    }
+  }
+
+  @Test
+  public void orderedRegistrationInterruptedWaiterKeepsRealStepAndPublishedHandle()
+      throws Exception {
+    final long id = useIdentityRecovery(9426);
+    final var bytes = new byte[File.HEADER_SIZE + PAGE_SIZE];
+    bytes[bytes.length - 1] = 42;
+    final var path = standaloneIdentityPath(id);
+    Files.write(path, bytes);
+    assertInterruptedRegistration(id, false);
+    assertEquals(1, files.openFilesCount());
+    assertRegistrationPathCount(1);
+    assertNotNull(files.get(id));
+    assertEquals(1, wowCache.getFilledUpTo(id));
+    assertArrayEquals(bytes, Files.readAllBytes(path));
+  }
+
+  @Test
+  public void orderedRegistrationInterruptedRecoveryReportsCheckedFailureAfterRealOpenFails()
+      throws Exception {
+    final long id = useIdentityRecovery(9427);
+    final var path = standaloneIdentityPath(id);
+    Files.createDirectory(path);
+    try {
+      assertInterruptedRegistration(id, true);
+      assertTrue(Files.isDirectory(path));
+      assertRegistrationPathCount(1);
+      assertNull(files.get(id));
+      assertEquals(0, files.openFilesCount());
+      assertNull(wowCache.logicalFiles().live(wowCache.internalFileId(id)));
+    } finally {
+      Files.delete(path);
+    }
+  }
+
+  private void assertInterruptedRegistration(long id, boolean failedOpen) throws Exception {
+    final var gate = new ShrinkGate();
+    final var realStep = new AtomicReference<Future<?>>();
+    final var caller = new AtomicReference<Thread>();
+    final var enteredWait = new CountDownLatch(1);
+    final var enteredRetry = new CountDownLatch(1);
+    final var observedInterrupt = new AtomicReference<InterruptedException>();
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doAnswer(call -> {
+      final var real = (Future<?>) call.callRealMethod();
+      realStep.set(real);
+      // Only instrument get(). Cancellation and state calls go to the real future.
+      final var observed = mock(Future.class, AdditionalAnswers.delegatesTo(real));
+      Mockito.doAnswer(get -> {
+        if (observedInterrupt.get() == null) {
+          enteredWait.countDown();
+        } else {
+          enteredRetry.countDown();
+        }
+        try {
+          return real.get(20, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+          observedInterrupt.set(interrupted);
+          throw interrupted;
+        }
+      }).when(observed).get();
+      return observed;
+    }).when(wowCache).submitRegistrationStep(any(), any());
+
+    Future<?> head = null;
+    Future<IOException> admission = null;
+    IOException report = null;
+    try {
+      head = flushExecutor().submit(gate::block);
+      awaitShrinkGate(gate.entered);
+      admission = asyncFileExecutor.submit(() -> {
+        caller.set(Thread.currentThread());
+        try {
+          final var failure = assertThrows(IOException.class,
+              () -> registerOpenOnly(id, !failedOpen));
+          assertTrue(Thread.currentThread().isInterrupted());
+          return failure;
+        } finally {
+          Thread.interrupted();
+        }
+      });
+      awaitShrinkGate(enteredWait);
+      caller.get().interrupt();
+      awaitShrinkGate(enteredRetry);
+      assertFalse(realStep.get().isDone());
+      final var lock = (ReadersWriterSpinLock) cacheField("filesLock");
+      if (lock.tryAcquireReadLock(TimeUnit.MILLISECONDS.toNanos(100))) {
+        lock.releaseReadLock();
+        throw new AssertionError("Interrupted admission released filesLock before completion");
+      }
+      assertFalse(admission.isDone());
+    } finally {
+      gate.release.countDown();
+      if (head != null) {
+        head.get(10, TimeUnit.SECONDS);
+      }
+      if (admission != null) {
+        report = admission.get(10, TimeUnit.SECONDS);
+      }
+    }
+    assertNotNull(report);
+    assertSame(observedInterrupt.get(), report.getCause());
+    final var real = realStep.get();
+    assertFalse(real.isCancelled());
+    if (failedOpen) {
+      final var cause =
+          assertThrows(ExecutionException.class, () -> real.get(10, TimeUnit.SECONDS)).getCause();
+      assertTrue(cause instanceof StorageException);
+      assertEquals(1, report.getSuppressed().length);
+      assertSame(cause, report.getSuppressed()[0]);
+    } else {
+      assertEquals(Boolean.TRUE, real.get(10, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  public void orderedRegistrationExpectedFreshOpenFailureStaysUnchecked() throws Exception {
+    assertFreshOpenFailure(true);
+  }
+
+  @Test
+  public void orderedRegistrationRecoveryFreshOpenFailureStaysUnchecked() throws Exception {
+    assertFreshOpenFailure(false);
+  }
+
+  private void assertFreshOpenFailure(boolean expected) throws Exception {
+    final long id = useIdentityRecovery(9427);
+    final var path = standaloneIdentityPath(id);
+    Files.createDirectory(path);
+    try {
+      assertThrows(StorageException.class, () -> registerOpenOnly(id, expected));
+      assertTrue(Files.isDirectory(path));
+      assertNull(files.get(id));
+      assertEquals(0, files.openFilesCount());
+      assertNull(wowCache.logicalFiles().live(wowCache.internalFileId(id)));
+    } finally {
+      Files.delete(path);
+    }
+  }
+
+  @Test
+  public void orderedRegistrationKeepsLegacyExpectedAndRecoveryContracts() throws Exception {
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9428);
+    final long id = wowCache.addFile(PageFileNames.layout28(identity),
+        wowCache.externalFileId(identity.internalId()));
+    final var path = storagePath.resolve(wowCache.nativeFileNameById(id));
+    final var bytes = Files.readAllBytes(path);
+    final var handle = files.get(id);
+    onFlushExecutor(() -> {
+      assertThrows(UnsupportedOperationException.class, () -> wowCache.admitExpectedFile(identity));
+      assertTrue(registerOpenOnly(id, false));
+    });
+    assertSame(handle, files.get(id));
+    assertEquals(1, files.openFilesCount());
+    assertArrayEquals(new byte[File.HEADER_SIZE], bytes);
+    assertArrayEquals(bytes, Files.readAllBytes(path));
+  }
+
+  @Test
+  public void orderedRegistrationReportsSubmissionRejectionAsChecked() throws Exception {
+    final long id = useIdentityRecovery(9429);
+    final var rejection = new java.util.concurrent.RejectedExecutionException("not accepted");
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doThrow(rejection).when(wowCache).submitRegistrationStep(any(), any());
+    assertSame(rejection, assertThrows(IOException.class, () -> registerOpenOnly(id, false))
+        .getCause());
+    assertNull(files.get(id));
+    assertFalse(Files.exists(standaloneIdentityPath(id)));
+  }
+
+  @Test
+  public void orderedRegistrationClosesChannelOnlyBeforeContainerOwnership() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    files = Mockito.spy(files);
+    setCacheField("files", files);
+    wowCache = Mockito.spy(wowCache);
+    final var opened = new AtomicReference<File>();
+    Mockito.doAnswer(call -> {
+      final var handle = (File) call.callRealMethod();
+      opened.set(handle);
+      return handle;
+    }).when(wowCache).createFileHandle(any(), Mockito.anyInt());
+
+    for (final boolean inserted : List.of(false, true)) {
+      final long id = wowCache.externalFileId(
+          new PageFileIdentity(PageFileRole.RECORD_DATA, inserted ? 9430 : 9431).internalId());
+      final var path = standaloneIdentityPath(id);
+      final var header = new byte[File.HEADER_SIZE];
+      Files.write(path, header);
+      final var rejection = new IllegalStateException("container add failed");
+      Mockito.doAnswer(call -> {
+        if (inserted) {
+          call.callRealMethod();
+        }
+        throw rejection;
+      }).when(files).add(eq(id), any());
+      try {
+        assertSame(rejection,
+            assertThrows(IllegalStateException.class, () -> registerOpenOnly(id, true)));
+        assertEquals(inserted, opened.get().isOpen());
+        assertSame(inserted ? opened.get() : null, files.get(id));
+        assertEquals(inserted ? 1 : 0, files.openFilesCount());
+        assertNull(wowCache.logicalFiles().live(wowCache.internalFileId(id)));
+        assertArrayEquals(header, Files.readAllBytes(path));
+      } finally {
+        if (files.remove(id) != null || opened.get() != null && opened.get().isOpen()) {
+          opened.get().close();
+        }
+        Files.delete(path);
+      }
+    }
+  }
+
+  private CountDownLatch witnessRegistrationSubmission() {
+    if (!Mockito.mockingDetails(wowCache).isSpy()) {
+      wowCache = Mockito.spy(wowCache);
+    }
+    final var submitted = new CountDownLatch(1);
+    Mockito.doAnswer(call -> {
+      final var future = call.callRealMethod();
+      submitted.countDown();
+      return future;
+    }).when(wowCache).submitRegistrationStep(any(), any());
+    return submitted;
+  }
+
+  private boolean registerOpenOnly(long id, boolean expected) throws IOException {
+    return expected
+        ? wowCache.admitExpectedFile(PageFileIdentity.decode(wowCache.internalFileId(id)))
+        : wowCache.resolveRecoveryFile(null, id, WriteCache.RecoveryFilePermission.OPEN_ONLY);
+  }
+
+  private long useIdentityRecovery(int component) {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    return wowCache.externalFileId(new PageFileIdentity(PageFileRole.RECORD_DATA, component)
+        .internalId());
+  }
+
+  private Path standaloneIdentityPath(long id) {
+    return storagePath.resolve(
+        PageFileNames.layout28DiskName(PageFileIdentity.decode(wowCache.internalFileId(id))));
+  }
+
+  private void assertPendingExtents(long id) {
+    final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
+    assertFalse(state.diskPresent());
+    assertEquals(0, state.diskExtent());
+    assertEquals(3, state.logicalExtent());
+  }
+
+  private void assertPendingFileWritten(long id, int openFiles) throws Exception {
+    assertEquals(openFiles, files.openFilesCount());
+    assertNotNull(files.get(id));
+    final var path = pendingPath(id);
+    assertRegistrationPathCount(openFiles);
+    final var bytes = Files.readAllBytes(path);
+    assertEquals(File.HEADER_SIZE + 3 * PAGE_SIZE, bytes.length);
+    assertArrayEquals(new byte[File.HEADER_SIZE], java.util.Arrays.copyOf(bytes, File.HEADER_SIZE));
+    assertMaterializedContents(id, 3, 2, 728);
+  }
+
+  private void assertRegistrationPathCount(int count) throws IOException {
+    try (var paths = Files.list(storagePath)) {
+      assertEquals(count, paths.map(candidate -> candidate.getFileName().toString())
+          .filter(name -> name.startsWith("ytdb-p28-") && name.endsWith(".pcl")).count());
+    }
+  }
 
   @Test
   public void orderedDeleteWaitsThroughFirstPageWriteCompletionAndDiscardsRetention()
@@ -3901,6 +4398,11 @@ public class WOWCacheLoadOrAddTest {
     final var fatal = (Throwable) error.get(wowCache);
     assertNotNull(fatal);
     assertCause(fatal, originalFailure);
+    // Both registration forms must report the fatal failure in this pending fixture.
+    for (final boolean expected : List.of(true, false)) {
+      assertCause(assertThrows(IOException.class, () -> registerOpenOnly(id, expected)), fatal);
+      assertPendingExtents(id);
+    }
     assertSame(admitted.get(), files.get(id));
     assertTrue(Files.exists(pendingPath(id)));
     assertFalse(wowCache.logicalFiles().live(wowCache.internalFileId(id)).diskPresent());
@@ -3943,7 +4445,7 @@ public class WOWCacheLoadOrAddTest {
     assertMaterializedContents(id, 3, 2, 728);
   }
 
-  // Ordinary non-durable data failure stays retryable through the background selector.
+  // In this pending fixture, both registration forms reuse the handle after retryable data I/O.
   @Test
   public void pendingNonDurableBackgroundFailureRetriesOwnedHandle() throws Exception {
     final long id = prepareSavedNonDurablePendingPage(9267);
@@ -3969,6 +4471,14 @@ public class WOWCacheLoadOrAddTest {
     final var error = WOWCache.class.getDeclaredField("flushError");
     error.setAccessible(true);
     assertNull(error.get(wowCache));
+    final var ownedHandle = files.get(id);
+    final var bytes = Files.readAllBytes(pendingPath(id));
+    for (final boolean expected : List.of(true, false)) {
+      assertTrue(registerOpenOnly(id, expected));
+      assertSame(ownedHandle, files.get(id));
+      assertArrayEquals(bytes, Files.readAllBytes(pendingPath(id)));
+      assertPendingExtents(id);
+    }
     flushWithSelector(id, 1);
     assertMaterializedContents(id, 3, 2, 728);
     Mockito.verify(wowCache).createFileHandle(any(), Mockito.anyInt());

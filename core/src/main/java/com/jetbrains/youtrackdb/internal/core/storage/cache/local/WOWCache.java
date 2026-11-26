@@ -568,33 +568,7 @@ public final class WOWCache extends AbstractWriteCache
     if (logicalFiles == null) {
       throw new UnsupportedOperationException("Expected-file admission requires layout 28");
     }
-    final var name = PageFileNames.layout28(identity);
-    final var internalId = identity.internalId();
-    filesLock.acquireWriteLock();
-    try {
-      checkForClose();
-      final var externalId = composeFileId(id, internalId);
-      var file = files.get(externalId);
-      final var firstAdmission = file == null;
-      if (firstAdmission) {
-        file = createFileHandle(name, internalId);
-      }
-      if (!file.exists()) {
-        return false;
-      }
-      if (firstAdmission) {
-        openFile(storageName, file);
-        files.add(externalId, file);
-      }
-      // Install the handle before publishing logical membership to background readers.
-      registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId));
-      return true;
-    } catch (java.lang.InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IOException("Interrupted while admitting expected file " + name, e);
-    } finally {
-      filesLock.releaseWriteLock();
-    }
+    return orderedFileRegistration(identity, RecoveryFilePermission.OPEN_ONLY);
   }
 
   @Override
@@ -608,39 +582,126 @@ public final class WOWCache extends AbstractWriteCache
     final var identity = name == null
         ? PageFileIdentity.decode(extractFileId(fileId))
         : LogicalPageFileTable.resolve(name, extractFileId(fileId));
-    final var canonicalName = PageFileNames.layout28(identity);
+    if (logicalFiles != null && permission == RecoveryFilePermission.OPEN_ONLY) {
+      return orderedFileRegistration(identity, permission);
+    }
+
     filesLock.acquireWriteLock();
     try {
       checkForClose();
-      final var externalId = composeFileId(id, identity.internalId());
-      var file = files.get(externalId);
-      final var firstAdmission = file == null;
-      if (firstAdmission) {
-        file = createFileHandle(canonicalName, identity.internalId());
-      }
-      if (!file.exists()) {
-        if (permission == RecoveryFilePermission.OPEN_ONLY) {
-          return false;
-        }
-        // A complete creating WAL unit or an admitted restore entry authorizes creation.
-        createFile(file, callFsync);
-        if (permission == RecoveryFilePermission.RESTORE && !startupReplayPreservation) {
-          changedPageTracker.resetFile(identity.internalId());
-        }
-      } else if (firstAdmission) {
-        openFile(storageName, file);
-      }
-      if (firstAdmission) {
-        files.add(externalId, file);
-      }
-      registerLogicalFile(canonicalName, identity.internalId(),
-          nonDurableFileIds.contains(identity.internalId()));
-      return true;
+      return resolvePageFile(identity, permission, false);
     } catch (java.lang.InterruptedException e) {
       Thread.currentThread().interrupt();
-      throw new IOException("Interrupted while resolving recovery file " + canonicalName, e);
+      throw new IOException("Interrupted while resolving recovery file "
+          + PageFileNames.layout28(identity), e);
     } finally {
       filesLock.releaseWriteLock();
+    }
+  }
+
+  private boolean orderedFileRegistration(PageFileIdentity identity,
+      RecoveryFilePermission permission) throws IOException {
+    FileLifecycleStep.requireRegistrationCaller(commitExecutor());
+    filesLock.acquireWriteLock();
+    try {
+      checkForClose();
+      return FileLifecycleStep.awaitRegistration(storageName,
+          () -> submitRegistrationStep(identity, permission));
+    } finally {
+      filesLock.releaseWriteLock();
+    }
+  }
+
+  Future<Boolean> submitRegistrationStep(PageFileIdentity identity,
+      RecoveryFilePermission permission) {
+    return commitExecutor().submit(() -> resolvePageFile(identity, permission, true));
+  }
+
+  private boolean resolvePageFile(PageFileIdentity identity, RecoveryFilePermission permission,
+      boolean ordered) throws IOException, java.lang.InterruptedException {
+    final var canonicalName = PageFileNames.layout28(identity);
+    final int internalId = identity.internalId();
+    final long externalId = composeFileId(id, internalId);
+    var file = files.get(externalId);
+    if (ordered) {
+      // First creation and its completion run on the same commitExecutor() thread.
+      final var state = logicalState(internalId);
+      if (state != null && !state.diskPresent()) {
+        return resolvePendingPageFile(state, file);
+      }
+    }
+
+    final var firstAdmission = file == null;
+    if (firstAdmission) {
+      file = createFileHandle(canonicalName, internalId);
+    }
+    if (!file.exists()) {
+      if (permission == RecoveryFilePermission.OPEN_ONLY) {
+        return false;
+      }
+      // A complete creating WAL unit or an admitted restore entry authorizes creation.
+      createFile(file, callFsync);
+      if (permission == RecoveryFilePermission.RESTORE && !startupReplayPreservation) {
+        changedPageTracker.resetFile(internalId);
+      }
+    } else if (firstAdmission) {
+      openFile(storageName, file);
+    }
+    if (firstAdmission) {
+      if (ordered) {
+        admitRegistrationHandle(externalId, file);
+      } else {
+        files.add(externalId, file);
+      }
+    }
+    // Install the handle before publishing logical membership to background readers.
+    registerLogicalFile(canonicalName, internalId, nonDurableFileIds.contains(internalId));
+    return true;
+  }
+
+  private boolean resolvePendingPageFile(LogicalPageFileTable.State state, @Nullable File file)
+      throws IOException {
+    final int internalId = state.identity().internalId();
+    final var failure = flushError;
+    if (failure != null) {
+      // The cache cannot finish pending materialization after a fatal flush failure.
+      throw new IOException("Cannot resolve pending page file " + internalId, failure);
+    }
+    try {
+      if (file != null && pendingCreationHandles.get(internalId) == state.extents()) {
+        // Reserved space is not evidence of initialized pages.
+        return true;
+      }
+      final var path = storagePath.resolve(PageFileNames.layout28DiskName(state.identity()));
+      if (file != null || !Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+        throw new IOException("Cannot admit an unowned pending page file " + internalId);
+      }
+      return false;
+    } catch (RuntimeException unexpected) {
+      throw new IOException("Cannot inspect pending page file " + internalId, unexpected);
+    }
+  }
+
+  private void admitRegistrationHandle(long fileId, File file)
+      throws java.lang.InterruptedException {
+    try {
+      files.add(fileId, file);
+    } catch (java.lang.InterruptedException | RuntimeException | Error failure) {
+      // An admission failure after insertion does not transfer the handle back to this step.
+      if (files.get(fileId) != file) {
+        try {
+          if (file instanceof AsyncFile asyncFile) {
+            asyncFile.closeAfterFailedCreate();
+          } else {
+            file.close();
+          }
+        } catch (IOException | RuntimeException | Error closeFailure) {
+          if (closeFailure != failure) {
+            failure.addSuppressed(closeFailure);
+          }
+        }
+      }
+      throw failure;
     }
   }
 

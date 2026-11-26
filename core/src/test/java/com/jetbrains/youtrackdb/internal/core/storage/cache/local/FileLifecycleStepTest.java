@@ -7,6 +7,7 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -23,6 +24,74 @@ public class FileLifecycleStepTest {
 
   @Rule
   public final Timeout timeout = Timeout.seconds(30);
+
+  @Test
+  public void registrationReportsCancellationAndNewCheckedStepFailure() {
+    final var cancelled = new CompletableFuture<>();
+    cancelled.cancel(false);
+    assertThrows(java.io.IOException.class,
+        () -> FileLifecycleStep.awaitRegistration("storage", () -> cancelled));
+
+    final var failure = new Exception("unexpected checked failure");
+    assertSame(failure, assertThrows(java.io.IOException.class,
+        () -> FileLifecycleStep.awaitRegistration("storage",
+            () -> CompletableFuture.failedFuture(failure)))
+        .getCause());
+  }
+
+  @Test
+  public void registrationReportsInterruptAsCheckedAndCarriesUncheckedStepFailure() {
+    final var stepFailure = new IllegalStateException("registration failed");
+    assertSame(stepFailure, assertThrows(IllegalStateException.class,
+        () -> FileLifecycleStep.awaitRegistration("storage",
+            () -> CompletableFuture.failedFuture(stepFailure))));
+
+    Thread.currentThread().interrupt();
+    try {
+      final var report = assertThrows(IOException.class,
+          () -> FileLifecycleStep.awaitRegistration("storage",
+              () -> CompletableFuture.failedFuture(stepFailure)));
+      assertTrue(report.getCause() instanceof InterruptedException);
+      assertEquals(1, report.getSuppressed().length);
+      assertSame(stepFailure, report.getSuppressed()[0]);
+      assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  public void registrationPreservesCheckedStepFailureAndSuppressesInterruptReport() {
+    final var stepFailure = new IOException("registration failed");
+    Thread.currentThread().interrupt();
+    try {
+      assertSame(stepFailure, assertThrows(IOException.class,
+          () -> FileLifecycleStep.awaitRegistration("storage",
+              () -> CompletableFuture.failedFuture(stepFailure))));
+      assertEquals(1, stepFailure.getSuppressed().length);
+      assertTrue(stepFailure.getSuppressed()[0] instanceof IOException);
+      assertTrue(stepFailure.getSuppressed()[0].getCause() instanceof InterruptedException);
+      assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
+
+  @Test
+  public void registrationPreservesErrorAndSuppressesCheckedInterruptReport() {
+    final var fatal = new AssertionError("registration failed");
+    Thread.currentThread().interrupt();
+    try {
+      assertSame(fatal, assertThrows(AssertionError.class,
+          () -> FileLifecycleStep.awaitRegistration("storage",
+              () -> CompletableFuture.failedFuture(fatal))));
+      assertEquals(1, fatal.getSuppressed().length);
+      assertTrue(fatal.getSuppressed()[0] instanceof java.io.IOException);
+      assertTrue(Thread.currentThread().isInterrupted());
+    } finally {
+      Thread.interrupted();
+    }
+  }
 
   @Test
   public void completedFutureDefersPreexistingInterruptUntilClose() throws Exception {
