@@ -13,8 +13,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -22,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
@@ -29,16 +32,19 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.F
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.WALRecordDecodeException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.Callable;
@@ -409,6 +415,114 @@ public class WALDecodeRecoveryTest {
           assertSame(scenario < 5 ? cause : discardedBatch, diagnostic.getCause());
         }
       }
+    }
+  }
+
+  /**
+   * A failed next batch excludes its deletion anchor. The unit starts in the healthy batch,
+   * commits in the retry, and deletes its file exactly once.
+   */
+  @Test
+  public void identityNextBatchRetryExcludesAnchorAndCompletesSpanningUnit() throws Exception {
+    var records = new ArrayList<WriteableWALRecord>();
+    for (int unit = 1; unit <= 499; unit++) {
+      records.add(new AtomicUnitStartRecord(false, unit));
+      records.add(new AtomicUnitEndRecord(unit, false, null));
+    }
+    records.add(new AtomicUnitStartRecord(false, 500));
+    var anchor = new FileDeletedWALRecord(500, 7);
+    records.add(anchor);
+    var end = new AtomicUnitEndRecord(500, false, null);
+    records.add(end);
+    for (int i = 0; i < records.size(); i++) {
+      records.get(i).setLsn(new LogSequenceNumber(1, 100 + i));
+    }
+    var start = records.getFirst().getLsn();
+    var wal = mock(WriteAheadLog.class);
+    when(wal.end()).thenReturn(end.getLsn());
+    when(wal.read(start, 1000)).thenReturn(records.subList(0, 1000));
+    when(wal.next(anchor.getLsn(), 1000)).thenThrow(new IOException("failed later batch"));
+    // Model both APIs faithfully so an inclusive retry would replay the deletion twice.
+    when(wal.read(anchor.getLsn(), 1)).thenReturn(List.of(anchor));
+    when(wal.next(anchor.getLsn(), 1)).thenReturn(List.of(end));
+    var cache = mock(WriteCache.class);
+    when(cache.supportsIdentityRecovery()).thenReturn(true);
+    var readCache = mock(ReadCache.class);
+
+    assertEquals(end.getLsn(),
+        replayWithIdentityEvidence(wal, start, end.getLsn(), cache, readCache));
+
+    verify(readCache).deleteFile(7, cache);
+    verifyNoMoreInteractions(readCache);
+    var reads = inOrder(wal);
+    reads.verify(wal).read(start, 1000);
+    reads.verify(wal).next(anchor.getLsn(), 1000);
+    reads.verify(wal).next(anchor.getLsn(), 1);
+    verify(wal, never()).read(anchor.getLsn(), 1);
+    verify(wal, never()).next(end.getLsn(), 1);
+    verify(wal, never()).next(end.getLsn(), 1000);
+  }
+
+  /**
+   * A later batch failure retries exactly 1000 records, then resumes normal batching.
+   * Replay must reach the final committed unit beyond the retry cap.
+   */
+  @Test
+  public void identityNextBatchRetryStopsAtThousandRecordsAndResumesBatching() throws Exception {
+    var records = new ArrayList<WriteableWALRecord>();
+    for (int unit = 1; unit <= 1001; unit++) {
+      records.add(new AtomicUnitStartRecord(false, unit));
+      records.add(new AtomicUnitEndRecord(unit, false, null));
+    }
+    for (int i = 0; i < records.size(); i++) {
+      records.get(i).setLsn(new LogSequenceNumber(1, 100 + i));
+    }
+    var start = records.getFirst().getLsn();
+    var anchor = records.get(999).getLsn();
+    var retryEnd = records.get(1999).getLsn();
+    var end = records.getLast().getLsn();
+    var wal = mock(WriteAheadLog.class);
+    when(wal.end()).thenReturn(end);
+    when(wal.read(start, 1000)).thenReturn(records.subList(0, 1000));
+    when(wal.next(anchor, 1000)).thenThrow(new IOException("failed later batch"));
+    when(wal.next(any(), eq(1))).thenAnswer(invocation -> {
+      var position = (LogSequenceNumber) invocation.getArgument(0);
+      int index = position.getPosition() - 100;
+      return List.of(records.get(index + 1));
+    });
+    when(wal.next(retryEnd, 1000)).thenReturn(records.subList(2000, 2002));
+    var cache = mock(WriteCache.class);
+    when(cache.supportsIdentityRecovery()).thenReturn(true);
+
+    assertEquals(end,
+        replayWithIdentityEvidence(wal, start, end, cache, mock(ReadCache.class)));
+
+    var reads = inOrder(wal);
+    reads.verify(wal).read(start, 1000);
+    reads.verify(wal).next(anchor, 1000);
+    reads.verify(wal).next(retryEnd, 1000);
+    var retryAnchors = mockingDetails(wal).getInvocations().stream()
+        .filter(invocation -> invocation.getMethod().getName().equals("next")
+            && invocation.getArgument(1).equals(1))
+        .map(invocation -> (LogSequenceNumber) invocation.getArgument(0)).toList();
+    assertEquals(records.subList(999, 1999).stream().map(r -> r.getLsn()).toList(),
+        retryAnchors);
+    verify(wal, never()).next(retryEnd, 1);
+    verify(wal, never()).next(end, 1000);
+  }
+
+  private LogSequenceNumber replayWithIdentityEvidence(WriteAheadLog wal, LogSequenceNumber start,
+      LogSequenceNumber end, WriteCache cache, ReadCache readCache) throws Exception {
+    var storage = storage(cache, readCache);
+    var method = AbstractStorage.class.getDeclaredMethod("restoreFrom",
+        WriteAheadLog.class, LogSequenceNumber.class, RecoveryPageContext.class);
+    method.setAccessible(true);
+    var collected = new RecoveryWALEvidence(start, end, java.util.Set.of(),
+        java.util.Map.of(), java.util.Set.of());
+    try (var evidence = mockStatic(RecoveryWALEvidence.class)) {
+      evidence.when(() -> RecoveryWALEvidence.collect(wal, start, true, Integer.MAX_VALUE))
+          .thenReturn(collected);
+      return (LogSequenceNumber) method.invoke(storage, wal, start, new RecoveryPageContext());
     }
   }
 
