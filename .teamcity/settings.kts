@@ -60,6 +60,8 @@ val DetectChanges = BuildType({
   id("DetectChanges")
   name = "Detect changes"
   configure("Linux-Small")
+  maxRunningBuildsPerBranch = "pull/*:1"
+  runningBuildsLimitingMode = BuildsLimitingMode.CANCEL_OLDEST_RUNNING_BUILD
   params {
     for (key in listOf("should_build", "run_integration_tests", "integration_skip_reason",
         "integration_scope", "integration_modules")) {
@@ -94,8 +96,8 @@ fun BuildType.keepTestArtifacts() {
   publishArtifacts = PublishMode.ALWAYS
 }
 
-val UnitTestsLinuxArm64Push = BuildType({
-  id("UnitTestsLinuxArm64Push")
+val UnitTestsLinuxArm64 = BuildType({
+  id("UnitTestsLinuxArm64")
   name = "Unit tests Linux ARM64"
   configure("Ubuntu-24.04-Large-Arm64")
   failureConditions { executionTimeoutMin = 360 }
@@ -149,5 +151,5 @@ val UnitTestsLinuxArm64Push = BuildType({
 
 project {
   buildType(DetectChanges)
-  buildType(UnitTestsLinuxArm64Push)
+  buildType(UnitTestsLinuxArm64)
 }

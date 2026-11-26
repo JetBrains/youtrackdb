@@ -2,6 +2,7 @@
 """Connect TeamCity branch detection, test reports and finished-build baselines."""
 
 import base64
+import datetime
 import importlib.util
 import json
 import os
@@ -13,13 +14,16 @@ import tempfile
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from typing import NamedTuple
 
 SPEC = importlib.util.spec_from_file_location(
     "detect_changes", pathlib.Path(__file__).with_name("detect-changes.py"))
 detect = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(detect)
-BUILD = "YouTrackDB_UnitTestsLinuxArm64Push"
+BUILD = "YouTrackDB_UnitTestsLinuxArm64"
 DEVELOP = "refs/heads/develop"
+REVISION_FIELDS = "revisions(revision(version,vcsBranchName))"
+FINISHED_BUILDS = f"buildType:{BUILD},state:finished,defaultFilter:false,branch:default:any"
 
 
 def message(kind, **values):
@@ -57,50 +61,98 @@ def rest(path, plain=False):
         return response.read() if plain else json.load(response)
 
 
+def history_path(filters, fields):
+    return "/app/rest/builds?" + urllib.parse.urlencode({
+        "locator": f"{FINISHED_BUILDS},{filters},count:100",
+        "fields": f"count,build({fields}),nextHref"})
+
+
+def history_page(path):
+    if not path.startswith("/app/rest/builds?"):
+        raise ValueError("Unexpected TeamCity pagination path")
+    page = rest(path)
+    count = page.get("count")
+    entries = page.get("build", [] if type(count) is int and count == 0 else None)
+    if not isinstance(entries, list):
+        raise ValueError("Unreadable TeamCity build list")
+    # TeamCity count describes this page, not the full paginated history.
+    if "count" in page:
+        if type(count) is not int or count < 0 or count != len(entries):
+            raise ValueError("Unreadable TeamCity build count")
+    elif not entries:
+        raise ValueError("Unreadable TeamCity build list")
+    next_path = page.get("nextHref")
+    if next_path is not None and (not isinstance(next_path, str)
+                                  or not next_path.startswith("/app/rest/builds?")):
+        raise ValueError("Unexpected TeamCity pagination path")
+    return entries, next_path
+
+
+def build_revisions(build):
+    revisions = build["revisions"]["revision"]
+    if not isinstance(revisions, list) or not revisions:
+        raise ValueError("Unreadable TeamCity build revisions")
+    for revision in revisions:
+        branch = revision.get("vcsBranchName")
+        if not isinstance(branch, str) or not branch.strip():
+            raise ValueError("Unreadable TeamCity VCS branch")
+    return revisions
+
+
+def commit_sha(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", value):
+        raise ValueError("Invalid Git revision")
+    return value.lower()
+
+
+def earlier_develop_build(head):
+    # Include skipped and failed-to-start builds here, but not in the test baseline.
+    entries, next_path = history_page(history_path(f"revision:(version:{head})", REVISION_FIELDS))
+    found = False
+    for build in entries:
+        matching = [revision for revision in build_revisions(build)
+                    if commit_sha(revision.get("version")) == head]
+        if not matching:
+            raise ValueError("Unexpected TeamCity build revision")
+        if any(revision["vcsBranchName"] == DEVELOP for revision in matching):
+            found = True
+    # If the bounded lookup is inconclusive, do not risk skipping Maven.
+    if not found and next_path:
+        raise ValueError("Incomplete TeamCity revision history")
+    return found
+
+
+class TestBuild(NamedTuple):
+    path: str
+    revision: str
+
+
 def baseline(branch, successful=False):
     # Filter branch names locally, not inside REST locator syntax from PR text.
-    query = urllib.parse.urlencode({
-        "locator": f"buildType:{BUILD},state:finished,tag:ran-tests,defaultFilter:false,count:100",
-        "fields": ("count,build(id,status,finishDate,"
-                   "revisions(revision(version,vcsBranchName))),nextHref")})
-    path = "/app/rest/builds?" + query
-    builds = []
-    while path:
-        if not path.startswith("/app/rest/builds?"):
-            raise ValueError("Unexpected TeamCity pagination path")
-        page = rest(path)
-        count = page.get("count")
-        entries = page.get("build", [] if type(count) is int and count == 0 else None)
-        if not isinstance(entries, list):
-            raise ValueError("Unreadable TeamCity build list")
-        # TeamCity count describes this page, not the full paginated history.
-        if "count" in page:
-            if type(count) is not int or count < 0 or count != len(entries):
-                raise ValueError("Unreadable TeamCity build count")
-        elif not entries:
-            raise ValueError("Unreadable TeamCity build list")
-        builds.extend(entries)
-        path = page.get("nextHref")
+    path = history_path("tag:ran-tests", f"id,status,finishDate,{REVISION_FIELDS}")
     matches = []
-    for build in builds:
-        revisions = build["revisions"]["revision"]
-        if not isinstance(revisions, list) or not revisions:
-            raise ValueError("Unreadable TeamCity build revisions")
-        branches = [revision.get("vcsBranchName") for revision in revisions]
-        if any(not isinstance(name, str) or not name.strip() for name in branches):
-            raise ValueError("Unreadable TeamCity VCS branch")
-        if branch in branches and str(build["id"]) != os.environ["TC_BUILD_ID"]:
-            if successful:
-                status = build.get("status")
-                if not isinstance(status, str) or not status.strip():
-                    raise ValueError("Unreadable TeamCity build status")
-                if status != "SUCCESS":
-                    continue
-            matches.append(build)
+    while path:
+        entries, path = history_page(path)
+        for build in entries:
+            revisions = build_revisions(build)
+            status = build.get("status")
+            if status not in ("SUCCESS", "FAILURE", "UNKNOWN"):
+                raise ValueError("Unreadable TeamCity build status")
+            date = build.get("finishDate")
+            if not isinstance(date, str) or not re.fullmatch(
+                    r"[0-9]{8}T[0-9]{6}[+-][0-9]{4}", date):
+                raise ValueError("Unreadable TeamCity finish date")
+            finished = datetime.datetime.strptime(date, "%Y%m%dT%H%M%S%z")
+            if str(build["id"]) == os.environ["TC_BUILD_ID"] or (successful and status != "SUCCESS"):
+                continue
+            for revision in revisions:
+                if revision["vcsBranchName"] == branch:
+                    matches.append((finished, build["id"], revision.get("version")))
+                    break
     if not matches:
         return None
-    latest = max(matches, key=lambda b: b["finishDate"])
-    return "/app/rest/builds/id:" + str(int(latest["id"]))
+    _, build_id, revision = max(matches, key=lambda match: match[0])
+    return TestBuild("/app/rest/builds/id:" + str(int(build_id)), revision)
 
 
 def properties(path):
@@ -185,15 +237,14 @@ def detect_build():
     else:
         with tempfile.TemporaryDirectory() as directory:
             try:
+                head = commit_sha(detect.git(".", "rev-parse", "HEAD").strip().decode("ascii"))
+                if earlier_develop_build(head):
+                    return detect.main(args + ["--full"])
                 previous = baseline(DEVELOP)
                 if previous is None:
                     raise ValueError("No previous develop test build")
-                revisions = rest(previous + "/revisions")["revision"]
-                revision = revisions[0]["version"]
-                if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
-                    raise ValueError("Invalid baseline revision")
-                head = detect.git(".", "rev-parse", "HEAD").strip().decode("ascii")
-                if revision.lower() == head:
+                revision = commit_sha(previous.revision)
+                if revision == head:
                     return detect.main(args + ["--full"])
                 paths = detect.git(".", "diff", "--no-renames", "--name-only",
                                    "-z", revision, "HEAD", "--")
@@ -286,7 +337,7 @@ def verify():
         if previous is None:
             previous = baseline(DEVELOP, successful=True)
         stage = "statistic read"
-        data = rest(previous + "/statistics/ytdb.tests", plain=True) if previous else None
+        data = rest(previous.path + "/statistics/ytdb.tests", plain=True) if previous else None
     except Exception:
         raise BuildFailure("comparison-read",
                            f"Test-count comparison {stage} failed.") from None

@@ -4,6 +4,7 @@ on:
   push:
     branches: [develop, main]
     paths:
+      - '.teamcity/settings.kts'
       - '.github/scripts/teamcity-build.py'
       - '.github/scripts/teamcity-build-test.py'
       - '.github/scripts/detect-changes.py'
@@ -11,6 +12,7 @@ on:
       - '.github/workflows/teamcity-build-tests.yml'
   pull_request:
     paths:
+      - '.teamcity/settings.kts'
       - '.github/scripts/teamcity-build.py'
       - '.github/scripts/teamcity-build-test.py'
       - '.github/scripts/detect-changes.py'
