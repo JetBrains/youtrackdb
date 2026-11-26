@@ -15,6 +15,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.api.exception.HighLevelException;
 import com.jetbrains.youtrackdb.internal.LogRecordCollector;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
@@ -4807,11 +4808,28 @@ public class WOWCacheLoadOrAddTest {
   @Test
   public void orderedShrinkWrapsPublishedDiscardErrorWithoutChangingFileOrExtents()
       throws Exception {
+    assertPublishedShrinkWrapsDiscardError(new LinkageError("Discard body failed"));
+  }
+
+  @Test
+  public void orderedShrinkWrapsHighLevelDiscardErrorWithoutChangingFileOrExtents()
+      throws Exception {
+    assertPublishedShrinkWrapsDiscardError(new HighLevelDiscardError());
+  }
+
+  private static final class HighLevelDiscardError extends Error implements HighLevelException {
+
+    private HighLevelDiscardError() {
+      super("Discard body failed");
+    }
+  }
+
+  private void assertPublishedShrinkWrapsDiscardError(Error error) throws Exception {
     final long id = preparePublishedFileWithRetainedPrefixAndTail();
     final var path = pendingPath(id);
     final var state = wowCache.logicalFiles().live(wowCache.internalFileId(id));
 
-    assertDiscardLinkageErrorIsWrapped(id);
+    assertDiscardErrorIsWrapped(id, error);
 
     assertEquals(File.HEADER_SIZE + 3L * PAGE_SIZE, Files.size(path));
     assertEquals(3, state.logicalExtent());
@@ -4835,7 +4853,7 @@ public class WOWCacheLoadOrAddTest {
     assertNull(files.get(id));
     assertRetainedSegments(Set.of(42L));
 
-    assertDiscardLinkageErrorIsWrapped(id);
+    assertDiscardErrorIsWrapped(id, new LinkageError("Discard body failed"));
 
     assertTrue(Files.notExists(path));
     assertNull(files.get(id));
@@ -4844,9 +4862,8 @@ public class WOWCacheLoadOrAddTest {
     assertRetainedSegments(Set.of(42L));
   }
 
-  private void assertDiscardLinkageErrorIsWrapped(long id) throws Exception {
+  private void assertDiscardErrorIsWrapped(long id, Error error) throws Exception {
     wowCache = Mockito.spy(wowCache);
-    final var error = new LinkageError("Discard body failed");
     final var commitThread = flushExecutor().submit(Thread::currentThread)
         .get(10, TimeUnit.SECONDS);
     final int internalId = wowCache.internalFileId(id);

@@ -3073,8 +3073,10 @@ public final class WOWCache extends AbstractWriteCache
     try {
       doRemoveCachePages(intId, minPageIndex);
     } catch (Error failure) {
-      // Keep the discard failure contract without changing how truncate failures reach callers.
-      throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal", failure);
+      // Use the same cause chain as close so a HighLevelException marker on the Error cannot
+      // trigger the exception builder's shortcut.
+      throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal",
+          new ExecutionException(failure));
     }
   }
 
