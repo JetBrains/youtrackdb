@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.BoundedBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.writequeue.MPSCLinkedQueue;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -1036,15 +1037,14 @@ public final class LockFreeReadCache implements ReadCache {
     // when nothing is truncated, instead of paying the O(capacity) removeByFileId
     // sweep on every clean-open dispatch. Invariant: the purge runs iff the
     // write-cache layer truncated (no dropped pages => no stale cache entries).
-    final boolean truncated = writeCache.shrinkFile(fileId, targetBytes);
-    if (truncated) {
-      // LockFreeReadCache and its WriteCache always share the same page size by
-      // construction (the cache stores pages frame-for-frame), so this.pageSize is
-      // the right divisor. Using the local field avoids depending on the WriteCache
-      // impl returning a non-zero pageSize() — TrackingWriteCache returns 0, and a
-      // test-mock that stubs every method should not need to know the page size to
-      // reach the LFRC range-purge.
-      final int minPageIndex = (int) (targetBytes / pageSize);
+    final long targetFileId = fileId;
+    final int minPageIndex = (int) (targetBytes / pageSize);
+    if (writeCache instanceof WOWCache diskCache) {
+      // An accepted disk shrink can finish after interruption. Clean up before it reports
+      // that interruption, with no write-cache filesLock held during the read-cache purge.
+      diskCache.shrinkFile(fileId, targetBytes,
+          () -> clearFile(targetFileId, minPageIndex, writeCache));
+    } else if (writeCache.shrinkFile(fileId, targetBytes)) {
       clearFile(fileId, minPageIndex, writeCache);
     }
   }
