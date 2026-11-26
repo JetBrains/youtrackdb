@@ -3037,7 +3037,7 @@ public final class WOWCache extends AbstractWriteCache
                 state.identity())))) {
           throw new IOException("Cannot confirm absence of pending page file " + intId);
         }
-        doRemoveCachePages(intId, minPageIndex);
+        discardPagesForOrderedShrink(intId, minPageIndex);
         state.extents().shrink(minPageIndex);
         pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
         return;
@@ -3054,7 +3054,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       final var file = entry.get();
       final long reservedBytes = file.getFileSize();
-      doRemoveCachePages(intId, minPageIndex);
+      discardPagesForOrderedShrink(intId, minPageIndex);
       file.shrink(Math.min(targetBytes, reservedBytes));
       // A failed channel truncate can leave the wrapper counter at the target. Check the disk
       // length before lowering extents or discarding protection, including on retry.
@@ -3066,6 +3066,15 @@ public final class WOWCache extends AbstractWriteCache
       pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
     } finally {
       files.release(entry);
+    }
+  }
+
+  private void discardPagesForOrderedShrink(int intId, int minPageIndex) {
+    try {
+      doRemoveCachePages(intId, minPageIndex);
+    } catch (Error failure) {
+      // Keep the discard failure contract without changing how truncate failures reach callers.
+      throw FileLifecycleStep.fileWorkFailure(storageName, "File data removal", failure);
     }
   }
 
@@ -3484,7 +3493,7 @@ public final class WOWCache extends AbstractWriteCache
           doRemoveCachePages(intId, 0);
         }
       } catch (IOException | InterruptedException | RuntimeException | Error failure) {
-        throw FileLifecycleStep.closeWorkFailure(storageName, operation,
+        throw FileLifecycleStep.fileWorkFailure(storageName, operation,
             new ExecutionException(failure));
       }
 

@@ -90,17 +90,17 @@ final class FileLifecycleStep implements AutoCloseable {
     try {
       awaitCompletion(future);
     } catch (CancellationException failure) {
-      throw closeWorkFailure(storageName, operation, failure);
+      throw fileWorkFailure(storageName, operation, failure);
     } catch (ExecutionException failure) {
       switch (failure.getCause()) {
         case RuntimeException runtime -> throw runtime;
         case Error error -> throw error;
-        default -> throw closeWorkFailure(storageName, operation, failure);
+        default -> throw fileWorkFailure(storageName, operation, failure);
       }
     }
   }
 
-  static BaseException closeWorkFailure(String storageName, String operation, Throwable failure) {
+  static BaseException fileWorkFailure(String storageName, String operation, Throwable failure) {
     return BaseException.wrapException(
         new WriteCacheException(storageName, operation + " was abnormally terminated"),
         failure, storageName);
