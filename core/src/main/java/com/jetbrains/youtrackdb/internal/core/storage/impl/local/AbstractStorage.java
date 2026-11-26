@@ -9802,6 +9802,8 @@ public abstract class AbstractStorage
       RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
     final var replayDeletions = new ReplayDeletions(writeAheadLog);
+    final boolean evidenceRecovery =
+        recoveryContext != null && writeCache.supportsIdentityRecovery();
     final var cursor = new RecoveryWALCursor(writeAheadLog);
 
     long recordsProcessed = 0;
@@ -9814,12 +9816,29 @@ public abstract class AbstractStorage
 
     long lastReportTime = 0;
     LogSequenceNumber lastUpdatedLSN = null;
+    LogSequenceNumber lastReadableLSN = null;
+    replayDeletions.replayPosition = lsn;
 
     try {
+      if (evidenceRecovery) {
+        replayDeletions.evidence = RecoveryWALEvidence.collect(
+            writeAheadLog, lsn, true, Integer.MAX_VALUE);
+        if (replayDeletions.evidence.readableEnd() == null) {
+          return null; // A torn first record leaves no replayable prefix.
+        }
+      }
+      if (evidenceRecovery) {
+        cursor.readableEnd = replayDeletions.evidence.readableEnd();
+      }
       var records = cursor.read(lsn);
 
-      while (!records.isEmpty()) {
+      replay : while (!records.isEmpty()) {
         for (final var walRecord : records) {
+          if (evidenceRecovery
+              && walRecord.getLsn().compareTo(replayDeletions.evidence.readableEnd()) > 0) {
+            break replay;
+          }
+          replayDeletions.replayPosition = walRecord.getLsn();
           // Count the end before applying its unit, including that unit's own deletion.
           replayDeletions.position = walRecord.getLsn();
           replayDeletions.observe(walRecord);
@@ -9859,6 +9878,7 @@ public abstract class AbstractStorage
                     logger, walRecord);
           }
 
+          lastReadableLSN = walRecord.getLsn();
           recordsProcessed++;
 
           final var currentTime = System.currentTimeMillis();
@@ -9875,9 +9895,23 @@ public abstract class AbstractStorage
           }
         }
 
+        if (evidenceRecovery
+            && lastReadableLSN.equals(replayDeletions.evidence.readableEnd())) {
+          break;
+        }
+        // The next record position is unknown until decoding succeeds.
+        replayDeletions.replayPosition = null;
         records = cursor.next(records.getLast().getLsn());
       }
-      cursor.checkFailure();
+      if (!evidenceRecovery
+          || !replayDeletions.evidence.readableEnd().equals(lastReadableLSN)) {
+        replayDeletions.replayPosition = cursor.failedPosition;
+        cursor.checkFailure();
+        if (evidenceRecovery) {
+          throw new IOException("WAL replay ended before evidence readable end "
+              + replayDeletions.evidence.readableEnd());
+        }
+      }
     } catch (final IOException e) {
       try {
         try {
@@ -9889,8 +9923,18 @@ public abstract class AbstractStorage
       } catch (Throwable secondary) {
         suppressOpenFailure(e, secondary);
       }
+      if (evidenceRecovery && !(e instanceof RecoveryWALEvidence.ReadFailure)) {
+        throw replayFailureDiagnostic(e, replayDeletions.replayPosition,
+            replayDeletions.lastAppliedPosition,
+            replayDeletions.evidence);
+      }
       throw e;
     } catch (final WALPageBrokenException e) {
+      if (evidenceRecovery) {
+        throw recoveryReplayFailure(e, replayDeletions.replayPosition,
+            replayDeletions.lastAppliedPosition,
+            replayDeletions.evidence);
+      }
       try {
         try {
           cursor.attachFailure(e);
@@ -9907,6 +9951,11 @@ public abstract class AbstractStorage
         throw e;
       }
     } catch (final RuntimeException e) {
+      if (evidenceRecovery) {
+        throw recoveryReplayFailure(e, replayDeletions.replayPosition,
+            replayDeletions.lastAppliedPosition,
+            replayDeletions.evidence);
+      }
       try {
         try {
           cursor.attachFailure(e);
@@ -9922,6 +9971,13 @@ public abstract class AbstractStorage
         suppressOpenFailure(e, secondary);
         throw e;
       }
+    } catch (final Error e) {
+      if (evidenceRecovery) {
+        throw recoveryReplayFailure(e, replayDeletions.replayPosition,
+            replayDeletions.lastAppliedPosition,
+            replayDeletions.evidence);
+      }
+      throw e;
     }
 
     // WAL operation identifiers are highest-issued evidence, not the next identifier to issue.
@@ -9934,57 +9990,118 @@ public abstract class AbstractStorage
     return lastUpdatedLSN;
   }
 
+  private IOException recoveryReplayFailure(Throwable cause, LogSequenceNumber failedPosition,
+      LogSequenceNumber lastReadable, RecoveryWALEvidence evidence) {
+    try {
+      startupReplayFailed();
+    } catch (Throwable secondary) {
+      suppressOpenFailure(cause, secondary);
+    }
+    return replayFailureDiagnostic(cause, failedPosition, lastReadable, evidence);
+  }
+
+  private IOException replayFailureDiagnostic(Throwable cause, LogSequenceNumber failedPosition,
+      LogSequenceNumber lastReadable, RecoveryWALEvidence evidence) {
+    return new IOException("WAL replay failed at record "
+        + (failedPosition == null ? "unknown" : failedPosition)
+        + ", last successfully applied record " + lastReadable + ", evidence readable end "
+        + (evidence == null ? null : evidence.readableEnd()), cause);
+  }
+
   /**
-   * Both recovery reads consume the decoded prefix before reporting its failure.
-   * A deferred failure must also be checked when that prefix is empty.
+   * Recovery consumes decoded prefixes before reporting failures. Evidence-bounded reads
+   * retry a failed batch one record at a time so damaged bytes past the bound cannot hide
+   * a valid prefix. Healthy replay retains normal 1000-record batches.
    */
   private static final class RecoveryWALCursor {
 
     private final WriteAheadLog wal;
-    private RuntimeException failure;
+    private LogSequenceNumber readableEnd;
+    private LogSequenceNumber failedPosition;
+    private Throwable failure;
 
     private RecoveryWALCursor(WriteAheadLog wal) {
       this.wal = wal;
     }
 
     private List<WriteableWALRecord> read(LogSequenceNumber position) throws IOException {
-      checkFailure();
-      try {
-        if (wal instanceof CASDiskWriteAheadLog disk) {
-          return disk.readForRecovery(position, 1_000);
-        }
-        return wal.read(position, 1_000);
-      } catch (WALRecordDecodeException e) {
-        return deferFailure(e);
-      }
+      return fetch(position, false);
     }
 
     private List<WriteableWALRecord> next(LogSequenceNumber position) throws IOException {
+      return fetch(position, true);
+    }
+
+    private List<WriteableWALRecord> fetch(LogSequenceNumber position, boolean next)
+        throws IOException {
       checkFailure();
+      failedPosition = next ? null : position;
       try {
-        if (wal instanceof CASDiskWriteAheadLog disk) {
-          return disk.nextForRecovery(position, 1_000);
-        }
-        return wal.next(position, 1_000);
+        return fetch(position, next, 1_000);
       } catch (WALRecordDecodeException e) {
-        return deferFailure(e);
+        failure = e.getCauseWithSuppressed();
+        if (!e.getRecords().isEmpty()) {
+          failedPosition = null;
+        }
+        return e.getRecords();
+      } catch (IOException | RuntimeException e) {
+        if (readableEnd == null) {
+          throw e;
+        }
+        // Some page failures discard the whole batch. Recover its bounded prefix.
+        var prefix = new ArrayList<WriteableWALRecord>();
+        try {
+          while (prefix.size() < 1_000) {
+            var records = fetch(position, next, 1);
+            if (records.isEmpty()) {
+              break;
+            }
+            var record = records.getFirst();
+            if (record.getLsn().compareTo(readableEnd) > 0) {
+              break;
+            }
+            prefix.add(record);
+            failedPosition = null;
+            position = record.getLsn();
+            if (position.equals(readableEnd)) {
+              break;
+            }
+            next = true;
+          }
+        } catch (WALRecordDecodeException retry) {
+          prefix.addAll(retry.getRecords());
+          failure = retry.getCauseWithSuppressed();
+        } catch (IOException | RuntimeException retry) {
+          failure = retry;
+        }
+        if (failure == null && prefix.size() < 1_000
+            && (prefix.isEmpty() || !prefix.getLast().getLsn().equals(readableEnd))) {
+          // A short retry has not proved the bounded prefix. Keep the triggering read cause.
+          failure = e;
+        }
+        return prefix;
       }
     }
 
-    private List<WriteableWALRecord> deferFailure(WALRecordDecodeException e) {
-      failure = e.getCauseWithSuppressed();
-      return e.getRecords();
+    private List<WriteableWALRecord> fetch(LogSequenceNumber position, boolean next, int limit)
+        throws IOException {
+      if (wal instanceof CASDiskWriteAheadLog disk) {
+        return next ? disk.nextForRecovery(position, limit) : disk.readForRecovery(position, limit);
+      }
+      return next ? wal.next(position, limit) : wal.read(position, limit);
     }
 
-    private void checkFailure() {
-      if (failure != null) {
-        throw failure;
+    private void checkFailure() throws IOException {
+      if (failure instanceof IOException io) {
+        throw io;
+      }
+      if (failure instanceof RuntimeException runtime) {
+        throw runtime;
       }
     }
 
     private void attachFailure(Throwable replayFailure) {
-      // Prefix replay can fail before the deferred decode error reaches checkFailure().
-      // Keep both causes without replacing the replay failure or suppressing it on itself.
+      // Preserve a deferred read failure when applying its prefix fails first.
       if (failure != null && failure != replayFailure) {
         replayFailure.addSuppressed(failure);
       }
@@ -9998,9 +10115,14 @@ public abstract class AbstractStorage
   private final class ReplayDeletions {
 
     private final WriteAheadLog wal;
+    // Present only for layout 28 crash recovery. Legacy and backup keep their lookahead policy.
+    private RecoveryWALEvidence evidence;
     private final Map<Long, List<FileDeletedWALRecord>> pending = new HashMap<>();
     private final Map<Integer, LogSequenceNumber> committed = new HashMap<>();
     private LogSequenceNumber position;
+    // The precise record being applied or prepared, separate from the unit-end scan position.
+    private LogSequenceNumber replayPosition;
+    private LogSequenceNumber lastAppliedPosition;
     private LogSequenceNumber observedThrough;
     private boolean scanned;
 
@@ -10009,6 +10131,9 @@ public abstract class AbstractStorage
     }
 
     private void observe(WALRecord record) {
+      if (evidence != null) {
+        return;
+      }
       // The normal reader eventually catches up with the forward reader. Do not count twice.
       if (observedThrough != null && record.getLsn().compareTo(observedThrough) <= 0) {
         return;
@@ -10029,6 +10154,10 @@ public abstract class AbstractStorage
     }
 
     private boolean deletedAfter(int internalId, LogSequenceNumber pagePosition) {
+      if (evidence != null) {
+        final var deletion = evidence.deletions().get(internalId);
+        return deletion != null && deletion.compareTo(pagePosition) > 0;
+      }
       if (!scanned) {
         scanned = true;
         // position is the last consumed record, not the end of its fetched batch.
@@ -10091,6 +10220,9 @@ public abstract class AbstractStorage
           if (recoveryContext != null) {
             recoveryContext.setCurrentRecord(page.getValue());
           }
+          if (replayDeletions != null) {
+            replayDeletions.replayPosition = page.getValue();
+          }
           final var entry = readCache.loadOrAddForWrite(
               fileId, page.getKey(), writeCache, true, page.getValue());
           assert entry != null : "Declared allocation has no cache page: " + fileId + ":"
@@ -10101,6 +10233,9 @@ public abstract class AbstractStorage
         }
       }
       applyAtomicUnitRecords(atomicUnit, atLeastOnePageUpdate, recoveryContext, replayDeletions);
+      if (replayDeletions != null) {
+        replayDeletions.lastAppliedPosition = atomicUnit.getLast().getLsn();
+      }
     } finally {
       if (recoveryContext != null) {
         recoveryContext.setDeclaredPages(null);
@@ -10127,6 +10262,9 @@ public abstract class AbstractStorage
         if (deletedNonDurableFileIds.contains(internalId)) {
           continue;
         }
+        if (replayDeletions != null) {
+          replayDeletions.replayPosition = allocation.getLsn();
+        }
         if (!ensureFileForReplay(atomicUnit, fileId, allocation.getLsn(), replayDeletions)) {
           continue;
         }
@@ -10140,7 +10278,14 @@ public abstract class AbstractStorage
   private void applyAtomicUnitRecords(final List<WALRecord> atomicUnit,
       final ModifiableBoolean atLeastOnePageUpdate, RecoveryPageContext recoveryContext,
       ReplayDeletions replayDeletions) throws IOException {
+    LogSequenceNumber previousApplied = replayDeletions == null
+        ? null : replayDeletions.lastAppliedPosition;
     for (final var walRecord : atomicUnit) {
+      if (replayDeletions != null) {
+        replayDeletions.lastAppliedPosition = previousApplied;
+        replayDeletions.replayPosition = walRecord.getLsn();
+        previousApplied = walRecord.getLsn();
+      }
       if (recoveryContext != null) {
         recoveryContext.setCurrentRecord(walRecord.getLsn());
       }
@@ -10157,6 +10302,9 @@ public abstract class AbstractStorage
           }
         }
         case FileCreatedWALRecord fileCreatedCreatedWALRecord -> {
+          if (replayDeletions != null && replayDeletions.evidence != null) {
+            continue; // Transitional records carry no authorization in evidence-based recovery.
+          }
           // Skip re-creating non-durable files that were deleted during crash recovery
           if (deletedNonDurableFileIds.contains(
               writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()))) {
@@ -10339,8 +10487,9 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Resolves the file referenced by a page change, or skips a change whose missing file is deleted
-   * later. The caller checks non-durable file exclusions first. Incremental-backup replay has no
+   * Resolves a page file after non-durable exclusions. Layout 28 crash recovery checks global
+   * deletion evidence before any file access and authorizes creation only from page zero.
+   * The rules below describe legacy and backup replay. Incremental-backup replay has no
    * non-durable files and uses an empty exclusion set.
    *
    * <ol>
@@ -10363,6 +10512,26 @@ public abstract class AbstractStorage
    */
   private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
       LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
+    if (replayDeletions != null && replayDeletions.evidence != null) {
+      final var evidence = replayDeletions.evidence;
+      final int internalId = writeCache.internalFileId(fileId);
+      // Deletion precedence applies even to present files, before registration or page preparation.
+      if (replayDeletions.deletedAfter(internalId, position)) {
+        return false;
+      }
+      final var permission = evidence.pageZeroFiles().contains(internalId)
+          ? WriteCache.RecoveryFilePermission.REPLAY_CREATE
+          : WriteCache.RecoveryFilePermission.OPEN_ONLY;
+      if (writeCache.resolveRecoveryFile(null, fileId, permission)) {
+        return true;
+      }
+      final var identity = PageFileIdentity.decode(internalId);
+      throw new IOException("Missing replay file " + identity + ", kind " + identity.kind()
+          + ", computed disk name " + PageFileNames.layout28DiskName(identity) + ", replay bounds ["
+          + evidence.start() + ", "
+          + evidence.readableEnd() + "]: page-0 allocation evidence is absent or unusable. "
+          + "Restoration from backup is required.");
+    }
     final var identityRecovery = writeCache.supportsIdentityRecovery();
     if (identityRecovery) {
       if (writeCache.resolveRecoveryFile(null, fileId,

@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
@@ -250,6 +251,204 @@ public class WALDecodeRecoveryTest {
     @Override
     public void close() {
       logger.removeHandler(this);
+    }
+  }
+
+  /** Every reported deletion failure becomes a checked crash-recovery failure with its cause. */
+  @Test
+  public void identityCrashReplayDoesNotSwallowDeletionFailures() throws Exception {
+    LogSequenceNumber start;
+    LogSequenceNumber deletion;
+    try (var wal = open()) {
+      start = wal.log(new AtomicUnitStartRecord(false, 1));
+      deletion = wal.log(new FileDeletedWALRecord(1, 7));
+      wal.log(new AtomicUnitEndRecord(1, false, null));
+    }
+    var cache = mock(WriteCache.class);
+    when(cache.supportsIdentityRecovery()).thenReturn(true);
+    var readCache = mock(ReadCache.class);
+    var storage = storage(cache, readCache);
+    var method = AbstractStorage.class.getDeclaredMethod("restoreFrom",
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+        LogSequenceNumber.class,
+        com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext.class);
+    method.setAccessible(true);
+    for (Throwable cause : List.of(
+        new com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException("unlink failed"),
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException(
+            "broken replay"),
+        new AssertionError("replay error"), new IOException("deletion IO failure"))) {
+      doThrow(cause).when(readCache).deleteFile(7, cache);
+      try (var wal = open()) {
+        var wrapper = assertThrows(java.lang.reflect.InvocationTargetException.class,
+            () -> method.invoke(storage, wal, start,
+                new com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext()));
+        assertTrue(wrapper.getCause() instanceof IOException);
+        assertSame(cause, wrapper.getCause().getCause());
+        assertTrue(wrapper.getCause().getMessage().contains("failed at record " + deletion));
+        assertTrue(wrapper.getCause().getMessage().contains(
+            "last successfully applied record " + start));
+        var evidence = RecoveryWALEvidence.collect(wal, start, true, Integer.MAX_VALUE);
+        assertTrue(wrapper.getCause().getMessage().contains(
+            "evidence readable end " + evidence.readableEnd()));
+      }
+    }
+  }
+
+  /** An initial read failure names its known position, no applied record and the evidence end. */
+  @Test
+  public void identityReadFailureReportsKnownPositionAndCause() throws Exception {
+    var start = new LogSequenceNumber(1, 100);
+    var end = new LogSequenceNumber(1, 200);
+    var wal = mock(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class);
+    var cause = new IOException("injected WAL read failure");
+    when(wal.read(start, 1000)).thenThrow(cause);
+    when(wal.read(start, 1)).thenThrow(cause);
+    var cache = mock(WriteCache.class);
+    when(cache.supportsIdentityRecovery()).thenReturn(true);
+    var storage = storage(cache, mock(ReadCache.class));
+    var method = AbstractStorage.class.getDeclaredMethod("restoreFrom",
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+        LogSequenceNumber.class,
+        com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext.class);
+    method.setAccessible(true);
+    var collected = new RecoveryWALEvidence(start, end, java.util.Set.of(),
+        java.util.Map.of(), java.util.Set.of());
+    try (var evidence = mockStatic(RecoveryWALEvidence.class)) {
+      evidence.when(() -> RecoveryWALEvidence.collect(wal, start, true, Integer.MAX_VALUE))
+          .thenReturn(collected);
+      var wrapper = assertThrows(java.lang.reflect.InvocationTargetException.class,
+          () -> method.invoke(storage, wal, start,
+              new com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext()));
+      var diagnostic = wrapper.getCause();
+      assertSame(cause, diagnostic.getCause());
+      assertTrue(diagnostic.getMessage(),
+          diagnostic.getMessage().contains("failed at record " + start));
+      assertTrue(diagnostic.getMessage().contains("last successfully applied record null"));
+      assertTrue(diagnostic.getMessage().contains("evidence readable end " + end));
+      verify(wal).read(start, 1000);
+      verify(wal).read(start, 1);
+    }
+  }
+
+  /**
+   * Healthy replay batches reads. Failed batches recover every bounded record, but an
+   * in-range read failure retains its cause and reports the last applied unit, not buffered data.
+   */
+  @Test
+  public void identityBatchesRetryOnlyFailedReadsAndRejectInRangeFailures() throws Exception {
+    for (int scenario = 0; scenario < 7; scenario++) {
+      var start = new AtomicUnitStartRecord(false, 1);
+      start.setLsn(new LogSequenceNumber(1, 100));
+      var end = new AtomicUnitEndRecord(1, false, null);
+      end.setLsn(new LogSequenceNumber(1, 200));
+      var tail = new AtomicUnitStartRecord(false, 2);
+      tail.setLsn(new LogSequenceNumber(1, 300));
+      var wal = mock(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class);
+      when(wal.end()).thenReturn(tail.getLsn());
+      var discardedBatch = new IOException("discarded batch");
+      var cause = scenario == 3 ? new IllegalStateException("in-range runtime failure")
+          : new IOException("in-range read failure");
+      if (scenario == 0) {
+        when(wal.read(start.getLsn(), 1000)).thenReturn(List.of(start, end));
+        when(wal.next(end.getLsn(), 1000)).thenReturn(List.of(tail));
+      } else {
+        when(wal.read(start.getLsn(), 1000)).thenThrow(discardedBatch);
+        when(wal.read(start.getLsn(), 1)).thenReturn(List.of(start));
+        when(wal.next(start.getLsn(), 1)).thenReturn(List.of(end));
+        if (scenario == 1) {
+          when(wal.next(end.getLsn(), 1)).thenReturn(List.of(tail));
+        } else if (scenario == 4) {
+          cause = new IllegalArgumentException("in-range decoding failure");
+          when(wal.next(end.getLsn(), 1))
+              .thenThrow(new WALRecordDecodeException(List.of(), (RuntimeException) cause));
+        } else if (scenario == 5) {
+          when(wal.next(end.getLsn(), 1)).thenReturn(List.of());
+        } else if (scenario == 6) {
+          var beyond = new AtomicUnitStartRecord(false, 3);
+          beyond.setLsn(new LogSequenceNumber(1, 400));
+          when(wal.next(end.getLsn(), 1)).thenReturn(List.of(beyond));
+        } else {
+          when(wal.next(end.getLsn(), 1)).thenThrow(cause);
+        }
+      }
+      var cache = mock(WriteCache.class);
+      when(cache.supportsIdentityRecovery()).thenReturn(true);
+      var storage = storage(cache, mock(ReadCache.class));
+      var method = AbstractStorage.class.getDeclaredMethod("restoreFrom",
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+          LogSequenceNumber.class,
+          com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext.class);
+      method.setAccessible(true);
+      var collected = new RecoveryWALEvidence(start.getLsn(), tail.getLsn(), java.util.Set.of(),
+          java.util.Map.of(), java.util.Set.of());
+      try (var evidence = mockStatic(RecoveryWALEvidence.class)) {
+        evidence
+            .when(() -> RecoveryWALEvidence.collect(wal, start.getLsn(), true, Integer.MAX_VALUE))
+            .thenReturn(collected);
+        if (scenario <= 1) {
+          assertEquals(end.getLsn(), method.invoke(storage, wal, start.getLsn(),
+              new com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext()));
+          if (scenario == 0) {
+            verify(wal, never()).read(start.getLsn(), 1);
+            verify(wal).next(end.getLsn(), 1000);
+          }
+          verify(wal, never()).next(tail.getLsn(), 1);
+        } else {
+          var wrapper = assertThrows(java.lang.reflect.InvocationTargetException.class,
+              () -> method.invoke(storage, wal, start.getLsn(),
+                  new com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext()));
+          var diagnostic = wrapper.getCause();
+          assertTrue(diagnostic.getMessage(),
+              diagnostic.getMessage().contains("failed at record unknown"));
+          assertTrue(
+              diagnostic.getMessage().contains("last successfully applied record " + end.getLsn()));
+          assertTrue(diagnostic.getMessage().contains("evidence readable end " + tail.getLsn()));
+          assertSame(scenario < 5 ? cause : discardedBatch, diagnostic.getCause());
+        }
+      }
+    }
+  }
+
+  /** Evidence deletion skips allocation resolution and preload for either committed drop shape. */
+  @Test
+  public void identityDeletionSkipsAllocationResolutionAndPreload() throws Exception {
+    // Pair the real present/absent disk matrix with strict cache-boundary observations.
+    for (int scenario = 0; scenario < 4; scenario++) {
+      boolean sameUnit = (scenario & 1) != 0;
+      boolean present = (scenario & 2) != 0;
+      LogSequenceNumber start;
+      try (var wal = open()) {
+        start = wal.log(new AtomicUnitStartRecord(false, 1));
+        wal.log(new PageAllocatedWALRecord(1, 7, 1));
+        if (!sameUnit) {
+          wal.log(new AtomicUnitEndRecord(1, false, null));
+          wal.log(new AtomicUnitStartRecord(false, 2));
+        }
+        wal.log(new FileDeletedWALRecord(sameUnit ? 1 : 2, 7));
+        wal.log(new AtomicUnitEndRecord(sameUnit ? 1 : 2, false, null));
+      }
+      var cache = mock(WriteCache.class);
+      when(cache.supportsIdentityRecovery()).thenReturn(true);
+      when(cache.internalFileId(7)).thenReturn(7);
+      when(cache.exists(7)).thenReturn(present);
+      var read = mock(ReadCache.class);
+      var storage = storage(cache, read);
+      var method = AbstractStorage.class.getDeclaredMethod("restoreFrom",
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog.class,
+          LogSequenceNumber.class,
+          com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext.class);
+      method.setAccessible(true);
+      try (var wal = open()) {
+        method.invoke(storage, wal, start,
+            new com.jetbrains.youtrackdb.internal.core.storage.cache.RecoveryPageContext());
+      }
+      verify(cache, never()).resolveRecoveryFile(any(), anyLong(), any());
+      verify(read, never()).loadOrAddForWrite(anyLong(), anyLong(), any(), anyBoolean(), any());
+      verify(read).deleteFile(7, cache);
+      verifyNoMoreInteractions(read);
     }
   }
 
