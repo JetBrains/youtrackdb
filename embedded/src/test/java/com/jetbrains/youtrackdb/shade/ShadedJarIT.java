@@ -17,7 +17,9 @@ import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.Test;
+import org.w3c.dom.Element;
 
 /**
  * Integration tests that inspect the shaded uber-jar to verify relocations.
@@ -109,6 +111,50 @@ public class ShadedJarIT {
           "Netty Bootstrap should not be bundled in the shaded jar",
           jar.getEntry("io/netty/bootstrap/Bootstrap.class"));
     }
+  }
+
+  /**
+   * Context stays external so the host and callback SPI share one class identity.
+   * Reject original and relocated entries, and require the published POM dependency.
+   */
+  @Test
+  public void openTelemetryContextStaysExternal() throws Exception {
+    Path shadedJar = findShadedJar();
+    try (JarFile jar = new JarFile(shadedJar.toFile())) {
+      assertFalse("OpenTelemetry must not be bundled or relocated",
+          jar.stream().anyMatch(entry -> entry.getName().contains("io/opentelemetry/")));
+    }
+    // This is the POM that shade publishes, not the source dependency declaration.
+    Path reducedPom = Paths.get(System.getProperty("repository.root", ".."))
+        .resolve("embedded/dependency-reduced-pom.xml");
+    var factory = DocumentBuilderFactory.newInstance();
+    factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+    var document = factory.newDocumentBuilder().parse(reducedPom.toFile());
+    var dependencies = document.getDocumentElement().getElementsByTagName("dependencies");
+    boolean externalContext = false;
+    for (int i = 0; i < dependencies.getLength(); i++) {
+      var container = (Element) dependencies.item(i);
+      if (container.getParentNode() != document.getDocumentElement()) {
+        continue;
+      }
+      var entries = container.getElementsByTagName("dependency");
+      for (int j = 0; j < entries.getLength(); j++) {
+        var dependency = (Element) entries.item(j);
+        if ("io.opentelemetry".equals(dependency.getElementsByTagName("groupId").item(0)
+            .getTextContent())
+            && "opentelemetry-context".equals(
+                dependency.getElementsByTagName("artifactId").item(0).getTextContent())) {
+          var scope = dependency.getElementsByTagName("scope");
+          assertTrue("Context must be a compile dependency",
+              scope.getLength() == 0 || "compile".equals(scope.item(0).getTextContent()));
+          var optional = dependency.getElementsByTagName("optional");
+          assertTrue("Context must be transitive",
+              optional.getLength() == 0 || "false".equals(optional.item(0).getTextContent()));
+          externalContext = true;
+        }
+      }
+    }
+    assertTrue("Published POM must keep external Context", externalContext);
   }
 
   /**

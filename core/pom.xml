@@ -657,6 +657,10 @@
   </build>
 
   <dependencies>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-context</artifactId>
+    </dependency>
     <!-- GraalJS is a YouTrackDB runtime dependency, not a copied TinkerPop dependency. -->
     <dependency>
       <groupId>org.graalvm.js</groupId>

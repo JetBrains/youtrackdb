@@ -8,12 +8,22 @@ on:
   push:
     branches: [develop, main]
     paths:
+      - 'jmh-telemetry/**'
+      - 'pom.xml'
+      - '**/pom.xml'
+      - '.github/workflows/ldbc-jmh-compare.yml'
+      - '.github/workflows/ldbc-jmh-nightly.yml'
       - 'jmh-ldbc/jmh-regression-alert.py'
       - 'jmh-ldbc/jmh-compare.py'
       - 'jmh-ldbc/tests/**'
       - '.github/workflows/jmh-alerter-tests.yml'
   pull_request:
     paths:
+      - 'jmh-telemetry/**'
+      - 'pom.xml'
+      - '**/pom.xml'
+      - '.github/workflows/ldbc-jmh-compare.yml'
+      - '.github/workflows/ldbc-jmh-nightly.yml'
       - 'jmh-ldbc/jmh-regression-alert.py'
       - 'jmh-ldbc/jmh-compare.py'
       - 'jmh-ldbc/tests/**'
@@ -37,4 +47,6 @@ jobs:
           python-version: '3.11'
 
       - name: Run unit tests
-        run: python3 -m unittest discover -s jmh-ldbc/tests -v
+        run: |
+          python3 -m unittest discover -s jmh-ldbc/tests -v
+          python3 -m unittest discover -s jmh-telemetry/tests -v
