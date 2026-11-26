@@ -25,6 +25,8 @@ import javax.annotation.Nullable;
  * Bounded physical-plan and translation caches for Gremlin-to-MATCH compilation. Both maps share
  * the base metadata generation. Reads require both the captured and live generations. Publication
  * cannot replace a newer generation and stale cleanup removes only its own identity holder.
+ * Production translations replace equal-generation residents. Private candidates keep the first
+ * holder unless the publisher rejected that exact holder.
  *
  * <p>Physical entries own closed templates. Boundaries copy before execution and never run or close
  * a shared template. Schema transactions bypass both maps without recording hits or misses.
@@ -149,6 +151,7 @@ public final class GremlinPlanCache
     return cache.getTranslationInternal(shapeKey, db, cache.getInvalidationCounter());
   }
 
+  /** Production publication: an equal-or-newer generation replaces the resident holder. */
   @Nullable static GremlinTranslationTemplate putTranslation(
       Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long generation) {
@@ -158,9 +161,22 @@ public final class GremlinPlanCache
     return null;
   }
 
-  /** Normalize timeout before capturing the generation, not after shape extraction. */
-  void prepare(DatabaseSessionEmbedded db) {
-    invalidateIfTimeoutChanged(db);
+  /**
+   * Private candidate publication: the first holder wins unless this caller rejected that exact
+   * holder. Valid concurrent winners are preserved.
+   */
+  @Nullable static GremlinTranslationTemplate putTranslation(
+      Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
+      long walkGeneration, @Nullable Entry<GremlinTranslationTemplate> rejected) {
+    return instance(db).putTranslationInternal(shapeKey, template, db, walkGeneration, rejected);
+  }
+
+  /**
+   * Normalize timeout before shape extraction. Returns whether this call performed the timeout
+   * invalidation itself.
+   */
+  boolean prepare(DatabaseSessionEmbedded db) {
+    return invalidateIfTimeoutChanged(db);
   }
 
   void putInternal(
@@ -248,6 +264,19 @@ public final class GremlinPlanCache
 
   @Nullable GremlinTranslationTemplate getTranslationInternal(
       Object shapeKey, DatabaseSessionEmbedded db, long captured) {
+    var entry = getTranslationEntry(shapeKey, db, captured);
+    return entry == null ? null : entry.value;
+  }
+
+  /** Returns the current identity holder, so a caller can later name it as rejected. */
+  @Nullable Entry<GremlinTranslationTemplate> getTranslationEntry(
+      Object shapeKey, DatabaseSessionEmbedded db) {
+    prepare(db);
+    return getTranslationEntry(shapeKey, db, getInvalidationCounter());
+  }
+
+  @Nullable Entry<GremlinTranslationTemplate> getTranslationEntry(
+      Object shapeKey, DatabaseSessionEmbedded db, long captured) {
     if (db.getTxSchemaState() != null) {
       return null;
     }
@@ -258,16 +287,25 @@ public final class GremlinPlanCache
     var entry = translationCache.getIfPresent(shapeKey);
     if (valid(entry, captured)) {
       translationHits.increment();
-      return entry.value;
+      return entry;
     }
     translationMisses.increment();
     return null;
   }
 
+  /**
+   * Production shapes and private candidates are separate immutable key domains. A leased buffer
+   * is lookup-only and must never become a retained key, even during rejected repair.
+   */
+  private static boolean retainableKey(Object shapeKey) {
+    return shapeKey instanceof GremlinShapeKey
+        || shapeKey instanceof PrivateCandidatePreparation.CandidateKey;
+  }
+
   @Nullable GremlinTranslationTemplate putTranslationInternal(
       Object shapeKey, GremlinTranslationTemplate template, DatabaseSessionEmbedded db,
       long generation) {
-    if (db.getTxSchemaState() != null || shapeKey == null || translationCache == null) {
+    if (db.getTxSchemaState() != null || !retainableKey(shapeKey) || translationCache == null) {
       return null;
     }
     var entry = new Entry<GremlinTranslationTemplate>(template, generation);
@@ -283,6 +321,34 @@ public final class GremlinPlanCache
     }
     var resident = translationCache.getIfPresent(shapeKey);
     return valid(resident, generation) ? resident.value : null;
+  }
+
+  @Nullable GremlinTranslationTemplate putTranslationInternal(Object shapeKey,
+      GremlinTranslationTemplate template, DatabaseSessionEmbedded db, long walkGeneration,
+      @Nullable Entry<GremlinTranslationTemplate> rejected) {
+    if (db.getTxSchemaState() != null || !retainableKey(shapeKey) || translationCache == null
+        || walkGeneration != getInvalidationCounter()) {
+      return null;
+    }
+    var entry = new Entry<GremlinTranslationTemplate>(template, walkGeneration);
+    // Cold proofs do not hold a lock. First publication wins unless this caller rejected
+    // that exact holder. Identity prevents a delayed repair from replacing another winner.
+    translationCache.asMap().compute(shapeKey, (key, previous) -> {
+      if (walkGeneration != getInvalidationCounter()) {
+        return previous;
+      }
+      return previous == null || previous.generation < walkGeneration
+          || (previous == rejected && previous.generation == walkGeneration) ? entry : previous;
+    });
+    var hook = afterTranslationPublication;
+    if (hook != null) {
+      hook.run();
+    }
+    if (getInvalidationCounter() != walkGeneration) {
+      translationCache.asMap().remove(shapeKey, entry);
+    }
+    var winner = translationCache.getIfPresent(shapeKey);
+    return valid(winner, walkGeneration) ? winner.value : null;
   }
 
   @Override
@@ -304,13 +370,15 @@ public final class GremlinPlanCache
     }
   }
 
-  private void invalidateIfTimeoutChanged(DatabaseSessionEmbedded db) {
+  private boolean invalidateIfTimeoutChanged(DatabaseSessionEmbedded db) {
     var currentGlobalTimeout =
         db.getConfiguration().getValueAsLong(GlobalConfiguration.COMMAND_TIMEOUT);
     if (currentGlobalTimeout != this.lastGlobalTimeout) {
       invalidate();
       this.lastGlobalTimeout = currentGlobalTimeout;
+      return true;
     }
+    return false;
   }
 
   private static void recordProfilerRate(MetricDefinition<Global, TimeRate> definition) {

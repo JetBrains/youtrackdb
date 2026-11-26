@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.metadata.PrivatePreparationSchemaScope;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -32,6 +33,10 @@ public final class HardwiredCountOptimizations {
       QueryPlanningInfo info,
       CommandContext ctx,
       boolean profilingEnabled) {
+    // Schema-dependent policy decisions belong to execution, outside the private schema pin.
+    if (PrivatePreparationSchemaScope.isActive(ctx.getDatabaseSession())) {
+      return false;
+    }
     if (handleHardwiredCountOnClass(result, info, ctx, profilingEnabled)) {
       return true;
     }
@@ -53,6 +58,9 @@ public final class HardwiredCountOptimizations {
       boolean polymorphic,
       CommandContext ctx,
       boolean profilingEnabled) {
+    if (PrivatePreparationSchemaScope.isActive(ctx.getDatabaseSession())) {
+      return false;
+    }
     if (className == null || className.isBlank() || resultAlias == null) {
       return false;
     }

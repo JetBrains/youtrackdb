@@ -64,11 +64,14 @@ class GremlinShapeEncoder {
   List<NativeHasOperands> nativeOperands;
   boolean orderedExpandAbsent;
   int propertyMapBulkingCapacity;
+  // Only private extraction supplies deferred checkpoints. Production keeps the shared empty list.
+  List<GremlinShapeExtractor.BindingEnd> rootEnds = List.of();
 
   GremlinShapeExtractor.Extraction extraction() {
     GremlinShapeBuffer.count(counters -> counters.extractions++);
     return new GremlinShapeExtractor.Extraction(buffer == null ? compactKey() : null, Map.of(),
-        complete, List.of(), nativeOperands, orderedExpandAbsent, propertyMapBulkingCapacity, this);
+        complete, List.of(), nativeOperands, orderedExpandAbsent, propertyMapBulkingCapacity, this,
+        rootEnds);
   }
 
   private List<NativeHasOperands> frozenNativeOperands;
@@ -160,6 +163,14 @@ class GremlinShapeEncoder {
 
   HasBindingContext hasBindingContext() {
     return hasBindingContext;
+  }
+
+  int bindingCount() {
+    return bindings == null ? 0 : bindings.size();
+  }
+
+  int contributionCount() {
+    return hasContributions == null ? 0 : hasContributions.size();
   }
 
   int hasSlotCount() {

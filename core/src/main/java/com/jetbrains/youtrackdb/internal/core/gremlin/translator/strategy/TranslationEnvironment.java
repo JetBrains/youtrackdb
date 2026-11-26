@@ -68,13 +68,23 @@ record TranslationEnvironment(DatabaseSessionEmbedded session, boolean edgeLabel
       @Nullable TranslationEnvironment environment) {
     var refs = environment == null ? null : environment.references();
     // Synthetic forks share the scanned list, but sack setup still targets the walked traversal.
-    return refs != null && refs.strategies == traversal.getStrategies() ? refs : null;
+    return refs != null && refs.strategies == strategyState(traversal.getStrategies()) ? refs
+        : null;
+  }
+
+  private static TraversalStrategies strategyState(TraversalStrategies strategies) {
+    // Safety evidence only annotates the same list. Do not unwrap veto carriers, clones or
+    // unrelated lists, and do not rescan after root admission installs this view.
+    while (strategies instanceof QuerySafetyAdmission.Evidence evidence) {
+      strategies = evidence.delegate;
+    }
+    return strategies;
   }
 
   static TranslationEnvironment resolve(Traversal.Admin<?, ?> traversal,
       DatabaseSessionEmbedded session) {
-    var current = traversal.getStrategies();
-    var root = YTDBStrategyUtil.rootTraversal(traversal).getStrategies();
+    var current = strategyState(traversal.getStrategies());
+    var root = strategyState(YTDBStrategyUtil.rootTraversal(traversal).getStrategies());
     var refs = new References(current);
     refs.scan(root, true, root == current);
     if (root != current) {

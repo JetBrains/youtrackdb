@@ -46,6 +46,7 @@ public final class SumGlobalStep<S extends Number> extends ReducingBarrierStep<S
     public SumGlobalStep(final Traversal.Admin traversal) {
         super(traversal);
         this.setReducingBiOperator((BinaryOperator) Operator.sum);
+        this.rememberBuiltInFunctions();
     }
 
     /**

@@ -24,6 +24,7 @@ final class UnionForkHostImpl implements UnionForkHost {
   private final WalkerContext ctx;
   private final Map<Class<?>, StepRecogniser> recognisers;
   private final ResolvedOrderByNullsPlacement orderByNullsPlacements;
+  @Nullable private final GremlinStepWalker.WalkInputs inputs;
 
   /**
    * Memoised prefix snapshot. {@link #recognisedPrefixSteps()} is called once by the recogniser and
@@ -38,13 +39,15 @@ final class UnionForkHostImpl implements UnionForkHost {
       @Nonnull StepStreamCursor cursor,
       @Nonnull WalkerContext ctx,
       @Nonnull Map<Class<?>, StepRecogniser> recognisers,
-      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements) {
+      @Nonnull ResolvedOrderByNullsPlacement orderByNullsPlacements,
+      @Nullable GremlinStepWalker.WalkInputs inputs) {
     this.parent = parent;
     this.cursor = cursor;
     this.steps = parent.getSteps();
     this.ctx = ctx;
     this.recognisers = recognisers;
     this.orderByNullsPlacements = orderByNullsPlacements;
+    this.inputs = inputs;
   }
 
   @Nonnull
@@ -93,6 +96,9 @@ final class UnionForkHostImpl implements UnionForkHost {
     // is what keeps a leading has() in the arm from reading as folded: natively the arm is a child
     // traversal, rebuildTraversal never descends into it, and its HasStep survives unfolded for
     // TinkerPop's comparator to answer. See GremlinStepWalker.walk(Traversal.Admin, int).
+    if (inputs != null) {
+      return GremlinStepWalker.production().walkFork(forked, prefix.size(), inputs);
+    }
     return GremlinStepWalker.production()
         .walk(forked, prefix.size(), ctx.orderIncludesMissingKey(), orderByNullsPlacements,
             ctx.polymorphic(), false, null, ctx.environment);

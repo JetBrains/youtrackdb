@@ -121,6 +121,11 @@ public class NoOpBarrierStep<S> extends AbstractStep<S, S> implements LocalBarri
         this.barrier.clear();
     }
 
+    /** Reports whether the current buffer has built-in behavior without invoking the buffer. */
+    public final boolean hasBuiltInBuffer() {
+        return this.barrier != null && this.barrier.getClass() == TraverserSet.class;
+    }
+
     public int getMaxBarrierSize() {
         return maxBarrierSize;
     }

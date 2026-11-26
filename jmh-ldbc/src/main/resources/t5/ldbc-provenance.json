@@ -1,0 +1,17 @@
+{
+  "archive": "full-93aba32c93",
+  "canonicalCuratedSha256": "a32c482c97899ddafe90dbe9635e4ac9732fa5c19feec90c732767ac73212f18",
+  "sources": [
+    {
+      "path": "C-f0/witnesses.jsonl",
+      "bytes": 577595634,
+      "sha256": "e76cf76c32ed4b5d5dd9faff5ee4cca9de250cb0cd2c03044b045cab53cda49f"
+    },
+    {
+      "path": "C-f1/witnesses.jsonl",
+      "bytes": 577595682,
+      "sha256": "fdc8f43394d0b7efb4de13d058bf6096344cac4823354dd3b3aa4994c0bdf126"
+    }
+  ],
+  "captureStatus": "T5.12: exact typed SF1 answers, resolved feeds, derived dates and prepared cuts pending"
+}

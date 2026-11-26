@@ -24,6 +24,11 @@ sealed interface GremlinTranslationTemplate {
   /** Shared decline payload; the cache gives each publication its own holder. */
   Decline DECLINE = new Decline();
 
+  /** Complete private preparation. A null translation is a deterministic native refusal. */
+  record Candidate(int extent, PrivatePrefixDiscovery.Reason reason, Translate translation)
+      implements GremlinTranslationTemplate {
+  }
+
   /** The walker declined this shape; {@code apply} returns without mutating the traversal. */
   record Decline() implements GremlinTranslationTemplate {
   }

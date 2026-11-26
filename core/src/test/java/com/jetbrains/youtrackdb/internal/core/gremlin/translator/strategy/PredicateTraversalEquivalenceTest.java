@@ -1473,25 +1473,13 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * <b>The one shape in this suite where the two arms must disagree, and the translated arm is the
-   * right one.</b> {@code g.V().out("knows").hasLabel("Person").as("a").select("a")} returns
-   * {@code []} natively: {@code YTDBGraphStepStrategy.rebuildTraversal}'s {@code else} branch — a
-   * {@code HasStep} that does not directly follow the {@code GraphStep} — replaces it with a
-   * {@code YTDBHasLabelStep} carrying the extracted {@code ~label} predicates and copies no labels
-   * onto the replacement, so {@code select("a")} finds no {@code a} in the path and drops every
-   * traverser. That defect is pre-existing on {@code develop} and has nothing to do with the
-   * translator, which is why this case is asserted against a hand-computed oracle instead of against
-   * the native arm, and why it is not routed through {@code assertEquivalent} — that driver treats
-   * any disagreement as a failure.
-   *
-   * <p>Three assertions, one claim each. The translated arm engages a boundary step and returns the
-   * two {@code Person} sinks the oracle names. The native arm returns nothing, which records the
-   * defect rather than asserting it is acceptable. The label-free control run natively returns the
-   * same two sinks, which is what proves the empty native answer comes from the dropped label and
-   * not from a fixture that seeded nothing.
+   * {@code g.V().out("knows").hasLabel("Person").as("a").select("a")} keeps the hop target's
+   * label on both arms. Both return Bob and Carol, the two {@code Person} sinks, and exclude the
+   * {@code Software} sink. The translated arm must engage a boundary step. The native graph-step
+   * replacement must preserve {@code a} so that {@code select("a")} can resolve it.
    */
   @Test
-  public void labelBehindAHop_translatedArmIsCorrectWhereTheNativeArmDropsIt() {
+  public void labelBehindAHop_translatedAndNativeArmsMatchTheOracle() {
     var seeded = seedAliceKnowsBobAndCarol();
     var oracle = sortedIds(List.of(seeded.bob(), seeded.carol()));
 
@@ -1510,12 +1498,7 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     withTranslator(false, () -> {
       assertThat(sortedIds(
           graph.traversal().V().out("knows").hasLabel("Person").as("a").select("a").toList()))
-          .as("native drops the label in rebuildTraversal's else branch, so select(a) empties the "
-              + "stream — the develop defect this divergence is bounded to")
-          .isEmpty();
-      assertThat(sortedIds(graph.traversal().V().out("knows").hasLabel("Person").toList()))
-          .as("control: the same native filter without the label returns the two sinks, so the "
-              + "empty answer above is the label drop and not an empty fixture")
+          .as("the native arm keeps the label and answers the same two Person sinks")
           .isEqualTo(oracle);
     });
   }
