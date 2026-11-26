@@ -51,6 +51,12 @@ public class ParallelExecStep extends AbstractExecutionStep {
     this.subExecutionPlans = subExecutionPlans;
   }
 
+  /** Clear execution-local state in nested MATCH steps when the parent plan restarts. */
+  @Override
+  public void reset() {
+    subExecutionPlans.forEach(plan -> plan.reset(ctx));
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     // Drain predecessor for side effects before executing sub-plans.

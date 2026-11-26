@@ -86,6 +86,12 @@ public class GlobalLetQueryStep extends AbstractExecutionStep {
     this.subExecutionPlan = subExecutionPlan;
   }
 
+  /** Clear execution-local state in nested MATCH steps when the parent plan restarts. */
+  @Override
+  public void reset() {
+    subExecutionPlan.reset(ctx);
+  }
+
   @Override
   public ExecutionStream internalStart(CommandContext ctx) throws TimeoutException {
     // Drain the previous step to trigger its side effects (e.g. another global LET storing

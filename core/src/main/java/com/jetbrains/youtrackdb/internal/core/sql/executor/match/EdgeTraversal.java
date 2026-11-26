@@ -235,6 +235,62 @@ public class EdgeTraversal {
    */
   private double indexLookupSelectivity = Double.NaN;
 
+  // True only when the index child, rather than a sibling lookup, justified the build.
+  private boolean indexLookupVerified;
+  @Nullable private HashMap<Object, Boolean> verifiedByKey;
+  @Nullable private HashMap<Object, PreparedLookup> preparedByKey;
+  @Nullable private HashMap<Object, Integer> ratioRejectedThrough;
+
+  /** Per-key estimates and measured reverse bags share the RID cache's capacity and lifetime. */
+  private record PreparedLookup(
+      RidFilterDescriptor descriptor, Object key, int estimate, int total,
+      TraversalPreFilterHelper.ReverseLookup reverse, java.util.List<PreparedLookup> children) {
+
+    static PreparedLookup prepare(RidFilterDescriptor desc, Object key, CommandContext ctx) {
+      if (desc instanceof RidFilterDescriptor.EdgeRidLookup edge) {
+        var reverse = edge.prepare(ctx, key);
+        if (reverse != null) {
+          return new PreparedLookup(desc, key, reverse.estimate(), reverse.total(),
+              reverse, java.util.List.of());
+        }
+      }
+      if (desc instanceof RidFilterDescriptor.Composite composite
+          && !composite.descriptors().isEmpty()) {
+        var children = new java.util.ArrayList<PreparedLookup>();
+        int estimate = -1;
+        for (int i = 0; i < composite.descriptors().size(); i++) {
+          var childKey = key instanceof java.util.List<?> keys ? keys.get(i) : null;
+          var child = prepare(composite.descriptors().get(i), childKey, ctx);
+          children.add(child);
+          if (child.estimate >= 0 && (estimate < 0 || child.estimate < estimate)) {
+            estimate = child.estimate;
+          }
+        }
+        return new PreparedLookup(desc, key, estimate, estimate, null, children);
+      }
+      int estimate = desc.estimatedSize(ctx, key);
+      return new PreparedLookup(desc, key, estimate, estimate, null, java.util.List.of());
+    }
+
+    boolean hasReverseBags() {
+      return reverse != null || children.stream().anyMatch(PreparedLookup::hasReverseBags);
+    }
+
+    RidSet resolve(CommandContext ctx) {
+      if (reverse != null) {
+        return reverse.resolve(((RidFilterDescriptor.EdgeRidLookup) descriptor).collectEdgeRids());
+      }
+      if (!children.isEmpty()) {
+        RidSet result = null;
+        for (var child : children) {
+          result = TraversalPreFilterHelper.intersect(result, child.resolve(ctx));
+        }
+        return result;
+      }
+      return descriptor.resolve(ctx, key);
+    }
+  }
+
   /**
    * Amortization mode for an {@link RidFilterDescriptor.IndexLookup}-bearing
    * descriptor. Resolved from {@link #forecastN} vs the runtime-computed
@@ -549,9 +605,12 @@ public class EdgeTraversal {
     }
     // Index selectivity was already checked during resolution. Reverse-edge overlap
     // needs a second check against the actual set size for this source vertex.
-    boolean indexLookupVerified = desc instanceof RidFilterDescriptor.IndexLookup
-        || (desc instanceof RidFilterDescriptor.Composite c && c.findIndexLookup() != null);
-    if (!indexLookupVerified && !desc.passesSelectivityCheck(ridSet.size(), linkBagSize, ctx)) {
+    boolean passes = (desc instanceof RidFilterDescriptor.Composite composite
+        && composite.findIndexLookup() != null)
+            ? composite.anyChildPassesExcluding(
+                RidFilterDescriptor.IndexLookup.class, ridSet.size(), linkBagSize, ctx)
+            : desc.passesSelectivityCheck(ridSet.size(), linkBagSize, ctx);
+    if (!indexLookupVerified && !passes) {
       recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
       return null;
     }
@@ -686,8 +745,8 @@ public class EdgeTraversal {
    *       size would benefit from a RidSet this large.</li>
    *   <li><b>Per-vertex ratio check against estimate</b> — if this
    *       vertex's link bag is too small relative to the estimated
-   *       RidSet size, return {@code null} without caching (a later
-   *       vertex with a larger link bag may trigger resolution).</li>
+   *       RidSet size, keep the measured bags and estimate but return no RID set.
+   *       A later vertex with a larger link bag can reuse them for resolution.</li>
    *   <li><b>Build amortization guard (IndexLookup only)</b> —
    *       accumulates link bag sizes across vertices and defers
    *       materialization until the total justifies the build cost.
@@ -716,6 +775,8 @@ public class EdgeTraversal {
       return null;
     }
     var key = desc.cacheKey(ctx);
+    indexLookupVerified = key != null && verifiedByKey != null
+        && Boolean.TRUE.equals(verifiedByKey.get(key));
 
     // 1. Cache hit — return immediately.
     //    Caller does per-vertex ratio check in applyPreFilter().
@@ -727,20 +788,53 @@ public class EdgeTraversal {
     // 2. Cheap size estimate — no full materialization.
     //    Pass the cache key so EdgeRidLookup can reuse the pre-computed
     //    target RID instead of re-evaluating the expression.
-    int estimatedSize = desc.estimatedSize(ctx, key);
+    var prepared = key != null && preparedByKey != null ? preparedByKey.get(key) : null;
+    if (prepared == null) {
+      prepared = PreparedLookup.prepare(desc, key, ctx);
+      if (key != null && canCache(key) && prepared.hasReverseBags()) {
+        if (preparedByKey == null) {
+          preparedByKey = new HashMap<>();
+        }
+        preparedByKey.put(key, prepared);
+      }
+    }
+    int estimatedSize = prepared.estimate();
 
     // 3. Absolute cap exceeded — safe to cache null permanently.
-    if (rejectIfCapExceeded(estimatedSize, key)) {
+    int capSize = prepared.total();
+    if (rejectIfCapExceeded(capSize, key)) {
       return null;
     }
 
+    // A ratio rejection is valid for this bag size and every smaller bag, not larger ones.
+    if (key != null && ratioRejectedThrough != null) {
+      var rejectedThrough = ratioRejectedThrough.get(key);
+      if (rejectedThrough != null && linkBagSize > 0 && linkBagSize <= rejectedThrough) {
+        recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
+        return null;
+      }
+    }
+
     // 4. Descriptor-specific selectivity check against estimate.
-    if (!evaluateDescriptorSelectivity(desc, estimatedSize, linkBagSize, key, ctx)) {
+    if (!evaluateDescriptorSelectivity(desc, estimatedSize, linkBagSize, key, ctx, prepared)) {
+      if (lastSkipReason == PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH
+          && key != null && preparedByKey != null && preparedByKey.containsKey(key)) {
+        if (ratioRejectedThrough == null) {
+          ratioRejectedThrough = new HashMap<>();
+        }
+        ratioRejectedThrough.merge(key, linkBagSize, Math::max);
+      }
       return null;
     }
 
     // 5. First big-enough hit — resolve (materialize) and cache.
-    return materializeAndCache(desc, key, ctx);
+    if (key != null && canCache(key)) {
+      if (verifiedByKey == null) {
+        verifiedByKey = new HashMap<>();
+      }
+      verifiedByKey.put(key, indexLookupVerified);
+    }
+    return materializeAndCache(key, ctx, prepared);
   }
 
   /**
@@ -834,7 +928,7 @@ public class EdgeTraversal {
    */
   private boolean evaluateDescriptorSelectivity(
       RidFilterDescriptor desc, int estimatedSize, int linkBagSize,
-      @Nullable Object key, CommandContext ctx) {
+      @Nullable Object key, CommandContext ctx, PreparedLookup prepared) {
     RidFilterDescriptor.IndexLookup indexLookup = null;
     boolean isComposite = false;
     if (desc instanceof RidFilterDescriptor.IndexLookup il) {
@@ -850,18 +944,26 @@ public class EdgeTraversal {
       if (decision == AmortizationDecision.REJECT && isComposite) {
         // Composite rescue: the IndexLookup child failed, but a sibling
         // (e.g. EdgeRidLookup back-reference) may still justify the build.
-        var composite = (RidFilterDescriptor.Composite) desc;
-        if (estimatedSize >= 0
-            && !composite.anyChildPassesExcluding(
-                RidFilterDescriptor.IndexLookup.class,
-                estimatedSize, linkBagSize, ctx)) {
+        boolean siblingPasses = false;
+        for (var child : prepared.children()) {
+          if (!(child.descriptor() instanceof RidFilterDescriptor.IndexLookup)) {
+            int childEstimate = child.estimate();
+            if (childEstimate < 0
+                || child.descriptor().passesSelectivityCheck(childEstimate, linkBagSize, ctx)) {
+              siblingPasses = true;
+              break;
+            }
+          }
+        }
+        if (!siblingPasses) {
           recordPreFilterSkip(PreFilterSkipReason.OVERLAP_RATIO_TOO_HIGH);
           return false;
         }
         // Non-IndexLookup child passes → fall through to materialise.
         return true;
       }
-      return decision == AmortizationDecision.PROCEED;
+      indexLookupVerified = decision == AmortizationDecision.PROCEED;
+      return indexLookupVerified;
     }
 
     if (estimatedSize >= 0
@@ -883,14 +985,14 @@ public class EdgeTraversal {
    * freshly-materialised RidSet rather than silently dropping it.
    */
   @Nullable private RidSet materializeAndCache(
-      RidFilterDescriptor desc, @Nullable Object key, CommandContext ctx) {
+      @Nullable Object key, CommandContext ctx, PreparedLookup prepared) {
     // Measure build wallclock only when the owning query asked for PROFILE.
     // {@code preFilterBuildTimeNanos} is consumed exclusively by the PROFILE
     // pretty-printer in {@code MatchStep}, so off-profile measurements would
     // be pure overhead. The pair adds ~130 ns/build; trivial in absolute
     // terms but unnecessary on the default path.
     long buildStart = profilingEnabled ? System.nanoTime() : 0L;
-    var ridSet = desc.resolve(ctx, key);
+    var ridSet = prepared.resolve(ctx);
     if (profilingEnabled) {
       preFilterBuildTimeNanos += System.nanoTime() - buildStart;
     }
@@ -937,7 +1039,16 @@ public class EdgeTraversal {
    * <p>Caller must already have null-checked {@link #cache}.
    */
   private boolean canCache(Object key) {
-    return cache.size() < CACHE_CAPACITY || cache.containsKey(key);
+    int size = cache == null ? 0 : cache.size();
+    if (preparedByKey != null) {
+      for (var preparedKey : preparedByKey.keySet()) {
+        if (cache == null || !cache.containsKey(preparedKey)) {
+          size++;
+        }
+      }
+    }
+    return size < CACHE_CAPACITY || (cache != null && cache.containsKey(key))
+        || (preparedByKey != null && preparedByKey.containsKey(key));
   }
 
   /**
@@ -1264,7 +1375,19 @@ public class EdgeTraversal {
     return edge.toString();
   }
 
-  /** Returns a shallow copy with deep-copied mutable fields (filter, RID). */
+  @Nullable private static RidFilterDescriptor copyDescriptor(
+      @Nullable RidFilterDescriptor descriptor) {
+    if (descriptor instanceof RidFilterDescriptor.EdgeRidLookup lookup) {
+      return lookup.copyForExecution();
+    }
+    if (descriptor instanceof RidFilterDescriptor.Composite composite) {
+      return new RidFilterDescriptor.Composite(
+          composite.descriptors().stream().map(EdgeTraversal::copyDescriptor).toList());
+    }
+    return descriptor;
+  }
+
+  /** Returns a shallow copy with deep-copied mutable fields (filter, RID, lookup cache). */
   public EdgeTraversal copy() {
     var copy = new EdgeTraversal(edge, out);
 
@@ -1277,7 +1400,7 @@ public class EdgeTraversal {
     if (leftRid != null) {
       copy.leftRid = leftRid.copy();
     }
-    copy.intersectionDescriptor = intersectionDescriptor;
+    copy.intersectionDescriptor = copyDescriptor(intersectionDescriptor);
     copy.semiJoinDescriptor = semiJoinDescriptor;
     copy.acceptedCollectionIds = acceptedCollectionIds;
     copy.consumed = consumed;
