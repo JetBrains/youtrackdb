@@ -38,13 +38,15 @@ public class PrefilterMetricsDefinitionTest {
   // ---- GLOBAL_METRICS registration ----
 
   /**
-   * GLOBAL_METRICS must contain the disk-cache / prefilter originals, the tx-result-cache rates,
-   * the Gremlin plan-cache hit/miss rates, and the Gremlin translation success/decline/error/rule-native
-   * ratios. This catches both accidental additions and accidental removals.
+   * GLOBAL_METRICS must contain the data-file fsync counter, the direct-memory gauge, the
+   * disk-cache and prefilter metrics, the tx-result-cache and Gremlin plan-cache rates, and the
+   * Gremlin translation ratios. This catches both accidental additions and accidental removals.
    */
   @Test
   public void globalMetricsContainsExactlyExpectedMetrics() {
     assertThat(CoreMetrics.GLOBAL_METRICS).containsExactlyInAnyOrder(
+        CoreMetrics.DATA_FILE_FSYNC_COUNT,
+        CoreMetrics.DIRECT_MEMORY_BYTES,
         CoreMetrics.FILE_EVICTION_RATE,
         CoreMetrics.CACHE_HIT_RATIO,
         CoreMetrics.PREFILTER_EFFECTIVENESS,

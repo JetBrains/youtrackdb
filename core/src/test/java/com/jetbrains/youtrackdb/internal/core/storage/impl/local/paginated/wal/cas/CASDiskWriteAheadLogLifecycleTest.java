@@ -77,6 +77,121 @@ public class CASDiskWriteAheadLogLifecycleTest {
   private static final int LIFECYCLE_TEST_RECORD_ID =
       CoverageTestWALRecordIds.CAS_LIFECYCLE_TEST_RECORD_ID;
 
+  /** A held writer and an observed latch force admission to wait without timing assumptions. */
+  @Test
+  public void queueMetricsCountOnlyWaitsAndSurvivePrintedStatistics() throws Exception {
+    assertQueueMetrics(false);
+    assertQueueMetrics(true);
+  }
+
+  private void assertQueueMetrics(boolean statistics) throws Exception {
+    var name = "queueMetrics" + UUID.randomUUID();
+    try (var wal = createWAL(name)) {
+      var statisticsField =
+          CASDiskWriteAheadLog.class.getDeclaredField("printPerformanceStatistic");
+      statisticsField.setAccessible(true);
+      statisticsField.setBoolean(wal, statistics);
+      var registry = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+      var count = registry.databaseMetric(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.WAL_QUEUE_WAIT_COUNT,
+          name);
+      var time = registry.databaseMetric(
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.WAL_QUEUE_WAIT_TIME_NANOS,
+          name);
+      wal.log(record(8, 1));
+      wal.flush();
+      assertEquals(0L, count.getValue().longValue());
+      assertEquals(0L, time.getValue().longValue());
+      var writerLock = (ReentrantLock) walField(wal, "recordsWriterLock");
+      var entered = new CountDownLatch(1);
+      var release = new CountDownLatch(1) {
+        @Override
+        public void await() throws InterruptedException {
+          entered.countDown();
+          super.await();
+        }
+      };
+      var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+      writerLock.lock();
+      java.util.concurrent.Future<?> caller = null;
+      try {
+        var limit = CASDiskWriteAheadLog.class.getDeclaredField("maxCacheSize");
+        limit.setAccessible(true);
+        limit.setInt(wal, 1);
+        @SuppressWarnings("unchecked")
+        var latch = (AtomicReference<CountDownLatch>) walField(wal, "flushLatch");
+        latch.set(release);
+        caller = executor.submit(() -> wal.log(record(8, 2)));
+        assertTrue(entered.await(10, TimeUnit.SECONDS));
+        assertEquals(1L, count.getValue().longValue());
+        assertEquals(0L, time.getValue().longValue());
+      } finally {
+        writerLock.unlock();
+        release.countDown();
+        executor.shutdown();
+      }
+      caller.get(10, TimeUnit.SECONDS);
+      assertTrue(time.getValue() > 0);
+      var totalTime = time.getValue();
+      var reportTs = CASDiskWriteAheadLog.class.getDeclaredField("reportTs");
+      reportTs.setAccessible(true);
+      reportTs.setLong(wal, System.nanoTime() - TimeUnit.SECONDS.toNanos(20));
+      var printEnabled = CASDiskWriteAheadLog.class.getDeclaredField("printPerformanceStatistic");
+      printEnabled.setAccessible(true);
+      printEnabled.setBoolean(wal, true);
+      wal.executeWriteRecords(false, false);
+      assertEquals(0L,
+          ((java.util.concurrent.atomic.LongAdder) walField(wal, "threadsWaitingCount")).sum());
+      assertEquals(1L, count.getValue().longValue());
+      assertEquals(totalTime, time.getValue());
+    }
+  }
+
+  /** A cut reports each real deletion only on the observing thread and clears its observer. */
+  @Test
+  public void segmentDeletionNotificationFollowsRealCut() throws Exception {
+    try (var wal = createWAL("deletionMetrics")) {
+      wal.appendNewSegment();
+      wal.log(record(8, 3));
+      wal.flush();
+      var deleted = new AtomicInteger();
+      wal.setSegmentRemovalListener(deleted::incrementAndGet);
+      assertTrue(wal.cutAllSegmentsSmallerThan(wal.activeSegment()));
+      assertEquals(1, deleted.get());
+      assertFalse(wal.cutAllSegmentsSmallerThan(wal.activeSegment()));
+      assertEquals(1, deleted.get());
+      wal.setSegmentRemovalListener(null);
+      wal.appendNewSegment();
+      wal.log(record(8, 4));
+      wal.flush();
+      assertTrue(wal.cutAllSegmentsSmallerThan(wal.activeSegment()));
+      assertEquals(1, deleted.get());
+    }
+  }
+
+  /** A throwing observer cannot leave a deleted segment in the WAL byte total. */
+  @Test
+  public void throwingDeletionObserverKeepsSizeAccounting() throws Exception {
+    try (var wal = createWAL("throwingDeletionMetrics")) {
+      wal.appendNewSegment();
+      wal.log(record(8, 3));
+      wal.flush();
+      final long before = wal.size();
+      final var segmentPath =
+          testDirectory.resolve(ContextConfiguration.WAL_DEFAULT_NAME + ".1.wal");
+      final long deletedBytes = java.nio.file.Files.size(segmentPath);
+      wal.setSegmentRemovalListener(() -> {
+        throw new IllegalStateException("observer failure");
+      });
+      org.junit.Assert.assertThrows(IllegalStateException.class,
+          () -> wal.cutAllSegmentsSmallerThan(wal.activeSegment()));
+      assertFalse(java.nio.file.Files.exists(segmentPath));
+      assertEquals(before - deletedBytes, wal.size());
+      wal.setSegmentRemovalListener(null);
+      assertFalse(wal.cutAllSegmentsSmallerThan(wal.activeSegment()));
+    }
+  }
+
   private static Path testDirectory;
 
   @BeforeClass

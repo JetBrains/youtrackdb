@@ -52,6 +52,44 @@ import org.mockito.MockedStatic;
 
 public class AsyncFileTest {
 
+  /** Only issued page-file force calls count, including failures and retries. */
+  @org.junit.experimental.categories.Category(com.jetbrains.youtrackdb.internal.SequentialTest.class)
+  @Test
+  public void fsyncMetricCountsIssuedCallsOnly() throws Exception {
+    com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager.startUp(false);
+    var counter = com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager.instance()
+        .getMetricsRegistry().globalMetric(
+            com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics.DATA_FILE_FSYNC_COUNT);
+    for (boolean enabled : new boolean[] {false, true}) {
+      var channel = mock(AsynchronousFileChannel.class);
+      var file = new AsyncFile(buildDirectoryPath, 1, false, executor, STORAGE_NAME, enabled);
+      var channelField = AsyncFile.class.getDeclaredField("fileChannel");
+      channelField.setAccessible(true);
+      channelField.set(file, channel);
+      var dirtyField = AsyncFile.class.getDeclaredField("dirtyCounter");
+      dirtyField.setAccessible(true);
+      var dirty = (java.util.concurrent.atomic.AtomicLong) dirtyField.get(file);
+      dirty.set(1);
+      long before = counter.getValue();
+      file.synch();
+      Assert.assertEquals(before + (enabled ? 1 : 0), counter.getValue().longValue());
+      file.synch();
+      Assert.assertEquals(before + (enabled ? 1 : 0), counter.getValue().longValue());
+      if (enabled) {
+        dirty.set(1);
+        org.mockito.Mockito.doThrow(new java.io.IOException("force failure"))
+            .when(channel).force(true);
+        Assert.assertThrows(StorageException.class, file::synch);
+        Assert.assertEquals(before + 2, counter.getValue().longValue());
+        Assert.assertEquals(1, dirty.get());
+        org.mockito.Mockito.doNothing().when(channel).force(true);
+        file.synch();
+        Assert.assertEquals(before + 3, counter.getValue().longValue());
+      }
+      file.close();
+    }
+  }
+
   private static Path buildDirectoryPath;
 
   private static final String STORAGE_NAME = AsyncFileTest.class.getSimpleName();

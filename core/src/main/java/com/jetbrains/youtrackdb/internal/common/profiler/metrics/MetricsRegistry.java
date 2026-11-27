@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.common.profiler.metrics;
 
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.MetricScope.Class;
@@ -52,13 +53,18 @@ public class MetricsRegistry {
       new ConcurrentHashMap<>();
   private final Set<ObjectName> registeredMBeans = ConcurrentHashMap.newKeySet();
 
-  private final MBeanServer mBeanServer = ManagementFactory.getPlatformMBeanServer();
+  private final MBeanServer mBeanServer;
   private volatile boolean closed = false;
   private volatile Runnable beforeDiskUsageMBeanRegistration = () -> {
   };
 
   public MetricsRegistry(Ticker ticker) {
+    this(ticker, ManagementFactory.getPlatformMBeanServer());
+  }
+
+  MetricsRegistry(Ticker ticker, MBeanServer mBeanServer) {
     this.ticker = ticker;
+    this.mBeanServer = mBeanServer;
     this.globalMetrics = new GlobalMetrics();
   }
 
@@ -227,6 +233,9 @@ public class MetricsRegistry {
 
     GlobalMetrics() {
       CoreMetrics.GLOBAL_METRICS.forEach(globalMetric -> mGroup.init(null, globalMetric));
+
+      mGroup.initProvided(null, CoreMetrics.DIRECT_MEMORY_BYTES,
+          new SupplierGauge(() -> DirectMemoryAllocator.instance().getMemoryConsumption()));
 
       new MetricsMBean(mGroup, "YouTrackDB global metrics")
           .register(mBeanServer, "scope=Global");
