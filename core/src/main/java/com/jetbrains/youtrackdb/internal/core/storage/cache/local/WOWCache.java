@@ -2397,9 +2397,9 @@ public final class WOWCache extends AbstractWriteCache
    * blank page only beyond the written range. A missing materialized page is an error.
    */
   private CachePointer loadOrAddLoadBranch(
-      final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+      final int intFileId, final long pageIndex, final boolean verifyChecksums) throws IOException {
     final var context = recoveryPageContext.get();
-    final var pageKey = new PageKey(intId, pageIndex);
+    final var pageKey = new PageKey(intFileId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
     // Dirty-write priority: a more recent in-memory pointer wins over the on-disk image.
@@ -2411,20 +2411,22 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     try {
-      final var state = logicalState(intId);
+      final var state = logicalState(intFileId);
       final long writtenExtent = state == null ? -1 : state.diskExtent();
-      final boolean rebuildAllowed = context != null && context.isDeclaredPage(intId, pageIndex);
+      final boolean rebuildAllowed =
+          context != null && context.isDeclaredPage(intFileId, pageIndex);
       var filePagePointer =
-          loadFileContent(intId, pageIndex, verifyChecksums, rebuildAllowed, writtenExtent);
+          loadFileContent(intFileId, pageIndex, verifyChecksums, rebuildAllowed, writtenExtent);
       if (filePagePointer == null && state != null && pageIndex >= writtenExtent) {
         // The writer can publish the gap after the unwritten lookup misses the double-write log.
         // Retry from disk if publication crossed the page. Otherwise the unwritten view is valid.
         final long publishedExtent = state.diskExtent();
         if (pageIndex < publishedExtent) {
           filePagePointer =
-              loadFileContent(intId, pageIndex, verifyChecksums, rebuildAllowed, publishedExtent);
+              loadFileContent(intFileId, pageIndex, verifyChecksums, rebuildAllowed,
+                  publishedExtent);
         } else if (pageIndex < state.logicalExtent()) {
-          return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+          return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
         }
       }
       if (filePagePointer != null) {
@@ -2433,7 +2435,7 @@ public final class WOWCache extends AbstractWriteCache
       }
       if (state != null) {
         throw new StorageException(storageName,
-            "Missing materialized page " + pageIndex + " of file " + intId);
+            "Missing materialized page " + pageIndex + " of file " + intFileId);
       }
       // Legacy-only defensive totality fallback: if
       // loadFileContent ever returns null on this path, return a magic-stamped empty
@@ -2447,8 +2449,8 @@ public final class WOWCache extends AbstractWriteCache
       assert false
           : "loadFileContent returned null on load branch — dispatch prelude invariant"
               + " violated; pageIndex < currentSize should always find a page on disk"
-              + " (intId=" + intId + " pageIndex=" + pageIndex + ")";
-      return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+              + " (intFileId=" + intFileId + " pageIndex=" + pageIndex + ")";
+      return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
     } finally {
       pageLock.unlock();
     }
