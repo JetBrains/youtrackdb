@@ -62,11 +62,10 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   }
 
   /**
-   * Creates a new dirty page bit set file and initializes the first page to all zeros.
+   * Registers the dirty page bit set file without allocating pages.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName(), identity);
-    init(atomicOperation);
   }
 
   /** Rebuilds an absent auxiliary after its collection owner has been opened. */
@@ -76,11 +75,15 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
       return;
     }
     fileId = reconstructAuxiliary(atomicOperation, identity);
-    init(atomicOperation);
   }
 
-  private void init(final AtomicOperation atomicOperation) throws IOException {
-    // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
+  @Override
+  protected long getFileId() {
+    return fileId;
+  }
+
+  void initRoot(final AtomicOperation atomicOperation) throws IOException {
+    // The first bit-set page is empty.
     try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.init();

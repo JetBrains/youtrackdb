@@ -85,10 +85,10 @@ public class CollectionDirtyPageBitSetTest {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
-  // Verifies that create() initialises one page with all bits clear.
   @Test
-  public void createInitialisesWithAllBitsClear() throws IOException {
+  public void createHasNoPagesAndNoSetBits() throws IOException {
     assertThat(bitSet.nextSetBit(0, atomicOperation)).isEqualTo(-1);
+    assertThat(pageCount).isZero();
   }
 
   // Verifies that open() assigns the file ID so subsequent operations work.
@@ -347,8 +347,8 @@ public class CollectionDirtyPageBitSetTest {
   // Targets mutant at CollectionDirtyPageBitSet line 141: boundary change (>= to >).
   @Test
   public void clearAtExactBoundaryIsNoOp() throws IOException {
-    // After setUp(), pageCount is 1 (one page, index 0).
-    // Bit at BITS_PER_PAGE would be on bitSetPageIndex 1, which equals filledUpTo (1).
+    bitSet.initRoot(atomicOperation);
+    // Bit at BITS_PER_PAGE is on page 1, which equals the current extent.
     // With >= check: returns early (no-op). With > check: would try to load page 1.
     var initialPageCount = pageCount;
     bitSet.clear(DirtyPageBitSetPage.BITS_PER_PAGE, atomicOperation);

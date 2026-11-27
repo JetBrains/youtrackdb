@@ -1022,8 +1022,8 @@ public class TruncateOrphansAfterRecoveryIT {
    * is load-bearing for the {@code .pcl} and {@code .cpm} scenarios. At the default count
    * (8) a class is backed by eight collections, and the {@code "default"} collection
    * selection strategy routes every inserted record to {@code collectionIds[0]}, leaving
-   * the other seven {@code .pcl}/{@code .cpm} files empty (state-page {@code fileSize == 0},
-   * one physical page). The scenario helpers select their target file with
+   * the other seven {@code .pcl}/{@code .cpm} files without pages. The scenario helpers
+   * select their target file with
    * {@code files().keySet().stream()...findFirst()}, whose order is the file map's hash
    * order rather than the insertion target, so they could land on an empty cluster. An
    * orphan tail fabricated on a logical-empty file trips the recovery pass's intentional
@@ -1458,7 +1458,7 @@ public class TruncateOrphansAfterRecoveryIT {
 
       // The same growth workload the rolled-back variant uses, but committed: executeInTx
       // returns normally, so the physical-apply path inside commitChanges runs and the
-      // cluster's .pcl grows past its initial page.
+      // cluster's .pcl gets a state page and data pages.
       session.executeInTx(transaction -> insertGrowthWorkload(transaction, "Committed"));
 
       // commitChanges writes the new data pages into the WOWCache but does NOT physically

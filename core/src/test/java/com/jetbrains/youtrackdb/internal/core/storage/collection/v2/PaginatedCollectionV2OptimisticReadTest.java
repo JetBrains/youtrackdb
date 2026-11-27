@@ -18,12 +18,16 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailur
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationTestBridge;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.Assertions;
 import org.junit.After;
 import org.junit.Assert;
@@ -131,6 +135,207 @@ public class PaginatedCollectionV2OptimisticReadTest {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Test
+  public void emptyReadsAndMissingRecordWritesNeverCreatePagesEvenAfterReopen()
+      throws IOException {
+    assertRootExtents(0, 0, 0, 0);
+    assertEmptyReads();
+    atomicOps().executeInsideAtomicOperation(op -> {
+      Assert.assertFalse(collection.deleteRecord(op, 0));
+      Assert.assertThrows(RecordNotFoundException.class,
+          () -> collection.updateRecord(0, new byte[] {1}, (byte) 2, op));
+      Assert.assertThrows(RecordNotFoundException.class,
+          () -> collection.updateRecordVersion(0, op));
+    });
+    assertRootExtents(0, 0, 0, 0);
+    flushToReadCache();
+    assertEmptyReads();
+    assertRootExtents(0, 0, 0, 0);
+  }
+
+  @Test
+  public void reservationAlonePersistsAllRootsBeforeAReservedInsert() throws IOException {
+    var reserved = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.allocatePosition((byte) 2, op));
+    assertRootExtents(1, 2, 1, 1);
+    Assert.assertEquals(0L,
+        (long) atomicOps().calculateInsideAtomicOperation(collection::getEntries));
+    flushToReadCache();
+    assertRootExtents(1, 2, 1, 1);
+    var payload = new byte[] {9};
+    var created = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(payload, (byte) 2, reserved, op));
+    Assert.assertEquals(reserved.collectionPosition, created.collectionPosition);
+    assertRootExtents(2, 2, 3, 1);
+    flushToReadCache();
+    assertRecord(created, payload);
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {8}, (byte) 2, null, op));
+    assertRecord(created, payload);
+  }
+
+  @Test
+  public void legacyEmptyRootsReopenAndAcceptAFirstRecord() throws IOException {
+    atomicOps().executeInsideAtomicOperation(op -> {
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 0)) {
+        new PaginatedCollectionStateV2(entry).setFileSize(0);
+      }
+      try (var entry = op.allocatePageForWrite(op.fileIdByName("optReadCollection.cpm"), 0)) {
+        new MapEntryPoint(entry).setFileSize(0);
+      }
+      try (var entry = op.allocatePageForWrite(op.fileIdByName("optReadCollection.fsm"), 0)) {
+        new FreeSpaceMapPage(entry).init();
+      }
+      try (var entry = op.allocatePageForWrite(op.fileIdByName("optReadCollection.dpb"), 0)) {
+        new DirtyPageBitSetPage(entry).init();
+      }
+    });
+    flushToReadCache();
+    assertRootExtents(1, 1, 1, 1);
+    assertEmptyReads();
+    var record = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {7}, (byte) 2, null, op));
+    assertRecord(record, new byte[] {7});
+  }
+
+  @Test
+  public void pointReadAndReverseBrowseOverlapTheFirstDiskApply() throws Exception {
+    var paused = new CountDownLatch(1);
+    var resume = new CountDownLatch(1);
+    var reading = new CountDownLatch(1);
+    try (var executor = Executors.newFixedThreadPool(2)) {
+      var writer = executor.submit(() -> {
+        atomicOps().executeInsideAtomicOperation(op -> {
+          collection.createRecord(new byte[] {9}, (byte) 2, null, op);
+          AtomicOperationTestBridge.installPageApplyHook(op,
+              new AtomicOperationTestBridge.TestPageApplyHook() {
+                @Override
+                public void beforePageApply(long fileId, long pageIndex) {
+                  paused.countDown();
+                  try {
+                    Assert.assertTrue(resume.await(30, TimeUnit.SECONDS));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                  }
+                }
+              });
+        });
+        return null;
+      });
+      try {
+        Assert.assertTrue(paused.await(30, TimeUnit.SECONDS));
+        var reader = executor.submit(() -> {
+          atomicOps().executeInsideAtomicOperation(op -> {
+            reading.countDown();
+            Assert.assertThrows(RecordNotFoundException.class, () -> collection.readRecord(0, op));
+            Assert.assertNull(collection.nextPage(Long.MAX_VALUE, false, op));
+          });
+          return null;
+        });
+        Assert.assertTrue(reading.await(30, TimeUnit.SECONDS));
+        resume.countDown();
+        writer.get(30, TimeUnit.SECONDS);
+        reader.get(30, TimeUnit.SECONDS);
+        assertRootExtents(2, 2, 3, 1);
+        assertRecord(new PhysicalPosition(0L), new byte[] {9});
+      } finally {
+        resume.countDown();
+      }
+    }
+  }
+
+  @Test
+  public void diskFirstWriteRollbackLeavesNoPagesForEitherWriteBoundary() throws IOException {
+    firstWriteRollbackAndRetry(false);
+  }
+
+  @Test
+  public void memoryFirstWriteRollbackToleratesBlankRootsForEitherWriteBoundary()
+      throws IOException {
+    var memory = DB_NAME + "_memory";
+    youTrackDB.create(memory, DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var session = youTrackDB.open(memory, "admin", "admin")) {
+      storage = session.getStorage();
+      firstWriteRollbackAndRetry(true);
+    }
+  }
+
+  private void firstWriteRollbackAndRetry(boolean memory) throws IOException {
+    for (var reserve : new boolean[] {true, false}) {
+      createStandaloneCollection(reserve ? "reserveRollback" : "insertRollback");
+      var op = atomicOps().startAtomicOperation();
+      atomicOps().startToApplyOperations(op);
+      try {
+        if (reserve) {
+          collection.allocatePosition((byte) 2, op);
+        } else {
+          collection.createRecord(new byte[] {4}, (byte) 2, null, op);
+        }
+      } finally {
+        op.rollbackInProgress();
+        atomicOps().endAtomicOperation(op, null);
+      }
+      if (!memory) {
+        assertRootExtents(0, 0, 0, 0);
+      }
+      assertEmptyReads();
+      var first = atomicOps().calculateInsideAtomicOperation(
+          tx -> collection.createRecord(new byte[] {5}, (byte) 2, null, tx));
+      assertRootExtents(2, 2, 3, 1);
+      var second = atomicOps().calculateInsideAtomicOperation(
+          tx -> collection.createRecord(new byte[] {6}, (byte) 2, null, tx));
+      Assert.assertEquals(0, first.collectionPosition);
+      Assert.assertEquals(1, second.collectionPosition);
+      assertRecord(first, new byte[] {5});
+      assertRecord(second, new byte[] {6});
+    }
+  }
+
+  private void createStandaloneCollection(String name) throws IOException {
+    collection = new PaginatedCollectionV2(name, storage);
+    collection.configure(55, name);
+    atomicOps().executeInsideAtomicOperation(collection::create);
+  }
+
+  private void assertRootExtents(long... expected) throws IOException {
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var extents = new long[4];
+      var extensions = new String[] {".pcl", ".cpm", ".fsm", ".dpb"};
+      for (int i = 0; i < extensions.length; i++) {
+        extents[i] = op.filledUpTo(op.fileIdByName(collection.getName() + extensions[i]));
+      }
+      Assert.assertArrayEquals(expected, extents);
+    });
+  }
+
+  private void assertEmptyReads() throws IOException {
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var zero = new PhysicalPosition(0L);
+      Assert.assertThrows(RecordNotFoundException.class, () -> collection.readRecord(0, op));
+      Assert.assertFalse(collection.exists(0, op));
+      for (long position : new long[] {-1, 0, Long.MAX_VALUE}) {
+        Assert.assertEquals(PaginatedCollection.RECORD_STATUS.NOT_EXISTENT,
+            collection.getRecordStatus(position, op));
+      }
+      Assert.assertEquals(0, collection.getEntries(op));
+      Assert.assertEquals(-1, collection.getFirstPosition(op));
+      Assert.assertEquals(-1, collection.getLastPosition(op));
+      Assert.assertEquals(0, collection.higherPositions(zero, 1, op).length);
+      Assert.assertEquals(0, collection.ceilingPositions(zero, 1, op).length);
+      Assert.assertEquals(0, collection.lowerPositions(new PhysicalPosition(1L), 1, op).length);
+      Assert.assertEquals(0, collection.floorPositions(zero, 1, op).length);
+      Assert.assertNull(collection.nextPage(-1, true, op));
+      Assert.assertNull(collection.nextPage(Long.MAX_VALUE, false, op));
+    });
+  }
+
+  private void assertRecord(PhysicalPosition position, byte[] bytes) throws IOException {
+    atomicOps().executeInsideAtomicOperation(op -> Assert.assertArrayEquals(bytes,
+        collection.readRecord(position.collectionPosition, op).toRawBuffer().buffer()));
   }
 
   /** A validated zero-copy result must reject a removed page even with a valid old stamp. */

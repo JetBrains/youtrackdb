@@ -18,7 +18,7 @@ import javax.annotation.Nullable;
  *
  * <p>The file uses depth-first order: root, middle 0, its leaves, middle 1, its leaves, and so on.
  * Middle m is at 1 + m(N + 1). Leaf l is at l + l/N + 2. For D tracked data pages, the file
- * contains 1 + ceil(D/N^2) + ceil(D/N) pages, including the root when D is zero.
+ * contains 1 + ceil(D/N^2) + ceil(D/N) pages when initialized. A new file has no root until the collection receives data.
  *
  * <p>Free space is rounded down by {@link #NORMALIZATION_INTERVAL}. Requests use the same
  * divisor plus one, so a returned page always has enough room. Updates propagate a child maximum
@@ -77,7 +77,6 @@ public final class FreeSpaceMap extends StorageComponent {
 
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName(), identity);
-    init(atomicOperation);
   }
 
   /** Rebuilds an absent auxiliary after its collection owner has been opened. */
@@ -87,15 +86,19 @@ public final class FreeSpaceMap extends StorageComponent {
       return;
     }
     fileId = reconstructAuxiliary(atomicOperation, identity);
-    init(atomicOperation);
   }
 
   public void open(final AtomicOperation atomicOperation) throws IOException {
     fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
-  private void init(final AtomicOperation atomicOperation) throws IOException {
-    // A fresh file contains only the root at page index 0.
+  @Override
+  protected long getFileId() {
+    return fileId;
+  }
+
+  void initRoot(final AtomicOperation atomicOperation) throws IOException {
+    // The root is the first page in the file.
     try (final var firstLevelCacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
       final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
       page.init();
@@ -113,6 +116,15 @@ public final class FreeSpaceMap extends StorageComponent {
    */
   public int findFreePage(final int requiredSize, AtomicOperation atomicOperation)
       throws IOException {
+    return findFreePage(requiredSize, atomicOperation, false);
+  }
+
+  int findFreePage(final int requiredSize, AtomicOperation atomicOperation, boolean rootKnown)
+      throws IOException {
+    if (!rootKnown
+        && physicalSize(atomicOperation, fileId, PhysicalReadIntent.DEFENSIVE_PRESENCE) == 0) {
+      return -1;
+    }
     // Normalize the required size to the same scale used by the segment tree cells.
     // The +1 ensures we round up, so we never return a page with slightly less space than needed.
     final var normalizedSize = requiredSize / NORMALIZATION_INTERVAL + 1;

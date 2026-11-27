@@ -269,6 +269,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   /** Internal file ID assigned by the disk cache when the data file (.pcl) is opened/created. */
   private volatile long fileId;
 
+  private static final int MAP_ROOT = 1;
+  private static final int DATA_ROOT = 2;
+  private static final int FREE_SPACE_ROOT = 4;
+  private static final int DIRTY_BITS_ROOT = 8;
+  private static final int ALL_ROOTS = MAP_ROOT | DATA_ROOT | FREE_SPACE_ROOT | DIRTY_BITS_ROOT;
+
+  // Presence only. The contents of the roots still require the usual page validation.
+  private volatile boolean rootsPresent;
+
   /** Strategy for resolving concurrent-modification conflicts on records in this collection. */
   private volatile RecordConflictStrategy recordConflictStrategy;
 
@@ -308,7 +317,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getLockName(),
         cpmExtension, dataIdentity == null ? null : new PageFileIdentity(
-            PageFileRole.fromCode(dataIdentity.kind(), 1), dataIdentity.componentId()));
+            PageFileRole.fromCode(dataIdentity.kind(), 1), dataIdentity.componentId()),
+        this);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getLockName(),
         dataIdentity == null ? null : new PageFileIdentity(
             PageFileRole.fromCode(dataIdentity.kind(), 2), dataIdentity.componentId()));
@@ -402,8 +412,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            rootsPresent = false;
             fileId = addFile(atomicOperation, getFullName(), dataIdentity);
-            initCollectionState(atomicOperation);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
             dirtyPageBitSet.create(atomicOperation);
@@ -420,6 +430,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            rootsPresent = false;
             fileId = openFile(atomicOperation, getFullName(), dataIdentity);
             collectionPositionMap.open(atomicOperation);
 
@@ -430,12 +441,18 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             // partial-flush orphans past the truncate target and keeps page 0 (the state
             // page) out of the FSM, which would otherwise be wrapped as a CollectionPage
             // and contribute a garbage maxRecordSize to the free-space map.
+            final boolean dataHasRoot = rootExtent(atomicOperation, fileId) > 0;
             final int dataPageCount;
-            try (final var stateCacheEntry =
-                loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
-              final var state = new PaginatedCollectionStateV2(stateCacheEntry);
-              approximateRecordsCount = state.getApproximateRecordsCount();
-              dataPageCount = state.getFileSize();
+            if (dataHasRoot) {
+              try (final var stateCacheEntry =
+                  loadPageForRead(atomicOperation, fileId, STATE_ENTRY_INDEX)) {
+                final var state = new PaginatedCollectionStateV2(stateCacheEntry);
+                approximateRecordsCount = state.getApproximateRecordsCount();
+                dataPageCount = state.getFileSize();
+              }
+            } else {
+              dataPageCount = 0;
+              approximateRecordsCount = 0;
             }
 
             if (dataPageCount < 0 || dataPageCount > FreeSpaceMap.MAX_DATA_PAGE_INDEX) {
@@ -463,6 +480,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
                       additionalArgs1);
 
               freeSpaceMap.reconstruct(atomicOperation);
+              if (dataHasRoot) {
+                freeSpaceMap.initRoot(atomicOperation);
+              }
               // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
               // Data pages live at indices 1..dataPageCount (page 0 is the state page).
               // Bounding by logical fileSize avoids reading partial-flush orphans past
@@ -501,6 +521,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
               dirtyPageBitSet.open(atomicOperation);
             } else {
               dirtyPageBitSet.reconstruct(atomicOperation);
+              if (dataHasRoot) {
+                dirtyPageBitSet.initRoot(atomicOperation);
+              }
+            }
+
+            if (dataPageCount > 0
+                && rootExtent(atomicOperation, collectionPositionMap.getFileId()) == 0) {
+              throw new PaginatedCollectionException(storageName,
+                  "The collection has data pages but the position map has no pages.", this);
             }
           } finally {
             releaseExclusiveLock();
@@ -543,6 +572,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             releaseExclusiveLock();
           }
         });
+  }
+
+  @Override
+  protected boolean allowsPagelessOrphanCheck() {
+    return true;
   }
 
   @Override
@@ -602,6 +636,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            ensureRoots(atomicOperation);
             return createPhysicalPosition(
                 recordType, collectionPositionMap.allocate(atomicOperation), -1);
           } finally {
@@ -630,6 +665,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            ensureRoots(atomicOperation);
             return doCreateRecord(content, recordType, allocatedPosition,
                 atomicOperation);
           } finally {
@@ -963,14 +999,14 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // path that used to exist here is unreachable and was removed.
 
     var chunkSize = calculateChunkSize(bytesToWrite);
-    var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation);
+    var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation, rootsPresent);
 
     // Fallback: for large entries, try to find a page that can hold at least half.
     // This trades off more chunks for better page utilization.
     if (pageIndex < 0 && bytesToWrite > MAX_ENTRY_SIZE / 2) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
       if (halfChunkSize > 0) {
-        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation);
+        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation, rootsPresent);
       }
     }
 
@@ -2399,34 +2435,68 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return cacheEntry;
   }
 
-  /**
-   * Initializes page 0 of the data file as the collection state page. If the file is empty,
-   * a new page is appended; otherwise the existing page 0 is loaded. The file-size counter is
-   * reset to 0, meaning no data pages are currently allocated (page 0 itself is not counted).
-   */
-  private void initCollectionState(final AtomicOperation atomicOperation) throws IOException {
-    final CacheEntry stateEntry;
-    // Bootstrap emptiness check on the state page (chicken-and-egg): the page being
-    // inspected IS the collection-state page itself, so logical bookkeeping
-    // (PaginatedCollectionStateV2 fileSize) is not yet available -- physical extent
-    // is the only source of truth.
-    if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
-        == 0) {
-      // Fresh file -- append the state page (statically known-new at STATE_ENTRY_INDEX).
-      stateEntry = allocatePageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX);
-    } else {
-      stateEntry = loadPageForWrite(atomicOperation, fileId, STATE_ENTRY_INDEX, false);
+  boolean hasPositionMapRoot(final AtomicOperation operation) {
+    return rootsPresent || (probeRoots(operation, false) & MAP_ROOT) != 0;
+  }
+
+  private long rootExtent(final AtomicOperation operation, final long id) {
+    return physicalSize(operation, id, PhysicalReadIntent.DEFENSIVE_PRESENCE);
+  }
+
+  private synchronized int probeRoots(final AtomicOperation operation, boolean forWrite) {
+    if (rootsPresent) {
+      return ALL_ROOTS;
     }
 
-    assert stateEntry.getPageIndex() == 0;
-    try {
-      final var paginatedCollectionState =
-          new PaginatedCollectionStateV2(stateEntry);
-      paginatedCollectionState.setFileSize(0);
-      paginatedCollectionState.setApproximateRecordsCount(0);
-      approximateRecordsCount = 0;
-    } finally {
-      stateEntry.close();
+    final long mapId = collectionPositionMap.getFileId();
+    final long mapPages = rootExtent(operation, mapId);
+    if (mapPages == 0 && !forWrite) {
+      return 0;
+    }
+
+    final long fsmId = freeSpaceMap.getFileId();
+    final long dirtyId = dirtyPageBitSet.getFileId();
+    final long dataPages = rootExtent(operation, fileId);
+    final long fsmPages = rootExtent(operation, fsmId);
+    final long dirtyPages = rootExtent(operation, dirtyId);
+    final int present = (mapPages > 0 ? MAP_ROOT : 0)
+        | (dataPages > 0 ? DATA_ROOT : 0)
+        | (fsmPages > 0 ? FREE_SPACE_ROOT : 0)
+        | (dirtyPages > 0 ? DIRTY_BITS_ROOT : 0);
+
+    // An operation-local extent always has an overlay at its last page. Cache the
+    // result only when each probe is known to have reached the write cache.
+    if (present == ALL_ROOTS
+        && !operation.hasChangesForPage(mapId, mapPages - 1)
+        && !operation.hasChangesForPage(fileId, dataPages - 1)
+        && !operation.hasChangesForPage(fsmId, fsmPages - 1)
+        && !operation.hasChangesForPage(dirtyId, dirtyPages - 1)) {
+      rootsPresent = true;
+    }
+    return present;
+  }
+
+  /** Called under the collection writer lock before creating a position or record. */
+  private void ensureRoots(final AtomicOperation operation) throws IOException {
+    if (rootsPresent) {
+      return;
+    }
+    final int present = probeRoots(operation, true);
+    if ((present & DATA_ROOT) == 0) {
+      try (final var entry = allocatePageForWrite(operation, fileId, STATE_ENTRY_INDEX)) {
+        final var state = new PaginatedCollectionStateV2(entry);
+        state.setFileSize(0);
+        state.setApproximateRecordsCount(0);
+      }
+    }
+    if ((present & MAP_ROOT) == 0) {
+      collectionPositionMap.initRoot(operation);
+    }
+    if ((present & FREE_SPACE_ROOT) == 0) {
+      freeSpaceMap.initRoot(operation);
+    }
+    if ((present & DIRTY_BITS_ROOT) == 0) {
+      dirtyPageBitSet.initRoot(operation);
     }
   }
 
