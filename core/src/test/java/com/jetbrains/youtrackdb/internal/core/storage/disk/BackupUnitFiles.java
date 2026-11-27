@@ -219,6 +219,39 @@ public final class BackupUnitFiles {
     }
   }
 
+  /** Replaces ZIP entries while retaining v6 admission metadata and repairing both hashes. */
+  public static void rewriteZipEntries(Path path,
+      java.util.function.Consumer<java.util.Map<String, byte[]>> change) throws IOException {
+    var unit = Files.readAllBytes(path);
+    if (ByteBuffer.wrap(unit).getShort(unit.length - 74) != VERSION_6) {
+      throw new IOException("Expected a version 6 backup fixture");
+    }
+    var entries = new java.util.LinkedHashMap<String, byte[]>();
+    try (var zip = new java.util.zip.ZipInputStream(
+        new java.io.ByteArrayInputStream(zipPayload(unit)))) {
+      java.util.zip.ZipEntry entry;
+      while ((entry = zip.getNextEntry()) != null) {
+        entries.put(entry.getName(), zip.readAllBytes());
+      }
+    }
+    change.accept(entries);
+    var output = new ByteArrayOutputStream();
+    try (var zip = new java.util.zip.ZipOutputStream(output)) {
+      for (var entry : entries.entrySet()) {
+        zip.putNextEntry(new java.util.zip.ZipEntry(entry.getKey()));
+        zip.write(entry.getValue());
+        zip.closeEntry();
+      }
+    }
+    var payload = output.toByteArray();
+    int offset = payload.length % 512;
+    int padding = offset + 122 <= 512 ? 0 : 512 - offset;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + 122);
+    System.arraycopy(unit, unit.length - 122, result, result.length - 122, 122);
+    repairVersion6Hashes(result, true, true);
+    Files.write(path, result);
+  }
+
   /** Builds a literal v6 fixture from payload and the unchanged 74-byte shared suffix. */
   static byte[] version6Bytes(byte[] payload, byte[] shared, int barrier,
       DiskStorage.BackupContinuity continuity) {

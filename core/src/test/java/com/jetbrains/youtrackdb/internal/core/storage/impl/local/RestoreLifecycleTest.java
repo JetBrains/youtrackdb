@@ -1682,7 +1682,7 @@ public class RestoreLifecycleTest {
       for (int i = 0; i < records.size(); i++) {
         records.get(i).setLsn(new LogSequenceNumber(1, i + 1));
       }
-      var wal = mock(WriteAheadLog.class);
+      var wal = mockReplayWal(records);
       when(wal.read(records.getFirst().getLsn(), 1000)).thenReturn(records);
       when(wal.next(records.get(2).getLsn(), 1000)).thenReturn(records.subList(3, 6));
       when(wal.next(records.getLast().getLsn(), 1000)).thenReturn(List.of());
@@ -1715,7 +1715,7 @@ public class RestoreLifecycleTest {
       for (int i = 0; i < records.size(); i++) {
         records.get(i).setLsn(new LogSequenceNumber(1, i + 1));
       }
-      var wal = mock(WriteAheadLog.class);
+      var wal = mockReplayWal(records);
       when(wal.read(creation.getLsn(), 1000)).thenReturn(records);
       when(wal.next(end.getLsn(), 1000)).thenReturn(records.subList(2, 5));
       when(wal.next(records.getLast().getLsn(), 1000)).thenReturn(List.of());
@@ -1723,6 +1723,25 @@ public class RestoreLifecycleTest {
       assertFalse(Files.exists(databasesPath.resolve(SOURCE)
           .resolve(PageFileNames.layout28DiskName(identity))));
     }
+  }
+
+  /** Supplies the immutable proof view as well as ordinary replay reads for synthetic WALs. */
+  private static WriteAheadLog mockReplayWal(List<WriteableWALRecord> records) {
+    var wal = mock(WriteAheadLog.class);
+    when(wal.preOpenExtent()).thenReturn(new WriteAheadLog.PreOpenExtent(List.of(
+        new WriteAheadLog.SegmentExtent(1, 1000))));
+    var proof = mock(WriteAheadLog.ProofReader.class);
+    var index = new AtomicInteger();
+    when(proof.next(1)).thenAnswer(invocation -> {
+      int i = index.getAndIncrement();
+      return new WriteAheadLog.ProofBatch(List.of(records.get(i)),
+          i == records.size() - 1 ? WriteAheadLog.ProofStatus.REACHED_END
+              : WriteAheadLog.ProofStatus.MORE,
+          records.get(i).getLsn(), false, null);
+    });
+    when(wal.openSegmentProofReader(records.getFirst().getLsn(), Integer.MAX_VALUE))
+        .thenReturn(proof);
+    return wal;
   }
 
   /** Startup owner names are nullable for absent paths and invalid identities, without map reads. */
@@ -1965,6 +1984,10 @@ public class RestoreLifecycleTest {
           com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration.class,
           byte[].class, InputStream.class, boolean.class);
       restore.setAccessible(true);
+      var segments = backupWalSegments(wal -> {
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+      });
       for (int variant = 0; variant < 3; variant++) {
         var bytes = new java.io.ByteArrayOutputStream();
         try (var zip = new java.util.zip.ZipOutputStream(bytes)) {
@@ -1976,6 +1999,11 @@ public class RestoreLifecycleTest {
             com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
                 .serializeLiteral(entry.getValue() + (corrupt && variant == 1 ? 1 : 0), idBytes, 0);
             zip.write(idBytes);
+            zip.closeEntry();
+          }
+          for (var entry : segments.entrySet()) {
+            zip.putNextEntry(new java.util.zip.ZipEntry(entry.getKey()));
+            zip.write(entry.getValue());
             zip.closeEntry();
           }
         }
@@ -1990,6 +2018,474 @@ public class RestoreLifecycleTest {
           restore.invoke(storage, "UTF-8", java.util.Locale.US,
               storage.getContextConfiguration(), null, input, false);
         }
+      }
+    }
+  }
+
+  private static final PageFileIdentity BACKUP_FILE =
+      new PageFileIdentity(PageFileRole.RECORD_DATA, 100000);
+  private static final long BACKUP_UNIT = 1000000;
+
+  @FunctionalInterface
+  private interface BackupRecords {
+    void append(WriteAheadLog wal) throws Exception;
+  }
+
+  /**
+   * Builds a real admitted backup, then replaces only its embedded WAL with selected records.
+   * ZIP CRCs and the outer hashes are repaired so failures reach WAL evidence or replay.
+   */
+  private void prepareBackupWal(YouTrackDBImpl manager, BackupRecords records,
+      java.util.function.Consumer<java.util.Map<String, byte[]>> change) throws Exception {
+    try (var paths = Files.list(backupPath)) {
+      for (var path : paths.toList()) {
+        Files.delete(path);
+      }
+    }
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+        StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+    }
+    storageOf(manager, SOURCE).fullBackup(backupPath);
+    var segments = backupWalSegments(records);
+    var unit = backupPath.resolve(backupFileNames().next());
+    com.jetbrains.youtrackdb.internal.core.storage.disk.BackupUnitFiles.rewriteZipEntries(unit,
+        entries -> {
+          entries.keySet().removeIf(name -> name.endsWith(".wal"));
+          entries.putAll(segments);
+          change.accept(entries);
+        });
+  }
+
+  private java.util.Map<String, byte[]> backupWalSegments(BackupRecords records) throws Exception {
+    var directory = Files.createDirectory(root.resolve("wal-" + UUID.randomUUID()));
+    try (var wal =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog(
+            "backupEvidence", directory, directory,
+            com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration.WAL_DEFAULT_NAME,
+            100, 64, null, null, Integer.MAX_VALUE, Integer.MAX_VALUE, 20, true,
+            java.util.Locale.US, -1, 1000, false, false, false, 10)) {
+      records.append(wal);
+    }
+    var segments = new java.util.LinkedHashMap<String, byte[]>();
+    try (var paths = Files.list(directory)) {
+      for (var path : paths.filter(p -> p.toString().endsWith(".wal")).sorted().toList()) {
+        segments.put(path.getFileName().toString(), Files.readAllBytes(path));
+      }
+    }
+    return segments;
+  }
+
+  private static void backupUpdate(WriteAheadLog wal) throws Exception {
+    var changes =
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion();
+    changes.setIntValue(null, 0x12345678,
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION);
+    wal.log(
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord(
+            0, BACKUP_FILE.internalId(), BACKUP_UNIT, changes, new LogSequenceNumber(0, 0)));
+  }
+
+  /** Supplies a zero-length archived file with its independent restore admission authority. */
+  private static void archiveBackupFile(java.util.Map<String, byte[]> entries) {
+    var bytes = new byte[Long.BYTES];
+    com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer.serializeLiteral(
+        BACKUP_FILE.internalId(), bytes, 0);
+    entries.put(PageFileNames.layout28(BACKUP_FILE), bytes);
+  }
+
+  /**
+   * An incomplete archived page fails before WAL replay on either layout. Cleanup must close
+   * the incomplete target without publishing a checkpoint or making it available to open.
+   */
+  @Test
+  public void incompleteArchivedPageClosesFailedRestoreOnBothLayouts() throws Exception {
+    for (var format : StorageFormat.values()) {
+      try (var manager = openManager()) {
+        try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE, format)) {
+          createSourceDatabase(manager);
+        }
+        var storage = storageOf(manager, SOURCE);
+        storage.fullBackup(backupPath);
+        var fileNames = storage.getWriteCache().files().keySet();
+        var unit = backupPath.resolve(backupFileNames().next());
+        com.jetbrains.youtrackdb.internal.core.storage.disk.BackupUnitFiles.rewriteZipEntries(unit,
+            entries -> {
+              var file = entries.keySet().stream().filter(fileNames::contains).findFirst()
+                  .orElseThrow();
+              // Preserve the file ID, but leave only one byte of the first archived page.
+              entries.put(file, Arrays.copyOf(entries.get(file), Long.BYTES + 1));
+            });
+        assertBackupWalFailure(manager, "Can not read data from file");
+        manager.drop(target);
+        manager.drop(SOURCE);
+      }
+      try (var paths = Files.list(backupPath)) {
+        for (var path : paths.toList()) {
+          Files.delete(path);
+        }
+      }
+    }
+  }
+
+  /** Every backup stop must close cleanly and leave a dirty, interrupted restore target. */
+  private Throwable assertBackupWalFailure(YouTrackDBImpl manager, String expected)
+      throws IOException {
+    var failure = assertThrows(RuntimeException.class,
+        () -> internalOf(manager).restore(target, backupPath.toString(), null, null));
+    assertTrue(rootMessage(failure), rootMessage(failure).contains(expected));
+    for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+      assertEquals("failed-restore cleanup must not add a suppressed shutdown failure",
+          0, cause.getSuppressed().length);
+    }
+    // The failed target is unregistered and closed, so no live metadata handle owns this file.
+    assertTrue("a failed restore must retain the recovery indication",
+        Files.readAllBytes(databasesPath.resolve(target).resolve("dirty.fl"))[12] != 0);
+    assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE, admissionReasonOf(target));
+    var openFailure = assertThrows(RuntimeException.class,
+        () -> manager.open(target, ADMIN, PASSWORD));
+    assertEquals(StorageAdmissionException.Reason.INTERRUPTED_RESTORE,
+        admissionReason(openFailure));
+    return failure;
+  }
+
+  /**
+   * Whole-range page zero creates an unarchived file even when its allocation follows the update.
+   * A separate archived file opens without any page-zero evidence in the backup WAL.
+   */
+  @Test
+  public void backupWalCreatesFromPageZeroAndOpensArchivedFileWithoutEvidence() throws Exception {
+    for (boolean archived : new boolean[] {false, true}) {
+      try (var manager = openManager()) {
+        prepareBackupWal(manager, wal -> {
+          wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+          backupUpdate(wal);
+          if (!archived) {
+            wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT));
+          }
+          wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+        }, entries -> {
+          if (archived) {
+            archiveBackupFile(entries);
+          }
+        });
+        internalOf(manager).restore(target, backupPath.toString(), null, null);
+        assertRestoredLayoutAndData(manager, target, StorageFormat.LAYOUT_28);
+        try (var session = manager.open(target, ADMIN, PASSWORD)) {
+          var storage = session.getStorage();
+          var cache = storage.getWriteCache();
+          long id = cache.externalFileId(BACKUP_FILE.internalId());
+          var page = storage.getReadCache().loadForRead(id, 0, cache, false);
+          try {
+            assertEquals(0x12345678, page.getCachePointer().getBuffer().getInt(
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION));
+          } finally {
+            storage.getReadCache().releaseFromRead(page);
+          }
+        }
+        manager.drop(target);
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /** A file absent from the full backup is created solely from a later increment's WAL. */
+  @Test
+  public void backupWalCreatesFileIntroducedAfterFullBackup() throws Exception {
+    try (var manager = openManager()) {
+      try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+          StorageFormat.LAYOUT_28)) {
+        createSourceDatabase(manager);
+      }
+      var storage = storageOf(manager, SOURCE);
+      storage.fullBackup(backupPath);
+      var increment = storage.backup(backupPath);
+      // Model creation during the increment's fuzzy scan, after its file inventory was sampled.
+      // The file has no archive entry or creation record. Only the increment's WAL can create it.
+      var segments = backupWalSegments(wal -> {
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+        wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT));
+        backupUpdate(wal);
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+      });
+      com.jetbrains.youtrackdb.internal.core.storage.disk.BackupUnitFiles.rewriteZipEntries(
+          backupPath.resolve(increment), entries -> {
+            entries.keySet().removeIf(name -> name.endsWith(".wal"));
+            entries.putAll(segments);
+          });
+      internalOf(manager).restore(target, backupPath.toString(), null, null);
+      assertRestoredLayoutAndData(manager, target, StorageFormat.LAYOUT_28);
+    }
+    try (var manager = openManager();
+        var session = manager.open(target, ADMIN, PASSWORD)) {
+      var storage = session.getStorage();
+      var cache = storage.getWriteCache();
+      assertTrue(cache.admitExpectedFile(BACKUP_FILE));
+      var page = storage.getReadCache().loadForRead(
+          cache.externalFileId(BACKUP_FILE.internalId()), 0, cache, false);
+      try {
+        assertEquals(0x12345678, page.getCachePointer().getBuffer().getInt(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION));
+      } finally {
+        storage.getReadCache().releaseFromRead(page);
+      }
+    }
+  }
+
+  /** An error reported after the checkpoint must still close the WAL and reach CLOSED. */
+  @Test
+  public void shutdownReadsErrorReportedAfterCheckpoint() throws Exception {
+    try (var manager = openManager()) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var wal = storage.writeAheadLog;
+      storage.setAfterShutdownRemarkActionForTesting(
+          () -> storage.onException(new IOException("late shutdown flush failure")));
+      try {
+        storage.doShutdown();
+        assertEquals(com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.CLOSED,
+            storage.getStatus());
+        var closedWal = assertThrows(IllegalStateException.class,
+            () -> wal.preflightCut(Long.MAX_VALUE));
+        assertEquals("Cannot preflight a closed disk WAL", closedWal.getMessage());
+        assertTrue(Files.readAllBytes(databasesPath.resolve(SOURCE).resolve("dirty.fl"))[12] != 0);
+      } finally {
+        // Also release the target on a regression failure so the leak checker stays informative.
+        if (storage.getStatus()
+            != com.jetbrains.youtrackdb.internal.core.storage.Storage.STATUS.CLOSED) {
+          storage.doShutdown();
+        }
+      }
+    }
+  }
+
+  /** A configuration-load refusal must close without a second failure or a clean marker. */
+  @Test
+  public void configurationLoadFailureKeepsRestoreDirty() throws Exception {
+    try (var manager = openManager()) {
+      try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+          StorageFormat.LAYOUT_28)) {
+        createSourceDatabase(manager);
+      }
+      var storage = storageOf(manager, SOURCE);
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+          operation -> ((CollectionBasedStorageConfiguration) storage.configuration)
+              .updateVersionForTesting(operation, 23));
+      storage.fullBackup(backupPath);
+      assertBackupWalFailure(manager,
+          "The storage configuration reports storage layout version 23");
+    }
+  }
+
+  /** Evidence and replay both cross a real numeric WAL segment gap without losing page redo. */
+  @Test
+  public void backupWalReplaysAcrossNumericSegmentGap() throws Exception {
+    try (var manager = openManager()) {
+      prepareBackupWal(manager, wal -> {
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+        backupUpdate(wal);
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+        wal.moveLsnAfter(new LogSequenceNumber(wal.end().getSegment() + 10, 0));
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT + 1));
+        wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT + 1));
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT + 1, false, null));
+        // Page-zero permission must survive the gap and authorize this earlier unit's redo.
+      }, entries -> {
+        var segments = entries.keySet().stream().filter(name -> name.endsWith(".wal"))
+            .map(name -> Long.parseLong(name.split("\\.")[1])).sorted().toList();
+        assertTrue("fixture must contain a numeric segment gap",
+            segments.getLast() - segments.getFirst() > segments.size() - 1);
+      });
+      internalOf(manager).restore(target, backupPath.toString(), null, null);
+      assertRestoredLayoutAndData(manager, target, StorageFormat.LAYOUT_28);
+      try (var session = manager.open(target, ADMIN, PASSWORD)) {
+        var storage = session.getStorage();
+        var cache = storage.getWriteCache();
+        assertTrue(cache.admitExpectedFile(BACKUP_FILE));
+        var page = storage.getReadCache().loadForRead(
+            cache.externalFileId(BACKUP_FILE.internalId()), 0, cache, false);
+        try {
+          assertEquals(0x12345678, page.getCachePointer().getBuffer().getInt(
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION));
+        } finally {
+          storage.getReadCache().releaseFromRead(page);
+        }
+      }
+    }
+  }
+
+  /** A later committed deletion skips obsolete allocations and updates, present or absent. */
+  @Test
+  public void backupWalDeletionWinsBeforeFileAccess() throws Exception {
+    for (boolean present : new boolean[] {true, false}) {
+      try (var manager = openManager()) {
+        prepareBackupWal(manager, wal -> {
+          wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+          wal.log(new PageAllocatedWALRecord(1, BACKUP_FILE.internalId(), BACKUP_UNIT));
+          backupUpdate(wal);
+          wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+          wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT + 1));
+          wal.log(new FileDeletedWALRecord(BACKUP_UNIT + 1, BACKUP_FILE.internalId()));
+          wal.log(new AtomicUnitEndRecord(BACKUP_UNIT + 1, false, null));
+        }, entries -> {
+          if (present) {
+            archiveBackupFile(entries);
+          }
+        });
+        // Fail specifically on backup replay resolution, not on archive admission or deletion.
+        // A present file must be skipped before even this identity-resolution interaction.
+        try (var identities = org.mockito.Mockito.mockStatic(PageFileIdentity.class,
+            org.mockito.Mockito.CALLS_REAL_METHODS)) {
+          identities.when(() -> PageFileIdentity.decode(BACKUP_FILE.internalId()))
+              .thenAnswer(invocation -> {
+                assertFalse("a later deletion must prevent replay file resolution",
+                    StackWalker.getInstance().walk(frames -> frames.anyMatch(
+                        frame -> frame.getMethodName().equals("resolveRecoveryFile"))));
+                return invocation.callRealMethod();
+              });
+          internalOf(manager).restore(target, backupPath.toString(), null, null);
+        }
+        assertRestoredLayoutAndData(manager, target, StorageFormat.LAYOUT_28);
+        assertFalse(Files.exists(databasesPath.resolve(target)
+            .resolve(PageFileNames.layout28DiskName(BACKUP_FILE))));
+        manager.drop(target);
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /** A transitional creation record and a partial-leading page zero cannot hide a lost file. */
+  @Test
+  public void backupWalMissingFileReportsIdentityAndBounds() throws Exception {
+    try (var manager = openManager()) {
+      prepareBackupWal(manager, wal -> {
+        wal.log(new FileCreatedWALRecord(BACKUP_UNIT, PageFileNames.layout28(BACKUP_FILE),
+            BACKUP_FILE.internalId()));
+        wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT));
+        backupUpdate(wal);
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+      }, entries -> {
+      });
+      var failure =
+          assertBackupWalFailure(manager, "page-0 allocation evidence is absent or unusable");
+      var message = rootMessage(failure);
+      for (var fact : List.of(BACKUP_FILE.toString(), "kind " + BACKUP_FILE.kind(),
+          PageFileNames.layout28DiskName(BACKUP_FILE), "replay bounds [",
+          "Restoration from backup is required", "last successfully applied record",
+          "evidence readable end")) {
+        assertTrue(message, message.contains(fact));
+      }
+    }
+  }
+
+  /**
+   * A broken page, cut record followed by content, and a torn final page all reject the restore.
+   * The otherwise valid complete prefix must never turn any of these stops into success.
+   */
+  @Test
+  public void backupWalRejectsEveryEvidenceStop() throws Exception {
+    for (int scenario = 0; scenario < 3; scenario++) {
+      final int selected = scenario;
+      final var bad = new LogSequenceNumber[1];
+      try (var manager = openManager()) {
+        prepareBackupWal(manager, wal -> {
+          wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+          wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+          wal.appendNewSegment();
+          bad[0] = wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT + 1));
+          if (selected < 2) {
+            wal.appendNewSegment();
+            wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT + 2));
+            wal.log(new AtomicUnitEndRecord(BACKUP_UNIT + 2, false, null));
+          }
+        }, entries -> {
+          var bytes = entries.get(
+              com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration.WAL_DEFAULT_NAME
+                  + "." + bad[0].getSegment() + ".wal");
+          if (selected == 1) {
+            // A checksum-valid length extends past the immutable segment extent.
+            var buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.nativeOrder());
+            buffer.putInt(bad[0].getPosition(), 1000000);
+            int length = buffer.getShort(
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage.PAGE_SIZE_OFFSET);
+            buffer.position(
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage.RECORDS_OFFSET);
+            buffer.limit(length);
+            long hash = net.jpountz.xxhash.XXHashFactory.fastestJavaInstance().hash64()
+                .hash(buffer, 0x9747b28cL);
+            buffer.putLong(
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage.XX_OFFSET,
+                hash);
+          } else {
+            bytes[com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.CASWALPage.RECORDS_OFFSET] ^=
+                1;
+          }
+        });
+        var failure = assertBackupWalFailure(manager, "Cannot read WAL evidence at");
+        assertTrue(rootMessage(failure), rootMessage(failure).contains("last readable record"));
+        manager.drop(target);
+        manager.drop(SOURCE);
+      }
+    }
+  }
+
+  /**
+   * Even a complete page-zero declaration cannot grant backup replay damaged-page rebuilding.
+   * Install a damaged physical page after evidence collection, before the first replay file open.
+   */
+  @Test
+  public void backupWalNeverRebuildsDamagedExistingPage() throws Exception {
+    try (var manager = openManager()) {
+      prepareBackupWal(manager, wal -> {
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+        wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT));
+        backupUpdate(wal);
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+      }, entries -> {
+      });
+      byte[] damaged = new byte[com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE
+          + com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+              .getValueAsInteger() * 1024];
+      Arrays.fill(damaged, (byte) 42);
+      var path = databasesPath.resolve(target).resolve(PageFileNames.layout28DiskName(BACKUP_FILE));
+      try (var evidence = org.mockito.Mockito.mockStatic(RecoveryWALEvidence.class,
+          org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        evidence.when(() -> RecoveryWALEvidence.collect(
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.anyInt()))
+            .thenAnswer(invocation -> {
+              var result = invocation.callRealMethod();
+              Files.write(path, damaged);
+              return result;
+            });
+        assertBackupWalFailure(manager, "Magic number or check sum verification failed");
+      }
+      org.junit.Assert.assertArrayEquals(damaged, Files.readAllBytes(path));
+    }
+  }
+
+  /** A runtime replay fault retains its original cause and leaves the target interrupted. */
+  @Test
+  public void backupWalRuntimeFailureDoesNotActivateTarget() throws Exception {
+    try (var manager = openManager()) {
+      prepareBackupWal(manager, wal -> {
+        wal.log(new AtomicUnitStartRecord(false, BACKUP_UNIT));
+        wal.log(new PageAllocatedWALRecord(0, BACKUP_FILE.internalId(), BACKUP_UNIT));
+        backupUpdate(wal);
+        wal.log(new AtomicUnitEndRecord(BACKUP_UNIT, false, null));
+      }, entries -> {
+      });
+      var injected = new IllegalStateException("injected backup replay failure");
+      try (var identities = org.mockito.Mockito.mockStatic(PageFileIdentity.class,
+          org.mockito.Mockito.CALLS_REAL_METHODS)) {
+        identities.when(() -> PageFileIdentity.decode(BACKUP_FILE.internalId()))
+            .thenThrow(injected);
+        var failure = assertBackupWalFailure(manager, "WAL replay failed at record");
+        boolean found = false;
+        for (var cause = failure; cause != null; cause = cause.getCause()) {
+          found |= cause == injected;
+        }
+        assertTrue("the original runtime cause must remain attached", found);
       }
     }
   }

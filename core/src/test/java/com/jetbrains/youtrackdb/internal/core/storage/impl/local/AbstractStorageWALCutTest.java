@@ -29,7 +29,6 @@ import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSeria
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
-import com.jetbrains.youtrackdb.internal.core.config.StorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
@@ -41,6 +40,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTra
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
+import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -111,6 +111,9 @@ public class AbstractStorageWALCutTest {
     storage.writeAheadLog = writeAheadLog;
     storage.writeCache = writeCache;
     storage.atomicOperationsTable = atomicOperationsTable;
+    // Shutdown scenarios represent an opened storage whose configuration finished loading.
+    storage.configuration = mock(CollectionBasedStorageConfiguration.class, RETURNS_DEEP_STUBS);
+    setPrivateField(storage, "initializedConfiguration", storage.configuration);
     // CALLS_REAL_METHODS skips constructor field initializers.
     for (var field : new String[] {"idGen", "atomicOperationsManager"}) {
       setPrivateField(storage, field,
@@ -982,7 +985,6 @@ public class AbstractStorageWALCutTest {
     setPrivateField(storage, "stateLock", stateLock);
     setPrivateField(storage, "error", new AtomicReference<Throwable>());
     setPrivateField(storage, "beforeCommitApplyTestAction", new AtomicReference<>());
-    storage.configuration = mock(StorageConfiguration.class, RETURNS_DEEP_STUBS);
     doAnswer(invocation -> false).when(storage).isInError();
     when(atomicOperationsTable.getSegmentEarliestNotPersistedOperation()).thenReturn(-1L);
     when(writeCache.getMinimalNotFlushedSegment()).thenReturn(null);

@@ -482,6 +482,9 @@ public abstract class AbstractStorage
 
   protected volatile StorageConfiguration configuration;
 
+  // Identity, not presence, certifies that this configuration finished create or load.
+  private StorageConfiguration initializedConfiguration;
+
   // Published when configuration is created or loaded, including after a restore.
   private volatile int recordedMaxIndexKeySize;
   protected volatile CurrentStorageComponentsFactory componentsFactory;
@@ -968,8 +971,7 @@ public abstract class AbstractStorage
               atomicOperation -> {
                 if (CollectionBasedStorageConfiguration.exists(this, atomicOperation)) {
                   configuration = new CollectionBasedStorageConfiguration(this);
-                  ((CollectionBasedStorageConfiguration) configuration)
-                      .load(contextConfiguration, atomicOperation);
+                  loadStorageConfiguration(contextConfiguration, atomicOperation);
                   refreshRecordedMaxIndexKeySize(atomicOperation);
 
                   // otherwise delayed to disk based storage to convert old format to new format.
@@ -1779,6 +1781,7 @@ public abstract class AbstractStorage
           configuration = new CollectionBasedStorageConfiguration(this);
           ((CollectionBasedStorageConfiguration) configuration)
               .create(atomicOperation, contextConfiguration);
+          initializedConfiguration = configuration;
           configuration.setUuid(atomicOperation, uuid.toString());
           seedComponentIds(atomicOperation);
 
@@ -9314,6 +9317,15 @@ public abstract class AbstractStorage
     }
   }
 
+  /** Publishes readiness only after the current configuration has loaded successfully. */
+  protected final void loadStorageConfiguration(ContextConfiguration contextConfiguration,
+      AtomicOperation atomicOperation) {
+    initializedConfiguration = null;
+    ((CollectionBasedStorageConfiguration) configuration).load(contextConfiguration,
+        atomicOperation);
+    initializedConfiguration = configuration;
+  }
+
   protected void doShutdown() throws IOException {
     shutdownDuration.timed(() -> {
       if (status == STATUS.CLOSED) {
@@ -9326,9 +9338,13 @@ public abstract class AbstractStorage
             this.error.get(), name);
       }
 
+      // A failed restore can leave an open target before its configuration has loaded.
+      // Such a target must release resources without checkpointing partial restored state.
+      final boolean configurationReady =
+          configuration != null && configuration == initializedConfiguration;
       status = STATUS.CLOSING;
 
-      if (!isInError()) {
+      if (!isInError() && configurationReady) {
         // Block background page readers before the checkpoint, but do not discard the
         // histogram file or snapshot until the checkpoint has succeeded.
         final var blocked = new ArrayList<IndexHistogramManager>();
@@ -9384,7 +9400,7 @@ public abstract class AbstractStorage
       stopStaleTransactionMonitor();
       preCloseSteps();
 
-      if (!isInError()) {
+      if (!isInError() && configurationReady) {
         atomicOperationsManager.executeInsideAtomicOperation(
             atomicOperation -> {
               // we close all files inside cache system so we only clear index metadata and close
@@ -9406,14 +9422,15 @@ public abstract class AbstractStorage
         LogManager.instance()
             .error(
                 this,
-                "Because of JVM error happened inside of storage it can not be properly closed",
+                "Closing storage without a checkpoint because it is in error"
+                    + " or its configuration has not loaded",
                 null);
       }
 
       // Re-acquire the pause after the close-time atomic operation. Background GC can still
       // enter the freezer despite CLOSING. The final floor and indication clear in
       // postCloseSteps must therefore run under this second pause as well.
-      final var closeFreeze = !isInError()
+      final var closeFreeze = !isInError() && configurationReady
           ? atomicOperationsManager.freezeWriteOperations(FreezeKind.TRANSIENT_QUIESCE, null)
           : -1;
       Exception cacheCloseFailure = null;
@@ -9474,7 +9491,7 @@ public abstract class AbstractStorage
             cacheCloseFailure.addSuppressed(metadataFailure);
           }
         } else {
-          postCloseSteps(false, isInError(), idGen.getLastId());
+          postCloseSteps(false, isInError() || !configurationReady, idGen.getLastId());
         }
 
         migration = new CountDownLatch(1);
@@ -9802,8 +9819,9 @@ public abstract class AbstractStorage
       RecoveryPageContext recoveryContext) throws IOException {
     final var atLeastOnePageUpdate = new ModifiableBoolean();
     final var replayDeletions = new ReplayDeletions(writeAheadLog);
-    final boolean evidenceRecovery =
-        recoveryContext != null && writeCache.supportsIdentityRecovery();
+    // Backup replay uses the same file evidence, but keeps its page context null so it
+    // cannot acquire crash-only permission to rebuild damaged pages.
+    final boolean evidenceRecovery = writeCache.supportsIdentityRecovery();
     final var cursor = new RecoveryWALCursor(writeAheadLog);
 
     long recordsProcessed = 0;
@@ -9822,9 +9840,9 @@ public abstract class AbstractStorage
     try {
       if (evidenceRecovery) {
         replayDeletions.evidence = RecoveryWALEvidence.collect(
-            writeAheadLog, lsn, true, Integer.MAX_VALUE);
+            writeAheadLog, lsn, recoveryContext != null, Integer.MAX_VALUE);
         if (replayDeletions.evidence.readableEnd() == null) {
-          return null; // A torn first record leaves no replayable prefix.
+          return null; // No replayable prefix: an empty WAL, or a torn first crash-recovery record.
         }
       }
       if (evidenceRecovery) {
@@ -10117,7 +10135,7 @@ public abstract class AbstractStorage
   private final class ReplayDeletions {
 
     private final WriteAheadLog wal;
-    // Present only for layout 28 crash recovery. Legacy and backup keep their lookahead policy.
+    // Present for layout 28 crash and backup replay. Legacy keeps its lookahead policy.
     private RecoveryWALEvidence evidence;
     private final Map<Long, List<FileDeletedWALRecord>> pending = new HashMap<>();
     private final Map<Integer, LogSequenceNumber> committed = new HashMap<>();
@@ -10489,9 +10507,9 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Resolves a page file after non-durable exclusions. Layout 28 crash recovery checks global
-   * deletion evidence before any file access and authorizes creation only from page zero.
-   * The rules below describe legacy and backup replay. Incremental-backup replay has no
+   * Resolves a page file after non-durable exclusions. Layout 28 crash and backup replay check
+   * global deletion evidence before file access and authorize creation only from page zero.
+   * The rules below describe replay without whole-range evidence. Incremental-backup replay has no
    * non-durable files and uses an empty exclusion set.
    *
    * <ol>

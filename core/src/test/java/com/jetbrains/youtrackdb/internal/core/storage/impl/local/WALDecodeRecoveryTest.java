@@ -301,6 +301,36 @@ public class WALDecodeRecoveryTest {
     }
   }
 
+  /** Backup replay propagates every reported deletion failure without a crash page context. */
+  @Test
+  public void identityBackupReplayDoesNotSwallowDeletionFailures() throws Exception {
+    LogSequenceNumber start;
+    LogSequenceNumber deletion;
+    try (var wal = open()) {
+      start = wal.log(new AtomicUnitStartRecord(false, 1));
+      deletion = wal.log(new FileDeletedWALRecord(1, 7));
+      wal.log(new AtomicUnitEndRecord(1, false, null));
+    }
+    var cache = mock(WriteCache.class);
+    when(cache.supportsIdentityRecovery()).thenReturn(true);
+    var readCache = mock(ReadCache.class);
+    var storage = storage(cache, readCache);
+    for (Throwable cause : List.of(
+        new com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException("unlink failed"),
+        new com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageBrokenException(
+            "broken replay"),
+        new AssertionError("replay error"), new IOException("deletion IO failure"))) {
+      doThrow(cause).when(readCache).deleteFile(7, cache);
+      try (var wal = open()) {
+        var failure = assertThrows(IOException.class, () -> storage.restoreFrom(wal, start));
+        assertSame(cause, failure.getCause());
+        assertTrue(failure.getMessage().contains("failed at record " + deletion));
+        assertTrue(failure.getMessage().contains("last successfully applied record " + start));
+        assertTrue(failure.getMessage().contains("evidence readable end "));
+      }
+    }
+  }
+
   /** An initial read failure names its known position, no applied record and the evidence end. */
   @Test
   public void identityReadFailureReportsKnownPositionAndCause() throws Exception {

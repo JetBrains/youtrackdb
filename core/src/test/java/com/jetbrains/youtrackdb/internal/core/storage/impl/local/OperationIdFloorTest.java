@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
@@ -98,6 +99,8 @@ public class OperationIdFloorTest {
   @Test
   public void recoveryRaisesInstalledFloorFromHigherWalEvidence() throws Exception {
     var storage = new DirectMemoryStorage("recovery", "recovery", 1, null);
+    // This arithmetic-only replay fixture has no opened cache or identity-recovery evidence.
+    storage.writeCache = mock(WriteCache.class);
     storage.getIdGen().advanceToAtLeast(100);
 
     storage.restoreFrom(walWithCompletedOperation(120), new LogSequenceNumber(1, 1));
@@ -114,6 +117,8 @@ public class OperationIdFloorTest {
   @Test
   public void recoveryRetainsInstalledFloorAboveWalEvidence() throws Exception {
     var storage = new DirectMemoryStorage("recovery", "recovery", 1, null);
+    // This arithmetic-only replay fixture has no opened cache or identity-recovery evidence.
+    storage.writeCache = mock(WriteCache.class);
     storage.getIdGen().advanceToAtLeast(120);
 
     storage.restoreFrom(walWithCompletedOperation(100), new LogSequenceNumber(1, 1));

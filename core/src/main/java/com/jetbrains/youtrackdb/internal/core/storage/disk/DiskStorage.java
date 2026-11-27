@@ -976,8 +976,7 @@ public class DiskStorage extends AbstractStorage {
       final ContextConfiguration contextConfiguration,
       AtomicOperation atomicOperation) {
     configuration = new CollectionBasedStorageConfiguration(this);
-    ((CollectionBasedStorageConfiguration) configuration)
-        .load(contextConfiguration, atomicOperation);
+    loadStorageConfiguration(contextConfiguration, atomicOperation);
     refreshRecordedMaxIndexKeySize(atomicOperation);
   }
 
@@ -3326,13 +3325,11 @@ public class DiskStorage extends AbstractStorage {
     if (CollectionBasedStorageConfiguration.exists(writeCache)) {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
-              .load(contextConfiguration, atomicOperation));
+          atomicOperation -> loadStorageConfiguration(contextConfiguration, atomicOperation));
     } else {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
-              .load(contextConfiguration, atomicOperation));
+          atomicOperation -> loadStorageConfiguration(contextConfiguration, atomicOperation));
     }
 
     refreshRecordedMaxIndexKeySize(null);
