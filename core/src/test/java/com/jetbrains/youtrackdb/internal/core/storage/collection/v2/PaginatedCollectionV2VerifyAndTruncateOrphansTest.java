@@ -500,6 +500,17 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     verify(mockReadCache, never()).shrinkFile(eq(FILE_ID), anyLong(), eq(mockWriteCache));
   }
 
+  @Test
+  public void orphanPassDispatchesOnePageForInitializedEmptyData() throws IOException {
+    try (var entry = atomicOperation.allocatePageForWrite(FILE_ID, 0)) {
+      new PaginatedCollectionStateV2(entry).setFileSize(0);
+    }
+
+    collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    verify(mockReadCache).shrinkFile(FILE_ID, PAGE_SIZE_BYTES, mockWriteCache);
+  }
+
   // Boundary case: physical == target exactly. Catches off-by-one in
   // (fileSize + 1) * pageSize.
   @Test
@@ -535,9 +546,14 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     assertThat(readFileSizeFromStatePage()).isEqualTo(0);
     makePage(FILE_ID, 1);
     pageCountByFile.put(FILE_ID, 2);
+    try (var entry = atomicOperation.allocatePageForWrite(CPM_FILE_ID, 0)) {
+      new MapEntryPoint(entry).setFileSize(1);
+    }
+    pageCountByFile.put(CPM_FILE_ID, 3);
 
     collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
 
+    verify(atomicOperation, never()).loadPageForRead(CPM_FILE_ID, 0);
     verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
   }
 

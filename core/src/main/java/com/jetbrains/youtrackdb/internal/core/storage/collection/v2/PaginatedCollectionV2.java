@@ -60,6 +60,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomi
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import it.unimi.dsi.fastutil.ints.Int2ObjectFunction;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -278,6 +279,11 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   // Presence only. The contents of the roots still require the usual page validation.
   private volatile boolean rootsPresent;
 
+  // Guarded by the collection lock. Only the allocating operation may use this
+  // knowledge. Do not retain the operation after commit or rollback.
+  private WeakReference<AtomicOperation> rootInitializer;
+  private boolean initializedAllRoots;
+
   /** Strategy for resolving concurrent-modification conflicts on records in this collection. */
   private volatile RecordConflictStrategy recordConflictStrategy;
 
@@ -431,6 +437,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
           acquireExclusiveLock();
           try {
             rootsPresent = false;
+            initializedAllRoots = false;
             fileId = openFile(atomicOperation, getFullName(), dataIdentity);
             collectionPositionMap.open(atomicOperation);
 
@@ -481,6 +488,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
               freeSpaceMap.reconstruct(atomicOperation);
               if (dataHasRoot) {
+                rootInitializer = new WeakReference<>(atomicOperation);
                 freeSpaceMap.initRoot(atomicOperation);
               }
               // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
@@ -522,6 +530,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             } else {
               dirtyPageBitSet.reconstruct(atomicOperation);
               if (dataHasRoot) {
+                rootInitializer = new WeakReference<>(atomicOperation);
                 dirtyPageBitSet.initRoot(atomicOperation);
               }
             }
@@ -999,14 +1008,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // path that used to exist here is unreachable and was removed.
 
     var chunkSize = calculateChunkSize(bytesToWrite);
-    var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation, rootsPresent);
+    final boolean knowsRoots = rootsPresent || initializedRootsIn(atomicOperation);
+    var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation, knowsRoots);
 
     // Fallback: for large entries, try to find a page that can hold at least half.
     // This trades off more chunks for better page utilization.
     if (pageIndex < 0 && bytesToWrite > MAX_ENTRY_SIZE / 2) {
       final var halfChunkSize = calculateChunkSize(bytesToWrite / 2);
       if (halfChunkSize > 0) {
-        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation, rootsPresent);
+        pageIndex = freeSpaceMap.findFreePage(halfChunkSize / 2, atomicOperation, knowsRoots);
       }
     }
 
@@ -1029,10 +1039,16 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public StorageReadResult readRecord(final long collectionPosition,
       @Nonnull AtomicOperation atomicOperation)
       throws IOException {
-    return executeOptimisticStorageRead(
+    // Validate a pageless miss without treating it as an exception from speculative page bytes.
+    final var result = executeOptimisticStorageRead(
         atomicOperation,
-        () -> doReadRecordOptimistic(collectionPosition, atomicOperation),
+        () -> hasPositionMapRoot(atomicOperation)
+            ? doReadRecordOptimistic(collectionPosition, atomicOperation) : null,
         () -> doReadRecord(collectionPosition, atomicOperation));
+    if (result == null) {
+      throw new RecordNotFoundException(storageName, new RecordId(id, collectionPosition));
+    }
+    return result;
   }
 
   /**
@@ -2436,15 +2452,42 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   }
 
   boolean hasPositionMapRoot(final AtomicOperation operation) {
-    return rootsPresent || (probeRoots(operation, false) & MAP_ROOT) != 0;
+    if (rootsPresent) {
+      return true;
+    }
+    if (operation.getOptimisticReadScope().isAttemptActive()) {
+      if (rootExtent(operation, collectionPositionMap.getFileId()) == 0) {
+        return false;
+      }
+      // Memory may expose another operation's new pages before commit. Retry
+      // with the collection lock before using positive extents for discovery.
+      throw OptimisticReadFailedException.INSTANCE;
+    }
+    acquireSharedLock();
+    try {
+      return (probeRootsUnderLock(operation, false) & MAP_ROOT) != 0;
+    } finally {
+      releaseSharedLock();
+    }
   }
 
   private long rootExtent(final AtomicOperation operation, final long id) {
     return physicalSize(operation, id, PhysicalReadIntent.DEFENSIVE_PRESENCE);
   }
 
-  private synchronized int probeRoots(final AtomicOperation operation, boolean forWrite) {
-    if (rootsPresent) {
+  private boolean isRootInitializer(final AtomicOperation operation) {
+    return rootInitializer != null && rootInitializer.refersTo(operation);
+  }
+
+  private boolean initializedRootsIn(final AtomicOperation operation) {
+    return initializedAllRoots && isRootInitializer(operation);
+  }
+
+  // Serialize discovery among pinned readers. Writers already exclude other lock holders.
+  private synchronized int probeRootsUnderLock(
+      final AtomicOperation operation, final boolean forWrite) {
+    assert isSharedOwner() || isExclusiveOwner();
+    if (rootsPresent || initializedRootsIn(operation)) {
       return ALL_ROOTS;
     }
 
@@ -2464,13 +2507,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         | (fsmPages > 0 ? FREE_SPACE_ROOT : 0)
         | (dirtyPages > 0 ? DIRTY_BITS_ROOT : 0);
 
-    // An operation-local extent always has an overlay at its last page. Cache the
-    // result only when each probe is known to have reached the write cache.
-    if (present == ALL_ROOTS
-        && !operation.hasChangesForPage(mapId, mapPages - 1)
-        && !operation.hasChangesForPage(fileId, dataPages - 1)
-        && !operation.hasChangesForPage(fsmId, fsmPages - 1)
-        && !operation.hasChangesForPage(dirtyId, dirtyPages - 1)) {
+    // Only an operation that installed a root can see a positive local extent
+    // for a formerly pageless file. Overlays on existing pages do not affect
+    // this fact, even when an operation has grown an already populated file.
+    if (present == ALL_ROOTS && !isRootInitializer(operation)) {
       rootsPresent = true;
     }
     return present;
@@ -2478,10 +2518,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   /** Called under the collection writer lock before creating a position or record. */
   private void ensureRoots(final AtomicOperation operation) throws IOException {
-    if (rootsPresent) {
+    if (rootsPresent || initializedRootsIn(operation)) {
       return;
     }
-    final int present = probeRoots(operation, true);
+    final int present = probeRootsUnderLock(operation, true);
+    if (present != ALL_ROOTS) {
+      rootInitializer = new WeakReference<>(operation);
+    }
     if ((present & DATA_ROOT) == 0) {
       try (final var entry = allocatePageForWrite(operation, fileId, STATE_ENTRY_INDEX)) {
         final var state = new PaginatedCollectionStateV2(entry);
@@ -2497,6 +2540,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
     if ((present & DIRTY_BITS_ROOT) == 0) {
       dirtyPageBitSet.initRoot(operation);
+    }
+    if (!rootsPresent) {
+      initializedAllRoots = true;
     }
   }
 

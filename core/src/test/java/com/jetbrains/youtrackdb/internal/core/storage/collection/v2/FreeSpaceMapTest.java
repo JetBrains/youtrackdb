@@ -328,6 +328,31 @@ public class FreeSpaceMapTest {
   }
 
   @Test
+  public void openAcceptsInitializedEmptyDataRootBesidePagelessMap() throws IOException {
+    var collection = collection("emptydataroot");
+    withCreationLock(collection::create);
+    manager.executeInsideAtomicOperation(op -> {
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 0)) {
+        var state = new PaginatedCollectionStateV2(entry);
+        state.setFileSize(0);
+        state.setApproximateRecordsCount(0);
+      }
+    });
+    manager.executeInsideAtomicOperation(collection::open);
+    manager.executeInsideAtomicOperation(op -> {
+      Assert.assertEquals(0, collection.getEntries(op));
+      Assert.assertFalse(collection.exists(0, op));
+    });
+
+    var payload = new byte[] {7};
+    var record = manager.calculateInsideAtomicOperation(
+        op -> collection.createRecord(payload, (byte) 'b', null, op));
+    Assert.assertEquals(0, record.collectionPosition);
+    manager.executeInsideAtomicOperation(op -> Assert.assertArrayEquals(payload,
+        collection.readRecord(record.collectionPosition, op).toRawBuffer().buffer()));
+  }
+
+  @Test
   public void openRejectsDataPagesWhenPositionMapHasNoPages() throws IOException {
     var collection = collection("missingmaproot");
     withCreationLock(collection::create);

@@ -544,13 +544,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
                   + " %d pages (> 1). Skipping orphan-truncation; investigate manually.",
               getComponentTypeName(), getName(), getLogicalCountFieldName(), physicalPages);
       LogManager.instance().warn(this, msg);
-      if (!allowsPageless) {
-        return;
-      }
-    } else {
-      final long targetBytes = Math.max((long) pageSize, ((long) logicalPages + 1L) * pageSize);
-      readCache.shrinkFile(fileId, targetBytes, writeCache);
+      return;
     }
+
+    final long targetBytes = Math.max((long) pageSize, ((long) logicalPages + 1L) * pageSize);
+    readCache.shrinkFile(fileId, targetBytes, writeCache);
 
     // Hook for components with embedded sibling files (PCV2's embedded CPM is the only
     // current case). Default no-op; overridden where needed.
