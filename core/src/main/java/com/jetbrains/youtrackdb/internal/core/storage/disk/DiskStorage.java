@@ -49,7 +49,9 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.BackupForceCapability;
 import com.jetbrains.youtrackdb.internal.core.gremlin.BackupTailReadCapability;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerBackup;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
@@ -65,6 +67,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StartupMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.LineageFloorAdoption;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
@@ -979,8 +982,7 @@ public class DiskStorage extends AbstractStorage {
       final ContextConfiguration contextConfiguration,
       AtomicOperation atomicOperation) {
     configuration = new CollectionBasedStorageConfiguration(this);
-    ((CollectionBasedStorageConfiguration) configuration)
-        .load(contextConfiguration, atomicOperation);
+    loadStorageConfiguration(contextConfiguration, atomicOperation);
     refreshRecordedMaxIndexKeySize(atomicOperation);
   }
 
@@ -1327,10 +1329,23 @@ public class DiskStorage extends AbstractStorage {
 
             @Override
             public String currentName(int internalId) {
+              if (owner.cache.supportsIdentityRecovery()) {
+                return currentRecoveryFileName(internalId);
+              }
               return owner.cache.fileNameById(owner.cache.externalFileId(internalId));
             }
           });
       startupHistoryBarrier();
+    }
+  }
+
+  private String currentRecoveryFileName(int internalId) {
+    try {
+      var identity = PageFileIdentity.decode(internalId);
+      return Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity)))
+          ? PageFileNames.layout28(identity) : null;
+    } catch (IllegalArgumentException invalidId) {
+      return null;
     }
   }
 
@@ -1522,6 +1537,7 @@ public class DiskStorage extends AbstractStorage {
     if (startupOwner != null) {
       startupOwner.cache = wowCache;
     }
+    wowCache.setStorageFormat(getStorageFormat());
     wowCache.loadRegisteredFiles();
     wowCache.addBackgroundExceptionListener(this);
     wowCache.addPageIsBrokenListener(this);
@@ -2750,14 +2766,35 @@ public class DiskStorage extends AbstractStorage {
     return (int) pageIndex;
   }
 
-  private void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
+  void copyBackupPage(long fileId, long pageIndex, LogSequenceNumber changeLsn,
       ZipOutputStream stream, byte[] encryptionIv, byte[] aesKey, byte[] data,
       LogSequenceNumber[] lastLsn) throws IOException {
     final var cacheEntry =
         readCache.silentLoadForRead(fileId, backupPageIndex(pageIndex), writeCache, true);
-    long sharedStamp = cacheEntry.acquireSharedLock();
+    // A silent miss inside layout 28 allocation is a known blank only outside written bytes.
+    // loadOrAdd preserves strict missing-file and EOF errors within the written range.
+    CachePointer blankPointer = null;
+    if (cacheEntry == null && getStorageFormat() == StorageFormat.LAYOUT_28
+        && pageIndex < writeCache.physicalSizeForBackupSnapshot(fileId)) {
+      blankPointer = writeCache.loadOrAdd(fileId, pageIndex, true);
+    }
+    if (cacheEntry == null && blankPointer == null) {
+      throw new IOException("Missing backup page " + pageIndex + " of file " + fileId);
+    }
+    // The fallback can return a live write-cache page that commits modify in place.
+    final long sharedStamp;
+    if (cacheEntry == null) {
+      sharedStamp = blankPointer.acquireSharedLock();
+    } else {
+      sharedStamp = cacheEntry.acquireSharedLock();
+    }
     try {
-      var cachePointer = cacheEntry.getCachePointer();
+      final CachePointer cachePointer;
+      if (cacheEntry == null) {
+        cachePointer = blankPointer;
+      } else {
+        cachePointer = cacheEntry.getCachePointer();
+      }
       assert cachePointer != null;
       var cachePointerBuffer = cachePointer.getBuffer();
       assert cachePointerBuffer != null;
@@ -2776,8 +2813,13 @@ public class DiskStorage extends AbstractStorage {
         }
       }
     } finally {
-      cacheEntry.releaseSharedLock(sharedStamp);
-      readCache.releaseFromRead(cacheEntry);
+      if (cacheEntry != null) {
+        cacheEntry.releaseSharedLock(sharedStamp);
+        readCache.releaseFromRead(cacheEntry);
+      } else {
+        blankPointer.releaseSharedLock(sharedStamp);
+        blankPointer.decrementReadersReferrer();
+      }
     }
   }
 
@@ -3314,19 +3356,19 @@ public class DiskStorage extends AbstractStorage {
 
   private void postProcessIncrementalRestore(ContextConfiguration contextConfiguration)
       throws IOException {
+    hydrateConfigurationFiles();
     if (CollectionBasedStorageConfiguration.exists(writeCache)) {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
-              .load(contextConfiguration, atomicOperation));
+          atomicOperation -> loadStorageConfiguration(contextConfiguration, atomicOperation));
     } else {
       configuration = new CollectionBasedStorageConfiguration(this);
       atomicOperationsManager.executeInsideAtomicOperation(
-          atomicOperation -> ((CollectionBasedStorageConfiguration) configuration)
-              .load(contextConfiguration, atomicOperation));
+          atomicOperation -> loadStorageConfiguration(contextConfiguration, atomicOperation));
     }
 
     refreshRecordedMaxIndexKeySize(null);
+    atomicOperationsManager.executeInsideAtomicOperation(this::hydrateComponentFiles);
     atomicOperationsManager.executeInsideAtomicOperation(this::seedComponentIds);
     atomicOperationsManager.executeInsideAtomicOperation(this::openCollections);
     linkCollectionsBTreeManager.close();
@@ -3447,7 +3489,10 @@ public class DiskStorage extends AbstractStorage {
       }
 
       var fileName = zipEntryPath.getFileName().toString();
-      if (!writeCache.exists(fileName)) {
+      if (writeCache.supportsIdentityRecovery()) {
+        writeCache.resolveRecoveryFile(fileName, expectedFileId, RecoveryFilePermission.RESTORE);
+        fileId = writeCache.externalFileId(writeCache.internalFileId(expectedFileId));
+      } else if (!writeCache.exists(fileName)) {
         fileId = readCache.addFile(fileName, expectedFileId, writeCache);
       } else {
         fileId = writeCache.fileIdByName(fileName);

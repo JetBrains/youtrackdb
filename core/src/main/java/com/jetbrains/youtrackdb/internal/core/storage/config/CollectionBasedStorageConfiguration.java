@@ -193,6 +193,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       ThreadLocal.withInitial(PausedNotificationsState::new);
 
   public static boolean exists(final WriteCache writeCache) {
+    if (writeCache.supportsIdentityRecovery()) {
+      return writeCache.exists(PageFileNames.layout28(new PageFileIdentity(PageFileRole.CONFIG_DATA,
+          PageFileIdentity.CONFIGURATION_COMPONENT_ID)));
+    }
     return writeCache.exists(COMPONENT_NAME + DATA_FILE_EXTENSION);
   }
 

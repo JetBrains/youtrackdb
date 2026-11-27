@@ -33,9 +33,15 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -617,6 +623,134 @@ public class AtomicOperationSuppliedIdTest {
       assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
       pool.clear();
     }
+  }
+
+  // Rollback, cancellation, validation and partial apply all drain only owned unpublished state.
+  @Test
+  public void layout28FinalizationReleasesOnlyOwnedUnpublishedBookings() throws Exception {
+    var path = diskDirectory.getRoot().toPath();
+    var executor = Executors.newCachedThreadPool();
+    var pool = new ByteBufferPool(4096);
+    wal = spy(new MemoryWriteAheadLog());
+    org.mockito.Mockito.doReturn(new LogSequenceNumber(0, Integer.MAX_VALUE))
+        .when(wal).getFlushedLsn();
+    when(storage.getWALInstance()).thenReturn(wal);
+    var disk = new WOWCache(4096, false, pool, wal, new DoubleWriteLogNoOP(), 0, 10000,
+        100, path, "owned", new ClosableLinkedContainer<>(1024), 1,
+        ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, ChecksumMode.StoreAndVerify,
+        null, null, false, executor);
+    var read = spy(new LockFreeReadCache(pool, 64L * 1024 * 1024, 4096));
+    try {
+      disk.setStorageFormat(StorageFormat.LAYOUT_28);
+      disk.loadRegisteredFiles();
+      disk.pauseBackgroundFlush();
+      for (int scenario = 0; scenario < 6; scenario++) {
+        var identity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 700 + scenario);
+        var name = PageFileNames.layout28(identity);
+        long expected = identity.internalId();
+        if (scenario == 1) {
+          disk.bookFileId(name, expected, false);
+        }
+        var op = operation(read, disk);
+        long id = op.addFile(name, expected, false, scenario == 1);
+        if (scenario == 0 || scenario == 1) {
+          op.rollbackInProgress();
+        } else if (scenario == 2 || scenario == 3) {
+          op.deleteFile(id);
+          if (scenario == 3) {
+            assertEquals(id, op.addFile(name, expected, false, false));
+            initStatePage(op, id);
+          }
+        } else if (scenario == 4) {
+          // Validation fails before cache application when creation exclusion is lost.
+          stateLock.exclusiveUnlock();
+        } else {
+          var second = new PageFileIdentity(PageFileRole.RECORD_DATA, 800);
+          var secondName = PageFileNames.layout28(second);
+          long secondId = op.addFile(secondName, second.internalId(), false, false);
+          initStatePage(op, id);
+          initStatePage(op, secondId);
+          var applied = new java.util.concurrent.atomic.AtomicInteger();
+          doAnswer(invocation -> {
+            if (applied.incrementAndGet() == 2) {
+              throw new IOException("partial apply");
+            }
+            return invocation.callRealMethod();
+          }).when(read).addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any());
+          assertThrows(IOException.class, () -> end(op));
+          assertEquals(2, applied.get());
+          // Iteration order is not a contract. Exactly one published file survives.
+          assertTrue(disk.exists(id) != disk.exists(secondId));
+          assertEquals(disk.exists(secondId) ? Integer.valueOf(second.internalId()) : null,
+              disk.registeredFileId(secondName));
+          assertEquals(disk.exists(id) ? Integer.valueOf(identity.internalId()) : null,
+              disk.registeredFileId(name));
+          continue;
+        }
+        if (scenario == 4) {
+          try {
+            assertThrows(StorageException.class, () -> end(op));
+          } finally {
+            stateLock.exclusiveLock();
+          }
+        } else {
+          end(op);
+        }
+        boolean live = scenario == 3;
+        var pageFile = path.resolve(PageFileNames.layout28DiskName(identity));
+        assertEquals(scenario == 1 ? Integer.valueOf(-identity.internalId())
+            : live ? Integer.valueOf(identity.internalId()) : null, disk.registeredFileId(name));
+        assertFalse(Files.exists(pageFile));
+        if (live) {
+          disk.flush(id);
+          assertTrue(Files.exists(pageFile));
+        }
+      }
+    } finally {
+      read.deleteStorage(disk);
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+      pool.clear();
+    }
+  }
+
+  private static void initStatePage(AtomicOperation op, long id) throws IOException {
+    final var page = op.allocatePageForWrite(id, 0);
+    try {
+      new PaginatedCollectionStateV2(page).setFileSize(0);
+    } finally {
+      op.releasePageFromWrite(page);
+    }
+  }
+
+  // Cleanup failures preserve the commit failure, drain remaining releases and deactivate the op.
+  @Test
+  public void bookingReleaseFailureIsSuppressedAndFinalizationContinues() throws Exception {
+    var read = mock(ReadCache.class);
+    var write = mock(WriteCache.class);
+    var first = new IllegalStateException("release one");
+    var second = new AssertionError("release two");
+    when(write.bookFileIdWithOwnership("one", null, false))
+        .thenReturn(new WriteCache.FileBooking(7, () -> {
+          throw first;
+        }));
+    when(write.bookFileIdWithOwnership("two", null, false))
+        .thenReturn(new WriteCache.FileBooking(8, () -> {
+          throw second;
+        }));
+    var op = operation(read, write);
+    op.addFile("one", false);
+    op.addFile("two", false);
+    op.rollbackInProgress();
+    var primary = new IOException("primary");
+    var manager = new AtomicOperationsManager(storage, table);
+    primeFreezer(manager);
+    manager.endAtomicOperation(op, primary);
+    assertArrayEquals(new Throwable[] {first}, primary.getSuppressed());
+    assertArrayEquals(new Throwable[] {second}, first.getSuppressed());
+    assertThrows(com.jetbrains.youtrackdb.internal.core.exception.DatabaseException.class,
+        () -> op.addFile("inactive", false));
+    op.releaseFileBookings();
   }
 
   @Test

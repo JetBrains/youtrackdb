@@ -4,6 +4,7 @@ import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.Changed
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome.NO_SAVE;
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome.PREFLIGHT_UNAVAILABLE;
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTracker.CheckpointOutcome.SAVED;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -2405,6 +2406,62 @@ public class DiskStorageChangedPageCheckpointTest {
   @Test
   public void registryLoadFailureRetainsMetadataWhenPartialCacheCloseFails() throws Exception {
     assertRegistryLoadFailure(true);
+  }
+
+  /** A layout 28 physical open ignores an unreadable map path and admits real components. */
+  @Test
+  public void layout28OpenIgnoresBlockedMapPath() throws Exception {
+    assertLayout28BlockedMapOpen(false);
+  }
+
+  /** Ignoring the map does not absorb a required startup failure or skip cache cleanup. */
+  @Test
+  public void layout28OpenReportsRequiredStartupFailureWithBlockedMapPath() throws Exception {
+    assertLayout28BlockedMapOpen(true);
+  }
+
+  private void assertLayout28BlockedMapOpen(boolean failStartup) throws Exception {
+    final String name = "layout28-startup";
+    final DiskStorage created;
+    try (var birth =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
+            .selectBirthFormat(manager, name,
+                com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28)) {
+      created = createObservedStorage(name);
+    }
+    created.close(null, true);
+    final var directory = (Path) field(DiskStorage.class, created, "storagePath");
+    final var registry = directory.resolve("name_id_map_v3.cm");
+    Files.deleteIfExists(registry);
+    Files.createDirectory(registry);
+    final var marker = registry.resolve("untouched");
+    Files.write(marker, new byte[] {2, 7, 1, 8});
+    final var primary = new Error("required layout 28 startup step failed");
+    if (failStartup) {
+      doThrow(primary).when(created).verifyStartupHistory();
+    }
+    try {
+      if (failStartup) {
+        assertSame(primary, assertThrows(Error.class,
+            () -> created.open(new ContextConfiguration())));
+        assertTrue(created.isClosed(null));
+        assertNull(field(DiskStorage.class, created, "startupOwner"));
+        verify(created).postCloseSteps(eq(false), eq(true), anyLong());
+      } else {
+        created.open(new ContextConfiguration());
+        assertEquals(AbstractStorage.STATUS.OPEN, created.getStatus());
+        assertFalse(created.getWriteCache().files().isEmpty());
+        created.close(null, true);
+      }
+      assertTrue(Files.isDirectory(registry));
+      assertArrayEquals(new byte[] {2, 7, 1, 8}, Files.readAllBytes(marker));
+      assertFalse(Files.exists(directory.resolve("name_id_map_v3_t.cm")));
+      assertFalse(Files.exists(directory.resolve("name_id_map_v2_backup.cm")));
+    } finally {
+      created.preCloseSteps();
+      Files.delete(marker);
+      Files.delete(registry);
+    }
   }
 
   private void assertRegistryLoadFailure(boolean failClose) throws Exception {

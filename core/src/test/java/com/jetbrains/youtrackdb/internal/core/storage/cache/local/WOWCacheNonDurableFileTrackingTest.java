@@ -29,10 +29,16 @@ import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
@@ -459,6 +465,188 @@ public class WOWCacheNonDurableFileTrackingTest {
     }
   }
 
+  @Test
+  public void layout28FailedPrimaryOpenAfterShadowDoesNotPublishNonDurableIdentity()
+      throws Exception {
+    assertFailedRegistryDoesNotPublish(false);
+  }
+
+  @Test
+  public void layout28FailedPrimaryWriteDoesNotPublishNonDurableIdentity() throws Exception {
+    assertFailedRegistryDoesNotPublish(true);
+  }
+
+  @Test
+  public void layout28DurableRetryRepairsShadowBeforePublishing() throws Exception {
+    for (boolean force : new boolean[] {false, true}) {
+      wowCache.delete();
+      createNewCache(force, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      wowCache.pauseBackgroundFlush();
+      try {
+        final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12301);
+        final var name = PageFileNames.layout28(identity);
+        final var id = wowCache.externalFileId(identity.internalId());
+        final var primary = storagePath.resolve("non_durable_files.cm");
+
+        assertRegistrationFailsWhileWritingPrimary(name, id, primary);
+        assertTrue(loadRegistryFromDisk().contains(identity.internalId()));
+        assertEquals(id, wowCache.addFile(name, id, false));
+        assertFalse("Recovery must not discard the durable retry",
+            loadRegistryFromDisk().contains(identity.internalId()));
+        assertFalse(wowCache.isNonDurable(id));
+        assertFalse(wowCache.logicalFiles().live(identity.internalId()).nonDurable());
+      } finally {
+        wowCache.resumeBackgroundFlush();
+      }
+    }
+  }
+
+  @Test
+  public void layout28FailedRepairDoesNotPublishDurableRetry() throws Exception {
+    for (boolean force : new boolean[] {false, true}) {
+      wowCache.delete();
+      createNewCache(force, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      wowCache.pauseBackgroundFlush();
+      try {
+        final var retained = new PageFileIdentity(PageFileRole.RECORD_DATA, 12302);
+        wowCache.addFile(PageFileNames.layout28(retained), retained.internalId(), true);
+        final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12301);
+        final var name = PageFileNames.layout28(identity);
+        final var id = wowCache.externalFileId(identity.internalId());
+        final var primary = storagePath.resolve("non_durable_files.cm");
+
+        assertRegistrationFailsWhileWritingPrimary(name, id, primary);
+        assertRegistryWriteFails(primary, () -> wowCache.addFile(name, id, false));
+        assertFalse(wowCache.exists(id));
+        assertFalse(wowCache.isNonDurable(id));
+        assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+        assertEquals(id, wowCache.addFile(name, id, false));
+        assertFalse(wowCache.logicalFiles().live(identity.internalId()).nonDurable());
+        assertEquals(IntOpenHashSet.of(retained.internalId()), loadRegistryFromDisk());
+        assertEquals(java.util.Set.of(retained.internalId()), registryIds(primary));
+        assertEquals(java.util.Set.of(retained.internalId()),
+            registryIds(storagePath.resolve("non_durable_files_shadow.cm")));
+      } finally {
+        wowCache.resumeBackgroundFlush();
+      }
+    }
+  }
+
+  @Test
+  public void layout28DurableRegistrationDoesNotOpenRegistryWithoutEarlierFailure()
+      throws Exception {
+    for (boolean force : new boolean[] {false, true}) {
+      wowCache.delete();
+      createNewCache(force, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      wowCache.pauseBackgroundFlush();
+      try {
+        final var retained = new PageFileIdentity(PageFileRole.RECORD_DATA, 12302);
+        wowCache.addFile(PageFileNames.layout28(retained), retained.internalId(), true);
+        final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12301);
+        final var id = wowCache.externalFileId(identity.internalId());
+        try (var channels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+          assertEquals(id, wowCache.addFile(PageFileNames.layout28(identity), id, false));
+          channels.verifyNoInteractions();
+        }
+        assertEquals(IntOpenHashSet.of(retained.internalId()), loadRegistryFromDisk());
+      } finally {
+        wowCache.resumeBackgroundFlush();
+      }
+    }
+  }
+
+  private IntOpenHashSet loadRegistryFromDisk() throws Exception {
+    final var method = WOWCache.class.getDeclaredMethod("readNonDurableRegistry");
+    method.setAccessible(true);
+    // This sequential test pauses background flush and has no concurrent registry writers.
+    return (IntOpenHashSet) method.invoke(wowCache);
+  }
+
+  private void assertFailedRegistryDoesNotPublish(boolean failWrite) throws Exception {
+    for (boolean force : new boolean[] {false, true}) {
+      wowCache.delete();
+      createNewCache(force, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      wowCache.pauseBackgroundFlush();
+      try {
+        var failed = new PageFileIdentity(PageFileRole.RECORD_DATA, 12301);
+        var later = new PageFileIdentity(PageFileRole.RECORD_DATA, 12302);
+        var name = PageFileNames.layout28(failed);
+        var id = wowCache.externalFileId(failed.internalId());
+        var primary = storagePath.resolve("non_durable_files.cm");
+        var shadow = storagePath.resolve("non_durable_files_shadow.cm");
+        if (failWrite) {
+          assertRegistrationFailsWhileWritingPrimary(name, id, primary);
+        } else {
+          Files.createDirectory(primary);
+          try {
+            assertThrows(IOException.class, () -> wowCache.addFile(name, id, true));
+          } finally {
+            Files.delete(primary);
+          }
+        }
+        assertEquals(java.util.Set.of(failed.internalId()), registryIds(shadow));
+        assertFalse(wowCache.exists(id));
+        assertFalse(wowCache.isNonDurable(id));
+        assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(failed))));
+        var saved = WOWCache.class.getDeclaredField("savedNonDurableFileIds");
+        saved.setAccessible(true);
+        assertFalse(((it.unimi.dsi.fastutil.ints.IntSet) saved.get(wowCache))
+            .contains(failed.internalId()));
+
+        wowCache.addFile(PageFileNames.layout28(later), later.internalId(), true);
+        assertEquals(java.util.Set.of(later.internalId()), registryIds(primary));
+        assertEquals(java.util.Set.of(later.internalId()), registryIds(shadow));
+        assertEquals(id, wowCache.addFile(name, id, true));
+        assertTrue(wowCache.isNonDurable(id));
+        assertTrue(wowCache.logicalFiles().live(failed.internalId()).nonDurable());
+        assertEquals(IntOpenHashSet.of(later.internalId(), failed.internalId()),
+            loadRegistryFromDisk());
+      } finally {
+        wowCache.resumeBackgroundFlush();
+      }
+    }
+  }
+
+  private void assertRegistrationFailsWhileWritingPrimary(String name, long id, Path primary)
+      throws IOException {
+    assertRegistryWriteFails(primary, () -> wowCache.addFile(name, id, true));
+  }
+
+  private static void assertRegistryWriteFails(Path primary,
+      org.junit.function.ThrowingRunnable add)
+      throws IOException {
+    final var options = new StandardOpenOption[] {
+        StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING
+    };
+    final var failure = new IOException("Primary registry write failed");
+    try (var channel = spy(FileChannel.open(primary, options));
+        var mockChannels = mockStatic(FileChannel.class, CALLS_REAL_METHODS)) {
+      doThrow(failure).when(channel).write(org.mockito.ArgumentMatchers.any(ByteBuffer.class),
+          org.mockito.ArgumentMatchers.anyLong());
+      final var setup = new FileChannel[1];
+      try {
+        mockChannels.when(() -> setup[0] = FileChannel.open(primary, options)).thenReturn(channel);
+      } finally {
+        if (setup[0] != null) {
+          setup[0].close();
+        }
+      }
+      org.junit.Assert.assertSame(failure, assertThrows(IOException.class, add));
+    }
+  }
+
+  private static java.util.Set<Integer> registryIds(Path path) throws IOException {
+    var bytes = ByteBuffer.wrap(Files.readAllBytes(path));
+    bytes.position(12);
+    var count = bytes.getInt();
+    var result = new java.util.HashSet<Integer>();
+    for (int i = 0; i < count; i++) {
+      result.add(bytes.getInt());
+    }
+    assertEquals(0, bytes.remaining());
+    return result;
+  }
+
   /** Clean close suppresses the rewritten registry force when fsync is disabled. */
   @Test
   public void testCleanCloseRegistryRewriteSkipsForceWhenFsyncIsDisabled() throws Exception {
@@ -469,6 +657,91 @@ public class WOWCacheNonDurableFileTrackingTest {
   @Test
   public void testCleanCloseRegistryRewriteForcesWhenFsyncIsEnabled() throws Exception {
     assertCleanCloseRegistryForces(true, 1);
+  }
+
+  /** Layout 28 close neither serializes nor forces the map, with either fsync setting. */
+  @Test
+  public void layout28CleanCloseLeavesMapBytesAndBackupPathUntouched() throws Exception {
+    for (boolean callFsync : new boolean[] {false, true}) {
+      if (wowCache != null) {
+        wowCache.delete();
+      }
+      createNewCache(callFsync, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, callFsync ? 43 : 42);
+      wowCache.addFile(PageFileNames.layout28(identity), identity.internalId());
+      final var map = storagePath.resolve("name_id_map_v3.cm");
+      final var bytes = new byte[] {7, 2, 8};
+      Files.write(map, bytes);
+      assertTrue(bytes.length > 0);
+      final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
+      Files.createDirectory(backup);
+      // A legacy close cannot open this nonempty directory as its backup channel.
+      final var marker = backup.resolve("untouched");
+      Files.write(marker, new byte[] {3, 1, 4});
+      wowCache.close();
+      wowCache = null;
+      org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+      org.junit.Assert.assertArrayEquals(new byte[] {3, 1, 4}, Files.readAllBytes(marker));
+      Files.delete(marker);
+      Files.delete(backup);
+    }
+  }
+
+  /** Layout 28 open ignores corrupt legacy variants and never creates a migrated V3 map. */
+  @Test
+  public void layout28OpenDoesNotMigrateLegacyMaps() throws Exception {
+    wowCache.delete();
+    final var bytes = new byte[] {9, 2, 6, 5};
+    final var legacy = storagePath.resolve("name_id_map.cm");
+    final var v2 = storagePath.resolve("name_id_map_v2.cm");
+    Files.write(legacy, bytes);
+    Files.write(v2, bytes);
+    final var v3 = storagePath.resolve("name_id_map_v3.cm");
+    createNewCache(true, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    assertTrue(wowCache.files().isEmpty());
+    assertFalse(Files.exists(v3));
+    assertFalse(Files.exists(storagePath.resolve("name_id_map_v3_t.cm")));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(legacy));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(v2));
+    wowCache.close();
+    wowCache = null;
+    assertFalse(Files.exists(v3));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(legacy));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(v2));
+  }
+
+  /** Skipping map close does not hide a required file-close failure or lose its retry owner. */
+  @Test
+  public void layout28CloseReportsFileFailureWithoutAccessingMapBackup() throws Exception {
+    wowCache.delete();
+    createNewCache(true, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 42);
+    final var fileId = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(PageFileNames.layout28(identity), fileId,
+        RecoveryFilePermission.RESTORE));
+    final var map = storagePath.resolve("name_id_map_v3.cm");
+    final var bytes = new byte[] {7, 2, 8};
+    Files.write(map, bytes);
+    final var backup = storagePath.resolve("name_id_map_v2_backup.cm");
+    Files.createDirectory(backup);
+    final var real = files.remove(fileId);
+    real.close();
+    final var file = mock(File.class);
+    when(file.isOpen()).thenReturn(true);
+    when(file.getName()).thenReturn(PageFileNames.layout28DiskName(identity));
+    final var failure = new StorageException(storageName, "required layout 28 file close failed");
+    doThrow(failure).doNothing().when(file).close();
+    files.add(fileId, file);
+    org.junit.Assert.assertSame(failure, assertThrows(StorageException.class, wowCache::close));
+    org.junit.Assert.assertSame(file, files.get(fileId));
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+    wowCache.close();
+    assertEquals(null, files.get(fileId));
+    wowCache = null;
+    verify(file, org.mockito.Mockito.times(2)).close();
+    org.junit.Assert.assertArrayEquals(bytes, Files.readAllBytes(map));
+    assertTrue(Files.isDirectory(backup));
+    Files.delete(backup);
   }
 
   private void assertCleanCloseRegistryForces(boolean callFsync, long expectedForces)
@@ -1017,6 +1290,194 @@ public class WOWCacheNonDurableFileTrackingTest {
 
   // --- Side file persistence tests ---
 
+  /** Present computed files survive repeated creation replay and WAL-cut open without map entries. */
+  @Test
+  public void identityOpenPreservesContentWithoutMapOrLogicalMembership() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12002);
+    var name = PageFileNames.layout28(identity);
+    long id = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+    var file = files.get(id);
+    file.allocateSpace(PAGE_SIZE);
+    var bytes = new byte[PAGE_SIZE];
+    java.util.Arrays.fill(bytes, (byte) 42);
+    file.write(0, ByteBuffer.wrap(bytes));
+    detachIdentity(id);
+    var path = storagePath.resolve(PageFileNames.layout28DiskName(identity));
+    var before = Files.readAllBytes(path);
+    assertTrue(wowCache.resolveRecoveryFile(null, id, RecoveryFilePermission.OPEN_ONLY));
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.REPLAY_CREATE));
+    assertTrue(java.util.Arrays.equals(before, Files.readAllBytes(path)));
+    assertEquals(1, wowCache.getFilledUpTo(id));
+    assertEquals(Integer.valueOf(identity.internalId()), wowCache.registeredFileId(name));
+    wowCache.deleteFile(id);
+  }
+
+  /** Restore admission validates both canonical spelling and expected id before any creation. */
+  @Test
+  public void identityRestoreRejectsWrongNameAndIdBeforeCreating() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12003);
+    var name = PageFileNames.layout28(identity);
+    long id = wowCache.externalFileId(identity.internalId());
+    assertThrows(IllegalArgumentException.class,
+        () -> wowCache.resolveRecoveryFile("wrong.pcl", id, RecoveryFilePermission.RESTORE));
+    assertThrows(IllegalArgumentException.class,
+        () -> wowCache.resolveRecoveryFile(name, id + 1, RecoveryFilePermission.RESTORE));
+    assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    try (var ignored = StorageBirthTestSupport.poisonSessionMaps(wowCache)) {
+      assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+      assertTrue(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    }
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.REPLAY_CREATE));
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+    wowCache.deleteFile(id);
+  }
+
+  /** Registry recovery retains unhydrated ids and cleanup deletes computed paths without deadlock. */
+  @Test(timeout = 10000)
+  public void identityCleanupWithoutMapOrHandleKeepsRegistryConsistent() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12004);
+    var name = PageFileNames.layout28(identity);
+    long id = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()), true);
+    wowCache.close();
+    // Model a crash image with a persisted registry but no identity-map evidence.
+    StorageBirthTestSupport.removeNameIdMaps(storagePath);
+    createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    assertTrue(wowCache.isNonDurable(id));
+    var readCache = createReadCache();
+    try {
+      assertTrue(wowCache.deleteNonDurableFilesOnRecovery(readCache)
+          .contains(identity.internalId()));
+      assertFalse(wowCache.isNonDurable(id));
+      assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+      assertEquals("logical deletion remains visible without map hydration",
+          Integer.valueOf(-identity.internalId()), wowCache.registeredFileId(name));
+      var namesField = WOWCache.class.getDeclaredField("nameIdMap");
+      namesField.setAccessible(true);
+      assertTrue("handle-free deletion leaves the session map absent",
+          ((java.util.Map<?, ?>) namesField.get(wowCache)).isEmpty());
+      assertFalse(wowCache.resolveRecoveryFile(null, id, RecoveryFilePermission.OPEN_ONLY));
+      wowCache.deleteFile(id); // Repeating deletion must also make progress.
+    } finally {
+      readCache.clear();
+    }
+  }
+
+  /** Handle-free deletion preserves alias tombstones and tolerates undecodable absent ids. */
+  @Test
+  public void identityHandleFreeDeletionLeavesMapsUnchanged() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12013);
+    var name = PageFileNames.layout28(identity);
+    long id = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+    detachIdentity(id);
+    var nameField = WOWCache.class.getDeclaredField("nameIdMap");
+    var idField = WOWCache.class.getDeclaredField("idNameMap");
+    nameField.setAccessible(true);
+    idField.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    var names = (java.util.Map<String, Integer>) nameField.get(wowCache);
+    @SuppressWarnings("unchecked")
+    var ids = (java.util.Map<Integer, String>) idField.get(wowCache);
+    names.put("legacyAlias", -identity.internalId());
+    ids.put(-identity.internalId(), "legacyAlias");
+    var namesBefore = java.util.Map.copyOf(names);
+    var idsBefore = java.util.Map.copyOf(ids);
+    var registry = storagePath.resolve("name_id_map_v3.cm");
+    byte[] registryBefore = {3, 5, 8};
+    Files.write(registry, registryBefore);
+    // Seed live logical state without restoring a physical handle.
+    wowCache.logicalFiles().register(name, identity.internalId(), false);
+    wowCache.deleteFile(id);
+    assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    assertTrue(wowCache.logicalFiles().deleted(identity.internalId()));
+    assertEquals(namesBefore, names);
+    assertEquals(idsBefore, ids);
+    assertTrue(java.util.Arrays.equals(registryBefore, Files.readAllBytes(registry)));
+    long invalidId = wowCache.externalFileId(Integer.MAX_VALUE);
+    assertThrows(IllegalArgumentException.class, () -> PageFileIdentity.decode(Integer.MAX_VALUE));
+    wowCache.deleteFile(invalidId);
+    wowCache.deleteFile(id);
+    assertEquals(namesBefore, names);
+    assertEquals(idsBefore, ids);
+    assertTrue(java.util.Arrays.equals(registryBefore, Files.readAllBytes(registry)));
+  }
+
+  /** Lookup waits for deletion's existing exclusion, then both threads finish without deadlock. */
+  @Test(timeout = 20_000)
+  public void identityDeletionAndLookupOverlapUnderExclusion() throws Exception {
+    wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12008);
+    var name = PageFileNames.layout28(identity);
+    long id = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+    for (var fieldName : new String[] {"nameIdMap", "idNameMap"}) {
+      var field = WOWCache.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      ((java.util.Map<?, ?>) field.get(wowCache)).clear();
+    }
+    wowCache.logicalFiles().clear();
+    var real = files.remove(id);
+    var deleting = new java.util.concurrent.CountDownLatch(1);
+    var release = new java.util.concurrent.CountDownLatch(1);
+    var lookupStarted = new java.util.concurrent.CountDownLatch(1);
+    var lookupThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+    var lockField = WOWCache.class.getDeclaredField("filesLock");
+    lockField.setAccessible(true);
+    var lock = lockField.get(wowCache);
+    var wrapped = spy(real);
+    doAnswer(invocation -> {
+      deleting.countDown();
+      assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      return invocation.callRealMethod();
+    }).when(wrapped).delete();
+    files.add(id, wrapped);
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      var deletion = executor.submit(() -> {
+        wowCache.deleteFile(id);
+        return null;
+      });
+      assertTrue(deleting.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      var lookup = executor.submit(() -> {
+        lookupThread.set(Thread.currentThread());
+        lookupStarted.countDown();
+        return wowCache.resolveRecoveryFile(null, id, RecoveryFilePermission.OPEN_ONLY);
+      });
+      assertTrue(lookupStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
+      long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+      while (java.util.concurrent.locks.LockSupport.getBlocker(lookupThread.get()) != lock
+          && !lookup.isDone() && System.nanoTime() < deadline) {
+        Thread.sleep(1);
+      }
+      org.junit.Assert.assertSame("lookup must park on filesLock before deletion is released", lock,
+          java.util.concurrent.locks.LockSupport.getBlocker(lookupThread.get()));
+      assertFalse("lookup cannot pass the active deletion exclusion", lookup.isDone());
+      release.countDown();
+      deletion.get(5, java.util.concurrent.TimeUnit.SECONDS);
+      assertFalse(lookup.get(5, java.util.concurrent.TimeUnit.SECONDS));
+      assertFalse(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS));
+    }
+  }
+
+  private void detachIdentity(long id) throws Exception {
+    files.remove(id).close();
+    for (var fieldName : new String[] {"nameIdMap", "idNameMap"}) {
+      var field = WOWCache.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      ((java.util.Map<?, ?>) field.get(wowCache)).clear();
+    }
+    wowCache.logicalFiles().clear();
+  }
+
   /**
    * Reopens the WOWCache by closing the current instance and creating a new one against the
    * same storage path. The WAL is also closed and reopened.
@@ -1039,6 +1500,12 @@ public class WOWCacheNonDurableFileTrackingTest {
   }
 
   private void createNewCache(boolean callFsync, DoubleWriteLog doubleWriteLog) throws Exception {
+    createNewCache(callFsync, doubleWriteLog, StorageFormat.LAYOUT_27);
+  }
+
+  private void createNewCache(boolean callFsync, DoubleWriteLog doubleWriteLog,
+      StorageFormat format)
+      throws Exception {
     writeAheadLog.close();
     writeAheadLog =
         new CASDiskWriteAheadLog(
@@ -1083,6 +1550,7 @@ public class WOWCacheNonDurableFileTrackingTest {
             null,
             callFsync,
             Executors.newCachedThreadPool());
+    wowCache.setStorageFormat(format);
     wowCache.loadRegisteredFiles();
   }
 
@@ -1116,6 +1584,47 @@ public class WOWCacheNonDurableFileTrackingTest {
     assertFalse(
         "Durable file should remain durable after close/reopen",
         wowCache.isNonDurable(restoredDurableId));
+  }
+
+  /** An undecodable primary id invalidates the whole copy and selects the valid shadow. */
+  @Test
+  public void undecodablePrimaryFallsBackToShadow() throws Exception {
+    assertUndecodableRegistryFallback(false);
+  }
+
+  /** Two checksummed but undecodable copies use the existing empty-set fallback. */
+  @Test
+  public void undecodableCopiesUseEmptyFallback() throws Exception {
+    assertUndecodableRegistryFallback(true);
+  }
+
+  private void assertUndecodableRegistryFallback(boolean corruptShadow) throws Exception {
+    wowCache.close();
+    createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12200);
+    var name = PageFileNames.layout28(identity);
+    var id = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()), true);
+    assertTrue(wowCache.isNonDurable(id));
+    assertTrue(wowCache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
+    wowCache.close();
+    // A valid entry before the invalid one also proves that the copy is not partially accepted.
+    var buffer = ByteBuffer.allocate(24).order(ByteOrder.BIG_ENDIAN);
+    buffer.putInt(1).putLong(0).putInt(2).putInt(identity.internalId()).putInt(0);
+    var hash = net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+        .hash(buffer, 12, 12, 0xADF678FE45L);
+    buffer.putLong(4, hash);
+    Files.write(storagePath.resolve("non_durable_files.cm"), buffer.array());
+    if (corruptShadow) {
+      Files.write(storagePath.resolve("non_durable_files_shadow.cm"), buffer.array());
+    }
+    createNewCache(false, new DoubleWriteLogNoOP(), StorageFormat.LAYOUT_28);
+    assertTrue(wowCache.files().isEmpty());
+    assertTrue(wowCache.admitExpectedFile(identity));
+    assertEquals(!corruptShadow, wowCache.isNonDurable(id));
+    var state = wowCache.logicalFiles().live(identity.internalId());
+    assertEquals(!corruptShadow, state.nonDurable());
+    assertTrue(state.diskPresent());
+    assertTrue(Files.exists(storagePath.resolve(PageFileNames.layout28DiskName(identity))));
   }
 
   /**

@@ -11,25 +11,25 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link ConcurrentLongIntHashMap}.
+ * Unit tests for {@link ConcurrentFilePageMap}.
  *
  * <p>Tests are organized by operation, starting with constructor and get() (Step 1), followed by
  * mutation operations in subsequent steps.
  */
-public class ConcurrentLongIntHashMapTest {
+public class ConcurrentFilePageMapTest {
 
   // ---- Constructor tests ----
 
   @Test
   public void emptyMapHasSizeZero() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.size()).isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
   }
 
   @Test
   public void constructorWithExpectedItems() {
-    var map = new ConcurrentLongIntHashMap<String>(1024);
+    var map = new ConcurrentFilePageMap<String>(1024);
     assertThat(map.size()).isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
     // 1024 / 16 sections = 64 per section (already power of two), x 16 = 1024
@@ -38,7 +38,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void constructorWithCustomSectionCount() {
-    var map = new ConcurrentLongIntHashMap<String>(256, 4);
+    var map = new ConcurrentFilePageMap<String>(256, 4);
     assertThat(map.size()).isEqualTo(0);
     // 256 / 4 = 64 per section (already power of two), x 4 = 256
     assertThat(map.capacity()).isEqualTo(256);
@@ -52,7 +52,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void constructorWithZeroExpectedItemsCreatesMinimalMap() {
     // expectedItems=0 is valid — creates a map with minimum per-section capacity.
-    var map = new ConcurrentLongIntHashMap<String>(0);
+    var map = new ConcurrentFilePageMap<String>(0);
     assertThat(map.size()).isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
     // Each section gets Math.max(2, alignToPowerOfTwo(0/16)) = 2, so total = 2 * 16 = 32
@@ -64,7 +64,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void constructorWithOneExpectedItem() {
     // Smallest positive expectedItems — each section gets minimum capacity of 2.
-    var map = new ConcurrentLongIntHashMap<String>(1);
+    var map = new ConcurrentFilePageMap<String>(1);
     assertThat(map.size()).isEqualTo(0);
     // 1 / 16 = 0, alignToPowerOfTwo(0) = 1, Math.max(2, 1) = 2, x 16 = 32
     assertThat(map.capacity()).isEqualTo(32);
@@ -72,32 +72,32 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void constructorRejectsNonPowerOfTwoSectionCount() {
-    assertThatThrownBy(() -> new ConcurrentLongIntHashMap<String>(256, 3))
+    assertThatThrownBy(() -> new ConcurrentFilePageMap<String>(256, 3))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("power of two");
   }
 
   @Test
   public void constructorRejectsZeroSectionCount() {
-    assertThatThrownBy(() -> new ConcurrentLongIntHashMap<String>(256, 0))
+    assertThatThrownBy(() -> new ConcurrentFilePageMap<String>(256, 0))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("power of two");
   }
 
   @Test
   public void constructorRejectsNegativeSectionCount() {
-    assertThatThrownBy(() -> new ConcurrentLongIntHashMap<String>(256, -1))
+    assertThatThrownBy(() -> new ConcurrentFilePageMap<String>(256, -1))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("power of two");
     // -16 has the same bit pattern as a power of two in the low bits
-    assertThatThrownBy(() -> new ConcurrentLongIntHashMap<String>(256, -16))
+    assertThatThrownBy(() -> new ConcurrentFilePageMap<String>(256, -16))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("power of two");
   }
 
   @Test
   public void constructorRejectsNegativeExpectedItems() {
-    assertThatThrownBy(() -> new ConcurrentLongIntHashMap<String>(-1))
+    assertThatThrownBy(() -> new ConcurrentFilePageMap<String>(-1))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("non-negative")
         .hasMessageContaining("-1");
@@ -107,7 +107,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void getOnEmptyMapReturnsNull() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.get(1L, 0)).isNull();
     assertThat(map.get(Long.MAX_VALUE, Integer.MAX_VALUE)).isNull();
   }
@@ -115,14 +115,14 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void getWithFileIdZeroOnEmptyMapReturnsNull() {
     // fileId=0 is a valid key, not a sentinel. Must not confuse with empty slot.
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.get(0L, 0)).isNull();
     assertThat(map.get(0L, 42)).isNull();
   }
 
   @Test
   public void getWithPageIndexZeroOnEmptyMapReturnsNull() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.get(42L, 0)).isNull();
   }
 
@@ -130,7 +130,7 @@ public class ConcurrentLongIntHashMapTest {
   public void getWithNegativeKeyValuesOnEmptyMapReturnsNull() {
     // Negative fileId and pageIndex must not cause ArrayIndexOutOfBoundsException
     // in the section index calculation (uses >>> unsigned shift).
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.get(-1L, -1)).isNull();
     assertThat(map.get(Long.MIN_VALUE, Integer.MIN_VALUE)).isNull();
     assertThat(map.get(-1L, Integer.MIN_VALUE)).isNull();
@@ -142,10 +142,10 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void hashFunctionProducesDifferentValuesForDifferentKeys() {
     // Verify that nearby keys produce different hashes (no trivial collisions)
-    long h1 = ConcurrentLongIntHashMap.hash(0L, 0);
-    long h2 = ConcurrentLongIntHashMap.hash(0L, 1);
-    long h3 = ConcurrentLongIntHashMap.hash(1L, 0);
-    long h4 = ConcurrentLongIntHashMap.hash(1L, 1);
+    long h1 = ConcurrentFilePageMap.hash(0L, 0);
+    long h2 = ConcurrentFilePageMap.hash(0L, 1);
+    long h3 = ConcurrentFilePageMap.hash(1L, 0);
+    long h4 = ConcurrentFilePageMap.hash(1L, 1);
 
     assertThat(h1).isNotEqualTo(h2);
     assertThat(h1).isNotEqualTo(h3);
@@ -160,7 +160,7 @@ public class ConcurrentLongIntHashMapTest {
     // With default 16 sections, a range of fileIds should distribute uniformly.
     int[] sectionHits = new int[16];
     for (int fileId = 0; fileId < 1000; fileId++) {
-      long h = ConcurrentLongIntHashMap.hash(fileId, 0);
+      long h = ConcurrentFilePageMap.hash(fileId, 0);
       int section = (int) (h >>> 32) & 15;
       sectionHits[section]++;
     }
@@ -178,7 +178,7 @@ public class ConcurrentLongIntHashMapTest {
     // Varying only pageIndex while fixing fileId should also distribute well.
     int[] sectionHits = new int[16];
     for (int pageIndex = 0; pageIndex < 1000; pageIndex++) {
-      long h = ConcurrentLongIntHashMap.hash(42L, pageIndex);
+      long h = ConcurrentFilePageMap.hash(42L, pageIndex);
       int section = (int) (h >>> 32) & 15;
       sectionHits[section]++;
     }
@@ -198,7 +198,7 @@ public class ConcurrentLongIntHashMapTest {
     var hashes = new HashSet<Long>();
     for (long fid : fileIds) {
       for (int pid : pageIndices) {
-        hashes.add(ConcurrentLongIntHashMap.hash(fid, pid));
+        hashes.add(ConcurrentFilePageMap.hash(fid, pid));
       }
     }
     // 25 distinct key pairs should yield mostly distinct hashes.
@@ -212,31 +212,31 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void alignToPowerOfTwoBasicCases() {
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(-1)).isEqualTo(1);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(-100)).isEqualTo(1);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(Integer.MIN_VALUE)).isEqualTo(1);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(0)).isEqualTo(1);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(1)).isEqualTo(1);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(2)).isEqualTo(2);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(3)).isEqualTo(4);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(4)).isEqualTo(4);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(5)).isEqualTo(8);
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(100)).isEqualTo(128);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(-1)).isEqualTo(1);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(-100)).isEqualTo(1);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(Integer.MIN_VALUE)).isEqualTo(1);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(0)).isEqualTo(1);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(1)).isEqualTo(1);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(2)).isEqualTo(2);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(3)).isEqualTo(4);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(4)).isEqualTo(4);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(5)).isEqualTo(8);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(100)).isEqualTo(128);
   }
 
   @Test
   public void alignToPowerOfTwoMaxValidPowerOfTwo() {
     // 1 << 30 is the largest valid power-of-two for int arrays.
-    assertThat(ConcurrentLongIntHashMap.alignToPowerOfTwo(1 << 30)).isEqualTo(1 << 30);
+    assertThat(ConcurrentFilePageMap.alignToPowerOfTwo(1 << 30)).isEqualTo(1 << 30);
   }
 
   @Test
   public void alignToPowerOfTwoOverflowThrows() {
     // Values above 2^30 cannot be rounded up without overflowing int.
-    assertThatThrownBy(() -> ConcurrentLongIntHashMap.alignToPowerOfTwo((1 << 30) + 1))
+    assertThatThrownBy(() -> ConcurrentFilePageMap.alignToPowerOfTwo((1 << 30) + 1))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("exceeds maximum");
-    assertThatThrownBy(() -> ConcurrentLongIntHashMap.alignToPowerOfTwo(Integer.MAX_VALUE))
+    assertThatThrownBy(() -> ConcurrentFilePageMap.alignToPowerOfTwo(Integer.MAX_VALUE))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("exceeds maximum");
   }
@@ -247,7 +247,7 @@ public class ConcurrentLongIntHashMapTest {
   public void capacityIsPowerOfTwoPerSection() {
     // Each section's capacity must be power-of-two for the bucket mask to work.
     // 100 / 4 = 25, alignToPowerOfTwo(25) = 32, x 4 = 128
-    var map = new ConcurrentLongIntHashMap<String>(100, 4);
+    var map = new ConcurrentFilePageMap<String>(100, 4);
     long totalCapacity = map.capacity();
     assertThat(totalCapacity).isEqualTo(128);
     assertThat(totalCapacity % 4).isEqualTo(0);
@@ -260,7 +260,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void singleSectionMap() {
     // Edge case: map with a single section
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     assertThat(map.size()).isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
     assertThat(map.capacity()).isEqualTo(16);
@@ -270,7 +270,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putAndGetRoundtrip() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.put(1L, 10, "hello")).isNull();
     assertThat(map.get(1L, 10)).isEqualTo("hello");
     assertThat(map.size()).isEqualTo(1);
@@ -279,7 +279,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putReplacesExistingValue() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "first");
     String prev = map.put(1L, 10, "second");
     assertThat(prev).isEqualTo("first");
@@ -291,7 +291,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void putWithFileIdZeroAndPageIndexZero() {
     // fileId=0 and pageIndex=0 are valid keys, not sentinels.
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(0L, 0, "zero-zero");
     assertThat(map.get(0L, 0)).isEqualTo("zero-zero");
     assertThat(map.size()).isEqualTo(1);
@@ -305,7 +305,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putRejectsNullValue() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThatThrownBy(() -> map.put(1L, 1, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Null");
@@ -316,7 +316,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putMultipleDistinctKeys() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int i = 0; i < 100; i++) {
       map.put((long) i, i, "val-" + i);
     }
@@ -331,7 +331,7 @@ public class ConcurrentLongIntHashMapTest {
     // Create a small map to easily trigger resize.
     // 4 sections, 8 items expected => 2 per section capacity, but min 2, so each section cap=2.
     // Fill factor 0.66, threshold = 2*0.66 = 1. So inserting 2 items in one section triggers resize.
-    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    var map = new ConcurrentFilePageMap<String>(8, 4);
     long initialCapacity = map.capacity();
 
     // Insert enough entries to force at least one section to resize
@@ -354,7 +354,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putIfAbsentInsertsWhenAbsent() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String result = map.putIfAbsent(1L, 10, "hello");
     assertThat(result).isNull();
     assertThat(map.get(1L, 10)).isEqualTo("hello");
@@ -363,7 +363,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putIfAbsentReturnsExistingWhenPresent() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "first");
     String result = map.putIfAbsent(1L, 10, "second");
     assertThat(result).isEqualTo("first");
@@ -374,7 +374,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putIfAbsentRejectsNullValue() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThatThrownBy(() -> map.putIfAbsent(1L, 1, null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Null");
@@ -386,7 +386,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeIfAbsentComputesWhenAbsent() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String result = map.computeIfAbsent(1L, 10, (fid, pid) -> "computed-" + fid + "-" + pid);
     assertThat(result).isEqualTo("computed-1-10");
     assertThat(map.get(1L, 10)).isEqualTo("computed-1-10");
@@ -395,7 +395,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeIfAbsentReturnsExistingWhenPresent() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "existing");
     int[] callCount = {0};
     String result =
@@ -414,7 +414,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeIfAbsentRejectsNullReturnFromFunction() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThatThrownBy(() -> map.computeIfAbsent(1L, 10, (fid, pid) -> null))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("must not return null");
@@ -426,7 +426,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void computeIfAbsentWithFileIdZero() {
     // fileId=0 passed to the mapping function must be correct, not confused with a sentinel
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String result = map.computeIfAbsent(0L, 0, (fid, pid) -> "fid=" + fid + ",pid=" + pid);
     assertThat(result).isEqualTo("fid=0,pid=0");
     assertThat(map.get(0L, 0)).isEqualTo("fid=0,pid=0");
@@ -438,7 +438,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void putDistinguishesSameFileIdDifferentPageIndex() {
     // Single section forces all keys into the same probe chain
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(42L, 0, "page-0");
     map.put(42L, 1, "page-1");
     map.put(42L, 2, "page-2");
@@ -451,7 +451,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putDistinguishesSamePageIndexDifferentFileId() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(1L, 99, "file-1");
     map.put(2L, 99, "file-2");
     map.put(3L, 99, "file-3");
@@ -464,7 +464,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putAndGetWithNegativeKeys() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(-1L, -1, "neg-neg");
     map.put(Long.MIN_VALUE, Integer.MIN_VALUE, "min-min");
     map.put(Long.MAX_VALUE, Integer.MAX_VALUE, "max-max");
@@ -478,7 +478,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void putReplaceDoesNotAffectSizeOrTriggerSpuriousResize() {
     // Single section, capacity 4, threshold = floor(4 * 0.66) = 2
-    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    var map = new ConcurrentFilePageMap<String>(4, 1);
     long initialCapacity = map.capacity();
 
     map.put(1L, 1, "v1");
@@ -497,7 +497,7 @@ public class ConcurrentLongIntHashMapTest {
   public void resizeTriggersAtExactThreshold() {
     // Single section with capacity=4, threshold = (int)(4 * 0.66) = 2
     // Inserts: usedBuckets 0→1→2, third insert sees usedBuckets=2 >= 2, triggers resize
-    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    var map = new ConcurrentFilePageMap<String>(4, 1);
     assertThat(map.capacity()).isEqualTo(4);
 
     map.put(1L, 1, "a");
@@ -516,7 +516,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeIfAbsentTriggersResizeCorrectly() {
-    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    var map = new ConcurrentFilePageMap<String>(8, 4);
     long initialCapacity = map.capacity();
 
     for (int i = 0; i < 20; i++) {
@@ -536,7 +536,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void putManyPagesForSameFile() {
     // Realistic access pattern: one file with many pages
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     long fileId = 42L;
     for (int page = 0; page < 500; page++) {
       map.put(fileId, page, "page-" + page);
@@ -550,7 +550,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeIfAbsentLeavesMapConsistentWhenFunctionThrows() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 1, "existing");
 
     assertThatThrownBy(
@@ -573,7 +573,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void getReturnsNullForAbsentKeyInPopulatedMap() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "hello");
     assertThat(map.get(1L, 11)).isNull();
     assertThat(map.get(2L, 10)).isNull();
@@ -582,7 +582,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void getWithFileIdZeroRetrievesCorrectly() {
     // Now that put exists, verify fileId=0 is not confused with empty sentinel
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(0L, 0, "zero-zero");
     map.put(0L, 1, "zero-one");
     map.put(1L, 0, "one-zero");
@@ -599,7 +599,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void computeOnAbsentKeyWithNullReturnIsNoOp() {
     // Absent key + null return = no-op (R1/T2 review decision)
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String result = map.compute(1L, 10, (fid, pid, current) -> null);
     assertThat(result).isNull();
     assertThat(map.size()).isEqualTo(0);
@@ -608,7 +608,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeOnAbsentKeyWithNonNullReturnInserts() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String result = map.compute(1L, 10, (fid, pid, current) -> {
       assertThat(current).as("Current value should be null for absent key").isNull();
       return "new-value";
@@ -621,7 +621,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void computeOnPresentKeyWithNullReturnRemoves() {
     // Present key + null return = removal (R1/T2 review decision)
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "existing");
     String result = map.compute(1L, 10, (fid, pid, current) -> {
       assertThat(current).isEqualTo("existing");
@@ -634,7 +634,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeOnPresentKeyWithNonNullReturnReplaces() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "old");
     String result = map.compute(1L, 10, (fid, pid, current) -> "new-" + current);
     assertThat(result).isEqualTo("new-old");
@@ -645,7 +645,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void computePassesCallerSuppliedKeysForAbsentKey() {
     // R8 review decision: pass caller's fileId/pageIndex, not array contents
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.compute(42L, 99, (fid, pid, current) -> {
       assertThat(fid).isEqualTo(42L);
       assertThat(pid).isEqualTo(99);
@@ -658,7 +658,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeReturnsRemovedValue() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "hello");
     String removed = map.remove(1L, 10);
     assertThat(removed).isEqualTo("hello");
@@ -668,14 +668,14 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeReturnsNullForAbsentKey() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.remove(1L, 10)).isNull();
     assertThat(map.size()).isEqualTo(0);
   }
 
   @Test
   public void removeDoesNotAffectOtherEntries() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(1L, 1, "a");
     map.put(2L, 2, "b");
     map.put(3L, 3, "c");
@@ -692,7 +692,7 @@ public class ConcurrentLongIntHashMapTest {
   public void getFindsEntryAfterRemovalInProbeChain() {
     // Verify backward-sweep cleanup: after removing an entry mid-chain, subsequent
     // entries must still be findable (no tombstone gap breaks the probe).
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     // Insert several entries that may form a probe chain in the single section
     for (int i = 0; i < 8; i++) {
       map.put(1L, i, "val-" + i);
@@ -719,7 +719,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void conditionalRemoveSucceedsWithSameReference() {
     // T7 review decision: reference equality
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     String value = "hello";
     map.put(1L, 10, value);
     boolean removed = map.remove(1L, 10, value);
@@ -731,7 +731,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void conditionalRemoveFailsWithDifferentReferenceEvenIfEqual() {
     // T7: uses == not equals()
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "hello");
     // new String creates a different reference that equals() the stored one
     boolean removed = map.remove(1L, 10, new String("hello"));
@@ -742,13 +742,13 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void conditionalRemoveReturnsFalseForAbsentKey() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.remove(1L, 10, "nothing")).isFalse();
   }
 
   @Test
   public void removeAndReinsertWorks() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "first");
     map.remove(1L, 10);
     map.put(1L, 10, "second");
@@ -760,7 +760,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeSingleEntryLeavesMapConsistentForReinsert() {
-    var map = new ConcurrentLongIntHashMap<String>(4, 1);
+    var map = new ConcurrentFilePageMap<String>(4, 1);
     long initialCapacity = map.capacity();
 
     map.put(1L, 1, "only");
@@ -781,7 +781,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeAllEntriesOneByOneLeavesEmptyMap() {
     // Non-sequential removal order stresses backward-sweep across the entire section
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     int count = 8;
     for (int i = 0; i < count; i++) {
       map.put(1L, i, "val-" + i);
@@ -815,7 +815,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeRemovalMaintainsProbeChainIntegrity() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     for (int i = 0; i < 6; i++) {
       map.put(1L, i, "val-" + i);
     }
@@ -836,7 +836,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeInsertTriggersResizeCorrectly() {
-    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    var map = new ConcurrentFilePageMap<String>(8, 4);
     long initialCapacity = map.capacity();
 
     for (int i = 0; i < 20; i++) {
@@ -859,7 +859,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeLeavesMapConsistentWhenFunctionThrowsOnPresentKey() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "existing");
 
     assertThatThrownBy(
@@ -877,7 +877,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeLeavesMapConsistentWhenFunctionThrowsOnAbsentKey() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "existing");
 
     assertThatThrownBy(
@@ -895,7 +895,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void computeWithZeroKeyFieldsWorksCorrectly() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     // Insert via compute on the (0, 0) key
     map.compute(
         0L,
@@ -922,7 +922,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdRemovesOnlyTargetFile() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     // Insert pages from 3 different files
     for (int page = 0; page < 10; page++) {
       map.put(1L, page, "f1-p" + page);
@@ -949,7 +949,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdReturnsCorrectValues() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(42L, 0, "a");
     map.put(42L, 1, "b");
     map.put(42L, 2, "c");
@@ -963,7 +963,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdOnEmptyMap() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     var removed = map.removeByFileId(1L);
     assertThat(removed).isEmpty();
     assertThat(map.size()).isEqualTo(0);
@@ -971,7 +971,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdForNonExistentFileId() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 0, "exists");
     var removed = map.removeByFileId(999L);
     assertThat(removed).isEmpty();
@@ -983,7 +983,7 @@ public class ConcurrentLongIntHashMapTest {
   public void removeByFileIdCompactsSection() {
     // After removeByFileId, the section should be compacted so that
     // remaining entries are still findable (no broken probe chains).
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     // Interleave entries from two files
     for (int i = 0; i < 8; i++) {
       map.put(1L, i, "f1-" + i);
@@ -1004,7 +1004,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdAllowsReinsertionAfterRemoval() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     for (int i = 0; i < 5; i++) {
       map.put(1L, i, "old-" + i);
     }
@@ -1024,7 +1024,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeByFileIdWithManyEntriesAcrossMultipleSections() {
     // Entries from many files spread across all 16 sections
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int filesCount = 10;
     int pagesPerFile = 50;
     for (long fid = 0; fid < filesCount; fid++) {
@@ -1054,7 +1054,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeByFileIdWithFileIdZero() {
     // fileId=0 must not confuse empty slots (where fileIds[i] defaults to 0)
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(0L, 0, "f0-p0");
     map.put(0L, 1, "f0-p1");
     map.put(1L, 0, "f1-p0");
@@ -1070,7 +1070,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeByFileIdRemoveAllThenFillToResizeThreshold() {
     // Single section, capacity=16, resizeThreshold = (int)(16 * 0.66) = 10
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
 
     for (int i = 0; i < 10; i++) {
       map.put(1L, i, "v" + i);
@@ -1094,7 +1094,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdConsecutiveCallsOnDifferentFiles() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     for (int i = 0; i < 5; i++) {
       map.put(1L, i, "f1-" + i);
       map.put(2L, i, "f2-" + i);
@@ -1117,7 +1117,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdRepeatedPutRemoveCycles() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
 
     for (int cycle = 0; cycle < 10; cycle++) {
       long fid = cycle;
@@ -1139,7 +1139,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void removeByFileIdCalledTwiceForSameFile() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(5L, 0, "a");
     map.put(5L, 1, "b");
     map.put(9L, 0, "other");
@@ -1160,7 +1160,7 @@ public class ConcurrentLongIntHashMapTest {
   // assertion noise.
   @Test
   public void removeByFileIdWithRangeOnEmptyMapReturnsEmpty() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     var removed = map.removeByFileId(1L, 0);
     assertThat(removed).isEmpty();
     assertThat(map.size()).isEqualTo(0);
@@ -1171,7 +1171,7 @@ public class ConcurrentLongIntHashMapTest {
   // range-scoped variant without an upper-API switch.
   @Test
   public void removeByFileIdWithMinPageIndexZeroRemovesEverything() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int page = 0; page < 6; page++) {
       map.put(7L, page, "f7-p" + page);
       map.put(9L, page, "f9-p" + page);
@@ -1191,7 +1191,7 @@ public class ConcurrentLongIntHashMapTest {
   // remain reachable, pages at or past the counter are dropped.
   @Test
   public void removeByFileIdPartialRangeKeepsEntriesBelowMin() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int page = 0; page < 10; page++) {
       map.put(3L, page, "f3-p" + page);
     }
@@ -1218,7 +1218,7 @@ public class ConcurrentLongIntHashMapTest {
   // shutdown paths respectively).
   @Test
   public void removeByFileIdRangeBoundaryConditions() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 3, "v3");
     map.put(1L, 4, "v4");
     map.put(1L, 5, "v5");
@@ -1245,7 +1245,7 @@ public class ConcurrentLongIntHashMapTest {
   // unrelated components sharing the JVM cache.
   @Test
   public void removeByFileIdRangeDoesNotTouchOtherFiles() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int page = 0; page < 10; page++) {
       map.put(1L, page, "f1-p" + page);
       map.put(2L, page, "f2-p" + page);
@@ -1270,7 +1270,7 @@ public class ConcurrentLongIntHashMapTest {
   // section, otherwise surviving below-cutoff entries become unreachable.
   @Test
   public void removeByFileIdRangeAcrossAllSections() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int pagesPerFile = 200;
     for (int page = 0; page < pagesPerFile; page++) {
       map.put(42L, page, "p" + page);
@@ -1295,7 +1295,7 @@ public class ConcurrentLongIntHashMapTest {
   // could regress to comparing fileId to a 0 sentinel.
   @Test
   public void removeByFileIdRangeWithFileIdZero() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(0L, 0, "f0-p0");
     map.put(0L, 1, "f0-p1");
     map.put(0L, 2, "f0-p2");
@@ -1327,7 +1327,7 @@ public class ConcurrentLongIntHashMapTest {
   // count — a corrupted size counter would silently drift here.
   @Test
   public void removeByFileIdRangeWithConcurrentInsertsIsRaceFree() throws Exception {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     // Seed the map with pages [0, 1000) for the target file
     for (int page = 0; page < 1000; page++) {
       map.put(7L, page, "seed-" + page);
@@ -1404,7 +1404,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void clearRemovesAllEntries() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int i = 0; i < 50; i++) {
       map.put((long) i, i, "val-" + i);
     }
@@ -1420,7 +1420,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void clearOnEmptyMapIsNoOp() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.clear();
     assertThat(map.size()).isEqualTo(0);
     assertThat(map.isEmpty()).isTrue();
@@ -1428,7 +1428,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void clearAllowsReinsertion() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
 
     map.put(1L, 1, "a");
@@ -1446,7 +1446,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void forEachVisitsAllEntries() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "a");
     map.put(2L, 20, "b");
     map.put(3L, 30, "c");
@@ -1463,7 +1463,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void forEachOnEmptyMapVisitsNothing() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int[] count = {0};
     map.forEach((fid, pid, val) -> count[0]++);
     assertThat(count[0]).isEqualTo(0);
@@ -1473,7 +1473,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void forEachValueVisitsAllValues() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put(1L, 10, "a");
     map.put(2L, 20, "b");
     map.put(3L, 30, "c");
@@ -1488,7 +1488,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void shrinkReducesCapacity() {
-    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    var map = new ConcurrentFilePageMap<String>(1024, 1);
     assertThat(map.capacity()).isEqualTo(1024);
 
     // Insert only a few entries
@@ -1509,7 +1509,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void shrinkOnEmptyMapKeepsMinimumCapacity() {
-    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    var map = new ConcurrentFilePageMap<String>(1024, 1);
     map.shrink();
     // Minimum capacity is 2 per section
     assertThat(map.capacity()).isEqualTo(2);
@@ -1521,7 +1521,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void shrinkIsNoOpWhenCapacityAlreadyOptimal() {
     // With capacity=2 (minimum) and 1 entry, ceil(1/0.66)=2 → no shrink possible
-    var map = new ConcurrentLongIntHashMap<String>(2, 1);
+    var map = new ConcurrentFilePageMap<String>(2, 1);
     map.put(1L, 1, "a");
     long capBefore = map.capacity();
 
@@ -1534,7 +1534,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void resizeWithManyEntriesPreservesAll() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
 
     // Insert enough to trigger multiple resizes
     for (int i = 0; i < 1000; i++) {
@@ -1560,7 +1560,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void largeMapWithManySections() {
-    var map = new ConcurrentLongIntHashMap<String>(1024, 16);
+    var map = new ConcurrentFilePageMap<String>(1024, 16);
     for (int i = 0; i < 1000; i++) {
       map.put((long) i, i, "val-" + i);
     }
@@ -1586,7 +1586,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void shrinkAfterManyInsertsAndRemovesPreservesRemainingEntries() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
 
     for (int i = 0; i < 500; i++) {
       map.put((long) i, i, "val-" + i);
@@ -1618,7 +1618,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void clearFollowedByShrinkReducesToMinimumCapacity() {
-    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    var map = new ConcurrentFilePageMap<String>(1024, 1);
     for (int i = 0; i < 100; i++) {
       map.put((long) i, i, "val-" + i);
     }
@@ -1633,7 +1633,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void forEachVisitsCorrectEntriesAfterRemovals() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     for (int i = 0; i < 20; i++) {
       map.put((long) i, i, "val-" + i);
     }
@@ -1652,7 +1652,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void shrinkThenInsertManyTriggersCorrectResize() {
-    var map = new ConcurrentLongIntHashMap<String>(1024, 1);
+    var map = new ConcurrentFilePageMap<String>(1024, 1);
     map.put(1L, 1, "a");
     map.shrink();
     long shrunkCapacity = map.capacity();
@@ -1674,7 +1674,7 @@ public class ConcurrentLongIntHashMapTest {
   public void removeAtWraparoundBoundaryPreservesProbeChain() {
     // Single section, capacity=8 so entries can wrap around the array boundary.
     // Insert 5 entries — with linear probing some will probe-chain across the 7→0 boundary.
-    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+    var map = new ConcurrentFilePageMap<String>(8, 1);
     assertThat(map.capacity()).isEqualTo(8);
 
     for (int i = 0; i < 5; i++) {
@@ -1698,7 +1698,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeAtWraparoundWithReverseRemovalOrder() {
     // Same setup but remove in reverse order — stresses different compaction patterns
-    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+    var map = new ConcurrentFilePageMap<String>(8, 1);
     for (int i = 0; i < 5; i++) {
       map.put(1L, i, "val-" + i);
     }
@@ -1718,7 +1718,7 @@ public class ConcurrentLongIntHashMapTest {
   public void removeAtWraparoundWithInterleavedFiles() {
     // Two files interleaved in a small single-section map — removal of one file's entries
     // must not break probe chains for the other file's entries that may span the boundary.
-    var map = new ConcurrentLongIntHashMap<String>(8, 1);
+    var map = new ConcurrentFilePageMap<String>(8, 1);
 
     for (int i = 0; i < 5; i++) {
       map.put(1L, i, "f1-" + i);
@@ -1748,7 +1748,7 @@ public class ConcurrentLongIntHashMapTest {
   public void removeByFileIdWithHighLoadFactorPreservesAllSurvivors() {
     // Single section, fill close to the resize threshold to maximize probe chain collisions.
     // capacity=32, threshold=(int)(32*0.66)=21
-    var map = new ConcurrentLongIntHashMap<String>(32, 1);
+    var map = new ConcurrentFilePageMap<String>(32, 1);
     assertThat(map.capacity()).isEqualTo(32);
 
     // Insert 10 entries for fileId=1 and 10 for fileId=2 = 20 entries (just under threshold)
@@ -1775,7 +1775,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void putIfAbsentTriggersResizeCorrectly() {
-    var map = new ConcurrentLongIntHashMap<String>(8, 4);
+    var map = new ConcurrentFilePageMap<String>(8, 4);
     long initialCapacity = map.capacity();
 
     for (int i = 0; i < 20; i++) {
@@ -1795,7 +1795,7 @@ public class ConcurrentLongIntHashMapTest {
   public void computeRemoveThenReinsertSameKey() {
     // Verifies that backward-sweep compaction after compute-removal leaves the table
     // in a state where the same key can be correctly re-inserted via compute.
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     for (int i = 0; i < 6; i++) {
       map.put(1L, i, "val-" + i);
     }
@@ -1832,7 +1832,7 @@ public class ConcurrentLongIntHashMapTest {
   public void putDistinguishesExtremePageIndexValues() {
     // Verifies that the hash function correctly separates extreme pageIndex values
     // when the fileId is identical.
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(1L, Integer.MAX_VALUE, "max");
     map.put(1L, Integer.MIN_VALUE, "min");
     map.put(1L, 0, "zero");
@@ -1853,7 +1853,7 @@ public class ConcurrentLongIntHashMapTest {
   public void removeByFileIdZeroWithHighOccupancyOnlyRemovesActualEntries() {
     // At high occupancy, many empty slots have fileIds[i] == 0L (Java default).
     // The val != null guard in removeByFileId is essential — verify it works at scale.
-    var map = new ConcurrentLongIntHashMap<String>(64, 1);
+    var map = new ConcurrentFilePageMap<String>(64, 1);
     for (int p = 0; p < 20; p++) {
       map.put(0L, p, "f0-" + p);
       map.put(1L, p, "f1-" + p);
@@ -1878,7 +1878,7 @@ public class ConcurrentLongIntHashMapTest {
 
   @Test
   public void forEachValueOnEmptyMapVisitsNothing() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int[] count = {0};
     map.forEachValue(val -> count[0]++);
     assertThat(count[0]).isEqualTo(0);
@@ -1889,24 +1889,24 @@ public class ConcurrentLongIntHashMapTest {
   /** Verify hashForFrequencySketch is consistent (same inputs → same output). */
   @Test
   public void hashForFrequencySketchIsConsistent() {
-    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(42L, 7);
-    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(42L, 7);
+    int h1 = ConcurrentFilePageMap.hashForFrequencySketch(42L, 7);
+    int h2 = ConcurrentFilePageMap.hashForFrequencySketch(42L, 7);
     assertThat(h1).isEqualTo(h2);
   }
 
   /** Verify hashForFrequencySketch differentiates keys that differ only in pageIndex. */
   @Test
   public void hashForFrequencySketchDiffersForDifferentPageIndex() {
-    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 0);
-    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 1);
+    int h1 = ConcurrentFilePageMap.hashForFrequencySketch(1L, 0);
+    int h2 = ConcurrentFilePageMap.hashForFrequencySketch(1L, 1);
     assertThat(h1).isNotEqualTo(h2);
   }
 
   /** Verify hashForFrequencySketch differentiates keys that differ only in fileId. */
   @Test
   public void hashForFrequencySketchDiffersForDifferentFileId() {
-    int h1 = ConcurrentLongIntHashMap.hashForFrequencySketch(0L, 5);
-    int h2 = ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 5);
+    int h1 = ConcurrentFilePageMap.hashForFrequencySketch(0L, 5);
+    int h2 = ConcurrentFilePageMap.hashForFrequencySketch(1L, 5);
     assertThat(h1).isNotEqualTo(h2);
   }
 
@@ -1914,7 +1914,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void hashForFrequencySketchWithZeroKeys() {
     // Long.hashCode(0) == 0, so result is 0 * 31 + 0 == 0
-    int h = ConcurrentLongIntHashMap.hashForFrequencySketch(0L, 0);
+    int h = ConcurrentFilePageMap.hashForFrequencySketch(0L, 0);
     assertThat(h).isEqualTo(0);
   }
 
@@ -1925,15 +1925,15 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void hashForFrequencySketchMatchesPrecomputedValues() {
     // Long.hashCode(1L) = 1, so 1 * 31 + 0 = 31
-    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 0)).isEqualTo(31);
+    assertThat(ConcurrentFilePageMap.hashForFrequencySketch(1L, 0)).isEqualTo(31);
     // Long.hashCode(1L) = 1, so 1 * 31 + 5 = 36
-    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(1L, 5)).isEqualTo(36);
+    assertThat(ConcurrentFilePageMap.hashForFrequencySketch(1L, 5)).isEqualTo(36);
     // Long.hashCode(123456789L) = 123456789, so 123456789 * 31 + 42 = -467806795
-    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(123456789L, 42))
+    assertThat(ConcurrentFilePageMap.hashForFrequencySketch(123456789L, 42))
         .isEqualTo(-467806795);
     // Long.hashCode(Long.MAX_VALUE) = (int)(MAX ^ (MAX >>> 32)) = -2147483648 (Integer.MIN_VALUE)
     // Integer.MIN_VALUE * 31 overflows and wraps to Integer.MIN_VALUE in int arithmetic
-    assertThat(ConcurrentLongIntHashMap.hashForFrequencySketch(Long.MAX_VALUE, 0))
+    assertThat(ConcurrentFilePageMap.hashForFrequencySketch(Long.MAX_VALUE, 0))
         .isEqualTo(-2147483648);
   }
 
@@ -1942,7 +1942,7 @@ public class ConcurrentLongIntHashMapTest {
   /** drainAll on an empty map must not invoke the consumer and must leave size at zero. */
   @Test
   public void drainAllOnEmptyMapInvokesConsumerZeroTimes() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     var collected = new ArrayList<String>();
     map.drainAll(collected::add);
     assertThat(collected).isEmpty();
@@ -1953,7 +1953,7 @@ public class ConcurrentLongIntHashMapTest {
   /** drainAll on a single-section map delivers every value exactly once, then empties the map. */
   @Test
   public void drainAllOnSingleSectionDeliversEveryValueExactlyOnce() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     var expected = new ArrayList<String>();
     for (int i = 0; i < 10; i++) {
       var v = "v" + i;
@@ -1977,7 +1977,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllAcrossAllSectionsCollectsEveryEntry() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int filesCount = 20;
     int pagesPerFile = 30;
     var expected = new ArrayList<String>();
@@ -2003,7 +2003,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllClearsEveryEntryFromGet() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (long fid = 0; fid < 5; fid++) {
       for (int page = 0; page < 10; page++) {
         map.put(fid, page, "v-" + fid + "-" + page);
@@ -2033,7 +2033,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllShrinksCapacityToInitialCapacity() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     long initialCapacity = map.capacity();
     assertThat(initialCapacity)
         .as("constructor default: 256 expectedItems / 16 sections = 16 per section * 16 = 256")
@@ -2069,7 +2069,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllShrinksToAlignedInitialCapacityForCustomExpectedItems() {
-    var map = new ConcurrentLongIntHashMap<String>(1600, 16);
+    var map = new ConcurrentFilePageMap<String>(1600, 16);
     long initialCapacity = map.capacity();
     assertThat(initialCapacity)
         .as("1600 expectedItems / 16 sections = 100 per section → aligned to 128 → 128*16=2048")
@@ -2098,7 +2098,7 @@ public class ConcurrentLongIntHashMapTest {
   /** After drainAll the map must be usable — puts and gets work as expected on a fresh table. */
   @Test
   public void drainAllLeavesMapUsableForSubsequentPutAndGet() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int i = 0; i < 50; i++) {
       map.put(1L, i, "old-" + i);
     }
@@ -2124,7 +2124,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllPropagatesConsumerExceptionOnSingleSectionMap() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(1L, 0, "first");
     map.put(1L, 1, "second");
 
@@ -2147,18 +2147,18 @@ public class ConcurrentLongIntHashMapTest {
    * section still hold their entries.
    *
    * <p>Uses two sections and picks one key for each by consulting the package-private
-   * {@link ConcurrentLongIntHashMap#hash} helper, so section assignment is deterministic.
+   * {@link ConcurrentFilePageMap#hash} helper, so section assignment is deterministic.
    */
   @Test
   public void drainAllAbortsOnConsumerExceptionLeavingLaterSectionsPopulated() {
-    var map = new ConcurrentLongIntHashMap<String>(4, 2);
+    var map = new ConcurrentFilePageMap<String>(4, 2);
 
     // Find two fileIds that fall into different sections — sectionMask = 1, so bit 32 of the
     // mixed hash picks the section.
     long keyInSection0 = -1L;
     long keyInSection1 = -1L;
     for (long fid = 1L; keyInSection0 == -1L || keyInSection1 == -1L; fid++) {
-      int sectionIdx = (int) (ConcurrentLongIntHashMap.hash(fid, 0) >>> 32) & 1;
+      int sectionIdx = (int) (ConcurrentFilePageMap.hash(fid, 0) >>> 32) & 1;
       if (sectionIdx == 0 && keyInSection0 == -1L) {
         keyInSection0 = fid;
       } else if (sectionIdx == 1 && keyInSection1 == -1L) {
@@ -2194,7 +2194,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllConsumerCanReenterMap() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     map.put(1L, 0, "original-a");
     map.put(1L, 1, "original-b");
 
@@ -2228,7 +2228,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllResetsInternalCountersSoRefillWorks() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
     assertThat(initialCapacity).isEqualTo(16L);
 
@@ -2264,7 +2264,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void secondDrainAllOnEmptiedMapIsNoOp() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (long fid = 0; fid < 10; fid++) {
       for (int page = 0; page < 20; page++) {
         map.put(fid, page, "v-" + fid + "-" + page);
@@ -2291,7 +2291,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void drainAllSkipsEmptySlots() {
-    var map = new ConcurrentLongIntHashMap<String>(64, 1);
+    var map = new ConcurrentFilePageMap<String>(64, 1);
     // Insert only 3 entries into a 64-slot section so most slots remain empty.
     map.put(1L, 0, "a");
     map.put(1L, 5, "b");
@@ -2313,7 +2313,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void clearAndShrinkEmptiesMapAndShrinksCapacityToInitialValue() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
 
     for (int i = 0; i < 200; i++) {
@@ -2339,7 +2339,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void clearAndShrinkOnEmptyMapAtInitialCapacityIsNoOp() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     long initialCapacity = map.capacity();
 
     map.clearAndShrink();
@@ -2356,7 +2356,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void clearAndShrinkLeavesMapUsableForSubsequentPutAndGet() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int i = 0; i < 50; i++) {
       map.put(1L, i, "old-" + i);
     }
@@ -2379,7 +2379,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void clearAndShrinkClearsEveryEntryFromGet() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 4);
+    var map = new ConcurrentFilePageMap<String>(16, 4);
     for (long fid = 0; fid < 8; fid++) {
       for (int page = 0; page < 16; page++) {
         map.put(fid, page, "v-" + fid + "-" + page);
@@ -2404,7 +2404,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void clearAndShrinkReleasesGrownArraysOnAlreadyEmptyMap() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
 
     for (int i = 0; i < 500; i++) {
@@ -2440,7 +2440,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdRemovesOnlyTargetStorageEntries() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     int storageA = 1;
     int storageB = 2;
     int pagesPerFile = 5;
@@ -2480,7 +2480,7 @@ public class ConcurrentLongIntHashMapTest {
   /** Empty map and missing-storage paths must both return an empty list without throwing. */
   @Test
   public void removeByStorageIdOnEmptyOrMissingStorageReturnsEmpty() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     assertThat(map.removeByStorageId(7))
         .as("empty map must return empty list")
         .isEmpty();
@@ -2501,7 +2501,7 @@ public class ConcurrentLongIntHashMapTest {
   @Test
   public void removeByStorageIdCompactsSectionSoSurvivorsRemainFindable() {
     // Force all entries into a single section so probe chain integrity is meaningfully tested.
-    var map = new ConcurrentLongIntHashMap<String>(32, 1);
+    var map = new ConcurrentFilePageMap<String>(32, 1);
     int storageA = 1;
     int storageB = 2;
 
@@ -2530,7 +2530,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdShrinksSectionThatBecomesEmpty() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
     int storageA = 1;
 
@@ -2555,7 +2555,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdDoesNotShrinkSectionWithSurvivingEntries() {
-    var map = new ConcurrentLongIntHashMap<String>(16, 1);
+    var map = new ConcurrentFilePageMap<String>(16, 1);
     long initialCapacity = map.capacity();
     int storageA = 1;
     int storageB = 2;
@@ -2591,7 +2591,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdRepairsProbeChainsAcrossAllSections() {
-    var map = new ConcurrentLongIntHashMap<String>(4096, 16);
+    var map = new ConcurrentFilePageMap<String>(4096, 16);
     int storageA = 1;
     int storageB = 2;
 
@@ -2620,7 +2620,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdSecondCallOnSameStorageIsNoOp() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     for (int i = 0; i < 20; i++) {
       map.put((1L << 32) | i, 0, "v" + i);
     }
@@ -2646,7 +2646,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdWithNegativeAndMaxBoundaries() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     map.put((((long) -1) << 32) | 7L, 0, "s-neg1");
     map.put((((long) Integer.MAX_VALUE) << 32) | 7L, 0, "s-max");
     map.put((((long) Integer.MIN_VALUE) << 32) | 7L, 0, "s-min");
@@ -2666,7 +2666,7 @@ public class ConcurrentLongIntHashMapTest {
    */
   @Test
   public void removeByStorageIdWithStorageIdZero() {
-    var map = new ConcurrentLongIntHashMap<String>();
+    var map = new ConcurrentFilePageMap<String>();
     // storageId=0: composed fileId == localFid, so the entry's high 32 bits are zero.
     map.put(0L, 0, "s0-f0-p0");
     map.put(0L, 1, "s0-f0-p1");

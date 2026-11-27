@@ -16,7 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -356,7 +356,7 @@ public class LockFreeReadCacheOptimisticTest {
   private int frequency(CacheEntry entry) throws ReflectiveOperationException {
     var sketch = (FrequencySketch) field(WTinyLFUPolicy.class, "admittor").get(policy());
     return sketch.frequency(
-        ConcurrentLongIntHashMap.hashForFrequencySketch(entry.getFileId(), entry.getPageIndex()));
+        ConcurrentFilePageMap.hashForFrequencySketch(entry.getFileId(), entry.getPageIndex()));
   }
 
   private void primeReadBuffer(CacheEntry entry) throws ReflectiveOperationException {
@@ -372,8 +372,8 @@ public class LockFreeReadCacheOptimisticTest {
   }
 
   @SuppressWarnings("unchecked")
-  private ConcurrentLongIntHashMap<CacheEntry> cacheMap() throws ReflectiveOperationException {
-    return (ConcurrentLongIntHashMap<CacheEntry>) field(LockFreeReadCache.class, "data")
+  private ConcurrentFilePageMap<CacheEntry> cacheMap() throws ReflectiveOperationException {
+    return (ConcurrentFilePageMap<CacheEntry>) field(LockFreeReadCache.class, "data")
         .get(readCache);
   }
 

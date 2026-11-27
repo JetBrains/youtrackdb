@@ -162,7 +162,9 @@ public class CommitChangesPageApplyHookTest {
       AtomicOperationBinaryTracking op, String fileName, int pageCount) throws IOException {
     long internalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(internalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile(fileName);
 
     for (int pageIndex = 0; pageIndex < pageCount; pageIndex++) {
@@ -207,7 +209,9 @@ public class CommitChangesPageApplyHookTest {
     long fileId = composeFileId(100, STORAGE_ID);
     when(writeCache.isNonDurable(fileId)).thenReturn(nonDurable);
     if (newFile) {
-      when(writeCache.bookFileId("set.dat")).thenReturn(fileId);
+      when(writeCache.bookFileIdWithOwnership("set.dat", null, false))
+          .thenReturn(new WriteCache.FileBooking(fileId, () -> {
+          }));
       Assert.assertEquals(fileId, op.addFile("set.dat", nonDurable));
     } else {
       when(writeCache.loadFile("set.dat")).thenReturn(fileId);
@@ -363,7 +367,9 @@ public class CommitChangesPageApplyHookTest {
 
     long durableId = setupNewFileWithPages(op, "durable.dat", 2);
     long nonDurableId = composeFileId(101, STORAGE_ID);
-    when(writeCache.bookFileId("non-durable.dat")).thenReturn(nonDurableId);
+    when(writeCache.bookFileIdWithOwnership("non-durable.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(nonDurableId, () -> {
+        }));
     Assert.assertEquals(nonDurableId, op.addFile("non-durable.dat", true));
     op.allocatePageForWrite(nonDurableId, 2).getChanges()
         .setByteValue(null, (byte) 3, 100);

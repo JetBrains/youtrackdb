@@ -103,7 +103,9 @@ public class PageOperationAccumulationLifecycleTest {
       throws IOException {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
 
     long fileId = op.addFile(fileName);
     // Fresh file: first allocation always targets pageIndex 0.
@@ -178,7 +180,9 @@ public class PageOperationAccumulationLifecycleTest {
 
     long nextId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextId, STORAGE_ID);
-    when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership("test.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile("test.dat");
 
     // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
@@ -233,7 +237,9 @@ public class PageOperationAccumulationLifecycleTest {
     // Set up file and page manually to capture the CacheEntryChanges
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership("test.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile("test.dat");
     // Fresh file: first allocation always targets pageIndex 0.
     var page = (CacheEntryChanges) op.allocatePageForWrite(fileId, 0);

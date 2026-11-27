@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 
@@ -13,7 +13,7 @@ public final class PageSetEntryAssertions {
   public static void replace(LockFreeReadCache cache, CacheEntry entry) throws Exception {
     var field = LockFreeReadCache.class.getDeclaredField("data");
     field.setAccessible(true);
-    var map = (ConcurrentLongIntHashMap<CacheEntry>) field.get(cache);
+    var map = (ConcurrentFilePageMap<CacheEntry>) field.get(cache);
     var flush = LockFreeReadCache.class.getDeclaredMethod("flushCurrentThreadReadBatch");
     flush.setAccessible(true);
     flush.invoke(cache);

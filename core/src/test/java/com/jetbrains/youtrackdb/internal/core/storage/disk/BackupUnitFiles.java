@@ -228,6 +228,42 @@ public final class BackupUnitFiles {
     }
   }
 
+  /** Replaces ZIP entries while retaining v6 or v7 admission metadata and repairing both hashes. */
+  public static void rewriteZipEntries(Path path,
+      java.util.function.Consumer<java.util.Map<String, byte[]>> change) throws IOException {
+    var unit = Files.readAllBytes(path);
+    var version = ByteBuffer.wrap(unit).getShort(unit.length - 74);
+    if (version != VERSION_6 && version != 7) {
+      throw new IOException("Expected a version 6 or 7 backup fixture");
+    }
+    int metadataSize = version == 7 ? 126 : 122;
+    var entries = new java.util.LinkedHashMap<String, byte[]>();
+    try (var zip = new java.util.zip.ZipInputStream(
+        new java.io.ByteArrayInputStream(zipPayload(unit)))) {
+      java.util.zip.ZipEntry entry;
+      while ((entry = zip.getNextEntry()) != null) {
+        entries.put(entry.getName(), zip.readAllBytes());
+      }
+    }
+    change.accept(entries);
+    var output = new ByteArrayOutputStream();
+    try (var zip = new java.util.zip.ZipOutputStream(output)) {
+      for (var entry : entries.entrySet()) {
+        zip.putNextEntry(new java.util.zip.ZipEntry(entry.getKey()));
+        zip.write(entry.getValue());
+        zip.closeEntry();
+      }
+    }
+    var payload = output.toByteArray();
+    int offset = payload.length % 512;
+    int padding = offset + metadataSize <= 512 ? 0 : 512 - offset;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + metadataSize);
+    System.arraycopy(unit, unit.length - metadataSize, result,
+        result.length - metadataSize, metadataSize);
+    repairVersion6Hashes(result, true, true);
+    Files.write(path, result);
+  }
+
   /** Builds a literal v7 fixture with independently encoded page-size metadata. */
   public static byte[] version7Bytes(byte[] payload, byte[] shared, int pageSize) {
     int padding = payload.length % 512 + 126 <= 512 ? 0 : 512 - payload.length % 512;
