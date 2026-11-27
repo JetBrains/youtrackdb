@@ -33,14 +33,7 @@ import org.junit.Test;
  *       the production interaction set to the writes and reads named above.
  * </ul>
  *
- * <p>Concurrency-contract caveat. Like the sibling tests in
- * {@link BTreeEngineHistogramBuildTest}, the Mockito fixture short-circuits
- * {@code clearSVTree}: the mock trees return {@code 0L} from {@code size()}
- * by default, so {@code doClearTree}'s while-loop body never runs and the
- * per-tree exclusive lock cited in the production comment of
- * {@code BTreeMultiValueIndexEngine.clear()} is not acquired here. These
- * tests pin the mechanical contract only. The lock-window race is exercised
- * by {@code BTreeMultiValueIndexEngineClearRollbackTest}.
+ * <p>The Mockito trees verify calls but do not take real component locks.
  *
  * <p>Where to add new pin tests. This class is the canonical home for
  * mixed-mode {@code clear()} pin tests on the MV engine: mechanical holder
@@ -136,6 +129,8 @@ public class BTreeMultiValueIndexEngineClearMixedModeTest {
     // is skipped) and the post-clearSVTree firstKey() reads inside the
     // postcondition asserts. verifyNoMoreInteractions below locks the full
     // interaction set on each tree mock.
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -252,6 +247,8 @@ public class BTreeMultiValueIndexEngineClearMixedModeTest {
     verify(f.nullTree, times(1)).setApproximateEntriesCount(f.op, 0L);
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -306,6 +303,8 @@ public class BTreeMultiValueIndexEngineClearMixedModeTest {
     verify(f.nullTree, times(1)).setApproximateEntriesCount(f.op, 0L);
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -339,6 +338,8 @@ public class BTreeMultiValueIndexEngineClearMixedModeTest {
     verify(f.nullTree, times(1)).setApproximateEntriesCount(f.op, 0L);
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -374,6 +375,8 @@ public class BTreeMultiValueIndexEngineClearMixedModeTest {
     verify(f.nullTree, times(1)).setApproximateEntriesCount(f.op, 0L);
     verify(f.svTree, never()).addToApproximateEntriesCount(any(), anyLong());
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());

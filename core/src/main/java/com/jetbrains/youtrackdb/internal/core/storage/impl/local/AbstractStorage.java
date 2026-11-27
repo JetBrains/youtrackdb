@@ -136,6 +136,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -841,7 +842,7 @@ public abstract class AbstractStorage
   }
 
   private static void checkPageSizeAndRelatedParametersInGlobalConfiguration(String dbName) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
     var bTreeMaxKeySize = (int) (pageSize * 0.3);
 
@@ -881,6 +882,7 @@ public abstract class AbstractStorage
   }
 
   public final void open(final ContextConfiguration contextConfiguration) {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     try {
       stateLock.readLock().lock();
       try {
@@ -1648,6 +1650,7 @@ public abstract class AbstractStorage
   protected void doCreate(ContextConfiguration contextConfiguration,
       @Nullable StorageFormat sourceFormat)
       throws IOException, java.lang.InterruptedException {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1767,7 +1770,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setPageSize(
                   atomicOperation,
-                  GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10);
+                  ProcessPageSize.bytes());
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
@@ -2078,7 +2081,7 @@ public abstract class AbstractStorage
   protected abstract void initIv() throws IOException;
 
   private void checkPageSizeAndRelatedParameters(AtomicOperation atomicOperation) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     final var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
 
     if (configuration.getPageSize(atomicOperation) != -1
@@ -5127,9 +5130,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The storage state lock protects indexEngines through Hook B. Transaction commits and
+      // the fill tail also retain the index tree locks through this hook.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -5198,9 +5200,7 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The commit retains the storage state lock and its index tree locks through Hook B.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {

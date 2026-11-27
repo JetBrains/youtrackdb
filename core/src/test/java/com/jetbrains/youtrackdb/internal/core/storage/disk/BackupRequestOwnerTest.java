@@ -328,21 +328,24 @@ public class BackupRequestOwnerTest {
     for (var pair : new DiskStorage.BackupContinuity[] {null,
         new DiskStorage.BackupContinuity(TRACKER, PREVIOUS)}) {
       var actual = tail(pair);
-      var expected = ByteBuffer.allocate(122);
+      var expected = ByteBuffer.allocate(126);
       expected.position(8);
       expected.putInt(0x42415252).putInt(pair == null ? 0 : 0x434f4e54);
       expected.putLong(pair == null ? 0 : 0x1020304050607080L);
       expected.putLong(pair == null ? 0 : 0x1122334455667788L);
       expected.putLong(pair == null ? 0 : 0x2132435465768798L);
       expected.putLong(pair == null ? 0 : 0x31425364758697a8L);
-      expected.putShort((short) 6).putLong(10).putLong(9).putInt(0);
+      expected.putInt(
+          com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+              .kibibytes())
+          .putShort((short) 7).putLong(10).putLong(9).putInt(0);
       expected.putLong(-1).putInt(-1).putLong(17).putInt(32).putLong(42);
       expected.putInt(BackupUnitFiles.supportedFeatureFormat());
       expected.putInt(BackupUnitFiles.supportedLayoutVersion()).putInt(0x47454e43);
       expected.putLong(0,
-          DiskStorage.XX_HASH_64.hash(expected.array(), 8, 106, 0x4d45544144415441L));
-      expected.putLong(114,
-          DiskStorage.XX_HASH_64.hash(expected.array(), 0, 114, DiskStorage.XX_HASH_SEED));
+          DiskStorage.XX_HASH_64.hash(expected.array(), 8, 110, 0x4d45544144415441L));
+      expected.putLong(118,
+          DiskStorage.XX_HASH_64.hash(expected.array(), 0, 118, DiskStorage.XX_HASH_SEED));
       assertArrayEquals(expected.array(), actual);
     }
   }
@@ -560,7 +563,7 @@ public class BackupRequestOwnerTest {
             BackupUnitFiles.supportedLayoutVersion(), 0x47454e43),
         true, pair);
     assertEquals(1, writes.get());
-    assertEquals(122, output.size());
+    assertEquals(126, output.size());
     return output.toByteArray();
   }
 }

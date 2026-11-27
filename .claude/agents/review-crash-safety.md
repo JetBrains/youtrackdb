@@ -24,7 +24,7 @@ You are an expert in crash-safe storage systems, write-ahead logging, and databa
 ## Project Context
 
 YouTrackDB is a Java 21+ object-oriented graph database with:
-- **Page-based storage**: Default 8 KB pages, configurable via `DISK_CACHE_PAGE_SIZE`
+- **Page-based storage**: Default 4 KB pages, configurable via `DISK_CACHE_PAGE_SIZE`
 - **Two engine types**: `EngineLocalPaginated` (disk with WAL) and `EngineMemory` (in-memory)
 - **Two-tier cache**: `ReadCache` (LockFreeReadCache) + `WriteCache` (WOWCache)
 - **Write-Ahead Logging**: `LogSequenceNumber` (segment, position) pairs, atomic operations logged before page mutations

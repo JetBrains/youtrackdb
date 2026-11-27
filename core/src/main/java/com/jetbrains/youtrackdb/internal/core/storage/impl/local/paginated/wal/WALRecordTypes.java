@@ -384,4 +384,6 @@ public final class WALRecordTypes {
 
   // Page allocation declaration, distinct from the physiological page operations.
   public static final int PAGE_ALLOCATED_WAL_RECORD = PAGE_OPERATION_ID_BASE + 98;
+
+  public static final int HISTOGRAM_STATS_PAGE_WRITE_PART_OP = PAGE_OPERATION_ID_BASE + 99;
 }

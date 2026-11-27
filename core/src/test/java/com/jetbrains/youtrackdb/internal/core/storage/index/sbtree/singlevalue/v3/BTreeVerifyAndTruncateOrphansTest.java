@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -70,8 +71,7 @@ public class BTreeVerifyAndTruncateOrphansTest {
   private static final long FILE_ID = 1L;
   private static final long NULL_BUCKET_FILE_ID = 2L;
   private static final String TREE_NAME = "testTree";
-  // Aligned with the production default (DISK_CACHE_PAGE_SIZE=8 KB).
-  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+  private static final int PAGE_SIZE_BYTES = ProcessPageSize.bytes();
 
   private ByteBufferPool bufferPool;
   private ReadCache mockReadCache;

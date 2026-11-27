@@ -13,7 +13,8 @@ import java.util.Spliterator;
 import java.util.function.Consumer;
 import javax.annotation.Nullable;
 
-final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
+sealed class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>>
+    permits SpliteratorForward.Guarded {
 
   private final BTree<K> btree;
 
@@ -58,7 +59,7 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
       return true;
     }
 
-    btree.fetchNextForwardCachePortion(this, atomicOperation);
+    fetchNextCachePortion(btree, atomicOperation);
 
     cacheIterator = dataCache.iterator();
 
@@ -72,8 +73,27 @@ final class SpliteratorForward<K> implements Spliterator<RawPair<K, RID>> {
     return false;
   }
 
-  @Nullable
-  @Override
+  void fetchNextCachePortion(BTree<K> tree, AtomicOperation op) {
+    tree.fetchNextForwardCachePortion(this, op);
+  }
+
+  static final class Guarded<K> extends SpliteratorForward<K> {
+
+    private final Runnable readGuard;
+
+    Guarded(BTree<K> tree, K fromKey, boolean fromKeyInclusive, AtomicOperation op,
+        Runnable readGuard) {
+      super(tree, fromKey, null, fromKeyInclusive, false, op);
+      this.readGuard = readGuard;
+    }
+
+    @Override
+    void fetchNextCachePortion(BTree<K> tree, AtomicOperation op) {
+      tree.fetchNextForwardCachePortionForHistogram(this, op, readGuard);
+    }
+  }
+
+  @Nullable @Override
   public Spliterator<RawPair<K, RID>> trySplit() {
     return null;
   }

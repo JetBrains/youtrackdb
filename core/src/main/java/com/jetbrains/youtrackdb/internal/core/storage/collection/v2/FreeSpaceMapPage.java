@@ -45,11 +45,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  *  Node at level L, index I is stored at byte offset:
  *    NEXT_FREE_POSITION + ((1 << (L-1)) - 1 + I) * CELL_SIZE
  *
- *  For the default 8 KB page size (MAX_PAGE_SIZE_BYTES = 8192, NEXT_FREE_POSITION = 28):
- *    - Total usable bytes = 8164
- *    - LEVELS = 13 (tree depth)
- *    - Internal nodes = 2^12 - 1 = 4095
- *    - CELLS_PER_PAGE = 8164 - 4095 = 4069 (leaf entries)
+ *  For the default 4 KB page size (MAX_PAGE_SIZE_BYTES = 4096, NEXT_FREE_POSITION = 28):
+ *    - Total usable bytes = 4,068
+ *    - LEVELS = 12 (tree depth)
+ *    - Internal nodes = 2^11 - 1 = 2,047
+ *    - CELLS_PER_PAGE = 4,068 - 2,047 = 2,021 (leaf entries)
  * }</pre>
  *
  * <h2>Search Algorithm ({@link #findPage})</h2>

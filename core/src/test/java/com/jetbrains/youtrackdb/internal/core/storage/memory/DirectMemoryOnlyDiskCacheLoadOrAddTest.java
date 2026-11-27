@@ -805,11 +805,9 @@ public class DirectMemoryOnlyDiskCacheLoadOrAddTest {
    * {@code pageSize} field but the {@link MemoryFile#installEmptyPage} call routes
    * through {@code ByteBufferPool.instance(null).pageFramePool()} — the
    * <em>JVM-singleton</em> framePool — whose page size is derived from
-   * {@link GlobalConfiguration#DISK_CACHE_PAGE_SIZE} (8 KB by default), NOT from
-   * the test's {@code PAGE_SIZE = 1024}. Every {@code framePool.acquire} therefore
-   * allocates 8192 bytes regardless of the cache's nominal page size, so the
-   * allocator-delta math below uses {@code frameBytes} (the actual framePool page
-   * size) rather than {@code PAGE_SIZE}.
+   * {@link GlobalConfiguration#DISK_CACHE_PAGE_SIZE}, not from the test's
+   * {@code PAGE_SIZE = 1024}. The allocator checks use {@code frameBytes}, the size
+   * that {@code framePool.acquire} allocates for each frame.
    *
    * <p><b>Serial execution required.</b> This test reads the JVM-singleton
    * {@link ByteBufferPool#pageFramePool()} size and

@@ -24,7 +24,7 @@ You are a performance-focused code reviewer specializing in Java database intern
 ## Project Context
 
 YouTrackDB is a Java 21+ object-oriented graph database with:
-- **Page-based storage**: Default 8 KB pages, two-tier cache (ReadCache + WriteCache)
+- **Page-based storage**: Default 4 KB pages, two-tier cache (ReadCache + WriteCache)
 - **Direct memory management**: Page cache uses direct ByteBuffers, manual allocation/deallocation
 - **B-tree indexes**: Used for all index types, performance-critical for query execution
 - **Gremlin traversals**: Graph queries that can touch many vertices/edges

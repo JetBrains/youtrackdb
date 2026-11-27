@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteEmptyOp;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteHllToPage1Op;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWritePartOp;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteSnapshotOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageAppendRecordOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageDeleteRecordOp;
@@ -437,6 +438,9 @@ public final class PageOperationRegistry {
     factory.registerNewRecord(
         WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_HLL_TO_PAGE1_OP,
         HistogramStatsPageWriteHllToPage1Op.class);
+    factory.registerNewRecord(
+        WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_PART_OP,
+        HistogramStatsPageWritePartOp.class);
 
     // Ridbag EntryPoint operations (Track 7b)
     factory.registerNewRecord(

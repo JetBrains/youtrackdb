@@ -892,10 +892,9 @@ public class BTreeTombstoneGCTest {
                 PropertyTypeInternal.LONG},
             2));
     try {
-      // Insert interleaved markers and tombstones (same key prefix so
-      // they co-locate in the same B-tree buckets). Markers at positions
-      // i*3, tombstones at positions i*3+1. Version=1 (below default LWM).
-      for (int i = 0; i < FILL_COUNT; i++) {
+      // Budget 128 bytes per marker/tombstone pair so all pairs fit in one leaf.
+      int pairCount = storage.getWriteCache().pageSize() / 128;
+      for (int i = 0; i < pairCount; i++) {
         final var mKey = new CompositeKey(
             "key" + String.format("%06d", i * 3), 1L);
         final var mVal = new SnapshotMarkerRID(new RecordId(1, i));
@@ -909,21 +908,15 @@ public class BTreeTombstoneGCTest {
             op -> unregisteredTree.put(op, tKey, tVal));
       }
 
-      long markersBefore = countEntriesOfType(
-          unregisteredTree, SnapshotMarkerRID.class);
-      assertThat(markersBefore)
-          .as("Enough markers should survive insertion-phase GC")
-          .isGreaterThan(5);
+      assertThat(countEntriesOfType(unregisteredTree, SnapshotMarkerRID.class))
+          .as("All markers must be present before overflow")
+          .isEqualTo(pairCount);
+      assertThat(countEntriesOfType(unregisteredTree, TombstoneRID.class))
+          .as("All tombstones must be present before overflow")
+          .isEqualTo(pairCount);
 
-      long tombstonesBefore = countEntriesOfType(
-          unregisteredTree, TombstoneRID.class);
-      assertThat(tombstonesBefore)
-          .as("Enough tombstones should survive insertion-phase GC")
-          .isGreaterThan(5);
-
-      // Insert live entries at interleaved positions (i*3+2) to trigger
-      // overflow + GC. These share buckets with markers and tombstones.
-      for (int i = 0; i < FILL_COUNT; i++) {
+      // Fill the same leaf with live entries until it overflows and runs GC.
+      for (int i = 0; i < 4 * pairCount; i++) {
         final var key = new CompositeKey(
             "key" + String.format("%06d", i * 3 + 2), 100L);
         final var value = new RecordId(2, i);
@@ -936,14 +929,13 @@ public class BTreeTombstoneGCTest {
       assertThat(countEntriesOfType(
           unregisteredTree, SnapshotMarkerRID.class))
           .as("All markers must be preserved when history file base id is not set")
-          .isEqualTo(markersBefore);
+          .isEqualTo(pairCount);
 
-      // Tombstones must still be GC'd even without a history file base id —
-      // tombstone removal bypasses the snapshot check entirely
+      // Tombstones bypass the snapshot check.
       assertThat(countEntriesOfType(
           unregisteredTree, TombstoneRID.class))
           .as("Tombstones must be removed regardless of history identity")
-          .isLessThan(tombstonesBefore / 2);
+          .isLessThan(pairCount / 2);
     } finally {
       atomicOperationsManager.executeInsideAtomicOperation(
           op -> unregisteredTree.delete(op));
