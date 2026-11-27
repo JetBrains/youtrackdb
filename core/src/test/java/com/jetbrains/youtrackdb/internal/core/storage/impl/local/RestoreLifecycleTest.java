@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Featu
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
@@ -1827,6 +1828,7 @@ public class RestoreLifecycleTest {
       throws Exception {
     var process = new ProcessBuilder(
         Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+        "-Dyoutrackdb.storage.diskCache.pageSize=" + ProcessPageSize.kibibytes(),
         "-cp",
         System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
         RestoreLifecycleTest.class.getName(), databasesPath.toString(),
