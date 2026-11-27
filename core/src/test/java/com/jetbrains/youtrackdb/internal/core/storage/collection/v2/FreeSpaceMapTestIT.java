@@ -301,13 +301,13 @@ public class FreeSpaceMapTestIT {
   // Verifies that a previously created and populated FreeSpaceMap can be opened
   // by a new instance, and that the stored free-space data survives the reopen.
   // Uses two pages at different thresholds so each can be identified uniquely:
-  // page 7 has 2048 bytes, page 12 has 4096 bytes.
+  // page 7 has 2048 bytes, page 12 has 3584 bytes.
   @Test
   public void openPreservesPageData() throws IOException {
     atomicOperationsManager.executeInsideAtomicOperation(
         operation -> {
           freeSpaceMap.updatePageFreeSpace(operation, 7, 2048);
-          freeSpaceMap.updatePageFreeSpace(operation, 12, 4096);
+          freeSpaceMap.updatePageFreeSpace(operation, 12, 3584);
         });
 
     final var reopened = new FreeSpaceMap(storage, "freeSpaceMap", ".fsm", "freeSpaceMap");
@@ -315,7 +315,7 @@ public class FreeSpaceMapTestIT {
         operation -> {
           reopened.open(operation);
 
-          // Requesting 3000 bytes — only page 12 (4096) qualifies
+          // Requesting 3000 bytes — only page 12 (3584) qualifies
           Assert.assertEquals(
               "only page 12 has enough space for 3000 bytes",
               12, reopened.findFreePage(3000, operation));
