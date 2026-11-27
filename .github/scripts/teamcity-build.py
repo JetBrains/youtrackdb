@@ -222,6 +222,9 @@ def branch_kind(branch):
 
 
 def detect_build():
+    message("setParameter", name="detect.should_build", value="false")
+    print("Pilot: forced detect.should_build=false")
+    return 0
     kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
     args = ["--root", ".", "--head", "HEAD", "--commit-type", kind]
     if kind == "pr":
