@@ -973,6 +973,7 @@ public abstract class AbstractStorage
 
           verifyStartupHistory();
           recoverIfNeeded();
+          hydrateConfigurationFiles();
 
           atomicOperationsManager.executeInsideAtomicOperation(
               atomicOperation -> {
@@ -986,6 +987,7 @@ public abstract class AbstractStorage
                 }
 
                 initConfiguration(contextConfiguration, atomicOperation);
+                hydrateComponentFiles(atomicOperation);
                 seedComponentIds(atomicOperation);
               });
 
@@ -1256,6 +1258,67 @@ public abstract class AbstractStorage
     }
   }
 
+  /** Admits only present fixed configuration roles, after recovery and before metadata load. */
+  protected final void hydrateConfigurationFiles() throws IOException {
+    if (writeCache.supportsIdentityRecovery()) {
+      hydrateFileFamily(PageFileKind.CONFIGURATION, PageFileIdentity.CONFIGURATION_COMPONENT_ID);
+    }
+  }
+
+  /**
+   * Builds the disk inventory of configured components before seeding or opening their handles.
+   * Configuration load must have released its non-reentrant lock. The storage write lock keeps
+   * backup and restore consumers out until the inventory is complete. Background cache readers
+   * can see each admitted file only after its physical handle and extents are ready.
+   * Restore uses the same idempotent pass without lowering live allocation extents.
+   */
+  protected final void hydrateComponentFiles(AtomicOperation operation) throws IOException {
+    assert stateLock.isWriteLockedByCurrentThread();
+    if (!writeCache.supportsIdentityRecovery()) {
+      return;
+    }
+    for (var collection : configuration.getCollections()) {
+      if (collection != null) {
+        checkCollectionIdentity(collection);
+        var componentId = ((StoragePaginatedCollectionConfiguration) collection).getComponentId();
+        hydrateFileFamily(PageFileKind.COLLECTION, componentId);
+      }
+    }
+    for (var indexName : configuration.indexEngines(operation)) {
+      var engine = configuration.getIndexEngine(indexName, -1, operation);
+      validateComponentIdEvidence(engine.getFileBaseId(), "index entry '" + indexName + "'");
+      for (var role : PageFileRole.values()) {
+        if (role.kind() == PageFileKind.INDEX_ENGINE
+            && (engine.isMultivalue()
+                || (role != PageFileRole.NULL_KEY_DATA
+                    && role != PageFileRole.NULL_KEY_NULL_BUCKET))) {
+          writeCache.admitExpectedFile(new PageFileIdentity(role, engine.getFileBaseId()));
+        }
+      }
+    }
+  }
+
+  private void hydrateFileFamily(PageFileKind kind, int componentId) throws IOException {
+    for (var role : PageFileRole.values()) {
+      if (role.kind() == kind) {
+        writeCache.admitExpectedFile(new PageFileIdentity(role, componentId));
+      }
+    }
+  }
+
+  // Assertion-only observation at the shared open/restore boundary. No callback lookup runs
+  // with assertions disabled. Tests remove their thread-scoped observer in finally.
+  static final ThreadLocal<Consumer<AbstractStorage>> BEFORE_COMPONENT_ID_SEEDING =
+      new ThreadLocal<>();
+
+  private boolean observeComponentIdSeeding() {
+    var observer = BEFORE_COMPONENT_ID_SEEDING.get();
+    if (observer != null) {
+      observer.accept(this);
+    }
+    return true;
+  }
+
   /**
    * Seeds live allocation marks after configuration load and before any component load.
    * The caller owns the storage write lock. Configuration load must have released its own lock.
@@ -1270,15 +1333,17 @@ public abstract class AbstractStorage
    *       cache install does not revert) and would otherwise collide with a re-issued id.
    * </ol>
    *
-   * <p>Layout 28 also seeds per-kind marks from strict logical names in live files and the
-   * deletion inventory. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
-   * open. Deletion names that fail strict parsing are ignored.
+   * <p>Layout 28 disk caches also seed per-kind marks from hydrated live logical files and
+   * session reservations and deletions, not map-only records. Memory caches retain their live
+   * inventory evidence. Malformed live names with the reserved {@code ytdb-p28-} prefix reject
+   * open. Negative names that fail strict parsing are ignored.
    *
    * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
    * incremental restore into an already-open storage) keeps the monotonicity guarantee.
    */
   protected final void seedComponentIds(final AtomicOperation atomicOperation) {
     assert stateLock.isWriteLockedByCurrentThread();
+    assert observeComponentIdSeeding();
     final var layout28 = storageFormat == StorageFormat.LAYOUT_28;
     final var config = (CollectionBasedStorageConfiguration) configuration;
     if (layout28) {
@@ -1299,7 +1364,7 @@ public abstract class AbstractStorage
 
     final var wc = writeCache;
     if (wc != null) {
-      for (final var fileName : wc.files().keySet()) {
+      for (final var fileName : wc.registrationEvidence().positiveNames()) {
         if (layout28) {
           final var identity = PageFileNames.parseLayout28(fileName);
           if (identity.isPresent()) {
@@ -1322,7 +1387,7 @@ public abstract class AbstractStorage
     if (layout28 && wc != null) {
       // Negative registrations mix deletions and bookings. Both conservatively reserve ids.
       // Only logical names qualify. Old disk-name aliases and user tombstones are not evidence.
-      for (final var fileName : wc.deletedFiles()) {
+      for (final var fileName : wc.registrationEvidence().negativeNames()) {
         final var identity = PageFileNames.parseLayout28(fileName);
         if (identity.isPresent()) {
           final var file = identity.get();
@@ -4842,9 +4907,10 @@ public abstract class AbstractStorage
    * the stem shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions)
    * must never false-positive the cleanup arm into a spurious delete attempt.
    *
-   * <p>On both layouts the write cache reflects the physical files. The eager cache install
-   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
-   * surviving family file is an orphan to clean up.
+   * <p>Layout 28 disk inventory is logical. Cleanup requires a separate backing-file probe
+   * after the logical identity checks. A logically live but physically absent family does not
+   * activate cleanup. Memory inventory itself determines survival. Layout 27 retains its
+   * registered-family test.
    *
    * <p>Package-private for tests.
    *
@@ -4872,7 +4938,9 @@ public abstract class AbstractStorage
           throw new StorageException(name, "Page-file identity conflict: " + fileName);
         }
         if (registered != null && registered > 0 && wc.exists(fileName)
-            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
+            && wc.exists(AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))
+            && wc.physicalFileExists(
+                AbstractWriteCache.composeFileId(wc.getId(), identity.internalId()))) {
           present = true;
         }
       }
@@ -10092,7 +10160,8 @@ public abstract class AbstractStorage
               writeCache.internalFileId(fileDeletedWALRecord.getFileId()))) {
             continue;
           }
-          if (writeCache.exists(fileDeletedWALRecord.getFileId())) {
+          if (writeCache.supportsIdentityRecovery()
+              || writeCache.exists(fileDeletedWALRecord.getFileId())) {
             readCache.deleteFile(fileDeletedWALRecord.getFileId(), writeCache);
           }
         }
@@ -10102,7 +10171,23 @@ public abstract class AbstractStorage
               writeCache.internalFileId(fileCreatedCreatedWALRecord.getFileId()))) {
             continue;
           }
-          if (!writeCache.exists(fileCreatedCreatedWALRecord.getFileName())) {
+          if (writeCache.supportsIdentityRecovery()) {
+            final var fileName = fileCreatedCreatedWALRecord.getFileName();
+            final var fileId = fileCreatedCreatedWALRecord.getFileId();
+            final var completeCreatingUnit = atomicUnit.getFirst() instanceof AtomicUnitStartRecord;
+            final var permission = completeCreatingUnit
+                ? WriteCache.RecoveryFilePermission.REPLAY_CREATE
+                : WriteCache.RecoveryFilePermission.OPEN_ONLY;
+            final var fileResolved = writeCache.resolveRecoveryFile(fileName, fileId, permission);
+            if (!fileResolved) {
+              final var deletedLater = replayDeletions != null && replayDeletions.deletedAfter(
+                  writeCache.internalFileId(fileId), walRecord.getLsn());
+              if (deletedLater) {
+                continue;
+              }
+              throw new IOException("Missing replay file without a complete creating unit");
+            }
+          } else if (!writeCache.exists(fileCreatedCreatedWALRecord.getFileName())) {
             readCache.addFile(
                 fileCreatedCreatedWALRecord.getFileName(),
                 fileCreatedCreatedWALRecord.getFileId(),
@@ -10268,7 +10353,8 @@ public abstract class AbstractStorage
    * non-durable files and uses an empty exclusion set.
    *
    * <ol>
-   *   <li><b>Existing file.</b> Return true without consulting deletion evidence.</li>
+   *   <li><b>Existing file.</b> Resolve computed disk presence for layout 28, otherwise legacy
+   *       existence. Return true without consulting deletion evidence.</li>
    *   <li><b>Pending-create consult.</b> Scan the current unit for a matching
    *       {@link FileCreatedWALRecord}, comparing internal file ids because backup restore rewrites
    *       external high bits. If its file name is absent, materialize the file through
@@ -10277,44 +10363,64 @@ public abstract class AbstractStorage
    *   <li><b>Later committed deletion.</b> If this recovery call has a counted deletion after the
    *       page change, log the skip and return false without restoring the missing file.</li>
    *   <li><b>{@code restoreFileById} fallback.</b> If no skip applies, attempt to restore the missing
-   *       file from its persisted negative name-id entry. Return true on success.</li>
-   *   <li><b>Throw.</b> If the file remains missing, throw {@link StorageException} so the caller
-   *       abandons the rest of the restore.</li>
+   *       file from its persisted negative name-id entry for layout 27 only.</li>
+   *   <li><b>Throw.</b> Layout 28 fails recovery with an IOException if the file remains missing.
+   *       Layout 27 retains its StorageException failure.</li>
    * </ol>
    *
    * @return true if the file exists or was materialized, false if the caller must skip the change
    */
   private boolean ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId,
       LogSequenceNumber position, ReplayDeletions replayDeletions) throws IOException {
-    if (writeCache.exists(fileId)) {
+    final var identityRecovery = writeCache.supportsIdentityRecovery();
+    if (identityRecovery) {
+      if (writeCache.resolveRecoveryFile(null, fileId,
+          WriteCache.RecoveryFilePermission.OPEN_ONLY)) {
+        return true;
+      }
+    } else if (writeCache.exists(fileId)) {
       return true;
     }
 
     final var internalId = writeCache.internalFileId(fileId);
-    for (final var record : atomicUnit) {
-      // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
-      // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
-      // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
-      // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
-      // entry but absent file) would slip past it and make addFile throw. That window is not
-      // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
-      // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
-      // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
-      // consistency, the same assumption the sibling branch makes.
-      //
-      // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
-      // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
-      // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
-      // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
-      //
-      // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
-      // so this scan finds nothing for it. Check later deletion evidence before the fallback.
-      if (record instanceof FileCreatedWALRecord fileCreated
-          && writeCache.internalFileId(fileCreated.getFileId()) == internalId
-          && !writeCache.exists(fileCreated.getFileName())) {
-        readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
-        return true;
+    if (identityRecovery) {
+      // Page redo precedes file creation in WAL. The complete unit supplies creation evidence.
+      if (atomicUnit.getFirst() instanceof AtomicUnitStartRecord) {
+        for (final var record : atomicUnit) {
+          if (record instanceof FileCreatedWALRecord creation
+              && writeCache.internalFileId(creation.getFileId()) == internalId) {
+            return writeCache.resolveRecoveryFile(creation.getFileName(), fileId,
+                WriteCache.RecoveryFilePermission.REPLAY_CREATE);
+          }
+        }
       }
+    } else {
+      for (final var record : atomicUnit) {
+        // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
+        // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
+        // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
+        // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
+        // entry but absent file) would slip past it and make addFile throw. That window is not
+        // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
+        // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
+        // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
+        // consistency, the same assumption the sibling branch makes.
+        //
+        // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
+        // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
+        // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
+        // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
+        //
+        // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
+        // so this scan finds nothing for it. Check later deletion evidence before the fallback.
+        if (record instanceof FileCreatedWALRecord fileCreated
+            && writeCache.internalFileId(fileCreated.getFileId()) == internalId
+            && !writeCache.exists(fileCreated.getFileName())) {
+          readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
+          return true;
+        }
+      }
+
     }
 
     if (replayDeletions != null && replayDeletions.deletedAfter(internalId, position)) {
@@ -10324,7 +10430,7 @@ public abstract class AbstractStorage
       return false;
     }
 
-    final var fileName = writeCache.restoreFileById(fileId);
+    final var fileName = identityRecovery ? null : writeCache.restoreFileById(fileId);
     if (fileName != null) {
       LogManager.instance()
           .warn(
@@ -10335,10 +10441,12 @@ public abstract class AbstractStorage
       return true;
     }
 
-    throw new StorageException(name,
-        "File with id "
-            + fileId
-            + " was deleted from storage, the rest of operations can not be restored");
+    final var message = "File with id " + fileId
+        + " was deleted from storage, the rest of operations can not be restored";
+    if (identityRecovery) {
+      throw new IOException(message);
+    }
+    throw new StorageException(name, message);
   }
 
   @SuppressWarnings("unused")

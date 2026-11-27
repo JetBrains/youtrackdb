@@ -1,11 +1,26 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
+import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -14,8 +29,14 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenLis
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -54,12 +75,478 @@ public class LockFreeReadCacheFileOpsTest {
   }
 
   @After
-  public void tearDown() {
-    try {
-      readCache.clear();
-    } catch (StorageException ignored) {
-      // Tolerate pinned-entry failures in tearDown to keep tests self-isolating.
+  public void tearDown() throws Exception {
+    onOtherThread(() -> {
+      try {
+        readCache.clear();
+      } catch (StorageException ignored) {
+        // Tolerate pinned-entry failures in tearDown to keep tests self-isolating.
+      }
+      bufferPool.clear();
+    });
+  }
+
+  @Test(timeout = 30_000)
+  public void overflowAtAnyPositionFinishesCleanupWithoutFurtherWaits() throws Exception {
+    for (var operation : FileOperation.values()) {
+      for (int failedCheck = 1; failedCheck <= 3; failedCheck++) {
+        var write = frameWriteCache();
+        var other = cachePage(write, 81, 0);
+        boolean shrink = operation == FileOperation.SHRINK;
+        var prefix = shrink ? cachePage(write, 80, 0) : null;
+        var pages = new CachedPage[] {cachePage(write, 80, 1), cachePage(write, 80, 2),
+            cachePage(write, 80, 3)};
+        var failure = new IllegalStateException(operation + " overflow check " + failedCheck);
+        var checks = new AtomicInteger();
+        int rejectAt = failedCheck;
+        int warmupChecks = pages.length + (shrink ? 2 : 1);
+        when(write.shrinkFile(80, PAGE_SIZE)).thenReturn(true);
+        doAnswer(call -> {
+          int check = checks.incrementAndGet();
+          Assert.assertEquals(check,
+              Arrays.stream(pages).filter(page -> page.frame().getFileId() == -1).count());
+          Assert.assertEquals((long) (warmupChecks - check) * PAGE_SIZE, readCache.getUsedMemory());
+          if (check == rejectAt) {
+            if (shrink) {
+              verify(write).shrinkFile(80, PAGE_SIZE);
+            }
+            throw failure;
+          }
+          return null;
+        }).when(write).checkCacheOverflow();
+
+        Assert.assertSame(failure, Assert.assertThrows(IllegalStateException.class,
+            () -> runFileOperation(operation, write)));
+        verify(write, times(warmupChecks + failedCheck)).checkCacheOverflow();
+        verifyNoCloseOrDelete(write);
+        verify(write, times(shrink ? 1 : 0)).shrinkFile(anyLong(), anyLong());
+        onOtherThread(() -> {
+          assertConsistent(shrink ? 2 : 1);
+          for (var page : pages) {
+            assertEvicted(page);
+          }
+          assertCached(other, write);
+          if (shrink) {
+            assertCached(prefix, write);
+          } else {
+            runFileOperation(operation, write);
+            if (operation == FileOperation.CLOSE) {
+              verify(write).close(80, false);
+            } else {
+              verify(write).deleteFile(80);
+            }
+          }
+          readCache.clear();
+        });
+      }
     }
+  }
+
+  @Test(timeout = 30_000)
+  public void successfulShrinkPurgesTailWhenQueuedAdmissionFailsBeforeScan() throws Exception {
+    readCache = new LockFreeReadCache(bufferPool, 32L * PAGE_SIZE, PAGE_SIZE);
+    var closingWrite = frameWriteCache();
+    cachePage(closingWrite, 82, 0);
+    var write = frameWriteCache();
+    var rejection = new IllegalStateException("queued admission victim release failed");
+    var rejectRelease = new AtomicBoolean();
+    for (int i = 0; i < 28; i++) {
+      spyRelease(write, 81, i, () -> {
+        if (rejectRelease.getAndSet(false)) {
+          throw rejection;
+        }
+      });
+      cachePage(write, 81, i);
+    }
+
+    // Keep the shrink target newer than either possible eviction victim.
+    var prefix = cachePage(write, 80, 0);
+    var firstTail = cachePage(write, 80, 1);
+    var secondTail = cachePage(write, 80, 2);
+    var closing = new CountDownLatch(1);
+    var continueClose = new CountDownLatch(1);
+    doAnswer(call -> {
+      closing.countDown();
+      Assert.assertTrue(continueClose.await(10, TimeUnit.SECONDS));
+      return null;
+    }).when(closingWrite).checkCacheOverflow();
+    var close = new FutureTask<Void>(() -> {
+      readCache.closeFile(82, false, closingWrite);
+      return null;
+    });
+    Thread.ofPlatform().daemon().start(close);
+    try {
+      Assert.assertTrue(closing.await(10, TimeUnit.SECONDS));
+      // The close holds the eviction lock. Both misses fit below the forced drain threshold.
+      cachePage(write, 81, 28);
+      cachePage(write, 81, 29);
+      Assert.assertEquals(33L * PAGE_SIZE, readCache.getUsedMemory());
+    } finally {
+      continueClose.countDown();
+      close.get(10, TimeUnit.SECONDS);
+    }
+
+    when(write.shrinkFile(80, PAGE_SIZE)).thenAnswer(call -> {
+      rejectRelease.set(true);
+      return true;
+    });
+    Assert.assertSame(rejection, Assert.assertThrows(IllegalStateException.class,
+        () -> runFileOperation(FileOperation.SHRINK, write)));
+    verify(write).shrinkFile(80, PAGE_SIZE);
+    verify(write, times(33)).checkCacheOverflow();
+    verifyNoCloseOrDelete(write);
+    onOtherThread(() -> {
+      assertConsistent(30);
+      assertCached(prefix, write);
+      assertEvicted(firstTail);
+      assertEvicted(secondTail);
+    });
+  }
+
+  @Test(timeout = 30_000)
+  public void interruptedOverflowWrapsCauseAndStillReleasesEveryPage() throws Exception {
+    var write = frameWriteCache();
+    var first = cachePage(write, 80, 1);
+    var second = cachePage(write, 80, 2);
+    var interruption = new InterruptedException("overflow wait interrupted");
+    when(write.getStorageName()).thenReturn("file-ops");
+    doThrow(interruption).when(write).checkCacheOverflow();
+
+    var failure = Assert.assertThrows(ThreadInterruptedException.class,
+        () -> runFileOperation(FileOperation.DELETE, write));
+    Assert.assertSame(interruption, failure.getCause());
+    Assert.assertEquals("file-ops", failure.getDbName());
+    verify(write, times(3)).checkCacheOverflow();
+    verifyNoCloseOrDelete(write);
+    onOtherThread(() -> {
+      assertConsistent(0);
+      assertEvicted(first);
+      assertEvicted(second);
+    });
+  }
+
+  @Test(timeout = 30_000)
+  public void closeAndDeleteReinsertPinnedPageAndReportRefusalWithoutDelegating() throws Exception {
+    for (var operation : new FileOperation[] {FileOperation.CLOSE, FileOperation.DELETE}) {
+      var write = frameWriteCache();
+      var pinned = cachePage(write, 80, 1);
+      var free = cachePage(write, 80, 2);
+      Assert.assertTrue(pinned.entry().acquireEntry());
+      try {
+        Assert.assertThrows(StorageException.class, () -> runFileOperation(operation, write));
+        verifyNoCloseOrDelete(write);
+        onOtherThread(() -> {
+          assertConsistent(1);
+          assertCached(pinned, write);
+          assertEvicted(free);
+        });
+      } finally {
+        pinned.entry().releaseEntry();
+      }
+      onOtherThread(readCache::clear);
+    }
+  }
+
+  @Test(timeout = 30_000)
+  public void overflowRemainsPrimaryWhenLaterPinnedPageIsReinserted() throws Exception {
+    var write = frameWriteCache();
+    var first = cachePage(write, 80, 1);
+    var second = cachePage(write, 80, 2);
+    var pinned = new AtomicReference<CachedPage>();
+    var rejection = new IllegalStateException("overflow rejected");
+    doAnswer(call -> {
+      // Pin the entry still awaiting cleanup without depending on hash traversal order.
+      var remaining = first.entry().isDead() ? second : first;
+      Assert.assertTrue(remaining.entry().acquireEntry());
+      pinned.set(remaining);
+      throw rejection;
+    }).when(write).checkCacheOverflow();
+    try {
+      Assert.assertSame(rejection, Assert.assertThrows(IllegalStateException.class,
+          () -> runFileOperation(FileOperation.CLOSE, write)));
+      Assert.assertEquals(1, rejection.getSuppressed().length);
+      Assert.assertTrue(rejection.getSuppressed()[0] instanceof StorageException);
+      verify(write, times(3)).checkCacheOverflow();
+      verifyNoCloseOrDelete(write);
+      onOtherThread(() -> {
+        assertConsistent(1);
+        assertCached(pinned.get(), write);
+        assertEvicted(pinned.get() == first ? second : first);
+      });
+    } finally {
+      if (pinned.get() != null) {
+        pinned.get().entry().releaseEntry();
+      }
+    }
+  }
+
+  @Test(timeout = 30_000)
+  public void earlierPinnedRefusalDoesNotSkipLaterFailingOverflowCheck() throws Exception {
+    var write = frameWriteCache();
+    var first = cachePage(write, 80, 1);
+    var second = cachePage(write, 80, 2);
+    var rejection = new IllegalStateException("overflow rejected");
+    var pinned = new AtomicReference<CachedPage>();
+    Assert.assertTrue(first.entry().acquireEntry());
+    Assert.assertTrue(second.entry().acquireEntry());
+    when(write.getStorageName()).thenAnswer(call -> {
+      // The first refusal follows reinsertion. Unpin the other page before its turn.
+      var refused = readCache.getCacheEntryOptimistic(80, 1) == null ? second : first;
+      var next = refused == first ? second : first;
+      Assert.assertSame(refused.frame(), readCache.getCacheEntryOptimistic(80,
+          refused.entry().getPageIndex()).getCachePointer().getPageFrame());
+      Assert.assertTrue(pinned.compareAndSet(null, refused));
+      next.entry().releaseEntry();
+      return "file-ops";
+    });
+    doAnswer(call -> {
+      Assert.assertNotNull(pinned.get());
+      throw rejection;
+    }).when(write).checkCacheOverflow();
+    try {
+      Assert.assertSame(rejection, Assert.assertThrows(IllegalStateException.class,
+          () -> runFileOperation(FileOperation.CLOSE, write)));
+      var suppressed = rejection.getSuppressed();
+      Assert.assertEquals(1, suppressed.length);
+      Assert.assertTrue(suppressed[0] instanceof StorageException);
+      Assert.assertTrue(suppressed[0].getMessage().startsWith(
+          "Page with index " + pinned.get().entry().getPageIndex()));
+      verify(write, times(3)).checkCacheOverflow();
+      verifyNoCloseOrDelete(write);
+      onOtherThread(() -> {
+        assertConsistent(1);
+        assertCached(pinned.get(), write);
+        assertEvicted(pinned.get() == first ? second : first);
+      });
+    } finally {
+      if (pinned.get() == null) {
+        first.entry().releaseEntry();
+        second.entry().releaseEntry();
+      } else {
+        pinned.get().entry().releaseEntry();
+      }
+    }
+  }
+
+  @Test(timeout = 30_000)
+  public void twoPinnedPagesYieldOneRefusalWithoutSkippingOverflowChecks() throws Exception {
+    var write = frameWriteCache();
+    var first = cachePage(write, 80, 1);
+    var second = cachePage(write, 80, 2);
+    var free = cachePage(write, 80, 3);
+    Assert.assertTrue(first.entry().acquireEntry());
+    Assert.assertTrue(second.entry().acquireEntry());
+    try {
+      var refusal = Assert.assertThrows(StorageException.class,
+          () -> runFileOperation(FileOperation.DELETE, write));
+      Assert.assertEquals(0, refusal.getSuppressed().length);
+      verify(write).getStorageName();
+      verify(write, times(4)).checkCacheOverflow();
+      verifyNoCloseOrDelete(write);
+      onOtherThread(() -> {
+        assertConsistent(2);
+        assertCached(first, write);
+        assertCached(second, write);
+        assertEvicted(free);
+      });
+    } finally {
+      first.entry().releaseEntry();
+      second.entry().releaseEntry();
+    }
+  }
+
+  @Test(timeout = 30_000)
+  public void releaseFailuresAfterOverflowAreSuppressedOnceAndDoNotAbortAccounting()
+      throws Exception {
+    var write = frameWriteCache();
+    var primary = new AssertionError("overflow rejected");
+    var later = new IllegalStateException("release failed");
+    var last = new IllegalStateException("another release failed");
+    var releases = new AtomicInteger();
+    var pages = new CachedPage[6];
+    var pointers = new CachePointer[pages.length];
+    for (int i = 0; i < pages.length; i++) {
+      pointers[i] = spyRelease(write, 80, i, () -> {
+        switch (releases.incrementAndGet()) {
+          case 2 -> throw primary;
+          case 3, 5 -> throw later;
+          case 4 -> throw last;
+          default -> {
+          }
+        }
+      });
+      pages[i] = cachePage(write, 80, i);
+    }
+    doThrow(primary).when(write).checkCacheOverflow();
+
+    Assert.assertSame(primary, Assert.assertThrows(AssertionError.class,
+        () -> runFileOperation(FileOperation.DELETE, write)));
+    Assert.assertArrayEquals(new Throwable[] {later, last}, primary.getSuppressed());
+    verify(write, times(pages.length + 1)).checkCacheOverflow();
+    verifyNoCloseOrDelete(write);
+    onOtherThread(() -> {
+      assertConsistent(0);
+      for (int i = 0; i < pages.length; i++) {
+        assertEvicted(pages[i]);
+        verify(pointers[i]).decrementReadersReferrer();
+      }
+    });
+  }
+
+  @Test(timeout = 30_000)
+  public void firstReleaseFailureSkipsOverflowButStillAccountsForEveryPage() throws Exception {
+    for (var operation : new FileOperation[] {FileOperation.CLOSE, FileOperation.DELETE}) {
+      var write = frameWriteCache();
+      var failure = new IllegalStateException("first primitive release failed");
+      var releases = new AtomicInteger();
+      var pages = new CachedPage[3];
+      var pointers = new CachePointer[pages.length];
+      for (int i = 0; i < pages.length; i++) {
+        pointers[i] = spyRelease(write, 80, i, () -> {
+          if (releases.incrementAndGet() == 1) {
+            throw failure;
+          }
+        });
+        pages[i] = cachePage(write, 80, i);
+      }
+
+      Assert.assertSame(failure, Assert.assertThrows(IllegalStateException.class,
+          () -> runFileOperation(operation, write)));
+      Assert.assertEquals(0, failure.getSuppressed().length);
+      verify(write, times(pages.length)).checkCacheOverflow();
+      verifyNoCloseOrDelete(write);
+      onOtherThread(() -> {
+        assertConsistent(0);
+        for (int i = 0; i < pages.length; i++) {
+          assertEvicted(pages[i]);
+          verify(pointers[i]).decrementReadersReferrer();
+        }
+      });
+    }
+  }
+
+  @Test(timeout = 30_000)
+  public void delegateFailuresPropagateUnchangedAndRunOutsideEvictionLock() throws Exception {
+    for (var operation : FileOperation.values()) {
+      var write = frameWriteCache();
+      var target = cachePage(write, 80, 1);
+      var other = cachePage(write, 81, 0);
+      boolean shrink = operation == FileOperation.SHRINK;
+      var failure = new IllegalStateException(operation + " delegate failed");
+      var delegate = doAnswer(call -> {
+        onOtherThread(() -> assertConsistent(shrink ? 2 : 1));
+        throw failure;
+      }).when(write);
+      switch (operation) {
+        case CLOSE -> delegate.close(80, false);
+        case DELETE -> delegate.deleteFile(80);
+        case SHRINK -> delegate.shrinkFile(80, PAGE_SIZE);
+      }
+
+      Assert.assertSame(failure, Assert.assertThrows(IllegalStateException.class,
+          () -> runFileOperation(operation, write)));
+      onOtherThread(() -> {
+        assertConsistent(shrink ? 2 : 1);
+        assertCached(other, write);
+        if (shrink) {
+          assertCached(target, write);
+        } else {
+          assertEvicted(target);
+        }
+        readCache.clear();
+      });
+    }
+  }
+
+  private WriteCache frameWriteCache() throws IOException {
+    var write = mock(WriteCache.class);
+    when(write.loadOrAdd(anyLong(), anyLong(), anyBoolean()))
+        .thenAnswer(call -> newFramePointer(call.getArgument(0), call.getArgument(1)));
+    return write;
+  }
+
+  private CachePointer newFramePointer(long fileId, long pageIndex) {
+    var frames = bufferPool.pageFramePool();
+    var pointer = new CachePointer(frames.acquire(true, Intention.TEST), frames, fileId,
+        (int) pageIndex);
+    pointer.incrementReadersReferrer();
+    return pointer;
+  }
+
+  private CachePointer spyRelease(WriteCache write, long fileId, long pageIndex,
+      Runnable afterRelease) throws IOException {
+    var pointer = spy(newFramePointer(fileId, pageIndex));
+    doReturn(pointer).when(write).loadOrAdd(fileId, pageIndex, false);
+    doAnswer(call -> {
+      call.callRealMethod();
+      afterRelease.run();
+      return null;
+    }).when(pointer).decrementReadersReferrer();
+    return pointer;
+  }
+
+  private CachedPage cachePage(WriteCache write, long fileId, long pageIndex) {
+    var entry = readCache.loadForRead(fileId, pageIndex, write, false);
+    readCache.releaseFromRead(entry);
+    return new CachedPage(entry, entry.getCachePointer().getPageFrame());
+  }
+
+  private void assertCached(CachedPage page, WriteCache write) throws IOException {
+    var entry = page.entry();
+    Assert.assertSame(page.frame(), readCache.getCacheEntryOptimistic(entry.getFileId(),
+        entry.getPageIndex()).getCachePointer().getPageFrame());
+    var loaded = readCache.loadForRead(entry.getFileId(), entry.getPageIndex(), write, false);
+    readCache.releaseFromRead(loaded);
+    Assert.assertSame(entry, loaded);
+    verify(write).loadOrAdd(entry.getFileId(), entry.getPageIndex(), false);
+  }
+
+  private void assertEvicted(CachedPage page) {
+    var entry = page.entry();
+    Assert.assertTrue(entry.isDead());
+    Assert.assertNull(readCache.getCacheEntryOptimistic(entry.getFileId(), entry.getPageIndex()));
+    Assert.assertEquals(-1, page.frame().getFileId());
+  }
+
+  private void assertConsistent(int pages) {
+    Assert.assertEquals((long) pages * PAGE_SIZE, readCache.getUsedMemory());
+    readCache.assertSize();
+    readCache.assertConsistency();
+  }
+
+  private void runFileOperation(FileOperation operation, WriteCache write) throws IOException {
+    switch (operation) {
+      case CLOSE -> readCache.closeFile(80, false, write);
+      case DELETE -> readCache.deleteFile(80, write);
+      case SHRINK -> readCache.shrinkFile(80, PAGE_SIZE, write);
+    }
+  }
+
+  private static void verifyNoCloseOrDelete(WriteCache write) throws IOException {
+    verify(write, never()).close(anyLong(), anyBoolean());
+    verify(write, never()).deleteFile(anyLong());
+  }
+
+  private static void onOtherThread(CheckedAction action) throws Exception {
+    var task = new FutureTask<Void>(() -> {
+      action.run();
+      return null;
+    });
+    Thread.ofPlatform().daemon().start(task);
+    task.get(10, TimeUnit.SECONDS);
+  }
+
+  private interface CheckedAction {
+
+    void run() throws Exception;
+  }
+
+  private record CachedPage(CacheEntry entry, PageFrame frame) {
+
+  }
+
+  private enum FileOperation {
+    CLOSE, DELETE, SHRINK
   }
 
   /** The default cache constructor uses the page limit declared in global configuration. */
@@ -309,8 +796,8 @@ public class LockFreeReadCacheFileOpsTest {
    * (i) was confirmed during implementation by temporarily deleting the {@code if (truncated)}
    * guard and observing this test fail (used memory dropped to 3 pages), then restoring it.
    */
-  @Test
-  public void testShrinkFileNoOpSkipsPurgeAndPreservesCacheEntries() throws IOException {
+  @Test(timeout = 30_000)
+  public void testShrinkFileNoOpSkipsPurgeAndPreservesCacheEntries() throws Exception {
     // Seed 6 live pages (indices 0–5) for file 70 so the skipped-purge branch is non-vacuous:
     // the chosen target's minPageIndex (3) falls INSIDE this range, so an un-gated purge would
     // evict pages 3, 4, 5 — observable as a used-memory drop the gate must prevent.
@@ -369,8 +856,7 @@ public class LockFreeReadCacheFileOpsTest {
             + capturedOrder + ")",
         capturedOrder.contains("clearFile.checkCacheOverflow"));
 
-    readCache.assertSize();
-    readCache.assertConsistency();
+    onOtherThread(() -> assertConsistent(6));
   }
 
   /**

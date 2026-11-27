@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageEntryFixture;
@@ -35,13 +35,13 @@ public class BoundedBufferDrainTest {
 
   /** Per-test policy with a large max-size to avoid premature eviction during drain tests. */
   private WTinyLFUPolicy policy;
-  private ConcurrentLongIntHashMap<CacheEntry> policyData;
+  private ConcurrentFilePageMap<CacheEntry> policyData;
   private AtomicInteger policyCacheSize;
 
   @Before
   public void setUp() {
     pages = new PageEntryFixture();
-    policyData = new ConcurrentLongIntHashMap<>();
+    policyData = new ConcurrentFilePageMap<>();
     policyCacheSize = new AtomicInteger(0);
     policy = new WTinyLFUPolicy(policyData, new FrequencySketch(), policyCacheSize);
     policy.setMaxSize(1024);

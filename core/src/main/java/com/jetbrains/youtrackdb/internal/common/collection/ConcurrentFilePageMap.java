@@ -38,7 +38,7 @@ import java.util.function.Consumer;
  *
  * @param <V> the value type
  */
-public class ConcurrentLongIntHashMap<V> {
+public class ConcurrentFilePageMap<V> {
 
   /** Default number of sections (must be power-of-two). */
   private static final int DEFAULT_SECTION_COUNT = 16;
@@ -71,16 +71,16 @@ public class ConcurrentLongIntHashMap<V> {
 
   // ---- Constructors ----
 
-  public ConcurrentLongIntHashMap() {
+  public ConcurrentFilePageMap() {
     this(DEFAULT_EXPECTED_ITEMS, DEFAULT_SECTION_COUNT);
   }
 
-  public ConcurrentLongIntHashMap(int expectedItems) {
+  public ConcurrentFilePageMap(int expectedItems) {
     this(expectedItems, DEFAULT_SECTION_COUNT);
   }
 
   @SuppressWarnings("unchecked")
-  public ConcurrentLongIntHashMap(int expectedItems, int sectionCount) {
+  public ConcurrentFilePageMap(int expectedItems, int sectionCount) {
     if (sectionCount <= 0 || (sectionCount & (sectionCount - 1)) != 0) {
       throw new IllegalArgumentException(
           "sectionCount must be a positive power of two: " + sectionCount);

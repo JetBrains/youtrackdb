@@ -1,6 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -1355,7 +1355,7 @@ public class LockFreeReadCacheBatchingTest {
    * {@code (fileId, pageIndex)}.
    *
    * <p><b>Wrapper contract under same-key contention.</b> The reader's
-   * {@code loadForRead} reads through {@code ConcurrentLongIntHashMap.get}, which begins
+   * {@code loadForRead} reads through {@code ConcurrentFilePageMap.get}, which begins
    * with a {@link java.util.concurrent.locks.StampedLock#tryOptimisticRead optimistic
    * read}. When the writer's {@code data.compute} holds the segment write lock, the
    * optimistic stamp is invalidated and the reader falls back to a blocking
@@ -1453,7 +1453,7 @@ public class LockFreeReadCacheBatchingTest {
 
       // Reader thread: loadForRead on the SAME (fileId, pageIndex) while the writer is
       // suspended inside store() (with the segment write lock held inside data.compute).
-      // ConcurrentLongIntHashMap.get's optimistic-read stamp will be invalidated by the
+      // ConcurrentFilePageMap.get's optimistic-read stamp will be invalidated by the
       // writer's pending write, so the reader falls back to a blocking readLock — but
       // the readLock proceeds the moment we release the store latch below, so the
       // reader's wait is bounded.
@@ -2165,14 +2165,14 @@ public class LockFreeReadCacheBatchingTest {
   }
 
   /**
-   * Reflection helper: returns the internal {@link ConcurrentLongIntHashMap} backing the cache,
+   * Reflection helper: returns the internal {@link ConcurrentFilePageMap} backing the cache,
    * so tests can observe map size and capacity directly (both public methods on the map).
    */
   @SuppressWarnings("unchecked")
-  private ConcurrentLongIntHashMap<CacheEntry> getDataMap() throws Exception {
+  private ConcurrentFilePageMap<CacheEntry> getDataMap() throws Exception {
     var dataField = LockFreeReadCache.class.getDeclaredField("data");
     dataField.setAccessible(true);
-    return (ConcurrentLongIntHashMap<CacheEntry>) dataField.get(readCache);
+    return (ConcurrentFilePageMap<CacheEntry>) dataField.get(readCache);
   }
 
   // --- resolveCacheHitRatio tests ---

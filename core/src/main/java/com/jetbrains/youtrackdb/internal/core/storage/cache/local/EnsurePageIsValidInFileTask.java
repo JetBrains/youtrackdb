@@ -4,6 +4,7 @@ final class EnsurePageIsValidInFileTask implements Runnable {
 
   private final int internalFileId;
   private final int pageIndex;
+  private final LogicalPageFileTable.Extents token;
 
   private final WOWCache writeCache;
 
@@ -11,10 +12,11 @@ final class EnsurePageIsValidInFileTask implements Runnable {
     this.internalFileId = internalFileId;
     this.pageIndex = pageIndex;
     this.writeCache = writeCache;
+    this.token = writeCache.lifetimeToken(internalFileId);
   }
 
   @Override
   public void run() {
-    writeCache.writeValidPageInFile(internalFileId, pageIndex);
+    writeCache.writeValidPageInFile(internalFileId, pageIndex, token);
   }
 }

@@ -63,7 +63,9 @@ public class RegisterPageOperationTest {
       throws IOException {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
 
     long fileId = op.addFile(fileName);
 

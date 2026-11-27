@@ -151,6 +151,7 @@ public interface AtomicOperation {
 
   void releasePageFromWrite(CacheEntry cacheEntry) throws IOException;
 
+  /** Returns allocated extent visible through this operation and its private page overlay. */
   long filledUpTo(long fileId);
 
   /**

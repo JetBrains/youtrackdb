@@ -77,15 +77,19 @@ public class CacheLocalTaskWrappersTest {
   }
 
   /** Verifies {@link EnsurePageIsValidInFileTask#run()} forwards the captured (internalFileId,
-   * pageIndex) pair to {@code writeValidPageInFile} exactly once. */
+   * pageIndex, lifetime token) tuple to {@code writeValidPageInFile} exactly once. */
   @Test
   public void testEnsurePageIsValidInFileTaskDelegatesToWriteValidPageInFile() throws Exception {
     var cache = mock(WOWCache.class);
+    var token = new LogicalPageFileTable.Extents(0, 0);
+    when(cache.lifetimeToken(7)).thenReturn(token);
     var task = new EnsurePageIsValidInFileTask(7, 42, cache);
+    when(cache.lifetimeToken(7)).thenReturn(null);
 
     task.run();
 
-    verify(cache, times(1)).writeValidPageInFile(7, 42);
+    verify(cache, times(1)).lifetimeToken(7);
+    verify(cache, times(1)).writeValidPageInFile(7, 42, token);
     // No other method on the cache should be called by this wrapper. executeDeleteFile is
     // declared with checked exceptions; verify(...) on it requires a throws Exception in the
     // test signature even though Mockito's verify never actually invokes the real method.

@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import static com.jetbrains.youtrackdb.internal.core.storage.fs.File.HEADER_SIZE;
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -17,10 +19,13 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramSnapshot;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HyperLogLogSketch;
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
@@ -29,6 +34,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
@@ -38,6 +44,101 @@ import org.junit.Before;
 import org.junit.Test;
 
 public class IndexHistogramIdentityTest {
+
+  // Each writer must rewrite cached page 1, not allocate it again because disk has only page 0.
+  @Test
+  public void snapshotWriterUsesLogicalHistogramPagePresence() throws Exception {
+    assertCachedHistogramRewrite(false);
+  }
+
+  // Exercises the independently implemented lockedOp.filledUpTo recheck in the flush writer.
+  @Test
+  public void lockedFlushUsesLogicalHistogramPagePresence() throws Exception {
+    assertCachedHistogramRewrite(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertCachedHistogramRewrite(boolean lockedFlush) throws Exception {
+    create(DatabaseType.DISK, StorageFormat.LAYOUT_28);
+    try (var session = open()) {
+      createIndex(session);
+      var storage = session.getStorage();
+      var histogram = engine(storage).getHistogramManager();
+      var cache = (WOWCache) storage.getWriteCache();
+      cache.pauseBackgroundFlush();
+      var identity = new PageFileIdentity(PageFileRole.HISTOGRAM, data(storage).getFileBaseId());
+      long fileId = cache.fileIdByName(PageFileNames.layout28(identity));
+      cache.flush(fileId);
+      var diskFile = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      assertEquals(
+          cache.pageSize() + HEADER_SIZE,
+          Files.size(diskFile));
+      StorageBirthTestSupport.reserveUnwrittenTail(cache, fileId, 2);
+      var operations = storage.getAtomicOperationsManager();
+      operations.executeInsideAtomicOperation(op -> {
+        try (var page = op.loadPageForWrite(fileId, 1, 1, true)) {
+          // Register a real empty HLL image in the operation before testing its rewrite.
+          var initialize = Class.forName(
+              "com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPage")
+              .getDeclaredMethod("writeHllToPage1",
+                  CacheEntry.class,
+                  HyperLogLogSketch.class);
+          initialize.setAccessible(true);
+          initialize.invoke(null, page,
+              new HyperLogLogSketch());
+        }
+      });
+      var hll = new HyperLogLogSketch();
+      for (int i = 0; i < 100; i++) {
+        hll.add(i * 7919L);
+      }
+      var snapshot = new HistogramSnapshot(
+          histogram.getStatistics(), null, 0, 0, 0, false, hll, true);
+      assertTrue(hll.estimate() > 0);
+      assertEquals(2, cache.getFilledUpTo(fileId));
+      assertEquals(
+          cache.pageSize() + HEADER_SIZE,
+          Files.size(diskFile));
+
+      if (lockedFlush) {
+        var cacheField = histogram.getClass().getDeclaredField("cache");
+        cacheField.setAccessible(true);
+        var snapshots = (java.util.Map<Integer, HistogramSnapshot>) cacheField.get(histogram);
+        var idField = histogram.getClass().getDeclaredField("engineId");
+        idField.setAccessible(true);
+        snapshots.put(idField.getInt(histogram), snapshot);
+        var flush = histogram.getClass().getDeclaredMethod("flushSnapshotToPage");
+        flush.setAccessible(true);
+        flush.invoke(histogram);
+      } else {
+        var write = histogram.getClass().getDeclaredMethod("writeSnapshotToPage",
+            AtomicOperation.class, snapshot.getClass());
+        write.setAccessible(true);
+        operations.executeInsideAtomicOperation(op -> {
+          try {
+            write.invoke(histogram, op, snapshot);
+          } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+          }
+        });
+      }
+      operations.executeInsideAtomicOperation(op -> {
+        try (var page = op.loadPageForRead(fileId, 1)) {
+          var registers = new byte[HyperLogLogSketch.serializedSize()];
+          var buffer = page.getCachePointer().getBuffer().duplicate();
+          buffer.position(DurablePage.NEXT_FREE_POSITION);
+          buffer.get(registers);
+          var expected = new byte[registers.length];
+          hll.writeTo(expected, 0);
+          assertArrayEquals(expected, registers);
+        }
+      });
+      assertEquals(
+          cache.pageSize() + HEADER_SIZE,
+          Files.size(diskFile));
+    }
+  }
+
   private String directory;
   private YouTrackDBImpl ytdb;
 
@@ -155,6 +256,9 @@ public class IndexHistogramIdentityTest {
     try (var session = open()) {
       var storage = session.getStorage();
       assertHistogram(storage, id);
+      var cache = storage.getWriteCache();
+      cache.flush(cache.fileIdByName(PageFileNames.layout28(
+          new PageFileIdentity(PageFileRole.HISTOGRAM, id))));
       assertTrue(Files.exists(diskFile));
       assertEquals(1, engine(storage).getHistogramManager().getStatistics().totalCount());
       session.execute("drop index Hist.value").close();
@@ -210,7 +314,8 @@ public class IndexHistogramIdentityTest {
   }
 
   // Every single survivor, especially the histogram alone, activates family cleanup.
-  // Legacy stems, other identities, and non-index roles must not activate layout 28 cleanup.
+  // Disk caches reject legacy stems. Memory legacy stems, other identities and non-index roles
+  // must not activate layout 28 cleanup.
   @Test
   public void everyRoleAloneIsFamilyEvidenceInDiskAndMemory() throws Exception {
     for (var type : new DatabaseType[] {DatabaseType.DISK, DatabaseType.MEMORY}) {
@@ -219,11 +324,25 @@ public class IndexHistogramIdentityTest {
         var storage = session.getStorage();
         var cache = storage.getWriteCache();
         assertFalse(storage.engineFilesPresent(9000));
-        cache.addFile("ie_9000.ixs");
-        var unrelated = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9000);
-        cache.addFile(PageFileNames.layout28(unrelated), unrelated.internalId());
-        var other = new PageFileIdentity(PageFileRole.HISTOGRAM, 9001);
-        cache.addFile(PageFileNames.layout28(other), other.internalId());
+        if (cache instanceof WOWCache) {
+          assertThrows(StorageException.class, () -> cache.addFile("ie_9000.ixs"));
+        } else {
+          cache.addFile("ie_9000.ixs");
+        }
+        for (var decoy : new PageFileIdentity[] {
+            new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9000),
+            new PageFileIdentity(PageFileRole.HISTOGRAM, 9001)
+        }) {
+          var name = PageFileNames.layout28(decoy);
+          if (cache instanceof WOWCache diskCache) {
+            assertTrue(cache.resolveRecoveryFile(name, cache.externalFileId(decoy.internalId()),
+                com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
+            assertTrue(Files.exists(diskCache.getRootDirectory().resolve(
+                PageFileNames.layout28DiskName(decoy))));
+          } else {
+            cache.addFile(name, decoy.internalId());
+          }
+        }
         assertFalse(storage.engineFilesPresent(9000));
         for (var role : PageFileRole.values()) {
           if (role.kind() != PageFileKind.INDEX_ENGINE) {
@@ -231,13 +350,67 @@ public class IndexHistogramIdentityTest {
           }
           var identity = new PageFileIdentity(role, 9000);
           var name = PageFileNames.layout28(identity);
-          long fileId = cache.addFile(name, identity.internalId());
+          final long fileId;
+          if (cache instanceof WOWCache) {
+            fileId = identity.internalId();
+            assertTrue(cache.resolveRecoveryFile(name, fileId,
+                com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
+          } else {
+            fileId = cache.addFile(name, identity.internalId());
+          }
           assertTrue("Single survivor: " + role, storage.engineFilesPresent(9000));
           storage.getReadCache().deleteFile(fileId, cache);
           assertFalse(storage.engineFilesPresent(9000));
         }
       }
       ytdb.drop("hist");
+    }
+  }
+
+  // Logical membership alone must not activate cleanup for any disk family role. A separate
+  // physical survivor does activate it, without changing the configured same-name owner.
+  @Test
+  public void logicallyLiveMissingFamilyDoesNotActivateCleanupOrReplaceOwner() throws Exception {
+    create(DatabaseType.DISK, StorageFormat.LAYOUT_28);
+    try (var session = open()) {
+      createIndex(session);
+      var storage = session.getStorage();
+      var cache = (WOWCache) storage.getWriteCache();
+      cache.pauseBackgroundFlush();
+      var owner = data(storage).getFileBaseId();
+      assertHistogram(storage, owner);
+      cache.flush();
+      for (var role : PageFileRole.values()) {
+        if (role.kind() != PageFileKind.INDEX_ENGINE) {
+          continue;
+        }
+        var identity = new PageFileIdentity(role, 9000);
+        var name = PageFileNames.layout28(identity);
+        long fileId = cache.externalFileId(identity.internalId());
+        assertTrue(cache.resolveRecoveryFile(name, fileId,
+            com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
+        var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+        var bytes = Files.readAllBytes(path);
+        assertTrue(cache.physicalFileExists(fileId));
+        assertTrue(storage.engineFilesPresent(9000));
+        Files.delete(path);
+        try {
+          assertTrue(cache.exists(name));
+          assertTrue(cache.exists(fileId));
+          assertFalse(cache.physicalFileExists(fileId));
+          assertFalse(storage.engineFilesPresent(9000));
+          assertEquals(owner, data(storage).getFileBaseId());
+          assertTrue(storage.engineFilesPresent(owner));
+        } finally {
+          Files.write(path, bytes);
+        }
+        assertTrue(cache.physicalFileExists(fileId));
+        assertTrue(storage.engineFilesPresent(9000));
+        storage.getReadCache().deleteFile(fileId, cache);
+        assertFalse(cache.physicalFileExists(fileId));
+        assertFalse(storage.engineFilesPresent(9000));
+      }
+      assertHistogram(storage, owner);
     }
   }
 

@@ -13,6 +13,11 @@ public interface File extends ClosableItem {
 
   long allocateSpace(int size) throws IOException;
 
+  /** Raises the reserved byte extent to a maximum without serializing concurrent growers. */
+  default void reserveSpaceThrough(long size) {
+    throw new UnsupportedOperationException("Atomic reservation growth is not supported");
+  }
+
   void shrink(long size) throws IOException;
 
   long getFileSize();

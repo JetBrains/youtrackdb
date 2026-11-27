@@ -31,7 +31,7 @@ final class PageWriteTracker {
     }
 
     requirement.generation++;
-    return new PageWriteAttempt(pointer, requirement.generation);
+    return new PageWriteAttempt(pointer, requirement.generation, requirement.lsn);
   }
 
   /** Releases the requirement only when this attempt is the newest copy of the page. */
@@ -63,7 +63,7 @@ final class PageWriteTracker {
     return earliest;
   }
 
-  record PageWriteAttempt(CachePointer pointer, long generation) {
+  record PageWriteAttempt(CachePointer pointer, long generation, LogSequenceNumber dirtyLsn) {
   }
 
   private static final class PageRequirement {

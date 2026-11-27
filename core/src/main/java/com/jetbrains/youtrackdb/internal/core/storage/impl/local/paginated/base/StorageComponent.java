@@ -312,8 +312,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   }
 
   /**
-   * Reads the physical (in-memory) file size, in pages, of the given file via the atomic
-   * operation. Routes through {@link AtomicOperation#filledUpTo(long)} so the per-fileId
+   * Reads the operation-visible allocated extent in pages. Layout 28 disk storage includes
+   * cache-only allocation, not just written disk pages. Routes through {@link AtomicOperation#filledUpTo(long)} so the per-fileId
    * {@code FileChanges} placeholder side-effect on {@code AtomicOperationBinaryTracking} is
    * preserved on first touch — bypassing the atomic-operation layer would change in-transaction
    * semantics for callers that depend on the placeholder being registered before the next
@@ -333,7 +333,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * @param atomicOperation the enclosing atomic operation
    * @param fileId          external file id of the target file
    * @param intent          audit-grep anchor naming the canonical call-site shape
-   * @return current physical file size in pages
+   * @return operation-visible allocated extent in pages
    */
   protected long physicalSize(
       @Nonnull final AtomicOperation atomicOperation,

@@ -97,7 +97,9 @@ public class FlushPendingOperationsTest {
       throws IOException {
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId(fileName)).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership(fileName, null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
 
     long fileId = op.addFile(fileName);
 
@@ -200,7 +202,9 @@ public class FlushPendingOperationsTest {
 
     long nextInternalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextInternalId, STORAGE_ID);
-    when(writeCache.bookFileId("test.dat")).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership("test.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile("test.dat");
 
     // Add two pages on a fresh file: pageIndex 0, then pageIndex 1.
@@ -330,7 +334,9 @@ public class FlushPendingOperationsTest {
 
     long nextId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(nextId, STORAGE_ID);
-    when(writeCache.bookFileId("nd-file.dat")).thenReturn(fullFileId);
+    when(writeCache.bookFileIdWithOwnership("nd-file.dat", null, false))
+        .thenReturn(new WriteCache.FileBooking(fullFileId, () -> {
+        }));
     long fileId = op.addFile("nd-file.dat", true);
 
     // Fresh file: first allocation always targets pageIndex 0.

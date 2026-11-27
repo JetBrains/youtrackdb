@@ -6,7 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
-import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.PartitionedLockManager;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
@@ -67,7 +67,7 @@ public class PageFileIdDistributionTest {
   }
 
   private static int sketch(int fileId, int page) {
-    return ConcurrentLongIntHashMap.hashForFrequencySketch(
+    return ConcurrentFilePageMap.hashForFrequencySketch(
         AbstractWriteCache.composeFileId(1, fileId), page);
   }
 

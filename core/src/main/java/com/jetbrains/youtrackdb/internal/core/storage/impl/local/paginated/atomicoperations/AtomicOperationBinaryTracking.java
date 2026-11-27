@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPosit
 import com.jetbrains.youtrackdb.internal.core.storage.collection.SnapshotKey;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.VisibilityKey;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -95,7 +96,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   private final int storageId;
   @Nullable private AbstractStorage creationStorage;
   private boolean suppliedFileCreated;
-  // Retain ownership after a pending supplied creation is deleted, so only its exact
+  private final ArrayList<Runnable> bookingReleases = new ArrayList<>();
+  // Retain the pair after a pending supplied creation is deleted, so only its exact
   // name and internal id can reuse the booking without weakening cache conflict checks.
   private final Object2LongOpenHashMap<String> suppliedBookings = new Object2LongOpenHashMap<>();
 
@@ -299,6 +301,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     checkIfActive();
     if (suppliedFileCreated) {
       requireCreationLock();
+    }
+    if (writeCache.supportsIdentityRecovery()) {
+      for (final var file : fileChanges.values()) {
+        // The first write creates the file. An unchanged allocation cannot trigger that write.
+        if (file.isNew && file.pageChangesMap.values().stream()
+            .noneMatch(page -> page.changes.hasChanges())) {
+          throw new StorageException(writeCache.getStorageName(),
+              "New page file has no changed pages: " + file.fileName);
+        }
+      }
     }
   }
 
@@ -905,7 +917,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     hasPendingOperations = false;
   }
 
-  // The committed-file fall-through below reads physical size via WriteCache.getFilledUpTo,
+  // The committed-file fall-through below reads allocated extent via WriteCache.getFilledUpTo,
   // one of the retained internal callers documented on that method's Javadoc. Layer B
   // helpers (StorageComponent.physicalSize) intentionally route through this method so the
   // FileChanges placeholder side-effect is registered on first in-TX touch — the read
@@ -922,10 +934,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           "File with id " + fileId + " is deleted.");
     }
     // A missing entry registers an empty FileChanges placeholder and falls through
-    // to the committed-file branch. A new or page-overlay-bearing entry returns
-    // the logical extent (maxNewPageIndex + 1); otherwise the physical extent
-    // from the write cache is the answer. The placeholder is registered so
-    // subsequent in-TX queries do not allocate another entry.
+    // to the committed-file branch. A new or page-overlay-bearing entry returns only its
+    // overlay extent. Allocation starts at the committed extent, and the component lock excludes
+    // competing growth, so the overlay already includes it. The placeholder avoids repeated entries.
     var changesContainer = fileChanges.get(fileId);
     if (changesContainer == null) {
       fileChanges.put(fileId, new FileChanges());
@@ -971,10 +982,36 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       deletedFiles.remove(fileId);
       isNew = false;
     } else {
-      fileId = writeCache.bookFileId(fileName);
+      var booking = writeCache.bookFileIdWithOwnership(fileName, null, false);
+      bookingReleases.add(booking.release());
+      fileId = booking.fileId();
       isNew = true;
     }
     return bufferNewFile(fileName, fileId, nonDurable, isNew);
+  }
+
+  // Finalization runs before component locks drain, but need not hold creation exclusion.
+  // Cache releases use filesLock and reservation identity to protect newer or published state.
+  void releaseFileBookings() {
+    Throwable failure = null;
+    for (var release : bookingReleases) {
+      try {
+        release.run();
+      } catch (RuntimeException | Error secondary) {
+        if (failure == null) {
+          failure = secondary;
+        } else if (failure != secondary) {
+          failure.addSuppressed(secondary);
+        }
+      }
+    }
+    bookingReleases.clear();
+    if (failure instanceof RuntimeException runtime) {
+      throw runtime;
+    }
+    if (failure != null) {
+      throw (Error) failure;
+    }
   }
 
   private void validateReuseDurability(long fileId, boolean nonDurable) {
@@ -1064,7 +1101,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             throw identityConflict(fileName, expectedId);
           }
         }
-        fileId = writeCache.bookFileId(fileName, expectedId, reconstructAuxiliary);
+        var booking = writeCache.bookFileIdWithOwnership(fileName, expectedId,
+            reconstructAuxiliary);
+        bookingReleases.add(booking.release());
+        fileId = booking.fileId();
         suppliedBookings.put(fileName, fileId);
         isNew = true;
       }
@@ -1097,6 +1137,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       throw identityConflict(name, expectedId);
     }
     long deletedId = deletedFileNameIdMap.getLong(name);
+    if (writeCache.supportsIdentityRecovery()) {
+      var identity = PageFileNames.parseLayout28(name)
+          .orElseThrow(() -> identityConflict(name, expectedId));
+      if (identity.internalId() != internalId) {
+        throw identityConflict(name, expectedId);
+      }
+    }
     Integer registered = writeCache.registeredFileId(name);
     if ((localId != -1 && AbstractWriteCache.extractFileId(localId) != internalId)
         || (deletedId != -1 && AbstractWriteCache.extractFileId(deletedId) != internalId)
@@ -1120,7 +1167,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // This operation deleted the pending file. Its retained booking reserves only the name and ID.
       return false;
     }
-    return writeCache.registeredFileId(name) != null && writeCache.exists(name);
+    return (writeCache.supportsIdentityRecovery() || writeCache.registeredFileId(name) != null)
+        && writeCache.exists(name);
   }
 
   @Override
@@ -1449,11 +1497,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
             // readCache.addFile call would throw "File with id ... already exists" from
             // DirectMemoryOnlyDiskCache.addFile.
             if (!fileChanges.eagerlyInstalledInCache) {
-              readCache.addFile(
-                  fileChanges.fileName,
-                  newFileNamesId.getLong(fileChanges.fileName),
-                  writeCache,
-                  nonDurable);
+              if (writeCache.supportsIdentityRecovery()) {
+                readCache.addFile(fileChanges.fileName,
+                    newFileNamesId.getLong(fileChanges.fileName), writeCache, nonDurable, txEndLsn);
+              } else {
+                readCache.addFile(fileChanges.fileName,
+                    newFileNamesId.getLong(fileChanges.fileName), writeCache, nonDurable);
+              }
             }
           }
 

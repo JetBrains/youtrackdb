@@ -24,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.command.CommandOutputListener;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import java.io.IOException;
@@ -46,6 +47,19 @@ public interface WriteCache {
   void removePageIsBrokenListener(PageIsBrokenListener listener);
 
   long bookFileId(String fileName);
+
+  /** A booking and an idempotent release of only the reservation acquired by this call. */
+  record FileBooking(long fileId, Runnable release) {
+  }
+
+  /** Legacy and memory caches keep their existing session-scoped booking lifecycle. */
+  default FileBooking bookFileIdWithOwnership(String name, @Nullable Long suppliedId,
+      boolean reconstructAuxiliary) {
+    long booked = suppliedId == null ? bookFileId(name)
+        : bookFileId(name, suppliedId, reconstructAuxiliary);
+    return new FileBooking(booked, () -> {
+    });
+  }
 
   /**
    * Books a positive supplied internal id without creating or changing a backing file.
@@ -89,6 +103,47 @@ public interface WriteCache {
    * @return Id of registered file
    */
   long loadFile(String fileName) throws IOException;
+
+  /**
+   * Admits a present expected layout 28 disk file without creating it or persisting registration.
+   * The caller owns storage lifecycle write exclusion. Missing roles remain absent so their
+   * component load paths retain required-file failure and auxiliary reconstruction policy.
+   * Repeated admission preserves logical extents and is safe during restore reseeding.
+   */
+  default boolean admitExpectedFile(PageFileIdentity identity)
+      throws IOException {
+    throw new UnsupportedOperationException("Expected-file admission is not supported");
+  }
+
+  /** Whether this cache supports computed disk identities before inventory hydration. */
+  default boolean supportsIdentityRecovery() {
+    return false;
+  }
+
+  enum RecoveryFilePermission {
+    OPEN_ONLY, REPLAY_CREATE, RESTORE
+  }
+
+  /**
+   * Resolves a computed disk identity before inventory hydration without using the name-id map.
+   * Layout 28 orders resolution with first page writes. OPEN_ONLY returns false for an absent
+   * file. REPLAY_CREATE authorizes creation from a complete creating WAL unit. RESTORE authorizes
+   * creation after archive admission. In layout 28, the creating forms reuse registered
+   * published handles and throw IOException if the path is not visible. Resolution refuses an
+   * unowned pending path. Creation of a pending file publishes its disk presence without
+   * publishing any written pages.
+   */
+  default boolean resolveRecoveryFile(
+      @Nullable String fileName, long fileId, RecoveryFilePermission permission)
+      throws IOException {
+    throw new UnsupportedOperationException("Identity recovery is not supported");
+  }
+
+  /** Carries the complete creating-unit dependency. Legacy implementations keep eager routing. */
+  default long addFile(String fileName, long fileId, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
+    return addFile(fileName, fileId, nonDurable);
+  }
 
   long addFile(String fileName) throws IOException;
 
@@ -143,6 +198,16 @@ public interface WriteCache {
   boolean exists(String fileName);
 
   boolean exists(long fileId);
+
+  /**
+   * Tests whether the backing file of a registered or logically live file exists on disk.
+   * This query does not find unregistered leftover files. Memory caches use their live inventory.
+   * Callers must check identity and logical membership separately. This query does not admit or
+   * create a file.
+   */
+  default boolean physicalFileExists(long fileId) {
+    return exists(fileId);
+  }
 
   void restoreModeOn() throws IOException;
 
@@ -245,10 +310,9 @@ public interface WriteCache {
    * <p><b>FIFO + monotonic submission.</b> {@code EnsurePageIsValidInFileTask} submissions
    * for a given {@code fileId} are monotonically increasing in {@code pageIndex} by
    * construction (the per-component lock serializes concurrent allocators). Combined with
-   * the single-threaded FIFO executor, this guarantees that every gap page in
-   * {@code [old_size, pageIndex]} is stamped in order; no interior zero page can survive
-   * across a crash. See design.md §"Crash safety" for the three crash scenarios and
-   * their walk-throughs.
+   * the single-threaded FIFO executor, layout 27 stamps gaps in order. Layout 28 blank
+   * tasks stop at cached images. Protected changed-page writes include those images and
+   * initialize uncached gaps before publishing a completed contiguous extent.
    *
    * @param fileId external file id of the target page
    * @param pageIndex zero-based page index inside that file; must be &ge; 0
@@ -311,14 +375,15 @@ public interface WriteCache {
   void flush();
 
   /**
-   * Reads the physical (in-memory) file size, in pages, of the given file.
+   * Reads allocated extent in pages. Layout 28 disk storage uses committed logical extent,
+   * including cache-only pages. This is not a measurement of filesystem bytes.
    *
-   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel physical-size
+   * <p><b>Deprecated for external callers.</b> Cross-component callers must funnel allocated-extent
    * reads through the gated helper set: {@link #physicalSizeForBackupSnapshot(long)} for the
    * post-unfreeze incremental-backup snapshot reader (Layer A), and
    * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} for every
    * {@code StorageComponent}-anchored consumer (Layer B). The helper set is the audit-grep entry
-   * surface for "who reads physical size from outside the cache / atomic-operation core?" — a
+   * surface for "who reads allocated extent outside the cache / atomic-operation core?" — a
    * new direct call to this method anywhere outside the documented internal set below is a
    * regression.
    *
@@ -334,7 +399,7 @@ public interface WriteCache {
    *   <li>{@code AtomicOperationBinaryTracking.filledUpTo} — committed-file fall-through; the
    *       method routes Layer B helpers through {@code AtomicOperation.filledUpTo} so the
    *       in-TX {@code FileChanges} placeholder side-effect is preserved on first touch.
-   *   <li>{@code AtomicOperationBinaryTracking.commitChanges} — committed physical file-size
+   *   <li>{@code AtomicOperationBinaryTracking.commitChanges} — committed allocated-extent
    *       floor for WAL records that declare newly allocated pages.
    *   <li>{@link #physicalSizeForBackupSnapshot(long)} — the Layer A helper body delegates here
    *       inside the {@link WriteCache} implementers ({@code WOWCache},
@@ -344,7 +409,7 @@ public interface WriteCache {
    * </ul>
    *
    * @param fileId external file id of the target file
-   * @return current in-memory file size in pages
+   * @return allocated extent in pages
    * @deprecated External / cross-component callers must use {@link
    *     #physicalSizeForBackupSnapshot(long)} (Layer A) or {@code
    *     StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)} (Layer B).
@@ -354,19 +419,19 @@ public interface WriteCache {
   long getFilledUpTo(long fileId);
 
   /**
-   * Reads the physical (in-memory) file size, in pages, of the given file for the
+   * Reads allocated extent, including cache-only pages in layout 28 disk storage, for the
    * post-unfreeze incremental-backup snapshot iteration.
    *
    * <p>Named alias for the gated read of {@link #getFilledUpTo(long)} that callers from
    * outside the cache / atomic-operation core must funnel through. The cross-component
    * discovery contract enforced by this helper set: cross-TX readers route through the
    * logical surface (the component's {@code EntryPoint} {@code pagesSize} /
-   * {@code fileSize}) where one exists; physical-size reads from outside the documented
+   * {@code fileSize}) where one exists. Allocated-extent reads outside the documented
    * internal set route through this helper (cache-layer entry point used by the backup
    * snapshot) or through
    * {@code StorageComponent.physicalSize(AtomicOperation, long, PhysicalReadIntent)}
    * (storage-component entry point used by every other surviving consumer). Tightening
-   * the discovery surface to this small named helper set turns "who reads physical size
+   * the discovery surface to this small named helper set turns "who reads allocated extent
    * from outside the cache/AOBT internal core?" into an audit-grep-able question.
    * {@link #getFilledUpTo(long)} stays callable for the documented internal set
    * ({@code LockFreeReadCache.doLoad}, {@code AtomicOperationBinaryTracking.{filledUpTo,
@@ -399,53 +464,20 @@ public interface WriteCache {
   void deleteFile(long fileId) throws IOException;
 
   /**
-   * One-way shrink primitive: reduces the on-disk physical size of {@code fileId} to
-   * {@code targetBytes}, dropping any cached dirty page entries that sit at or above
-   * the target. This primitive carries an explicit target and never grows the file:
-   * callers passing a
-   * {@code targetBytes} greater than or equal to the current physical file size get a
-   * no-op.
+   * Reduces allocated extent to a page-aligned byte target and drops cached tail pages.
+   * Canonical layout 28 disk files use logical allocation, including cache-only pages.
+   * Legacy disk files use their existing allocated size. The memory implementation does not
+   * shrink files and always returns false.
    *
-   * <p>Used by the recovery-time orphan-truncation pass to repair the
-   * {@code logical &lt;= physical} invariant on the four entry-point-equipped storage
-   * components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
-   * PaginatedCollectionV2) after a partial-flush crash leaves physical pages past the
-   * EP-stored logical counter.
+   * <p>The target never grows allocation. A target at or above current allocation is a no-op.
+   * Recovery uses this to discard allocation beyond a component's persisted used-page count.
+   * The disk implementation excludes growth and drains flush work before purging cached tails
+   * and shrinking a present file. Pending logical files need no disk operation.
    *
-   * <p>The disk impl ({@code WOWCache}) acquires {@code filesLock.writeLock} so the
-   * truncate is mutually exclusive against concurrent file-table mutations; the
-   * write-back layer's dirty pages at {@code pageIndex >= targetBytes / pageSize} are
-   * dropped via the range-scoped {@code removeCachedPagesAtLeast} purge before the
-   * underlying {@code AsyncFile.shrink} runs, so a concurrent flush of an orphan
-   * dirty entry cannot re-extend the file past the target. Dirty entries below the
-   * target are preserved and will be persisted by the next periodic flush.
-   *
-   * <p>The in-memory impl ({@code DirectMemoryOnlyDiskCache}) is a no-op: an
-   * in-memory engine cannot produce on-disk orphans, so the recovery pass has
-   * nothing to repair. It always returns {@code false}.
-   *
-   * <p>Test-mock implementers throw {@link UnsupportedOperationException}; only the
-   * two production implementers (WOWCache and DirectMemoryOnlyDiskCache) need to
-   * participate in the recovery pass.
-   *
-   * <p><b>Return contract.</b> Returns {@code true} iff the file was physically
-   * shrunk, {@code false} on the pre-flight no-op (a {@code targetBytes} greater
-   * than or equal to the current physical file size, which drops nothing). The
-   * boolean lets the read-cache orchestrator ({@code LockFreeReadCache.shrinkFile})
-   * skip the read-cache purge on a no-op shrink, so the recovery-time pass costs
-   * O(1) per untouched component instead of an O(capacity) sweep. The disk impl
-   * derives the boolean from the same {@code getFileSize()} snapshot held under
-   * {@code filesLock.writeLock} that drives its early-return, so the return is
-   * exact: a recomputed size comparison after the lock drops would reopen a
-   * TOCTOU race.
-   *
-   * @param fileId external file id of the target file
-   * @param targetBytes new physical size in bytes; must be {@code >= 0} and should be
-   *     a multiple of the page size (the recovery pass always supplies a
-   *     page-aligned value)
-   * @return {@code true} if the file was physically truncated, {@code false} on the
-   *     pre-flight no-op
-   * @throws IOException if the underlying disk I/O fails during the truncate
+   * @param fileId external file id
+   * @param targetBytes non-negative page-aligned target
+   * @return true if allocation shrank, which requires the read cache to purge its tail
+   * @throws IOException if a required disk operation fails
    */
   boolean shrinkFile(long fileId, long targetBytes) throws IOException;
 
@@ -453,6 +485,13 @@ public interface WriteCache {
 
   long[] close() throws IOException;
 
+  /**
+   * Closes the handle without unregistering the file. The layout 28 disk cache flushes or
+   * discards cached pages and closes the handle in one step on the commitExecutor() thread.
+   * A flushing close runs the file flush. It can leave a changed page that a writer holds or
+   * whose write failed and can be retried. A later flush can write that page.
+   * A caller interrupted while waiting for that step reports the interruption after it ends.
+   */
   void close(long fileId, boolean flush);
 
   PageDataVerificationError[] checkStoredPages(CommandOutputListener commandOutputListener);
@@ -480,10 +519,22 @@ public interface WriteCache {
   /**
    * Returns a snapshot of negative-registration names, separate from live {@link #files()}.
    * Implementations may return no names. The default, used by the memory cache, is empty.
-   * The disk cache returns every negative registration, including booked ids without a file.
+   * Layout 28 returns session logical deletions and reservations, not persisted registry evidence.
    */
   default List<String> deletedFiles() {
     return List.of();
+  }
+
+  /**
+   * Registration evidence for component-id seeding. Layout 28 disk caches return hydrated live
+   * logical names and session reservations and deletions, never map-only evidence. Legacy caches
+   * may include persisted aliases and malformed names so the allocator can validate them.
+   */
+  record RegistrationEvidence(List<String> positiveNames, List<String> negativeNames) {
+  }
+
+  default RegistrationEvidence registrationEvidence() {
+    return new RegistrationEvidence(List.copyOf(files().keySet()), deletedFiles());
   }
 
   /**

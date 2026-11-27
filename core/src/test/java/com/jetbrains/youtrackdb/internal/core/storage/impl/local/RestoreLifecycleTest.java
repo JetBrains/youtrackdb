@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -8,27 +9,51 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
+import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageAdmissionException;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageBootstrapMetadata;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.WalTestUtils;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileDeletedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.PageAllocatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WriteAheadLog;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +69,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import org.apache.commons.collections4.IteratorUtils;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -1564,6 +1591,577 @@ public class RestoreLifecycleTest {
         manager.drop(target);
         manager.drop(SOURCE);
       }
+    }
+  }
+
+  /** Complete creation evidence admits logical membership and resolves page redo without maps. */
+  @Test
+  public void identityReplayCreatesOnlyWithEvidenceAndIsIdempotent() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var cache = storage.getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12000);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      assertNull(cache.registeredFileId(name));
+      var allocation = new PageAllocatedWALRecord(0, id, 1);
+      allocation.setLsn(new LogSequenceNumber(1, 10));
+      List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, 1), allocation,
+          new FileCreatedWALRecord(1, name, id), new AtomicUnitEndRecord(1, false, null));
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      assertEquals(1, cache.getFilledUpTo(id));
+      assertEquals(Integer.valueOf(identity.internalId()), cache.registeredFileId(name));
+      storage.restoreAtomicUnit(List.of(new FileDeletedWALRecord(2, id),
+          new AtomicUnitEndRecord(2, false, null)), new ModifiableBoolean());
+      assertFalse(Files.exists(databasesPath.resolve(SOURCE)
+          .resolve(PageFileNames.layout28DiskName(identity))));
+    }
+  }
+
+  /** Repeated page redo admits and allocates a present file without any map access. */
+  @Test
+  public void identityPageReplayNeverAccessesMaps() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+          .getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12012);
+      var name = PageFileNames.layout28(identity);
+      var registry = databasesPath.resolve(SOURCE).resolve("name_id_map_v3.cm");
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      StorageBirthTestSupport.seedNameIdMap(cache, name, -identity.internalId(), "");
+      var mapBytes = Files.readAllBytes(registry);
+      try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
+        for (int i = 0; i < 4; i++) {
+          var allocation = new PageAllocatedWALRecord(i, id, i + 1);
+          allocation.setLsn(new LogSequenceNumber(1, i + 10));
+          List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, i + 1), allocation,
+              new AtomicUnitEndRecord(i + 1, false, null));
+          storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+          storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+        }
+        assertEquals(id, cache.fileIdByName(name));
+        assertEquals(4, cache.getFilledUpTo(id));
+      }
+      org.junit.Assert.assertArrayEquals(mapBytes, Files.readAllBytes(registry));
+      cache.deleteFile(id);
+    }
+  }
+
+  /** Neither an absent map entry nor a deleted-map tombstone authorizes blank recovery pages. */
+  @Test
+  public void identityReplayRejectsMissingFileIncludingLostDrop() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var cache = storage.getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12001);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      var allocation = new PageAllocatedWALRecord(0, id, 1);
+      allocation.setLsn(new LogSequenceNumber(1, 10));
+      List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, 1), allocation,
+          new AtomicUnitEndRecord(1, false, null));
+      assertThrows(IOException.class,
+          () -> storage.restoreAtomicUnit(unit, new ModifiableBoolean()));
+      cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.REPLAY_CREATE);
+      cache.deleteFile(id); // Model a physical drop whose WAL record was lost before force.
+      assertThrows(IOException.class,
+          () -> storage.restoreAtomicUnit(unit, new ModifiableBoolean()));
+      assertEquals("the fallback fixture must contain an explicit tombstone",
+          Integer.valueOf(-identity.internalId()), cache.registeredFileId(name));
+      assertNull(cache.restoreFileById(id));
+      assertEquals(Integer.valueOf(-identity.internalId()), cache.registeredFileId(name));
+      assertFalse(Files.exists(databasesPath.resolve(SOURCE)
+          .resolve(PageFileNames.layout28DiskName(identity))));
+
+      // A later committed drop supplies skip evidence, unlike the lost drop above.
+      var records = new ArrayList<>(unit.stream().map(WriteableWALRecord.class::cast).toList());
+      records.add(new AtomicUnitStartRecord(false, 2));
+      records.add(new FileDeletedWALRecord(2, id));
+      records.add(new AtomicUnitEndRecord(2, false, null));
+      for (int i = 0; i < records.size(); i++) {
+        records.get(i).setLsn(new LogSequenceNumber(1, i + 1));
+      }
+      var wal = mock(WriteAheadLog.class);
+      when(wal.read(records.getFirst().getLsn(), 1000)).thenReturn(records);
+      when(wal.next(records.get(2).getLsn(), 1000)).thenReturn(records.subList(3, 6));
+      when(wal.next(records.getLast().getLsn(), 1000)).thenReturn(List.of());
+      assertEquals(records.getLast().getLsn(),
+          storage.restoreFrom(wal, records.getFirst().getLsn()));
+      assertFalse(Files.exists(databasesPath.resolve(SOURCE)
+          .resolve(PageFileNames.layout28DiskName(identity))));
+    }
+  }
+
+  /** A retained creation without its start may skip only with a later committed deletion. */
+  @Test
+  public void identityCutCreationRequiresLaterCommittedDrop() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12010);
+      long id = storage.getWriteCache().externalFileId(identity.internalId());
+      var creation = new FileCreatedWALRecord(1, PageFileNames.layout28(identity), id);
+      var end = new AtomicUnitEndRecord(1, false, null);
+      creation.setLsn(new LogSequenceNumber(1, 1));
+      end.setLsn(new LogSequenceNumber(1, 2));
+      assertThrows(IOException.class, () -> storage.restoreAtomicUnit(
+          List.of(creation, end), new ModifiableBoolean()));
+      var records = new ArrayList<WriteableWALRecord>(List.of(creation, end,
+          new AtomicUnitStartRecord(false, 2), new FileDeletedWALRecord(2, id),
+          new AtomicUnitEndRecord(2, false, null)));
+      for (int i = 0; i < records.size(); i++) {
+        records.get(i).setLsn(new LogSequenceNumber(1, i + 1));
+      }
+      var wal = mock(WriteAheadLog.class);
+      when(wal.read(creation.getLsn(), 1000)).thenReturn(records);
+      when(wal.next(end.getLsn(), 1000)).thenReturn(records.subList(2, 5));
+      when(wal.next(records.getLast().getLsn(), 1000)).thenReturn(List.of());
+      assertEquals(records.getLast().getLsn(), storage.restoreFrom(wal, creation.getLsn()));
+      assertFalse(Files.exists(databasesPath.resolve(SOURCE)
+          .resolve(PageFileNames.layout28DiskName(identity))));
+    }
+  }
+
+  /** Startup owner names are nullable for absent paths and invalid identities, without map reads. */
+  @Test
+  public void identityStartupOwnerNameUsesPhysicalPresence() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = (DiskStorage) storageOf(manager, SOURCE);
+      var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+          .getWriteCache();
+      var lookup = DiskStorage.class.getDeclaredMethod("currentRecoveryFileName", int.class);
+      lookup.setAccessible(true);
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12011);
+      var name = PageFileNames.layout28(identity);
+      assertNull(lookup.invoke(storage, identity.internalId()));
+      assertNull(lookup.invoke(storage, -1));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      assertEquals(name, lookup.invoke(storage, identity.internalId()));
+      cache.deleteFile(id);
+      assertNull(lookup.invoke(storage, identity.internalId()));
+    }
+  }
+
+  /** A cut creating unit leaves only page redo. Reopen must use disk identity, not the map. */
+  @Test(timeout = 120_000)
+  public void identityWalCutReopenOpensPresentFileWithoutMap() throws Exception {
+    runIdentityCrashChild(false, false);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
+    try (var manager = openManager(); var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+      var storage = storageOf(manager, SOURCE);
+      assertTrue("the dirty image must enter storage recovery",
+          storage.wereDataRestoredAfterOpen());
+      assertEquals(1, storage.getWriteCache().getFilledUpTo(
+          storage.getWriteCache().externalFileId(identity.internalId())));
+      var cache = storage.getWriteCache();
+      long id = cache.externalFileId(identity.internalId());
+      assertEquals(id, cache.loadFile(PageFileNames.layout28(identity)));
+      assertEquals(Integer.valueOf(identity.internalId()),
+          cache.registeredFileId(PageFileNames.layout28(identity)));
+    }
+  }
+
+  /** Dirty storage open must delete an unregistered non-durable file and persist that removal. */
+  @Test(timeout = 120_000)
+  public void identityDirtyReopenDeletesNonDurableComputedPath() throws Exception {
+    runIdentityCrashChild(true, false);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
+    var path = databasesPath.resolve(SOURCE).resolve(PageFileNames.layout28DiskName(identity));
+    assertTrue("the crash must leave a physical cleanup candidate", Files.exists(path));
+    for (int attempt = 0; attempt < 2; attempt++) {
+      try (var manager = openManager(); var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+        var storage = storageOf(manager, SOURCE);
+        if (attempt == 0) {
+          assertTrue(storage.wereDataRestoredAfterOpen());
+        }
+        assertFalse("cleanup must delete the computed path", Files.exists(path));
+        assertFalse("cleanup must remove the registry entry", storage.getWriteCache().isNonDurable(
+            storage.getWriteCache().externalFileId(identity.internalId())));
+      }
+    }
+  }
+
+  /** Creation WAL admits an absent file. A later cold open needs explicit unconfigured admission. */
+  @Test(timeout = 120_000)
+  public void identityCompleteCreationReplayIsMapFreeAndReopenNeedsAdmission() throws Exception {
+    runIdentityCrashChild(false, true);
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
+    for (int attempt = 0; attempt < 2; attempt++) {
+      try (var manager = openManager(); var session = manager.open(SOURCE, ADMIN, PASSWORD)) {
+        var storage = storageOf(manager, SOURCE);
+        var cache = storage.getWriteCache();
+        if (attempt > 0) {
+          assertFalse(cache.exists(PageFileNames.layout28(identity)));
+          assertTrue(cache.admitExpectedFile(identity));
+        }
+        long id = cache.loadFile(PageFileNames.layout28(identity));
+        assertEquals(cache.externalFileId(identity.internalId()), id);
+        assertEquals(1, cache.getFilledUpTo(id));
+        var entry = storage.getReadCache().loadForRead(id, 0, cache, false);
+        assertNotNull(entry);
+        storage.getReadCache().releaseFromRead(entry);
+      }
+    }
+  }
+
+  private void runIdentityCrashChild(boolean nonDurable, boolean completeCreation)
+      throws Exception {
+    var process = new ProcessBuilder(
+        Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+        "-Dyoutrackdb.storage.diskCache.pageSize=" + ProcessPageSize.kibibytes(),
+        "-cp",
+        System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+        RestoreLifecycleTest.class.getName(), databasesPath.toString(),
+        Boolean.toString(nonDurable), Boolean.toString(completeCreation))
+        .redirectErrorStream(true).start();
+    var output = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+      try {
+        return new String(process.getInputStream().readAllBytes(),
+            java.nio.charset.StandardCharsets.UTF_8);
+      } catch (IOException failure) {
+        throw new UncheckedIOException(failure);
+      }
+    });
+    try {
+      assertTrue("crash child timed out",
+          process.waitFor(90, java.util.concurrent.TimeUnit.SECONDS));
+      assertEquals(output.get(10, java.util.concurrent.TimeUnit.SECONDS), 0, process.exitValue());
+    } finally {
+      if (process.isAlive()) {
+        process.destroyForcibly();
+      }
+      assertTrue(process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS));
+    }
+  }
+
+  /** Builds a real dirty image with a forced WAL tail and no persisted map entry for its file. */
+  public static void main(String[] arguments) throws Exception {
+    var nonDurable = Boolean.parseBoolean(arguments[1]);
+    var completeCreation = Boolean.parseBoolean(arguments[2]);
+    var manager = (YouTrackDBImpl) YourTracks.instance(arguments[0]);
+    try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+        StorageFormat.LAYOUT_28)) {
+      manager.create(SOURCE, DatabaseType.DISK, ADMIN, PASSWORD, ADMIN);
+    }
+    var session = manager.open(SOURCE, ADMIN, PASSWORD);
+    var storage = (AbstractStorage) session.getStorage();
+    storage.synch();
+    var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+        .getWriteCache();
+    cache.pauseBackgroundFlush();
+    var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
+    var name = PageFileNames.layout28(identity);
+    long id = cache.externalFileId(identity.internalId());
+    if (nonDurable) {
+      cache.addFile(name, id, true);
+      assertTrue(cache.isNonDurable(id));
+    }
+    assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
+    StorageBirthTestSupport.removeNameIdMaps(Path.of(arguments[0]).resolve(SOURCE));
+    storage.makeStorageDirty();
+    var wal = storage.getWALInstance();
+    long unit = storage.getIdGen().nextId();
+    wal.log(new AtomicUnitStartRecord(false, unit));
+    wal.log(new FileCreatedWALRecord(unit, PageFileNames.layout28(identity), id));
+    if (!completeCreation) {
+      wal.appendNewSegment();
+    }
+    var position = wal.log(new PageAllocatedWALRecord(0, id, unit));
+    wal.log(new AtomicUnitEndRecord(unit, false, null));
+    wal.flush();
+    if (completeCreation) {
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      Files.delete(Path.of(arguments[0]).resolve(SOURCE)
+          .resolve(PageFileNames.layout28DiskName(identity)));
+    } else {
+      assertTrue("the WAL cut must remove the creating unit", wal.cutTill(position));
+    }
+    Runtime.getRuntime().halt(0);
+  }
+
+  /** Drop redo must delete physical content before hydration, including on repeated replay. */
+  @Test(timeout = 30_000)
+  public void identityDropReplayDeletesWithoutHydrationOrMap() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+          .getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12006);
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+          WriteCache.RecoveryFilePermission.RESTORE));
+      var path = databasesPath.resolve(SOURCE).resolve(PageFileNames.layout28DiskName(identity));
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      assertTrue(Files.exists(path));
+      List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, 1),
+          new FileDeletedWALRecord(1, id), new AtomicUnitEndRecord(1, false, null));
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      assertFalse("caller must not skip an unhydrated file", Files.exists(path));
+      var namesField = cache.getClass().getDeclaredField("nameIdMap");
+      namesField.setAccessible(true);
+      var names = (java.util.Map<?, ?>) namesField.get(cache);
+      assertNull("handle-free deletion must not publish a map entry",
+          names.get(PageFileNames.layout28(identity)));
+      assertEquals("logical deletion remains visible without map publication",
+          Integer.valueOf(-identity.internalId()),
+          cache.registeredFileId(PageFileNames.layout28(identity)));
+      assertFalse(cache.exists(id));
+    }
+  }
+
+  /** Creation replay of a present page preserves its bytes through the storage caller. */
+  @Test
+  public void identityCreationReplayPreservesPresentContentWithoutHydration() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = storageOf(manager, SOURCE);
+      var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+          .getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12007);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
+      var path = databasesPath.resolve(SOURCE).resolve(PageFileNames.layout28DiskName(identity));
+      cache.pauseBackgroundFlush();
+      var bytes = new byte[cache.pageSize()];
+      Arrays.fill(bytes, (byte) 42);
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      Files.write(path, bytes, java.nio.file.StandardOpenOption.APPEND);
+      var before = Files.readAllBytes(path);
+      List<WALRecord> unit = List.of(new AtomicUnitStartRecord(false, 1),
+          new FileCreatedWALRecord(1, name, id), new AtomicUnitEndRecord(1, false, null));
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      assertEquals("creation dispatch must admit the physical extent", 1, cache.getFilledUpTo(id));
+      assertEquals(id, cache.loadFile(name));
+      storage.restoreAtomicUnit(unit, new ModifiableBoolean());
+      assertTrue(Arrays.equals(before, Files.readAllBytes(path)));
+      cache.deleteFile(id);
+    }
+  }
+
+  /** The archive reader rejects a wrong canonical name or id and admits unchanged identity pairs. */
+  @Test
+  public void identityRestoreArchiveValidatesNameAndExpectedId() throws Exception {
+    try (var manager = openManager();
+        var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+            StorageFormat.LAYOUT_28)) {
+      createSourceDatabase(manager);
+      var storage = (DiskStorage) storageOf(manager, SOURCE);
+      var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
+          .getWriteCache();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12009);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
+      var entries = new java.util.LinkedHashMap<>(cache.files());
+      StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
+      var first = entries.entrySet().iterator().next();
+      var restore = DiskStorage.class.getDeclaredMethod("restoreFromIncrementalBackup",
+          String.class, java.util.Locale.class,
+          com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration.class,
+          byte[].class, InputStream.class, boolean.class);
+      restore.setAccessible(true);
+      for (int variant = 0; variant < 3; variant++) {
+        var bytes = new java.io.ByteArrayOutputStream();
+        try (var zip = new java.util.zip.ZipOutputStream(bytes)) {
+          for (var entry : entries.entrySet()) {
+            boolean corrupt = entry.getKey().equals(first.getKey());
+            zip.putNextEntry(new java.util.zip.ZipEntry(
+                corrupt && variant == 0 ? "wrong.pcl" : entry.getKey()));
+            var idBytes = new byte[Long.BYTES];
+            com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer
+                .serializeLiteral(entry.getValue() + (corrupt && variant == 1 ? 1 : 0), idBytes, 0);
+            zip.write(idBytes);
+            zip.closeEntry();
+          }
+        }
+        var input = new ByteArrayInputStream(bytes.toByteArray());
+        if (variant < 2) {
+          var failure = assertThrows(java.lang.reflect.InvocationTargetException.class,
+              () -> restore.invoke(storage, "UTF-8", java.util.Locale.US,
+                  storage.getContextConfiguration(), null, input, false));
+          assertTrue(failure.getCause().toString(),
+              failure.getCause() instanceof IllegalArgumentException);
+        } else {
+          restore.invoke(storage, "UTF-8", java.util.Locale.US,
+              storage.getContextConfiguration(), null, input, false);
+        }
+      }
+    }
+  }
+
+  /** A full backup reads a pending page file and restores every byte of that file. */
+  @Test(timeout = 120_000)
+  public void fullBackupRestoresPendingPageFileBytes() throws Exception {
+    restorePendingPageFiles(false);
+  }
+
+  /** An incremental unit updates the base file and adds a second file that is still pending. */
+  @Test(timeout = 120_000)
+  public void incrementalBackupRestoresChangedBaseFileAndPendingPageFileBytes() throws Exception {
+    restorePendingPageFiles(true);
+  }
+
+  private void restorePendingPageFiles(boolean incremental) throws Exception {
+    // Backup rotates the WAL. Prevent that rotation from requesting a checkpoint that flushes pages.
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT, false)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL, 3600)
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL,
+            0)
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CREATE,
+            false)
+        .addGlobalConfigurationParameter(GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL,
+            0)
+        .build();
+    var first = new PageFileIdentity(PageFileRole.RECORD_DATA, 12010);
+    var second = new PageFileIdentity(PageFileRole.RECORD_DATA, 12011);
+    try (var manager = openManager()) {
+      try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+          StorageFormat.LAYOUT_28)) {
+        manager.create(SOURCE, DatabaseType.DISK, config, ADMIN, PASSWORD, ADMIN);
+      }
+      var source = (DiskStorage) storageOf(manager, SOURCE);
+      var cache = source.getWriteCache();
+      try (AutoCloseable resumeFlush = cache::resumeBackgroundFlush) {
+        cache.pauseBackgroundFlush();
+        // Only the base backup supplies page 1. The incremental unit changes page 0.
+        long firstId = writeBackupPages(manager, source, first, true, 42, 45);
+        assertEquals("The base must contain the original value", 42,
+            readBackupPageValue(manager, source, firstId, 0));
+        assertEquals("The base must contain the unchanged second page", 45,
+            readBackupPageValue(manager, source, firstId, 1));
+        var base = observePendingBackupPage(source, first, firstId,
+            () -> source.fullBackup(backupPath));
+        assertEquals(List.of(base), IteratorUtils.toList(backupFileNames()));
+
+        cache.flush(firstId);
+        var firstPath = source.getStoragePath().resolve(PageFileNames.layout28DiskName(first));
+        assertEquals("The flushed base source must contain two pages",
+            File.HEADER_SIZE + 2L * cache.pageSize(), Files.size(firstPath));
+        byte[] secondBytes = null;
+        if (incremental) {
+          writeBackupPages(manager, source, first, false, 43);
+          assertEquals("The incremental unit must contain the new value", 43,
+              readBackupPageValue(manager, source, firstId, 0));
+          long secondId = writeBackupPages(manager, source, second, true, 44);
+          assertTrue("The base file must exist before the incremental backup",
+              Files.isRegularFile(firstPath));
+          var tail = observePendingBackupPage(source, second, secondId,
+              () -> source.backup(backupPath));
+          assertEquals("The backup directory must contain the original base and one tail",
+              Stream.of(base, tail).sorted().toList(), IteratorUtils.toList(backupFileNames()));
+          cache.flush(firstId);
+          cache.flush(secondId);
+          secondBytes = Files.readAllBytes(
+              source.getStoragePath().resolve(PageFileNames.layout28DiskName(second)));
+        }
+        var firstBytes = Files.readAllBytes(firstPath);
+
+        // Restore admission checks that the first unit is full and the tail starts at its end LSN.
+        internalOf(manager).restore(target, backupPath.toString(), config);
+        var restored = storageOf(manager, target);
+        assertEquals(StorageFormat.LAYOUT_28, restored.getStorageFormat());
+        assertFalse(restored.getContextConfiguration().getValueAsBoolean(
+            GlobalConfiguration.STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CREATE));
+        // Zero disables periodic flushing from target creation through restore.
+        assertEquals(0, restored.getContextConfiguration().getValueAsInteger(
+            GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL));
+        var restoredPath = databasesPath.resolve(target);
+        assertArrayEquals("Restored base-file bytes", firstBytes,
+            Files.readAllBytes(restoredPath.resolve(PageFileNames.layout28DiskName(first))));
+        if (incremental) {
+          assertArrayEquals("Restored incremental-file bytes", secondBytes,
+              Files.readAllBytes(restoredPath.resolve(PageFileNames.layout28DiskName(second))));
+        }
+      }
+    }
+  }
+
+  private static long writeBackupPages(YouTrackDBImpl manager, DiskStorage source,
+      PageFileIdentity identity, boolean create, int... values)
+      throws IOException, ReflectiveOperationException {
+    var name = PageFileNames.layout28(identity);
+    return WalTestUtils.commitFixtureChange(manager, source, op -> {
+      long id = create ? op.addFile(name, false) : op.loadFile(name);
+      for (int index = 0; index < values.length; index++) {
+        var page = create ? op.allocatePageForWrite(id, index)
+            : op.loadPageForWrite(id, index, 1, true);
+        try {
+          new PaginatedCollectionStateV2(page).setFileSize(values[index]);
+        } finally {
+          op.releasePageFromWrite(page);
+        }
+      }
+      return id;
+    });
+  }
+
+  private static int readBackupPageValue(YouTrackDBImpl manager, DiskStorage source, long id,
+      long index) throws IOException, ReflectiveOperationException {
+    return WalTestUtils.commitFixtureChange(manager, source, op -> {
+      try (var page = op.loadPageForRead(id, index)) {
+        return new PaginatedCollectionStateV2(page).getFileSize();
+      }
+    });
+  }
+
+  // A pending file has a logical registration but no path. Observe it at the actual backup read.
+  private static String observePendingBackupPage(DiskStorage source, PageFileIdentity identity,
+      long fileId, java.util.function.Supplier<String> backup) {
+    var path = source.getStoragePath().resolve(PageFileNames.layout28DiskName(identity));
+    var cache = source.getWriteCache();
+    assertTrue(cache.exists(fileId));
+    assertTrue("The backup source must have no page-file path", Files.notExists(path));
+    assertEquals(0, source.getContextConfiguration().getValueAsInteger(
+        GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL));
+    var calls = new AtomicInteger();
+    AbstractStorage storage = source;
+    var original = storage.readCache;
+    var delegate = delegatesTo(original);
+    storage.readCache = mock(ReadCache.class, call -> {
+      if (call.getMethod().getName().equals("silentLoadForRead")
+          && cache.fileIdsAreEqual(fileId, call.getArgument(0))) {
+        assertTrue("The page file must still be pending at the backup read", Files.notExists(path));
+        calls.incrementAndGet();
+      }
+      return delegate.answer(call);
+    });
+    try {
+      var unit = backup.get();
+      assertNotNull(unit);
+      assertTrue("The backup must read the pending file", calls.get() > 0);
+      assertTrue("Backup must not materialize the source file", Files.notExists(path));
+      return unit;
+    } finally {
+      storage.readCache = original;
     }
   }
 

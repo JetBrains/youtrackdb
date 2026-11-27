@@ -47,6 +47,7 @@ public final class AsyncFile implements File {
   private final ExecutorService executor;
   private final String dbName;
   private final boolean callFsync;
+  private final Runnable creationNotification;
 
   private final Counter dataFileFsyncCount;
   private final TimeRate diskReadMeter;
@@ -70,6 +71,15 @@ public final class AsyncFile implements File {
   public AsyncFile(
       final Path osFile, final int pageSize, boolean logFileDeletion, ExecutorService executor,
       String dbName, boolean callFsync) {
+    this(osFile, pageSize, logFileDeletion, executor, dbName, callFsync, () -> {
+    });
+  }
+
+  /** Notification runs after exclusive creation, before opening or initializing the header. */
+  public AsyncFile(
+      Path osFile, int pageSize, boolean logFileDeletion, ExecutorService executor,
+      String dbName, boolean callFsync, Runnable creationNotification) {
+    this.creationNotification = creationNotification;
     this.osFile = osFile;
     this.pageSize = pageSize;
     this.executor = executor;
@@ -96,6 +106,7 @@ public final class AsyncFile implements File {
       }
 
       Files.createFile(osFile);
+      creationNotification.run();
 
       doOpen();
     } finally {
@@ -180,7 +191,7 @@ public final class AsyncFile implements File {
     } catch (IOException | RuntimeException | Error failure) {
       try {
         doClose();
-      } catch (IOException closeFailure) {
+      } catch (IOException | RuntimeException | Error closeFailure) {
         failure.addSuppressed(closeFailure);
       }
       throw failure;
@@ -335,6 +346,11 @@ public final class AsyncFile implements File {
       lock.sharedUnlock();
       diskReadMeter.record(read);
     }
+  }
+
+  @Override
+  public void reserveSpaceThrough(long size) {
+    this.size.accumulateAndGet(size, Math::max);
   }
 
   @Override

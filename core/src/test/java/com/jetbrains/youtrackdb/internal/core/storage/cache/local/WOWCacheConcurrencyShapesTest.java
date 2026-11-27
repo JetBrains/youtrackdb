@@ -386,6 +386,7 @@ public class WOWCacheConcurrencyShapesTest {
     setField(cache, "closed", false);
     setField(cache, "storageName", "test");
     setField(cache, "writeCachePages", new ConcurrentHashMap<PageKey, CachePointer>());
+    setField(cache, "cachedPageCoverage", new CachedPageCoverage());
     setField(cache, "writeCacheSize", new AtomicLong());
     setField(cache, "exclusiveWriteCacheSize", new AtomicLong());
     setField(cache, "exclusiveWritePages", new ConcurrentSkipListSet<PageKey>());

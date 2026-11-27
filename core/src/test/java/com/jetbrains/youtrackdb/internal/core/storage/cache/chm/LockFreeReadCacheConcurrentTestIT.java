@@ -28,7 +28,7 @@ import org.junit.experimental.categories.Category;
 
 /**
  * Concurrent stress tests for {@link LockFreeReadCache} with the {@link
- * com.jetbrains.youtrackdb.internal.common.collection.ConcurrentLongIntHashMap} backing store.
+ * com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap} backing store.
  * Validates that the integrated cache (map + eviction policy + read/write buffers) behaves
  * correctly under concurrent load and file deletion.
  *
