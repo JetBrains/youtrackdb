@@ -108,7 +108,7 @@ public class IndexHistogramManager extends StorageComponent {
   // formatVersion(4) + serializerId(1) + totalCount(8) + distinctCount(8) +
   // nullCount(8) + mutationsSinceRebalance(8) + totalCountAtLastBuild(8) +
   // histogramDataLength(4) + hllRegisterCount(4) = 53 bytes
-  static final int FIXED_HEADER_SIZE = 53;
+  static final int FIXED_HEADER_SIZE = HistogramStatsPage.FIXED_HEADER_SIZE;
 
   // ---- Instance state ----
   @Nullable private final PageFileIdentity identity;
@@ -861,6 +861,18 @@ public class IndexHistogramManager extends StorageComponent {
    */
   public long buildHistogram(AtomicOperation op, Stream<Object> sortedKeys,
       long totalCount, long nullCount, int keyFieldCnt) throws IOException {
+    var prepared = prepareHistogram(sortedKeys, totalCount, nullCount, keyFieldCnt);
+    publishHistogramAfterFill(op, prepared);
+    return prepared.nonNullCount();
+  }
+
+  /** Carries the image and recalibration count from the scan to the fill write. */
+  public record PreparedHistogram(HistogramSnapshot snapshot, long nonNullCount) {
+  }
+
+  /** Scans and fits the histogram without publishing or taking a kept lock. */
+  public PreparedHistogram prepareHistogram(Stream<Object> sortedKeys,
+      long totalCount, long nullCount, int keyFieldCnt) {
     long nonNullCount = totalCount - nullCount;
     if (nonNullCount < histogramMinSize) {
       // Too few non-null keys for histogram; install counters-only snapshot.
@@ -870,12 +882,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, nonNullCount, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot) == snapshot) {
-        writeSnapshotToPage(op, snapshot);
-      }
-      // Early exit: return approximate count (no stream consumed).
-      // Callers' "recalibration" is effectively a no-op for small indexes.
-      return nonNullCount;
+      return new PreparedHistogram(snapshot, nonNullCount);
     }
 
     // Compute effective keys (leading field for composite indexes)
@@ -914,10 +921,7 @@ public class IndexHistogramManager extends StorageComponent {
       var stats = new IndexStatistics(totalCount, 0, nullCount);
       var snapshot = new HistogramSnapshot(
           stats, null, 0, totalCount, 0, false, null, false);
-      if (publish(current -> snapshot) == snapshot) {
-        writeSnapshotToPage(op, snapshot);
-      }
-      return 0;
+      return new PreparedHistogram(snapshot, 0);
     }
 
     // Compute actual non-null count from scan (consistent with frequencies)
@@ -940,10 +944,32 @@ public class IndexHistogramManager extends StorageComponent {
     var stats = new IndexStatistics(totalCount, exactDistinctCount, nullCount);
     var snapshot = new HistogramSnapshot(
         stats, histogram, 0, totalCount, 0, false, hll, hllOnPage1);
-    if (publish(current -> snapshot) == snapshot) {
-      writeSnapshotToPage(op, snapshot);
+    return new PreparedHistogram(snapshot, scannedNonNull);
+  }
+
+  /**
+   * Publishes a prepared fill result after the caller has locked the index trees.
+   *
+   * @return whether the prepared image was published and written
+   */
+  public boolean publishHistogramAfterFill(AtomicOperation op, PreparedHistogram prepared)
+      throws IOException {
+    // Keep the direct write boundary so pending log records stay with the caller.
+    storage.getAtomicOperationsManager().acquireExclusiveLockTillOperationComplete(op, this);
+    if (!canPublishBuild()) {
+      return false;
     }
-    return scannedNonNull;
+    var snapshot = prepared.snapshot();
+    if (publish(current -> snapshot) != snapshot) {
+      return false;
+    }
+    writeSnapshotUnderLock(op, snapshot);
+    return true;
+  }
+
+  /** Validates a completed build while holding the manager lock. */
+  private boolean canPublishBuild() {
+    return !detached;
   }
 
   // ---- Rebalance ----
@@ -1312,22 +1338,16 @@ public class IndexHistogramManager extends StorageComponent {
           result, maxBoundaryBytes, keySerializer, serializerFactory);
     }
 
-    // Also truncate the MCV key if needed (same budget constraint)
-    Comparable<?> mcvForSize = truncated.mcvValue;
-    if (mcvForSize != null && !keySerializer.isFixedLength()) {
-      var truncatedMcv = truncateBoundary(
-          mcvForSize, maxBoundaryBytes, keySerializer, serializerFactory);
-      if (truncatedMcv != mcvForSize) {
-        mcvForSize = truncatedMcv;
-      }
-    }
-    int mcvKeySize = mcvForSize != null
-        ? keySerializer.getObjectSize(serializerFactory, mcvForSize)
+    // The writer stores the full MCV, even when its boundary form is truncated.
+    int mcvKeySize = result.mcvValue != null
+        ? keySerializer.getObjectSize(serializerFactory, result.mcvValue)
         : 0;
-
-    // Strategy 2: reduce bucket count if boundaries still exceed page space
-    return fitToPage(truncated, nonNullCount, isSingleValue, mcvKeySize,
+    var fit = fitToPage(truncated, nonNullCount, isSingleValue, mcvKeySize,
         this::computeBoundaryBytes);
+    if (fit == null) {
+      logger.warn("No histogram fits the statistics page for index {}", getName());
+    }
+    return fit;
   }
 
   /**
@@ -1350,64 +1370,31 @@ public class IndexHistogramManager extends StorageComponent {
   @Nullable static FitResult fitToPage(BuildResult result, long nonNullCount,
       boolean singleValue, int mcvKeySize,
       BoundarySizeCalculator boundarySizeCalc) {
-    int bucketCount = result.actualBucketCount;
-    // Track the source bucket count that matches the current arrays.
-    // mergeBuckets needs to know how many buckets the source arrays have.
-    int sourceBucketCount = bucketCount;
-    var boundaries = result.boundaries;
-    var frequencies = result.frequencies;
-    var distinctCounts = result.distinctCounts;
-
-    int totalBoundaryBytes =
-        boundarySizeCalc.computeSize(boundaries, bucketCount);
+    int originalCount = result.actualBucketCount;
     int hllSize = singleValue ? 0 : HyperLogLogSketch.serializedSize();
-    boolean hllSpilledToPage1 = false;
-
-    // Check page budget and reduce buckets if needed
-    while (bucketCount > MINIMUM_BUCKET_COUNT) {
-      int available = computeMaxBoundarySpace(
-          bucketCount, hllSize, mcvKeySize);
-      if (totalBoundaryBytes <= available) {
-        break;
-      }
-      // Reduce bucket count by half
-      bucketCount = bucketCount / 2;
-      if (bucketCount < MINIMUM_BUCKET_COUNT) {
-        // Try spilling HLL to page 1 (at most once — hllSize > 0 guard
-        // prevents re-entry after the first spill attempt)
-        if (!singleValue && hllSize > 0) {
-          hllSize = 0;
-          hllSpilledToPage1 = true;
-          // Reset to original arrays and bucket count. This is safe because
-          // the spill triggers when bucketCount/2 < MINIMUM_BUCKET_COUNT,
-          // which happens before mergeBuckets could run for this iteration.
-          // Explicit reset guards against future refactors.
-          bucketCount = result.actualBucketCount;
-          sourceBucketCount = bucketCount;
-          boundaries = result.boundaries;
-          frequencies = result.frequencies;
-          distinctCounts = result.distinctCounts;
-          totalBoundaryBytes =
-              boundarySizeCalc.computeSize(boundaries, bucketCount);
-          continue;
-        }
-        return null; // keys too large for any useful histogram
-      }
-      // Merge adjacent bucket pairs
-      var merged = mergeBuckets(boundaries, frequencies, distinctCounts,
-          sourceBucketCount, bucketCount);
-      sourceBucketCount = bucketCount;
-      boundaries = merged.boundaries;
-      frequencies = merged.frequencies;
-      distinctCounts = merged.distinctCounts;
-      totalBoundaryBytes =
-          boundarySizeCalc.computeSize(boundaries, bucketCount);
+    int boundaryBytes = boundarySizeCalc.computeSize(result.boundaries, originalCount);
+    if (boundaryBytes <= computeMaxBoundarySpace(originalCount, hllSize, mcvKeySize)) {
+      return new FitResult(new EquiDepthHistogram(
+          originalCount, result.boundaries, result.frequencies, result.distinctCounts,
+          nonNullCount, result.mcvValue, result.mcvFrequency), false);
     }
 
-    var histogram = new EquiDepthHistogram(
-        bucketCount, boundaries, frequencies, distinctCounts, nonNullCount,
-        result.mcvValue, result.mcvFrequency);
-    return new FitResult(histogram, hllSpilledToPage1);
+    // Spill before reducing resolution. Boundary sizes need not be monotonic
+    // because each candidate keeps different source endpoints.
+    boolean spilled = !singleValue;
+    int minimum = Math.min(originalCount, MINIMUM_BUCKET_COUNT);
+    for (int count = originalCount; count >= minimum; count--) {
+      var candidate = count == originalCount ? result
+          : mergeBuckets(result.boundaries, result.frequencies, result.distinctCounts,
+              originalCount, count);
+      int size = boundarySizeCalc.computeSize(candidate.boundaries, count);
+      if (size <= computeMaxBoundarySpace(count, 0, mcvKeySize)) {
+        return new FitResult(new EquiDepthHistogram(
+            count, candidate.boundaries, candidate.frequencies, candidate.distinctCounts,
+            nonNullCount, result.mcvValue, result.mcvFrequency), spilled);
+      }
+    }
+    return null;
   }
 
   /**
@@ -1534,11 +1521,10 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Applies boundary truncation (Strategy 1) to all boundaries in a
-   * {@link BuildResult}. After truncation, adjacent boundaries that have
-   * become equal are merged (their buckets' frequencies and NDVs are
-   * summed). This handles the rare case where two adjacent boundaries
-   * share a prefix longer than {@code maxBoundaryBytes}.
+   * Shortens oversized boundaries in a {@link BuildResult}. For non-null keys,
+   * the shortened boundaries are nondecreasing. A boundary that sorts below
+   * its adjusted predecessor takes that predecessor's value. Equal boundaries
+   * merge and their buckets' frequencies and distinct counts are summed.
    *
    * @return a new BuildResult with truncated boundaries and merged
    *         buckets, or the original result if no truncation was needed
@@ -1569,10 +1555,13 @@ public class IndexHistogramManager extends StorageComponent {
 
     // Check for adjacent equal boundaries after truncation and merge
     var comparator = DefaultComparator.INSTANCE;
-    // Count how many unique boundaries remain
+    // Compare with the adjusted predecessor so a run of inversions keeps the same maximum.
     int uniqueCount = 1; // boundaries[0] is always kept
     for (int i = 1; i <= result.actualBucketCount; i++) {
-      if (comparator.compare(truncated[i], truncated[i - 1]) != 0) {
+      int order = comparator.compare(truncated[i], truncated[i - 1]);
+      if (order < 0) {
+        truncated[i] = truncated[i - 1];
+      } else if (order > 0) {
         uniqueCount++;
       }
     }
@@ -1619,12 +1608,7 @@ public class IndexHistogramManager extends StorageComponent {
       // Check if the next boundary is different from the current one
       // (i.e., we've reached the end of a group of merged buckets).
       // The next boundary is truncated[i + 1].
-      boolean isLast = (i == result.actualBucketCount - 1);
-      boolean nextIsDifferent = !isLast
-          && comparator.compare(
-              truncated[i + 1], truncated[i]) != 0;
-
-      if (isLast || nextIsDifferent) {
+      if (comparator.compare(truncated[i + 1], truncated[i]) != 0) {
         newFreqs[newIdx] = accFreq;
         newNdvs[newIdx] = accNdv;
         newBounds[newIdx + 1] = truncated[i + 1];
@@ -1633,6 +1617,10 @@ public class IndexHistogramManager extends StorageComponent {
         accNdv = 0;
       }
     }
+
+    // A terminal run of equal boundaries belongs to the last emitted bucket.
+    newFreqs[newIdx - 1] += accFreq;
+    newNdvs[newIdx - 1] += accNdv;
 
     return new BuildResult(newBounds, newFreqs, newNdvs, newBucketCount,
         result.totalDistinct, result.mcvValue, result.mcvFrequency);
@@ -1681,21 +1669,20 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Merges buckets from originalCount down to targetCount by combining
-   * adjacent pairs.
+   * Merges balanced contiguous source groups. Group sizes differ by at most one.
+   * Ordered endpoints and the frequency and distinct-count sums are preserved.
    */
   static BuildResult mergeBuckets(
       Comparable<?>[] boundaries, long[] frequencies,
       long[] distinctCounts, int originalCount, int targetCount) {
-    int ratio = originalCount / targetCount;
     var newBounds = new Comparable<?>[targetCount + 1];
     var newFreqs = new long[targetCount];
     var newNDV = new long[targetCount];
 
     newBounds[0] = boundaries[0];
     for (int i = 0; i < targetCount; i++) {
-      int start = i * ratio;
-      int end = (i == targetCount - 1) ? originalCount : (i + 1) * ratio;
+      int start = (int) ((long) i * originalCount / targetCount);
+      int end = (int) ((long) (i + 1) * originalCount / targetCount);
       long freqSum = 0;
       long ndvSum = 0;
       for (int j = start; j < end; j++) {
@@ -1743,8 +1730,8 @@ public class IndexHistogramManager extends StorageComponent {
     try {
       executor.submit(() -> {
         try {
-          doRebalance(false);
           lastRebalanceFailureNanos = 0;
+          doRebalance(false);
         } catch (Exception e) {
           lastRebalanceFailureNanos = System.nanoTime();
           logger.error("Histogram rebalance failed for {}", getName(), e);
@@ -1857,66 +1844,73 @@ public class IndexHistogramManager extends StorageComponent {
       }
       var fitResult = fitToPage(result, scannedNonNullCount);
       if (fitResult == null) {
+        // Keep the earlier snapshot and bound repeated scans and warnings with
+        // the same cooldown used for rebalance failures.
+        lastRebalanceFailureNanos = System.nanoTime();
         return;
       }
 
-      long scannedDistinctCount = result.totalDistinct;
-
-      boolean hllOnPage1 = false;
-      if (!isSingleValue) {
-        hllOnPage1 = fitResult.hllOnPage1;
-      }
-
-      // Install new snapshot via cache.compute() — preserves scalar counters
-      // from concurrent commits that occurred after the scan started.
-      final var finalHistogram = fitResult.histogram;
-      final var finalHll = newHll;
-      final long finalNDV = scannedDistinctCount;
-      final boolean finalHllOnPage1 = hllOnPage1;
-      final var published = publish(old -> {
-        if (old == null) {
-          return null;
-        }
-        // Use CHM's totalCount/nullCount (most up-to-date — includes concurrent
-        // commits after the scan) rather than the scanned values. For distinctCount,
-        // use the scan's exact NDV (replaces the approximate HLL estimate).
-        // Note: this means distinctCount may briefly exceed totalCount - nullCount
-        // if concurrent inserts added entries during the scan. This is benign —
-        // subsequent delta applications will correct it, and the planner tolerates
-        // approximate stats.
-        var newStats = new IndexStatistics(
-            old.stats().totalCount(), finalNDV, old.stats().nullCount());
-        return new HistogramSnapshot(
-            newStats,
-            finalHistogram,
-            0, // reset mutationsSinceRebalance
-            old.stats().totalCount(), // totalCountAtLastBuild (latest committed, not scanned)
-            old.version() + 1, // increment version
-            false, // reset hasDriftedBuckets
-            finalHll,
-            finalHllOnPage1);
-      });
-      if (published == null || detached) {
+      // A detached manager must not request admission or wait for the manager lock.
+      if (detached) {
         return;
       }
-
-      // Persist the new snapshot. On failure, mark dirty so the next
-      // checkpoint or commit-path batch flush retries the persistence.
-      // The CHM snapshot is already installed (correct in-memory state);
-      // only the on-disk page needs to catch up.
-      try {
-        flushSnapshotToPage();
-        DIRTY_MUTATIONS.setRelease(this, 0L);
-      } catch (IOException e) {
-        DIRTY_MUTATIONS.getAndAdd(this, 1);
-        logger.error("Failed to persist rebalanced histogram for {}",
-            getName(), e);
-      }
+      publishAndStoreRebalance(fitResult, result.totalDistinct, newHll);
     } finally {
       if (sem != null) {
         sem.release();
       }
     }
+  }
+
+  private void publishAndStoreRebalance(FitResult fit, long distinctCount,
+      @Nullable HyperLogLogSketch hll) {
+    // The callback runs on this thread. Keep its publication status if completion fails.
+    var published = new boolean[1];
+    try {
+      // Admit the write before taking the manager lock. The scan has finished.
+      boolean written = storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+          op -> calculateInsideComponentOperation(op, lockedOp -> {
+            published[0] = publishRebalanceUnderLock(fit, distinctCount, hll);
+            if (!published[0]) {
+              return false;
+            }
+            // A commit can update the cached counters without the manager lock.
+            var snapshotToWrite = cache.get(engineId);
+            if (snapshotToWrite == null || detached || fileId == -1) {
+              return false;
+            }
+            writeSnapshotUnderLock(lockedOp, snapshotToWrite);
+            return true;
+          }));
+      if (written) {
+        DIRTY_MUTATIONS.setRelease(this, 0L);
+      }
+    } catch (IOException e) {
+      if (!published[0] && !detached) {
+        // Keep the fitted image for readers and a later flush. Do not start a write here.
+        lockExclusive();
+        try {
+          publishRebalanceUnderLock(fit, distinctCount, hll);
+        } finally {
+          unlockExclusive();
+        }
+      }
+      DIRTY_MUTATIONS.getAndAdd(this, 1);
+      logger.error("Failed to persist rebalanced histogram for {}", getName(), e);
+    }
+  }
+
+  private boolean publishRebalanceUnderLock(FitResult fit, long distinctCount,
+      @Nullable HyperLogLogSketch hll) {
+    if (!canPublishBuild()) {
+      return false;
+    }
+    // Keep scalar counters from commits that occurred during the scan.
+    var published = publish(old -> old == null ? null : new HistogramSnapshot(
+        new IndexStatistics(old.stats().totalCount(), distinctCount, old.stats().nullCount()),
+        fit.histogram, 0, old.stats().totalCount(), old.version() + 1, false,
+        hll, !isSingleValue && fit.hllOnPage1));
+    return published != null && !detached;
   }
 
   /**
@@ -2021,42 +2015,18 @@ public class IndexHistogramManager extends StorageComponent {
   }
 
   /**
-   * Writes the given snapshot to the .ixs file. Writes page 0, and if
-   * {@code hllOnPage1} is set, also writes HLL registers to page 1.
-   * Both pages are written within the same {@link AtomicOperation}, so
-   * they are flushed atomically via WAL.
-   *
-   * <p>Acquires the IHM's per-component exclusive lock before touching any page so the
-   * two page-1 allocators on this component cannot race for the same {@code fileId}.
-   * The lock matches the one {@link #flushSnapshotToPage()} acquires (via the same
-   * {@code acquireExclusiveLockTillOperationComplete} call inside
-   * {@code executeInsideComponentOperation}); without the symmetric lock,
-   * {@code flushSnapshotToPage} (reachable from {@code applyDelta} on a commit-time
-   * batch flush, from {@code flushIfDirty} on checkpoint/shutdown/recovery, from
-   * {@code closeStatsFile}, and from {@code doRebalance}) could race with
-   * {@code writeSnapshotToPage} (reachable from {@code buildHistogram} via the BTree
-   * engines' {@code buildInitialHistogram} and from
-   * {@code createStatsFileWithCounters} at storage open), and the cache-layer
-   * load-or-add primitive's fail-fast {@code IllegalStateException} in
-   * {@code WOWCache.loadOrAdd} would surface a hard crash on the loser of the
-   * I4-violating concurrent allocation.
-   *
-   * <p>The lock is acquired directly via
-   * {@code AtomicOperationsManager.acquireExclusiveLockTillOperationComplete} rather
-   * than via {@code executeInsideComponentOperation} because the wrapper rewraps any
-   * thrown {@link IOException} as an unchecked {@code CommonStorageComponentException}.
-   * Callers such as {@link #flushIfDirty(AtomicOperation)} catch {@link IOException} to
-   * restore the dirty-mutation counter; keeping the checked exception transparent here
-   * preserves that catch site. Acquisition is idempotent (the AOM fast-path no-ops
-   * when the component is already in the operation's {@code lockedObjects} set), so
-   * callers that already sit inside the lock pay only a hash-set lookup. The lock is
-   * released by {@code AtomicOperationsManager.endAtomicOperation} when the outer
-   * atomic op commits or rolls back.
+   * Locks this manager and writes the snapshot in the caller's operation.
+   * Keep checked I/O failures visible to callers that restore their dirty count for retry.
    */
   private void writeSnapshotToPage(AtomicOperation op,
       HistogramSnapshot snapshot) throws IOException {
     storage.getAtomicOperationsManager()
         .acquireExclusiveLockTillOperationComplete(op, this);
+    writeSnapshotUnderLock(op, snapshot);
+  }
+
+  private void writeSnapshotUnderLock(AtomicOperation op, HistogramSnapshot snapshot)
+      throws IOException {
     var cacheEntry = loadPageForWrite(op, fileId, 0, true);
     try {
       var page = new HistogramStatsPage(cacheEntry);
@@ -2069,10 +2039,8 @@ public class IndexHistogramManager extends StorageComponent {
     // Write HLL to page 1 when spilled. The .ixs file starts with only
     // page 0; the first spill allocates page 1, subsequent flushes
     // re-write the existing page 1. Discriminate at the caller because
-    // allocatePageForWrite is allocator-only and would throw if asked
-    // to load an already-committed page 1. The per-component exclusive
-    // lock acquired above keeps the filledUpTo read consistent with the
-    // subsequent allocate/load call.
+    // allocatePageForWrite cannot load an already-committed page 1.
+    // The manager lock keeps the page count stable through the allocate or load call.
     if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
       CacheEntry page1Entry;
       if (op.filledUpTo(fileId) > 1) {
@@ -2088,30 +2056,7 @@ public class IndexHistogramManager extends StorageComponent {
     }
   }
 
-  /**
-   * Writes the current cached snapshot to the .ixs file. Creates its own
-   * atomic operation (flush runs from commit and rebalance paths where
-   * no caller-provided AtomicOperation is available).
-   *
-   * <p>The body runs inside {@code executeInsideComponentOperation} so the
-   * per-component exclusive lock is held while pages 0 and 1 are loaded /
-   * allocated. Without this lock, this method could race with
-   * {@code writeSnapshotToPage} (called from {@code buildHistogram} and
-   * {@code createStatsFileWithCounters}) for the same {@code fileId},
-   * causing two concurrent allocators to target page 1 simultaneously and
-   * trip the cache-layer fail-fast {@code IllegalStateException} in
-   * {@code WOWCache.loadOrAdd} that surfaces I4 violations.
-   * Audit: PSI call-hierarchy showed {@code flushSnapshotToPage} reachable
-   * from {@code applyDelta} (commit-time batch flush above threshold),
-   * {@code flushIfDirty} (checkpoint / shutdown / recovery via
-   * {@code AbstractStorage.flushDirtyHistograms}), {@code closeStatsFile}
-   * (index-level close), and {@code doRebalance} (rebalance task), while
-   * {@code writeSnapshotToPage} is reachable from
-   * {@code buildHistogram} (called by BTree engines' {@code buildInitialHistogram})
-   * and {@code createStatsFileWithCounters} (storage open / wire-up). None
-   * of those entry points serialise with each other naturally; the
-   * component-lock wrap closes the race.
-   */
+  /** Captures the cached image before admitting a standalone flush. */
   private void flushSnapshotToPage() throws IOException {
     if (detached) {
       return;
@@ -2121,45 +2066,9 @@ public class IndexHistogramManager extends StorageComponent {
       return;
     }
 
-    // Create a standalone atomic operation for the flush — we cannot
-    // use executeInsideComponentOperation(null, ...) because that
-    // passes null to AtomicOperationsManager which requires non-null.
     storage.getAtomicOperationsManager()
-        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op, lockedOp -> {
-          // lockedOp is the same AtomicOperation as op, re-bound after the
-          // per-component exclusive lock has been acquired by
-          // executeInsideComponentOperation; the rename makes the relationship
-          // explicit at every use site below.
-          var cacheEntry = loadPageForWrite(lockedOp, fileId, 0, true);
-          try {
-            var page = new HistogramStatsPage(cacheEntry);
-            page.writeSnapshot(snapshot, serializerId,
-                keySerializer, serializerFactory);
-          } finally {
-            releasePageFromWrite(lockedOp, cacheEntry);
-          }
-
-          // Write HLL to page 1 when spilled. Same allocator-only
-          // discrimination as writeSnapshotToPage: first spill allocates
-          // page 1, subsequent flushes re-write it. The per-component
-          // exclusive lock acquired by the surrounding
-          // executeInsideComponentOperation keeps filledUpTo consistent
-          // with the subsequent allocate/load call.
-          if (snapshot.hllOnPage1() && snapshot.hllSketch() != null) {
-            CacheEntry page1Entry;
-            if (lockedOp.filledUpTo(fileId) > 1) {
-              page1Entry = loadPageForWrite(lockedOp, fileId, 1, true);
-            } else {
-              page1Entry = allocatePageForWrite(lockedOp, fileId, 1);
-            }
-            try {
-              HistogramStatsPage.writeHllToPage1(
-                  page1Entry, snapshot.hllSketch());
-            } finally {
-              releasePageFromWrite(lockedOp, page1Entry);
-            }
-          }
-        }));
+        .executeInsideAtomicOperation(op -> executeInsideComponentOperation(op,
+            lockedOp -> writeSnapshotUnderLock(lockedOp, snapshot)));
   }
 
   // ---- Internal: key utilities ----

@@ -4,13 +4,16 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBConstants;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
@@ -44,6 +47,7 @@ import java.util.logging.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Covers disk storage bootstrap creation and open wiring. */
 public class DiskStorageBootstrapWiringTest {
@@ -79,6 +83,309 @@ public class DiskStorageBootstrapWiringTest {
   @After
   public void deleteDirectory() {
     FileUtils.deleteRecursively(directory.toFile());
+  }
+
+  /** A rejected clean open changes no file and creates no log or cache file. */
+  @Test
+  public void mismatchedPageSizeRejectsCleanOpenWithoutFileChanges() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Keep a clean image for admission.
+    }
+    rejectPageSizeOpenWithoutChanges(DATABASE, false);
+  }
+
+  /** A dirty image must fail admission before recovery changes any file. */
+  @Test
+  public void mismatchedPageSizeRejectsDirtyOpenWithoutFileChanges() throws Exception {
+    var handshake = directory.resolve("page-size-dirty.txt");
+    runCrashChild(DIRTY_CHILD_ARGUMENT, handshake);
+    // Read the durable marker without opening or repairing the rejected image.
+    var startup = Files.readAllBytes(directory.resolve(DIRTY_DATABASE).resolve("dirty.fl"));
+    assertTrue("the child must leave the durable dirty marker set", startup[12] != 0);
+    long reportedMark = Long.parseLong(Files.readString(handshake).trim());
+    assertTrue("flushed commits must exceed the checkpoint floor",
+        reportedMark > dirtyAuthority().readActiveRequired().sequenceFloor().highestIssued());
+    rejectPageSizeOpenWithoutChanges(DIRTY_DATABASE, false);
+  }
+
+  /** An old record assumes eight and is admitted only by an eight-KB process. */
+  @Test
+  public void legacyPageSizeAdmissionUsesEightWithoutUpgradingRecord() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Replace the authority encoding only, not the data.
+    }
+    rewriteAuthorityPageSize(DATABASE, 0);
+    if (com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+        .getValueAsInteger() == 8) {
+      try (var manager = openManager();
+          var ignored = manager.open(DATABASE, ADMIN, ADMIN)) {
+        // The data uses the assumed size in this process.
+      }
+      try (var paths = Files.list(directory.resolve(DATABASE))) {
+        for (var path : paths.filter(p -> p.toString().endsWith(".bsm")).toList()) {
+          assertEquals(1, java.nio.ByteBuffer.wrap(Files.readAllBytes(path)).getInt(8));
+        }
+      }
+    } else {
+      rejectPageSizeOpenWithoutChanges(DATABASE, true);
+    }
+  }
+
+  /** Per-database overrides fail both create and open before changing any existing file. */
+  @Test
+  public void perDatabasePageSizeOverridesRejectCreateAndOpenWithoutChanges() throws Exception {
+    AbstractStorage storage;
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      storage = (AbstractStorage) session.getStorage();
+    }
+    var config = new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration();
+    var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+    config.setValue(setting, setting.getValueAsInteger() == 4 ? 8 : 4);
+    var before = storageFiles(DATABASE);
+    var openFailure = assertThrows(RuntimeException.class, () -> storage.open(config));
+    assertConfigurationFailure(openFailure, setting.getValueAsInteger(),
+        setting.getValueAsInteger() == 4 ? 8 : 4);
+    assertFilesEqual(before, storageFiles(DATABASE));
+    var createFailure = assertThrows(RuntimeException.class, () -> storage.create(config));
+    assertConfigurationFailure(createFailure, setting.getValueAsInteger(),
+        setting.getValueAsInteger() == 4 ? 8 : 4);
+    assertFilesEqual(before, storageFiles(DATABASE));
+  }
+
+  /** Changing the global setting later fails before an existing image can change. */
+  @Category(SequentialTest.class)
+  @Test
+  public void laterPageSizeChangeRejectsOpenWithoutChanges() throws Exception {
+    AbstractStorage storage;
+    try (var manager = createDatabase();
+        var session = manager.open(DATABASE, ADMIN, ADMIN)) {
+      storage = (AbstractStorage) session.getStorage();
+    }
+    var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+    int original = setting.getValueAsInteger();
+    var before = storageFiles(DATABASE);
+    try {
+      setting.setValue(original == 4 ? 8 : 4);
+      var failure = assertThrows(RuntimeException.class,
+          () -> storage
+              .open(new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration()));
+      assertConfigurationFailure(failure, original, original == 4 ? 8 : 4);
+    } finally {
+      setting.setValue(original);
+    }
+    assertFilesEqual(before, storageFiles(DATABASE));
+  }
+
+  /** A rejected fresh create leaves an empty directory, with no identity or content files. */
+  @Test
+  public void perDatabasePageSizeOverrideRejectsFreshCreateWithoutFiles() throws Exception {
+    var path = directory.resolve(DATABASE);
+    assertFalse(Files.exists(path));
+    try (var manager = openManager()) {
+      var storage = new DiskStorage(DATABASE, path.toString(), 1, null, null, 0, 0,
+          (YouTrackDBInternalEmbedded) manager.internal);
+      var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+      int process = setting.getValueAsInteger();
+      int configured = process == 4 ? 8 : 4;
+      var config = new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration();
+      config.setValue(setting, configured);
+      var failure = assertThrows(RuntimeException.class, () -> storage.create(config));
+      assertConfigurationFailure(failure, process, configured);
+      assertTrue(Files.isDirectory(path));
+      try (var files = Files.list(path)) {
+        assertEquals(java.util.Set.of(),
+            files.map(p -> p.getFileName().toString())
+                .collect(java.util.stream.Collectors.toSet()));
+      }
+    }
+  }
+
+  private static void assertConfigurationFailure(Throwable failure, int process, int configured) {
+    var message = failure.getMessage();
+    assertTrue(message, message.contains(process + " KB"));
+    assertTrue(message, message.contains("youtrackdb.storage.diskCache.pageSize"));
+    if (message.contains("configuration passed for this database")) {
+      assertTrue(message, message.contains("to " + configured + " KB"));
+      assertTrue(message, message.contains("The process page size is " + process + " KB"));
+      assertTrue(message, message.contains("database configuration or the instance configuration"));
+      assertTrue(message, message.contains("Remove that value from the configuration"));
+      assertTrue(message, message.contains("or set it to the process page size"));
+    } else {
+      assertTrue(message, message.contains("Configured page size is " + configured + " KB"));
+      assertTrue(message, message.contains("changed after the process fixed"));
+      assertTrue(message, message.contains("Restart the process"));
+    }
+  }
+
+  private void rejectPageSizeOpenWithoutChanges(String database, boolean legacy) throws Exception {
+    if (!legacy) {
+      int configured = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+          .getValueAsInteger();
+      rewriteAuthorityPageSize(database, configured == 4 ? 8 : 4);
+    }
+    var before = storageFiles(database);
+    try (var manager = openManager()) {
+      var storage = new DiskStorage(database, directory.resolve(database).toString(),
+          1, null, null, 0, 0, (YouTrackDBInternalEmbedded) manager.internal);
+      var failure = assertThrows(RuntimeException.class, () -> storage.open(
+          new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration()));
+      assertTrue(failure.getMessage().contains("youtrackdb.storage.diskCache.pageSize"));
+      int configured = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE
+          .getValueAsInteger();
+      var message = failure.getMessage();
+      assertTrue(message, message.contains("Configured page size is " + configured + " KB"));
+      assertTrue(message, message.contains(
+          "Database page size is " + (legacy ? 8 : configured == 4 ? 8 : 4) + " KB"));
+      assertTrue(message, message.contains("The process reads this setting at start"));
+      assertTrue(message, message.contains("Restart the process after you change the setting."));
+      if (legacy) {
+        assertTrue(message, message.contains("8 KB is assumed"));
+        assertTrue(message, message.contains("Do not set 8"));
+      }
+      // A failed first physical open must still leave no registered storage.
+      var managerFailure = assertThrows(RuntimeException.class,
+          () -> manager.open(database, ADMIN, ADMIN));
+      assertTrue(hasCauseMessage(managerFailure, "youtrackdb.storage.diskCache.pageSize"));
+      assertEquals(null, ((YouTrackDBInternalEmbedded) manager.internal).getStorage(database));
+    }
+    assertFilesEqual(before, storageFiles(database));
+  }
+
+  /** A rejected reuse open keeps the live storage registered and usable by both valid sessions. */
+  @Test
+  public void rejectedOverrideKeepsLiveStorageRegistered() throws Exception {
+    try (var manager = createDatabase();
+        var first = manager.open(DATABASE, ADMIN, ADMIN)) {
+      var internal = (YouTrackDBInternalEmbedded) manager.internal;
+      var storage = first.getStorage();
+      var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+      int process = setting.getValueAsInteger();
+      var config = YouTrackDBConfig.builder()
+          .addGlobalConfigurationParameter(setting, process == 4 ? 8 : 4).build();
+      var failure = assertThrows(RuntimeException.class,
+          () -> manager.open(DATABASE, ADMIN, ADMIN, config));
+      assertTrue(hasCauseMessage(failure, "configuration passed for this database"));
+      assertSame(storage, internal.getStorage(DATABASE));
+      assertFalse(storage.isClosed(first));
+      first.activateOnCurrentThread();
+      first.getMetadata().getSchema().createClass("StillUsable");
+      try (var next = manager.open(DATABASE, ADMIN, ADMIN)) {
+        assertSame(storage, next.getStorage());
+        assertTrue(next.getMetadata().getSchema().existsClass("StillUsable"));
+      }
+      first.activateOnCurrentThread();
+      assertTrue(first.getMetadata().getSchema().existsClass("StillUsable"));
+      assertEquals(1, internal.getStorages().size());
+    }
+  }
+
+  /** A later global change rejects fresh creation before any identity or content file exists. */
+  @Category(SequentialTest.class)
+  @Test
+  public void laterPageSizeChangeRejectsFreshCreateWithoutFiles() throws Exception {
+    try (var manager = openManager()) {
+      var path = directory.resolve(DATABASE);
+      var storage = new DiskStorage(DATABASE, path.toString(), 1, null, null, 0, 0,
+          (YouTrackDBInternalEmbedded) manager.internal);
+      var setting = com.jetbrains.youtrackdb.api.config.GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+      int original = setting.getValueAsInteger();
+      com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize.bytes();
+      try {
+        setting.setValue(original == 4 ? 8 : 4);
+        var failure = assertThrows(RuntimeException.class, () -> storage.create(
+            new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration()));
+        assertConfigurationFailure(failure, original, original == 4 ? 8 : 4);
+      } finally {
+        setting.setValue(original);
+      }
+      assertTrue(Files.isDirectory(path));
+      try (var files = Files.list(path)) {
+        assertEquals(0, files.count());
+      }
+    }
+  }
+
+  /** Invalid sizes and inconsistent copies expose recovery advice on the storage exception. */
+  @Test
+  public void invalidPageSizeRecordsExposeActionableStorageErrors() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Supply an otherwise healthy image.
+    }
+    for (int size : new int[] {0, 3}) {
+      rewriteAuthorityPageSize(DATABASE, size, 2);
+      assertInvalidPageSizeOpen("Invalid database page size " + size + " KB", "invalid");
+    }
+    rewriteAuthorityPageSize(DATABASE, 8);
+    try (var paths = Files.list(directory.resolve(DATABASE))) {
+      var path = paths.filter(p -> p.toString().endsWith(".bsm")).findFirst().orElseThrow();
+      var bytes = Files.readAllBytes(path);
+      var buffer = java.nio.ByteBuffer.wrap(bytes);
+      buffer.putInt(8, 1).putInt(12, 1);
+      buffer.putLong(72, net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+          .hash(bytes, 0, 72, 0x648B7A2195D3L));
+      Files.write(path, bytes);
+    }
+    assertInvalidPageSizeOpen("no recorded page size", "inconsistent");
+  }
+
+  private void assertInvalidPageSizeOpen(String detail, String condition) throws Exception {
+    var before = storageFiles(DATABASE);
+    try (var manager = openManager()) {
+      var storage = new DiskStorage(DATABASE, directory.resolve(DATABASE).toString(),
+          1, null, null, 0, 0, (YouTrackDBInternalEmbedded) manager.internal);
+      var failure = assertThrows(RuntimeException.class, () -> storage.open(
+          new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration()));
+      var message = failure.getMessage();
+      assertTrue(message, message.contains(detail));
+      assertTrue(message, message.contains("storage identity record is " + condition));
+      assertTrue(message, message.contains("Configured page size is "
+          + com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+              .kibibytes()
+          + " KB"));
+      assertTrue(message, message.contains(
+          "Changing youtrackdb.storage.diskCache.pageSize does not help"));
+      assertTrue(message, message.contains("Restore the database from a backup"));
+      if (condition.equals("inconsistent")) {
+        assertTrue(message, message.contains("8 KB"));
+      }
+    }
+    assertFilesEqual(before, storageFiles(DATABASE));
+  }
+
+  private void rewriteAuthorityPageSize(String database, int size) throws Exception {
+    rewriteAuthorityPageSize(database, size, size == 0 ? 1 : 2);
+  }
+
+  private void rewriteAuthorityPageSize(String database, int size, int encoding) throws Exception {
+    try (var paths = Files.list(directory.resolve(database))) {
+      for (var path : paths.filter(p -> p.toString().endsWith(".bsm")).toList()) {
+        var bytes = Files.readAllBytes(path);
+        var buffer = java.nio.ByteBuffer.wrap(bytes);
+        buffer.putInt(8, encoding);
+        buffer.putInt(12, (size << 16) | 1);
+        buffer.putLong(72, net.jpountz.xxhash.XXHashFactory.fastestInstance().hash64()
+            .hash(bytes, 0, 72, 0x648B7A2195D3L));
+        Files.write(path, bytes);
+      }
+    }
+  }
+
+  private java.util.Map<Path, byte[]> storageFiles(String database) throws Exception {
+    var files = new java.util.TreeMap<Path, byte[]>();
+    try (var paths = Files.walk(directory.resolve(database))) {
+      for (var path : paths.filter(Files::isRegularFile).toList()) {
+        files.put(path, Files.readAllBytes(path));
+      }
+    }
+    return files;
+  }
+
+  private static void assertFilesEqual(
+      java.util.Map<Path, byte[]> before, java.util.Map<Path, byte[]> after) {
+    assertEquals("No new write-ahead log or cache file", before.keySet(), after.keySet());
+    before.forEach((path, bytes) -> org.junit.Assert.assertArrayEquals(
+        path.toString(), bytes, after.get(path)));
   }
 
   /** Creation publishes active format one and open reloads the same identities. */
@@ -129,6 +436,38 @@ public class DiskStorageBootstrapWiringTest {
           assertThrows(RuntimeException.class, () -> youTrackDB.open(DATABASE, ADMIN, ADMIN));
       assertTrue(hasCauseMessage(failure, "AUTHORITY_MISSING"));
     }
+  }
+
+  /** Damaged records of a complete database retain the inspect-before-deletion advice on open. */
+  @Test
+  public void damagedAuthorityOpenKeepsBaseAdvice() throws Exception {
+    try (var ignored = createDatabase()) {
+      // Keep all content files and corrupt only the identity record checksums.
+    }
+    try (var paths = Files.list(directory.resolve(DATABASE))) {
+      var copies = paths.filter(p -> p.toString().endsWith(".bsm")).toList();
+      assertFalse(copies.isEmpty());
+      for (var path : copies) {
+        var bytes = Files.readAllBytes(path);
+        bytes[72] ^= 1;
+        Files.write(path, bytes);
+      }
+    }
+    var before = storageFiles(DATABASE);
+    try (var manager = openManager()) {
+      var storage = new DiskStorage(DATABASE, directory.resolve(DATABASE).toString(),
+          1, null, null, 0, 0, (YouTrackDBInternalEmbedded) manager.internal);
+      var failure = assertThrows(StorageException.class, () -> storage.open(
+          new com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration()));
+      assertEquals("Cannot open database '" + DATABASE + "'. "
+          + "The database carries no complete bootstrap authority record. An interrupted creation"
+          + " produces this state. Damaged bootstrap authority records of a complete database"
+          + " produce the same state. Inspect the database directory before any deletion. A"
+          + " backup restores a complete database. A drop removes a database whose creation"
+          + " never finished.\r\n\tDB Name=\"" + DATABASE + "\"", failure.getMessage());
+      assertTrue(hasCauseMessage(failure, "INTERRUPTED_BIRTH"));
+    }
+    assertFilesEqual(before, storageFiles(DATABASE));
   }
 
   /** Open rejects a disk storage carrying an interrupted birth record. */
@@ -935,6 +1274,9 @@ public class DiskStorageBootstrapWiringTest {
         System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
     return new ProcessBuilder(
         javaExecutable,
+        "-Dyoutrackdb.storage.diskCache.pageSize="
+            + com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+                .kibibytes(),
         "-cp",
         testClasspath,
         DiskStorageBootstrapWiringTest.class.getName(),

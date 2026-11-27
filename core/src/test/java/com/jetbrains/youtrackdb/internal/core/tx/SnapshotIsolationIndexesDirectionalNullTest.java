@@ -58,7 +58,7 @@ public class SnapshotIsolationIndexesDirectionalNullTest extends SnapshotIsolati
     schema.createIndex(INDEX, indexType, "key");
     assertEquals(10, GlobalConfiguration.INDEX_CURSOR_PREFETCH_SIZE.getValueAsInteger());
     db.begin();
-    // Even at the default 64 KiB page size, 8192 RID/version entries span several leaf pages.
+    // At 4 KB and 8 KB, these 8,192 record identifier and version entries span several leaves.
     // A UNIQUE index has only one null slot. Alternate missing and explicit null properties.
     int count = indexType == INDEX_TYPE.UNIQUE ? 1 : 8192;
     for (int i = 0; i < count; i++) {

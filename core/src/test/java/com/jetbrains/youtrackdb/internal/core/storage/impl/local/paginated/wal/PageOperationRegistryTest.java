@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteEmptyOp;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteHllToPage1Op;
+import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWritePartOp;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramStatsPageWriteSnapshotOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageAppendRecordOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPageDeleteRecordOp;
@@ -22,6 +23,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.MapEntryPoin
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetApproxRecordsCountOp;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2SetFileSizeOp;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.common.WriteableWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.index.hashindex.local.cache.WOWCacheTestIT;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddAllOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddLeafEntryOp;
 import com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.local.v2.SBTreeBucketV2AddNonLeafEntryOp;
@@ -96,8 +98,11 @@ import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagB
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagBucketUpdateValueOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointInitOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetPagesSizeOp;
+import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetRidBagIdCounterOp;
 import com.jetbrains.youtrackdb.internal.core.storage.ridbag.ridbagbtree.RidbagEntryPointSetTreeSizeOp;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -105,10 +110,80 @@ import org.junit.Test;
 
 /**
  * Tests that {@link PageOperationRegistry#registerAll(WALRecordsFactory)} correctly registers
- * all 96 Track 2-3, Track 5, Track 6, Track 7a, and Track 7b PageOperation types so they can be
- * deserialized by the factory during recovery.
+ * the production PageOperation types so they can be deserialized by the factory during recovery.
  */
 public class PageOperationRegistryTest {
+
+  /**
+   * The WOW test record must coexist with every production page operation and the direct
+   * allocation record. Register in both orders to expose last-write-wins collisions.
+   */
+  @Test
+  public void wowRecordCoexistsWithFullProductionInventory() {
+    var ops = new ArrayList<PageOperation>(List.of(buildAllOps()));
+    ops.addAll(List.of(
+        new BTreeMVBucketV2AddAllLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2AddAllNonLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2ShrinkLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new BTreeMVBucketV2ShrinkNonLeafEntriesOp(7, 13, 99, INITIAL_LSN, List.of()),
+        new RidbagEntryPointSetRidBagIdCounterOp(7, 13, 99, INITIAL_LSN, 123)));
+    var ids = new HashSet<Integer>();
+    for (var op : ops) {
+      Assert.assertTrue("Duplicate inventory ID " + op.getId(), ids.add(op.getId()));
+    }
+    Assert.assertEquals(98, ids.size());
+    for (int id = 201; id <= 297; id++) {
+      Assert.assertTrue("Missing production ID " + id, ids.contains(id));
+    }
+    Assert.assertTrue(ids.contains(299));
+    Assert.assertFalse(ids.contains(298));
+    Assert.assertFalse(ids.contains(CoverageTestWALRecordIds.WOW_CACHE_TEST_RECORD_ID));
+    var wow = new WOWCacheTestIT.TestRecord(new byte[] {1, 2, 3});
+    Assert.assertEquals(CoverageTestWALRecordIds.WOW_CACHE_TEST_RECORD_ID, wow.getId());
+    for (boolean testFirst : new boolean[] {false, true}) {
+      var factory = new WALRecordsFactory();
+      if (testFirst) {
+        factory.registerNewRecord(wow.getId(), WOWCacheTestIT.TestRecord.class);
+      }
+      PageOperationRegistry.registerAll(factory);
+      if (!testFirst) {
+        factory.registerNewRecord(wow.getId(), WOWCacheTestIT.TestRecord.class);
+      }
+      for (var op : ops) {
+        var decoded = isolatedRoundtrip(factory, op);
+        Assert.assertEquals("Decoder ID " + op.getId(), op.getClass(), decoded.getClass());
+        Assert.assertEquals(op, decoded);
+        Assert.assertEquals(op.hashCode(), decoded.hashCode());
+        Class<?> pinned = switch (op.getId()) {
+          case 250 -> BTreeMVBucketV2SetLeftSiblingOp.class;
+          case 279 -> HistogramStatsPageWriteEmptyOp.class;
+          case 280 -> HistogramStatsPageWriteSnapshotOp.class;
+          case 281 -> HistogramStatsPageWriteHllToPage1Op.class;
+          case 299 -> HistogramStatsPageWritePartOp.class;
+          default -> op.getClass();
+        };
+        Assert.assertEquals(pinned, decoded.getClass());
+      }
+      var allocation = new PageAllocatedWALRecord(1, 13, 99);
+      Assert.assertEquals(298, allocation.getId());
+      Assert.assertEquals(allocation, isolatedRoundtrip(factory, allocation));
+      var decodedWow = isolatedRoundtrip(factory, wow);
+      Assert.assertEquals(WOWCacheTestIT.TestRecord.class, decodedWow.getClass());
+      Assert.assertArrayEquals(recordBytes(wow), recordBytes(decodedWow));
+    }
+  }
+
+  private static WriteableWALRecord isolatedRoundtrip(
+      WALRecordsFactory factory, WriteableWALRecord record) {
+    return factory.fromStream(recordBytes(record));
+  }
+
+  private static byte[] recordBytes(WriteableWALRecord record) {
+    ByteBuffer buffer = WALRecordsFactory.toStream(record);
+    byte[] bytes = new byte[buffer.limit()];
+    buffer.get(0, bytes);
+    return bytes;
+  }
 
   private static final LogSequenceNumber INITIAL_LSN = new LogSequenceNumber(1, 100);
   private static final long PAGE_INDEX = 7;
@@ -121,7 +196,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Builds the canonical array of all 96 PageOperation instances with non-zero field values.
+   * Builds the shared PageOperation instances for the equality contract tests.
    * Shared by roundtrip, equals-contract, and inequality tests.
    */
   private static PageOperation[] buildAllOps() {
@@ -129,7 +204,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Builds the canonical array of all 96 PageOperation instances with the given parent field
+   * Builds the shared PageOperation instances with the given parent field
    * values. Allows creating structurally identical ops with different base fields for inequality
    * testing.
    */
@@ -284,7 +359,8 @@ public class PageOperationRegistryTest {
             pageIndex, fileId, opUnitId, initialLsn,
             List.of(new byte[] {4, 5, 6})),
 
-        // Track 7b: HistogramStatsPage (3 ops)
+        // HistogramStatsPage operations
+        histogramPart(fileId, opUnitId, initialLsn),
         new HistogramStatsPageWriteEmptyOp(
             pageIndex, fileId, opUnitId, initialLsn, (byte) 5),
         new HistogramStatsPageWriteSnapshotOp(
@@ -334,7 +410,7 @@ public class PageOperationRegistryTest {
   }
 
   /**
-   * Verifies that all 96 registered record IDs survive a full WALRecordsFactory roundtrip:
+   * Verifies that the shared operation fixtures survive a full WALRecordsFactory roundtrip:
    * toStream → fromStream. Uses non-zero field values for all parameters (including parent
    * fields) and verifies full field-level equality via equals(), not just class/ID match.
    */
@@ -362,18 +438,20 @@ public class PageOperationRegistryTest {
   /** Verifies the expected total count of registered types — catches accidentally omitted types. */
   @Test
   public void testRegisteredTypeCount() {
-    // IDs 201-296 = 96 types (18 Track 2-3 + 21 Track 5 + 25 Track 6 + 15 Track 7a
-    //   + 17 Track 7b).
+    // IDs 201–297 and 299 are the registered page operations.
     // Each ID must have both a createOpForId entry and a factory registration.
     // createOpForId throws for unknown IDs, so any gap causes immediate failure.
     int registeredCount = 0;
     for (int id = WALRecordTypes.PAGE_OPERATION_ID_BASE + 1;
-        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 96; id++) {
+        id <= WALRecordTypes.PAGE_OPERATION_ID_BASE + 99; id++) {
+      if (id == WALRecordTypes.PAGE_ALLOCATED_WAL_RECORD) {
+        continue;
+      }
       var testOp = createMinimalRecord(id);
       Assert.assertNotNull("WAL record ID " + id + " failed to roundtrip", testOp);
       registeredCount++;
     }
-    Assert.assertEquals("Expected 96 registered PageOperation types", 96, registeredCount);
+    Assert.assertEquals("Expected 98 registered PageOperation types", 98, registeredCount);
   }
 
   /**
@@ -548,6 +626,15 @@ public class PageOperationRegistryTest {
     var content = new byte[serialized.limit()];
     serialized.get(0, content);
     return WALRecordsFactory.INSTANCE.fromStream(content);
+  }
+
+  private static PageOperation histogramPart(long fileId, long unitId, LogSequenceNumber lsn) {
+    byte[] bytes = ByteBuffer.allocate(111).order(java.nio.ByteOrder.nativeOrder())
+        .putShort((short) 299).putInt(0).putLong(unitId)
+        .putLong(0).putLong(fileId).putLong(lsn.getSegment()).putInt(lsn.getPosition())
+        .putInt(2).putInt(49).putInt(0).putLong(0x3215e2245d6bf28eL)
+        .put((byte) 8).put(new byte[48]).array();
+    return (PageOperation) WALRecordsFactory.INSTANCE.fromStream(bytes);
   }
 
   private PageOperation createOpForId(int id) {
@@ -787,6 +874,9 @@ public class PageOperationRegistryTest {
       case WALRecordTypes.RIDBAG_BUCKET_UPDATE_VALUE_OP ->
           new RidbagBucketUpdateValueOp(0, 0, 0, lsn, 0, new byte[] {}, 0);
 
+      case WALRecordTypes.RIDBAG_ENTRY_POINT_SET_RID_BAG_ID_COUNTER_OP ->
+          new RidbagEntryPointSetRidBagIdCounterOp(0, 0, 0, lsn, 0);
+      case WALRecordTypes.HISTOGRAM_STATS_PAGE_WRITE_PART_OP -> histogramPart(0, 0, lsn);
       default -> throw new IllegalArgumentException("Unknown PageOperation ID: " + id);
     };
   }

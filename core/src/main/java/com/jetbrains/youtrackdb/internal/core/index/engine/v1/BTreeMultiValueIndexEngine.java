@@ -206,6 +206,8 @@ public final class BTreeMultiValueIndexEngine
   }
 
   private void clearSVTree(final @Nonnull AtomicOperation atomicOperation) {
+    // Clear and delete take both locks in the same order, even if either tree is empty.
+    acquireAtomicExclusiveLock(atomicOperation);
     doClearTree(svTree, atomicOperation);
     doClearTree(nullTree, atomicOperation);
   }
@@ -331,24 +333,6 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public void clear(Storage storage, @Nonnull AtomicOperation atomicOperation) {
-    // Order is load-bearing for race-freedom on the clearIndex API path:
-    // when clearSVTree() enters doClearTree's while-loop body (the common case
-    // for any populated index), the per-tree exclusive lock is acquired
-    // transitively via tree.remove → executeInsideComponentOperation →
-    // acquireExclusiveLockTillOperationComplete and held for the remainder of
-    // this call. For the API path on a genuinely empty index (both svTree
-    // and nullTree empty), neither per-tree lock is taken because size()==0
-    // skips the while-loop in doClearTree; the snapshot reads then race
-    // against any concurrent commit's apply hook on the same engine, but
-    // currentTotal/currentNull are 0 in normal operation and the resulting
-    // (0, 0) delta is a no-op. If only one of the two trees is empty, only
-    // the populated tree's lock is acquired transitively; the snapshot of
-    // the engine-level AtomicLongs can capture a concurrent put against the
-    // empty side before the snapshot read. The resulting in-memory counter
-    // divergence is bounded and self-healed by buildInitialHistogram
-    // recalibration on the next touch. The commit path independently holds
-    // the per-engine lock at AbstractStorage.lockIndexes before clear()
-    // runs, so this race is clearIndex API-path-only.
     clearSVTree(atomicOperation);
     // Postcondition: doClearTree must remove every entry from both trees.
     assert svTree.firstKey(atomicOperation) == null
@@ -399,15 +383,6 @@ public final class BTreeMultiValueIndexEngine
     // pre-clear() values; on success they advance to zero post-commit,
     // matching the persisted side.
     //
-    // Race posture vs the prior pure-delta encoding. Mixed-mode narrows
-    // the snapshot-read race the bifurcated-lock-posture comment block
-    // above documents: the persisted side is now an absolute zero write
-    // (immune to a wrong (currentTotal, currentNull) snapshot); only the
-    // in-mem side keeps the race window. The consequence is bounded the
-    // same way: the in-mem-side delta is additively composable, so
-    // concurrent recalibrations on the same engine compose via
-    // AtomicLong.addAndGet, and any residual drift self-heals on the next
-    // buildInitialHistogram() recalibration.
     IndexCountDelta.accumulateInMemRecalibration(
         atomicOperation, id, -currentTotal, -currentNull);
     // mgr.resetOnClear() must remain LAST in this sequence. An IOException
@@ -706,15 +681,13 @@ public final class BTreeMultiValueIndexEngine
     long approxTotal = approximateIndexEntriesCount.get();
     long approxNull = approximateNullCount.get();
 
-    long scannedNonNull;
+    IndexHistogramManager.PreparedHistogram prepared;
     // Use the raw (non-SI-filtered) key stream for histogram building.
     // SI filtering is unnecessary here because the histogram tolerates the
     // tiny error from uncommitted/phantom entries (< 0.01% of index size),
     // and skipping it avoids drift between scanned counts and scalar counters.
     try (var keyStream = rawKeyStreamForHistogram(atomicOperation)) {
-      scannedNonNull = mgr.buildHistogram(
-          atomicOperation, keyStream,
-          approxTotal, approxNull,
+      prepared = mgr.prepareHistogram(keyStream, approxTotal, approxNull,
           mgr.getKeyFieldCount());
     }
 
@@ -733,6 +706,13 @@ public final class BTreeMultiValueIndexEngine
       }
     }
 
+    // Finish all reads before locking the trees ahead of the statistics manager.
+    acquireAtomicExclusiveLock(atomicOperation);
+    if (!mgr.publishHistogramAfterFill(atomicOperation, prepared)) {
+      return;
+    }
+    long scannedNonNull = prepared.nonNullCount();
+
     // Recalibrate from exact counts using mixed-mode encoding.
     //
     // Persisted side: the two setApproximateEntriesCount calls below are
@@ -746,20 +726,8 @@ public final class BTreeMultiValueIndexEngine
     // delta (target - currentInMem) is recorded on the AtomicOperation via
     // IndexCountDelta.accumulateInMemRecalibration and applied by Hook B
     // (AbstractStorage.applyIndexCountDeltas) after commitChanges succeeds.
-    // On the only production path that reaches this method
-    // (IndexAbstract.buildHistogramAfterFill via executeInsideAtomicOperation),
-    // no per-index lock is held during Hook B's apply; concurrent commits on
-    // the same engine compose via AtomicLong.addAndGet's additive semantics.
-    // On rollback the holder is dropped and the in-mem counters stay at
-    // their pre-recalibration value, so the persisted-side WAL revert and
-    // the in-mem-side no-op stay in step. The structural divergence that
-    // produced the underflow cascade is unreachable on this path.
-    //
-    // Scope: the structural-impossibility claim covers only the count
-    // counters (approximateIndexEntriesCount, approximateNullCount). The
-    // IndexHistogramManager.cache snapshots installed by the preceding
-    // mgr.buildHistogram call are NOT reverted on rollback (a heap-only
-    // cache rebuilt on next storage open; out-of-scope follow-up).
+    // The tree locks stay held through Hook B. Rollback discards the count
+    // adjustment but does not revert the published histogram cache snapshot.
     svTree.setApproximateEntriesCount(atomicOperation, scannedNonNull);
     nullTree.setApproximateEntriesCount(atomicOperation, exactNullCount);
     long currentTotal = approximateIndexEntriesCount.get();

@@ -566,7 +566,7 @@ public final class DirectMemoryOnlyDiskCache extends AbstractWriteCache
   }
 
   @Override
-  public void recordOptimisticAccess(final long fileId, final long pageIndex) {
+  public void recordOptimisticAccess(final CacheEntry entry) {
     // No-op: in-memory cache has no eviction policy to update.
   }
 

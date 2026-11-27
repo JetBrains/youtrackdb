@@ -22,6 +22,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -50,7 +51,7 @@ public class SharedLinkBagBTreeVerifyAndTruncateOrphansTest {
   private static final long FILE_ID = 1L;
   private static final String TREE_NAME = "testRidBag";
   private static final String EXTENSION = ".srb";
-  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+  private static final int PAGE_SIZE_BYTES = ProcessPageSize.bytes();
 
   private ByteBufferPool bufferPool;
   private ReadCache mockReadCache;

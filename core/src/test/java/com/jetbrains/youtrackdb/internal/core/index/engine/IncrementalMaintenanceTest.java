@@ -1191,8 +1191,7 @@ public class IncrementalMaintenanceTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    var atomicOps = RebalanceTriggerTest.mockRebalanceOperations();
     when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
@@ -1205,11 +1204,12 @@ public class IncrementalMaintenanceTest {
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
     var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
     try {
       doThrow(new IOException("simulated I/O failure"))
           .when(atomicOps).executeInsideAtomicOperation(any());
-    } catch (IOException ignored) {
-      // doThrow setup doesn't actually throw
+    } catch (IOException e) {
+      throw new AssertionError("Could not configure the write failure", e);
     }
     when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
@@ -1258,10 +1258,8 @@ public class IncrementalMaintenanceTest {
   }
 
   /**
-   * Creates a manager where flushSnapshotToPage will fail with IOException.
-   * The mocked AtomicOperationsManager throws IOException when
-   * executeInsideAtomicOperation is called. Cache is pre-populated with a
-   * snapshot so flushSnapshotToPage doesn't return early on cache miss.
+   * Creates a manager whose standalone write operations fail with IOException.
+   * Seeds the cache so a flush reaches the write operation.
    */
   private static class FailingFlushFixture {
     final int engineId = 0;

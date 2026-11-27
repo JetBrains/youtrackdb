@@ -24,7 +24,7 @@ You are an expert test quality reviewer. You run **two sub-protocols** over the 
 ## Project context
 
 YouTrackDB is a Java 21+ object-oriented graph database with:
-- Page-based storage engine (default 8 KB pages) with WAL (Write-Ahead Logging) and crash recovery
+- Page-based storage engine (default 4 KB pages) with WAL (Write-Ahead Logging) and crash recovery
 - Two-tier cache: ReadCache + WriteCache, direct memory buffer management
 - Record IDs (RID) in `#clusterId:clusterPosition` format
 - B-tree based indexes, transaction lifecycle with begin/commit/rollback

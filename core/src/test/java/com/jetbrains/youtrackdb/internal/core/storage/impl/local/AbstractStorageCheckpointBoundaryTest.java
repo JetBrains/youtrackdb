@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
@@ -68,6 +69,10 @@ public class AbstractStorageCheckpointBoundaryTest {
     setField("stateLock", new ScalableRWLock());
     setField("walVacuumInProgress", new AtomicBoolean(true));
     setField("indexEngines", new ArrayList<>());
+    // CALLS_REAL_METHODS skips the WAL vacuum counter initializers.
+    setField("walVacuumRunCount", Counter.NOOP);
+    setField("walVacuumTimeNanos", Counter.NOOP);
+    setField("walVacuumRemovalRunCount", Counter.NOOP);
     // CALLS_REAL_METHODS skips the generator and floor-hook constructor initializers.
     setField("idGen", mock(AtomicOperationIdGen.class));
     for (var field : new String[] {"checkpointFloorTestAction",

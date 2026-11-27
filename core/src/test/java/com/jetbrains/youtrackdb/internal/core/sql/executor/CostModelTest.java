@@ -25,6 +25,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -115,9 +116,8 @@ public class CostModelTest {
 
   @Test
   public void fullClassScanCost_combinesCpuAndIo() {
-    // With defaults: rowsPerPage = 8192/200 = 40
-    // cost = 1000 × 0.01 + (1000/40) × 1.0 = 10.0 + 25.0 = 35.0
-    assertEquals(35.0, CostModel.fullClassScanCost(1000), 0.0001);
+    // A scan uses 200-byte rows and the fixed process page size.
+    assertEquals(10.0 + 1000.0 / rowsPerPage(), CostModel.fullClassScanCost(1000), 0.0001);
   }
 
   @Test
@@ -127,8 +127,8 @@ public class CostModelTest {
 
   @Test
   public void fullClassScanCost_singleRow() {
-    // cost = 1 × 0.01 + (1/40) × 1.0 = 0.01 + 0.025 = 0.035
-    assertEquals(0.035, CostModel.fullClassScanCost(1), 0.0001);
+    // Fractional page I/O is retained even for a single row.
+    assertEquals(0.01 + 1.0 / rowsPerPage(), CostModel.fullClassScanCost(1), 0.0001);
   }
 
   @Test
@@ -136,8 +136,12 @@ public class CostModelTest {
     GlobalConfiguration.QUERY_STATS_COST_SEQ_PAGE_READ.setValue(2.0);
     GlobalConfiguration.QUERY_STATS_COST_PER_ROW_CPU.setValue(0.1);
 
-    // cost = 100 × 0.1 + (100/40) × 2.0 = 10.0 + 5.0 = 15.0
-    assertEquals(15.0, CostModel.fullClassScanCost(100), 0.0001);
+    // Runtime I/O and CPU settings combine with the process-sized page estimate.
+    assertEquals(10.0 + 200.0 / rowsPerPage(), CostModel.fullClassScanCost(100), 0.0001);
+  }
+
+  private static int rowsPerPage() {
+    return Math.max(1, ProcessPageSize.bytes() / 200);
   }
 
   // -- indexEqualityCost -----------------------------------------------------

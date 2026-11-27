@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
@@ -71,7 +72,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   private static final long DPB_FILE_ID = 4L;
 
   private static final String COLLECTION_NAME = "testCollection";
-  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+  private static final int PAGE_SIZE_BYTES = ProcessPageSize.bytes();
 
   private ByteBufferPool bufferPool;
   private ReadCache mockReadCache;

@@ -39,6 +39,24 @@ YTDB server supports the following properties:
 Their names and values are represented as a map and have the same meaning as described in
 `com.jetbrains.youtrackdb.api.config.GlobalConfiguration`.
 
+The storage page size is a setting for the whole Java process. It defaults to
+4-kilobyte (KB) pages. The `properties` map in `youtrackdb-server.yaml` cannot set the
+process page size. If the map contains `youtrackdb.storage.diskCache.pageSize`, remove
+the entry or make it match the process size. The server refuses database creation and
+open if the entry differs from the process size.
+
+If the system database (`OSystem`) or another database the server opens at startup uses
+8 KB pages, set the Java property before starting the server. From the server
+installation directory, run:
+
+```bash
+JAVA_OPTS='-Dyoutrackdb.storage.diskCache.pageSize=8' ./bin/ytdb.sh
+```
+
+For Docker, add `-e JAVA_OPTS=-Dyoutrackdb.storage.diskCache.pageSize=8` to the
+`docker run` command above, before the image name. If you already set `JAVA_OPTS`,
+add the property to its existing options.
+
 YTDB server configuration supports including other configuration files using the `includes`
 property. This property specifies a list of configuration files to load before the main
 configuration.

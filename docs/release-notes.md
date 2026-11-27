@@ -5,6 +5,31 @@ between your current version and your target version.
 
 ## Unreleased
 
+### Storage defaults to 4 KB pages
+
+A process with no page-size setting uses 4-kilobyte (KB) pages.
+The default maximum index key size is 1,228 bytes at 4 KB and 2,457 bytes at 8 KB.
+
+A 4 KB process refuses to open an 8 KB database or restore an 8 KB backup.
+To keep using those files, set `-Dyoutrackdb.storage.diskCache.pageSize=8` on the Java
+command line and restart. Use 8 KB only if you know the source used 8 KB.
+To change the page size, [export and import](operator-migration-procedure.md#convert-to-a-different-page-size).
+For backups without a recorded size, see [Choose the restore page size](backup-restore.md#choose-the-restore-page-size).
+
+A server or container exits with status 1 before it listens if it tries to open an 8 KB
+database at startup while using 4 KB pages. This includes the system database, `OSystem`.
+Set the Java property through `JAVA_OPTS` for the server script. In the Docker launch
+command, add `-e JAVA_OPTS=-Dyoutrackdb.storage.diskCache.pageSize=8` before the image name.
+The `properties` map in `youtrackdb-server.yaml` cannot set the process page size. Remove
+any page-size entry from that map or make it match the process size.
+
+An explicit `youtrackdb.btree.maxKeySize` must not exceed 30% of the page size, rounded
+down to a whole byte. For example, a value of 2,000 prevents database creation and open
+at 4 KB. To keep that limit, set the process page size to 8 KB. To create a database
+at 4 KB, set a limit of at most 1,228 bytes instead. To open an existing database, match
+both its page size and its recorded key limit. If you created it with a custom limit,
+set the same `youtrackdb.btree.maxKeySize` on every open.
+
 ### Non-index ORDER BY evaluates keys on first demand
 
 The non-index `ORDER BY` sort step stores keys only for items with a modifier or an edge lookup.

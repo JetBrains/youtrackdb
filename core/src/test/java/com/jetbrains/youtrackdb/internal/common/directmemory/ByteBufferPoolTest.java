@@ -31,6 +31,29 @@ public class ByteBufferPoolTest {
     GlobalConfiguration.DIRECT_MEMORY_TRACK_MODE.setValue(false);
   }
 
+  /** A later setting change does not prevent shared pool retrieval or page allocation. */
+  @Test
+  public void laterPageSizeChangeKeepsSharedPoolUsable() {
+    var pool = ByteBufferPool.instance(null);
+    var setting = GlobalConfiguration.DISK_CACHE_PAGE_SIZE;
+    int original = setting.getValueAsInteger();
+    try {
+      setting.setValue(original == 4 ? 8 : 4);
+      Assert.assertSame(pool, ByteBufferPool.instance(null));
+      var pointer = pool.acquireDirect(false, Intention.TEST);
+      try {
+        Assert.assertEquals(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+                .bytes(),
+            pointer.getNativeByteBuffer().capacity());
+      } finally {
+        pool.release(pointer);
+      }
+    } finally {
+      setting.setValue(original);
+    }
+  }
+
   @Test
   public void testByteBufferAllocationZeroPool() {
     final var allocator = new DirectMemoryAllocator();

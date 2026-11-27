@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.UpdatePageRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALPageChangesPortion;
@@ -17,7 +18,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.UUID;
 
-/** Streaming, warm-cache fixtures. Only one random 8 KiB page is generated at a time. */
+/** Streaming, warm-cache fixtures. Only one process-sized random page is generated at a time. */
 public final class StartupPerformanceFixture {
   public static final int FILE = 123457;
   public static final long MIB = 1024 * 1024;
@@ -41,7 +42,7 @@ public final class StartupPerformanceFixture {
   public StartupPerformanceFixture(WriteAheadLog wal, Path directory, int mib, boolean tail)
       throws Exception {
     var random = new Random(1317);
-    byte[] bytes = new byte[8192];
+    byte[] bytes = new byte[ProcessPageSize.bytes()];
     long logical = 0;
     while (logical < mib * MIB) {
       if (logical > 0 && logical % (16 * MIB) == 0) {
@@ -259,7 +260,8 @@ public final class StartupPerformanceFixture {
 
   public String label(String row, int generations, String shutdown, long records) {
     return row + " savedGenerations=" + generations + " shutdown=" + shutdown
-        + " cache=warm compression=LZ4 encryption=none payload=random8KiB"
+        + " cache=warm compression=LZ4 encryption=none payload=random"
+        + ProcessPageSize.kibibytes() + "KiB"
         + " physicalExtentBytes=" + extentBytes + " retainedBytes=" + extentBytes
         + " suffixBytes=" + suffixBytes + " readBytes=unobserved records=" + records
         + " markCalls=" + (positions.size() - firstPage) + " distinctScanMarks="

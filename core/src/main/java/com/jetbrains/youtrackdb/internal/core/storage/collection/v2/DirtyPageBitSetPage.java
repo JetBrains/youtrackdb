@@ -18,9 +18,9 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
  *  | Each byte packs 8 bits (LSB = lowest index).  |
  *  +-----------------------------------------------+
  *
- *  For the default 8 KB page size (MAX_PAGE_SIZE_BYTES = 8192, NEXT_FREE_POSITION = 28):
- *    - Usable bytes = 8164
- *    - Bits per page = 8164 * 8 = 65,312
+ *  For the default 4 KB page size (MAX_PAGE_SIZE_BYTES = 4096, NEXT_FREE_POSITION = 28):
+ *    - Usable bytes = 4,068
+ *    - Bits per page = 4,068 * 8 = 32,544
  * }</pre>
  *
  * @see CollectionDirtyPageBitSet

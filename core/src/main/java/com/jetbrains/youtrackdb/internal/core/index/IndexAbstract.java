@@ -1120,13 +1120,13 @@ public abstract class IndexAbstract implements Index {
               try {
                 storage.getAtomicOperationsManager()
                     .executeInsideAtomicOperation(btreeEngine::buildInitialHistogram);
-              } catch (IOException e) {
+              } catch (IOException | RuntimeException e) {
                 // Histogram build failure must not fail the index rebuild.
                 // The histogram will be built lazily on the next rebalance.
                 LogManager.instance().warn(
                     IndexAbstract.this,
-                    "Failed to build initial histogram for index '%s': %s",
-                    im.getName(), e.getMessage());
+                    "Failed to build initial histogram for index '%s'",
+                    e, im.getName());
               }
             }
           }

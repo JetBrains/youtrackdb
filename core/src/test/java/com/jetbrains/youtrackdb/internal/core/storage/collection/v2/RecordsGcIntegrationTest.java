@@ -587,9 +587,7 @@ public class RecordsGcIntegrationTest {
 
       session.command("CREATE CLASS GcMultiChunkTest");
 
-      // Create a large record that will span multiple pages.
-      // Default page size is 8KB, MAX_ENTRY_SIZE is ~8095 bytes. A 20KB string
-      // will require multiple chunks.
+      // A 20,000-character ASCII string spans multiple pages at 4 KB and 8 KB.
       var largeValue = "x".repeat(20_000);
 
       session.begin();

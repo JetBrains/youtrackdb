@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import static com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadTestSupport.cacheEntry;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -92,10 +93,14 @@ public class OptimisticReadScopeTest {
     long stamp1 = frame1.tryOptimisticRead();
     long stamp2 = frame2.tryOptimisticRead();
 
-    scope.record(frame1, stamp1, cacheEntry(frame1));
-    scope.record(frame2, stamp2, cacheEntry(frame2));
+    var entry1 = cacheEntry(frame1);
+    var entry2 = cacheEntry(frame2);
+    scope.record(frame1, stamp1, entry1);
+    scope.record(frame2, stamp2, entry2);
 
     assertEquals(2, scope.count());
+    assertSame(entry1, scope.getEntry(0));
+    assertSame(entry2, scope.getEntry(1));
     // Should not throw — all stamps are still valid
     scope.validateOrThrow();
 
