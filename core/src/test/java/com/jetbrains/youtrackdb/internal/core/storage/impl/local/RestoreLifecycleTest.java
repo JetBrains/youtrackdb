@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -8,24 +9,30 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YouTrackDB;
 import com.jetbrains.youtrackdb.api.YourTracks;
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.io.FileUtils;
 import com.jetbrains.youtrackdb.internal.common.types.ModifiableBoolean;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseLifecycleListener;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.SharedContext;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.UnsupportedBackupException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.config.CollectionBasedStorageConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.BootstrapMetadataTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.FeatureFormatIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
@@ -36,6 +43,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.Stora
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.WalTestUtils;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitStartRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
@@ -60,7 +68,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
+import org.apache.commons.collections4.IteratorUtils;
 import org.apache.commons.configuration2.BaseConfiguration;
 import org.junit.After;
 import org.junit.Before;
@@ -2000,6 +2010,156 @@ public class RestoreLifecycleTest {
               storage.getContextConfiguration(), null, input, false);
         }
       }
+    }
+  }
+
+  /** A full backup reads a pending page file and restores every byte of that file. */
+  @Test(timeout = 120_000)
+  public void fullBackupRestoresPendingPageFileBytes() throws Exception {
+    restorePendingPageFiles(false);
+  }
+
+  /** An incremental unit updates the base file and adds a second file that is still pending. */
+  @Test(timeout = 120_000)
+  public void incrementalBackupRestoresChangedBaseFileAndPendingPageFileBytes() throws Exception {
+    restorePendingPageFiles(true);
+  }
+
+  private void restorePendingPageFiles(boolean incremental) throws Exception {
+    // Backup rotates the WAL. Prevent that rotation from requesting a checkpoint that flushes pages.
+    var config = YouTrackDBConfig.builder()
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_KEEP_SINGLE_SEGMENT, false)
+        .addGlobalConfigurationParameter(GlobalConfiguration.WAL_FUZZY_CHECKPOINT_INTERVAL, 3600)
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_BACKUP_MINIMUM_TIMEOUT_INTERVAL,
+            0)
+        .addGlobalConfigurationParameter(
+            GlobalConfiguration.STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CREATE,
+            false)
+        .addGlobalConfigurationParameter(GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL,
+            0)
+        .build();
+    var first = new PageFileIdentity(PageFileRole.RECORD_DATA, 12010);
+    var second = new PageFileIdentity(PageFileRole.RECORD_DATA, 12011);
+    try (var manager = openManager()) {
+      try (var scope = StorageBirthTestSupport.selectBirthFormat(manager, SOURCE,
+          StorageFormat.LAYOUT_28)) {
+        manager.create(SOURCE, DatabaseType.DISK, config, ADMIN, PASSWORD, ADMIN);
+      }
+      var source = (DiskStorage) storageOf(manager, SOURCE);
+      var cache = source.getWriteCache();
+      try (AutoCloseable resumeFlush = cache::resumeBackgroundFlush) {
+        cache.pauseBackgroundFlush();
+        // Only the base backup supplies page 1. The incremental unit changes page 0.
+        long firstId = writeBackupPages(manager, source, first, true, 42, 45);
+        assertEquals("The base must contain the original value", 42,
+            readBackupPageValue(manager, source, firstId, 0));
+        assertEquals("The base must contain the unchanged second page", 45,
+            readBackupPageValue(manager, source, firstId, 1));
+        var base = observePendingBackupPage(source, first, firstId,
+            () -> source.fullBackup(backupPath));
+        assertEquals(List.of(base), IteratorUtils.toList(backupFileNames()));
+
+        cache.flush(firstId);
+        var firstPath = source.getStoragePath().resolve(PageFileNames.layout28DiskName(first));
+        assertEquals("The flushed base source must contain two pages",
+            File.HEADER_SIZE + 2L * cache.pageSize(), Files.size(firstPath));
+        byte[] secondBytes = null;
+        if (incremental) {
+          writeBackupPages(manager, source, first, false, 43);
+          assertEquals("The incremental unit must contain the new value", 43,
+              readBackupPageValue(manager, source, firstId, 0));
+          long secondId = writeBackupPages(manager, source, second, true, 44);
+          assertTrue("The base file must exist before the incremental backup",
+              Files.isRegularFile(firstPath));
+          var tail = observePendingBackupPage(source, second, secondId,
+              () -> source.backup(backupPath));
+          assertEquals("The backup directory must contain the original base and one tail",
+              Stream.of(base, tail).sorted().toList(), IteratorUtils.toList(backupFileNames()));
+          cache.flush(firstId);
+          cache.flush(secondId);
+          secondBytes = Files.readAllBytes(
+              source.getStoragePath().resolve(PageFileNames.layout28DiskName(second)));
+        }
+        var firstBytes = Files.readAllBytes(firstPath);
+
+        // Restore admission checks that the first unit is full and the tail starts at its end LSN.
+        internalOf(manager).restore(target, backupPath.toString(), config);
+        var restored = storageOf(manager, target);
+        assertEquals(StorageFormat.LAYOUT_28, restored.getStorageFormat());
+        assertFalse(restored.getContextConfiguration().getValueAsBoolean(
+            GlobalConfiguration.STORAGE_MAKE_FULL_CHECKPOINT_AFTER_CREATE));
+        // Zero disables periodic flushing from target creation through restore.
+        assertEquals(0, restored.getContextConfiguration().getValueAsInteger(
+            GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL));
+        var restoredPath = databasesPath.resolve(target);
+        assertArrayEquals("Restored base-file bytes", firstBytes,
+            Files.readAllBytes(restoredPath.resolve(PageFileNames.layout28DiskName(first))));
+        if (incremental) {
+          assertArrayEquals("Restored incremental-file bytes", secondBytes,
+              Files.readAllBytes(restoredPath.resolve(PageFileNames.layout28DiskName(second))));
+        }
+      }
+    }
+  }
+
+  private static long writeBackupPages(YouTrackDBImpl manager, DiskStorage source,
+      PageFileIdentity identity, boolean create, int... values)
+      throws IOException, ReflectiveOperationException {
+    var name = PageFileNames.layout28(identity);
+    return WalTestUtils.commitFixtureChange(manager, source, op -> {
+      long id = create ? op.addFile(name, false) : op.loadFile(name);
+      for (int index = 0; index < values.length; index++) {
+        var page = create ? op.allocatePageForWrite(id, index)
+            : op.loadPageForWrite(id, index, 1, true);
+        try {
+          new PaginatedCollectionStateV2(page).setFileSize(values[index]);
+        } finally {
+          op.releasePageFromWrite(page);
+        }
+      }
+      return id;
+    });
+  }
+
+  private static int readBackupPageValue(YouTrackDBImpl manager, DiskStorage source, long id,
+      long index) throws IOException, ReflectiveOperationException {
+    return WalTestUtils.commitFixtureChange(manager, source, op -> {
+      try (var page = op.loadPageForRead(id, index)) {
+        return new PaginatedCollectionStateV2(page).getFileSize();
+      }
+    });
+  }
+
+  // A pending file has a logical registration but no path. Observe it at the actual backup read.
+  private static String observePendingBackupPage(DiskStorage source, PageFileIdentity identity,
+      long fileId, java.util.function.Supplier<String> backup) {
+    var path = source.getStoragePath().resolve(PageFileNames.layout28DiskName(identity));
+    var cache = source.getWriteCache();
+    assertTrue(cache.exists(fileId));
+    assertTrue("The backup source must have no page-file path", Files.notExists(path));
+    assertEquals(0, source.getContextConfiguration().getValueAsInteger(
+        GlobalConfiguration.DISK_WRITE_CACHE_PAGE_FLUSH_INTERVAL));
+    var calls = new AtomicInteger();
+    AbstractStorage storage = source;
+    var original = storage.readCache;
+    var delegate = delegatesTo(original);
+    storage.readCache = mock(ReadCache.class, call -> {
+      if (call.getMethod().getName().equals("silentLoadForRead")
+          && cache.fileIdsAreEqual(fileId, call.getArgument(0))) {
+        assertTrue("The page file must still be pending at the backup read", Files.notExists(path));
+        calls.incrementAndGet();
+      }
+      return delegate.answer(call);
+    });
+    try {
+      var unit = backup.get();
+      assertNotNull(unit);
+      assertTrue("The backup must read the pending file", calls.get() > 0);
+      assertTrue("Backup must not materialize the source file", Files.notExists(path));
+      return unit;
+    } finally {
+      storage.readCache = original;
     }
   }
 
