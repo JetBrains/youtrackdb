@@ -2,6 +2,7 @@
 """Connect TeamCity branch detection, test reports and finished-build baselines."""
 
 import base64
+import datetime
 import importlib.util
 import json
 import os
@@ -13,12 +14,16 @@ import tempfile
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from typing import NamedTuple
 
 SPEC = importlib.util.spec_from_file_location(
     "detect_changes", pathlib.Path(__file__).with_name("detect-changes.py"))
 detect = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(detect)
-BUILD = "YouTrackDB_UnitTestsLinuxX86"
+BUILD = "YouTrackDB_UnitTestsLinuxArm64"
+DEVELOP = "refs/heads/develop"
+REVISION_FIELDS = "revisions(revision(version,vcsBranchName))"
+FINISHED_BUILDS = f"buildType:{BUILD},state:finished,defaultFilter:false,branch:default:any"
 
 
 def message(kind, **values):
@@ -56,50 +61,99 @@ def rest(path, plain=False):
         return response.read() if plain else json.load(response)
 
 
+def history_path(filters, fields):
+    return "/app/rest/builds?" + urllib.parse.urlencode({
+        "locator": f"{FINISHED_BUILDS},{filters},count:100",
+        "fields": f"count,build({fields}),nextHref"})
+
+
+def history_page(path):
+    if not path.startswith("/app/rest/builds?"):
+        raise ValueError("Unexpected TeamCity pagination path")
+    page = rest(path)
+    count = page.get("count")
+    entries = page.get("build", [] if type(count) is int and count == 0 else None)
+    if not isinstance(entries, list):
+        raise ValueError("Unreadable TeamCity build list")
+    # TeamCity count describes this page, not the full paginated history.
+    if "count" in page:
+        if type(count) is not int or count < 0 or count != len(entries):
+            raise ValueError("Unreadable TeamCity build count")
+    elif not entries:
+        raise ValueError("Unreadable TeamCity build list")
+    next_path = page.get("nextHref")
+    if next_path is not None and (not isinstance(next_path, str)
+                                  or not next_path.startswith("/app/rest/builds?")):
+        raise ValueError("Unexpected TeamCity pagination path")
+    return entries, next_path
+
+
+def build_revisions(build):
+    revisions = build["revisions"]["revision"]
+    if not isinstance(revisions, list) or not revisions:
+        raise ValueError("Unreadable TeamCity build revisions")
+    for revision in revisions:
+        branch = revision.get("vcsBranchName")
+        if not isinstance(branch, str) or not branch.strip():
+            raise ValueError("Unreadable TeamCity VCS branch")
+    return revisions
+
+
+def commit_sha(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", value):
+        raise ValueError("Invalid Git revision")
+    return value.lower()
+
+
+def earlier_develop_build(head):
+    # Count only finished attempts. Ignore running and queued builds.
+    path = history_path(f"revision:(version:{head})", REVISION_FIELDS)
+    while path:
+        entries, path = history_page(path)
+        found = False
+        for build in entries:
+            matching = [revision for revision in build_revisions(build)
+                        if commit_sha(revision.get("version")) == head]
+            if not matching:
+                raise ValueError("Unexpected TeamCity build revision")
+            if any(revision["vcsBranchName"] == DEVELOP for revision in matching):
+                found = True
+        if found:
+            return True
+    return False
+
+
+class TestBuild(NamedTuple):
+    path: str
+    revision: str
+
+
 def baseline(branch, successful=False):
     # Filter branch names locally, not inside REST locator syntax from PR text.
-    query = urllib.parse.urlencode({
-        "locator": f"buildType:{BUILD},state:finished,tag:ran-tests,defaultFilter:false,count:100",
-        "fields": ("count,build(id,status,finishDate,"
-                   "revisions(revision(version,vcsBranchName))),nextHref")})
-    path = "/app/rest/builds?" + query
-    builds = []
-    while path:
-        if not path.startswith("/app/rest/builds?"):
-            raise ValueError("Unexpected TeamCity pagination path")
-        page = rest(path)
-        count = page.get("count")
-        entries = page.get("build", [] if type(count) is int and count == 0 else None)
-        if not isinstance(entries, list):
-            raise ValueError("Unreadable TeamCity build list")
-        # TeamCity count describes this page, not the full paginated history.
-        if "count" in page:
-            if type(count) is not int or count < 0 or count != len(entries):
-                raise ValueError("Unreadable TeamCity build count")
-        elif not entries:
-            raise ValueError("Unreadable TeamCity build list")
-        builds.extend(entries)
-        path = page.get("nextHref")
+    path = history_path("tag:ran-tests", f"id,status,finishDate,{REVISION_FIELDS}")
     matches = []
-    for build in builds:
-        revisions = build["revisions"]["revision"]
-        if not isinstance(revisions, list) or not revisions:
-            raise ValueError("Unreadable TeamCity build revisions")
-        branches = [revision.get("vcsBranchName") for revision in revisions]
-        if any(not isinstance(name, str) or not name.strip() for name in branches):
-            raise ValueError("Unreadable TeamCity VCS branch")
-        if branch in branches and str(build["id"]) != os.environ["TC_BUILD_ID"]:
-            if successful:
-                status = build.get("status")
-                if not isinstance(status, str) or not status.strip():
-                    raise ValueError("Unreadable TeamCity build status")
-                if status != "SUCCESS":
-                    continue
-            matches.append(build)
+    while path:
+        entries, path = history_page(path)
+        for build in entries:
+            revisions = build_revisions(build)
+            status = build.get("status")
+            if status not in ("SUCCESS", "FAILURE", "UNKNOWN"):
+                raise ValueError("Unreadable TeamCity build status")
+            date = build.get("finishDate")
+            if not isinstance(date, str) or not re.fullmatch(
+                    r"[0-9]{8}T[0-9]{6}[+-][0-9]{4}", date):
+                raise ValueError("Unreadable TeamCity finish date")
+            finished = datetime.datetime.strptime(date, "%Y%m%dT%H%M%S%z")
+            if str(build["id"]) == os.environ["TC_BUILD_ID"] or (successful and status != "SUCCESS"):
+                continue
+            for revision in revisions:
+                if revision["vcsBranchName"] == branch:
+                    matches.append((finished, build["id"], revision.get("version")))
+                    break
     if not matches:
         return None
-    latest = max(matches, key=lambda b: b["finishDate"])
-    return "/app/rest/builds/id:" + str(int(latest["id"]))
+    _, build_id, revision = max(matches, key=lambda match: match[0])
+    return TestBuild("/app/rest/builds/id:" + str(int(build_id)), revision)
 
 
 def properties(path):
@@ -157,46 +211,56 @@ def pr_properties():
     return properties(system["teamcity.configuration.properties.file"])
 
 
-def detect_build():
-    branch = os.environ["TC_VCS_BRANCH"]
-    args = ["--root", ".", "--head", "HEAD"]
+def branch_kind(branch):
     if re.fullmatch(r"(?:refs/)?pull/[0-9]+(?:/head)?", branch):
+        return "pr"
+    if re.fullmatch(r"refs/heads/gh-readonly-queue/develop/.+", branch):
+        return "merge-queue"
+    if branch == DEVELOP:
+        return "develop"
+    raise BuildFailure("vcs-branch", "Unsupported VCS branch.")
+
+
+def detect_build():
+    kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
+    args = ["--root", ".", "--head", "HEAD", "--commit-type", kind]
+    if kind == "pr":
         try:
             facts = pr_properties()
             if not facts.get("teamcity.pullRequest.source.branch"):
                 raise ValueError("Missing source")
         except (OSError, ValueError, KeyError):
             raise BuildFailure("pr-source", "PR has no readable same-repository source.") from None
-        kind, base = "pr", facts.get("teamcity.pullRequest.target.branch", "")
+        base = facts.get("teamcity.pullRequest.target.branch", "")
         args += ["--same-repository"]
-    elif branch.startswith("refs/heads/gh-readonly-queue/develop/"):
-        kind, base = "merge-queue", "refs/heads/develop"
-    elif branch == "refs/heads/develop":
+    elif kind == "merge-queue":
+        base = DEVELOP
+    else:
         with tempfile.TemporaryDirectory() as directory:
             try:
-                previous = baseline("refs/heads/develop")
+                head = commit_sha(detect.git(".", "rev-parse", "HEAD").strip().decode("ascii"))
+                if earlier_develop_build(head):
+                    return detect.main(args + ["--full"])
+                previous = baseline(DEVELOP)
                 if previous is None:
                     raise ValueError("No previous develop test build")
-                revisions = rest(previous + "/revisions")["revision"]
-                revision = revisions[0]["version"]
-                if not re.fullmatch(r"[0-9a-fA-F]{40}", revision):
-                    raise ValueError("Invalid baseline revision")
+                revision = commit_sha(previous.revision)
+                if revision == head:
+                    return detect.main(args + ["--full"])
                 paths = detect.git(".", "diff", "--no-renames", "--name-only",
                                    "-z", revision, "HEAD", "--")
                 changes = pathlib.Path(directory) / "changes.z"
                 changes.write_bytes(paths)
-                return detect.main(args + ["--commit-type", "develop", "--changes", str(changes)])
+                return detect.main(args + ["--changes", str(changes)])
             except Exception as error:
                 message("message", text="Full develop build fallback: " + type(error).__name__,
                         status="WARNING")
-                return detect.main(args + ["--commit-type", "develop", "--full"])
-    else:
-        raise BuildFailure("vcs-branch", "Unsupported VCS branch.")
+                return detect.main(args + ["--full"])
     try:
         # Only develop is a target in this phase table. Never pass PR text to git.
-        if base not in ("develop", "refs/heads/develop"):
+        if base not in ("develop", DEVELOP):
             raise ValueError("Invalid target branch")
-        base = "refs/heads/develop"
+        base = DEVELOP
         detect.git(".", "check-ref-format", base)
         detect.git(".", "-c", "credential.helper=", "-c", "http.extraHeader=",
                    "-c", "http.https://github.com/.extraheader=", "fetch",
@@ -205,21 +269,40 @@ def detect_build():
     except Exception as error:
         message("message", text="Target fetch failed: " + type(error).__name__, status="WARNING")
         base = ""  # The detector retains its full-build fallback.
-    return detect.main(args + ["--commit-type", kind, "--base", base])
+    return detect.main(args + ["--base", base])
 
 
-def guard():
+def build_needed():
     value = os.environ.get("TC_SHOULD_BUILD")
     if value not in ("true", "false"):
         raise BuildFailure("detect-should-build", "detect.should_build is missing or malformed.")
     if value == "false":
         message("buildStatus", text="No build needed: no build-relevant files changed")
+    return value == "true"
+
+
+def guard():
+    branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
+    build_needed()
     return 0
 
 
+def maven():
+    kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
+    if not build_needed():
+        return 0
+    profile = "docker-images,coverage" if kind == "pr" else "docker-images"
+    return subprocess.run([
+        "./mvnw", "-s", ".github/workflows/settings.xml", "clean", "package", "-B",
+        "-Dmaven.test.failure.ignore=true", "-Dyoutrackdb.test.env=ci",
+        "-P", profile, "-Ddocker.platforms=linux/arm64/v8",
+    ]).returncode
+
+
 def verify():
-    guard()
-    if os.environ["TC_SHOULD_BUILD"] != "true":
+    branch = os.environ.get("TC_VCS_BRANCH", "")
+    kind = branch_kind(branch)
+    if not build_needed():
         return 0
     gate_text = "Test-failure gate failed: failed tests or missing or unreadable reports."
     try:
@@ -244,16 +327,18 @@ def verify():
     if count <= 0:
         raise BuildFailure("no-tests", "No tests were reported.")
     if count - skipped <= 0:
-        result = failure("no-executed-tests", "No reported tests were executed.")
+        return failure("no-executed-tests", "No reported tests were executed.")
     message("buildStatisticValue", key="ytdb.tests", value=count)
     print("##teamcity[addBuildTag 'ran-tests']")
+    if kind != "pr":
+        return result
     stage = "history lookup"
     try:
-        previous = baseline(os.environ["TC_VCS_BRANCH"], successful=True)
-        if previous is None and os.environ["TC_VCS_BRANCH"] != "refs/heads/develop":
-            previous = baseline("refs/heads/develop", successful=True)
+        previous = baseline(branch, successful=True)
+        if previous is None:
+            previous = baseline(DEVELOP, successful=True)
         stage = "statistic read"
-        data = rest(previous + "/statistics/ytdb.tests", plain=True) if previous else None
+        data = rest(previous.path + "/statistics/ytdb.tests", plain=True) if previous else None
     except Exception:
         raise BuildFailure("comparison-read",
                            f"Test-count comparison {stage} failed.") from None
@@ -276,88 +361,10 @@ def verify():
     return result
 
 
-def ready_decision():
-    """Validate the whole PR decision, even when the job will skip Maven."""
-    build, run, reason, scope, modules = (os.environ.get("TC_" + key) for key in (
-        "SHOULD_BUILD", "RUN_INTEGRATION_TESTS", "INTEGRATION_SKIP_REASON",
-        "INTEGRATION_SCOPE", "INTEGRATION_MODULES"))
-    skip_reasons = {
-        "no-it-tests": "[no-it-tests] in the head commit subject",
-        "markdown-only": "only Markdown files changed",
-        "no-java-changes": "no Java files changed",
-        "no-it-modules": "no changed Java files in modules with integration tests",
-    }
-    invalid = BuildFailure("detect-ready", "Detect changes returned a malformed PR decision.")
-    if (build not in ("true", "false")
-            or run not in ("true", "false")
-            or (reason != "" if run == "true" else reason not in skip_reasons)
-            or (reason == "markdown-only" and build != "false")
-            or (run == "true" and build != "true")):
-        raise invalid
-    if scope == "selected" and run == "true" and modules:
-        names = modules.split(",")
-        try:
-            spec = importlib.util.spec_from_file_location(
-                "select_it_modules", pathlib.Path(__file__).with_name("select-it-modules.py"))
-            selector = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(selector)
-            reactor = selector.reactor_modules(pathlib.Path("."))
-        except (OSError, ValueError, ET.ParseError):
-            raise invalid from None
-        if len(set(names)) != len(names) or any(not re.match(r"[A-Za-z0-9]", name)
-                                                or name not in reactor for name in names):
-            raise invalid
-    elif scope != "full" or modules != "":
-        raise invalid
-    return build == "true", skip_reasons.get(reason), modules
-
-
-def ready_build(kind, action):
-    build, skip, modules = ready_decision()
-    if not build or (kind == "failsafe" and skip):
-        if action == "guard":
-            text = ("No build needed: no build-relevant files changed" if not build
-                    else "No integration tests needed: " + skip)
-            message("buildStatus", text=text)
-        return 0
-    selected = ["-pl", modules] if modules else []
-    if action == "guard":
-        return 0
-    if action == "maven":
-        # Module paths are one argument and never enter a shell.
-        maven = ["./mvnw", "-s", ".github/workflows/settings.xml"] + selected
-        profile = ["-P", "ci-integration-tests"]
-        if selected:
-            result = subprocess.run(maven + ["-am", "clean", "install", "-B", "-DskipTests"]
-                                    + profile).returncode
-            if result:
-                return result
-        return subprocess.run(maven + ["clean", "verify", "-B", "-Dmaven.test.failure.ignore=true",
-                                       "-Dit.storage.callFsync=false"] + profile).returncode
-    gate = [sys.executable, ".github/scripts/test-failure-gate.py", "--root", ".", "--require", kind]
-    if kind == "failsafe" and modules:
-        gate += ["--expected-modules", modules]
-    result = subprocess.run(gate, capture_output=True)
-    output = result.stdout + result.stderr
-    print(detect.escape(output.decode(errors="replace")))
-    if result.returncode:
-        return failure("test-failure-gate", "Test-failure gate failed. See the report diagnostics.")
-    # The shared gate checks per-module executions for Failsafe. Also reject an
-    # entirely skipped required report kind, without recording a count baseline.
-    for path in pathlib.Path(".").glob(f"**/target/{kind}-reports/TEST-*.xml"):
-        root = ET.parse(path).getroot()
-        if any(int(suite.get("tests", "0")) > int(suite.get("skipped", "0"))
-               for suite in root.iter("testsuite")):
-            return 0
-    return failure("no-executed-tests", "No reported tests were executed.")
-
-
 def main():
     try:
-        args = sys.argv[1:]
-        if args[0] == "ready":
-            return ready_build(*args[1:])
-        return {"detect": detect_build, "guard": guard, "verify": verify}[args[0]]()
+        return {"detect": detect_build, "guard": guard, "maven": maven,
+                "verify": verify}[sys.argv[1]]()
     except BuildFailure as error:
         return failure(error.identity, error.text)
     except Exception as error:
