@@ -222,7 +222,6 @@ def branch_kind(branch):
 
 
 def detect_build():
-    raise BuildFailure("pilot-forced-failure", "Pilot: forced failure of Detect changes.")
     kind = branch_kind(os.environ.get("TC_VCS_BRANCH", ""))
     args = ["--root", ".", "--head", "HEAD", "--commit-type", kind]
     if kind == "pr":
