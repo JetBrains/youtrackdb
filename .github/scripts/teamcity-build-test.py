@@ -1,0 +1,955 @@
+#!/usr/bin/env python3
+"""Exercise TeamCity connecting rules with failures at REST and Git boundaries."""
+
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import tempfile
+import unittest
+import urllib.error
+from unittest.mock import patch
+
+SPEC = importlib.util.spec_from_file_location(
+    "tc", pathlib.Path(__file__).with_name("teamcity-build.py"))
+tc = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(tc)
+
+BRANCH_CASES = (
+    ("refs/pull/12/head", "pr"),
+    ("refs/pull/12", "pr"),
+    ("pull/12/head", "pr"),
+    ("pull/12", "pr"),
+    ("refs/heads/develop", "develop"),
+    ("refs/heads/gh-readonly-queue/develop/pr-12-a123", "merge-queue"),
+)
+
+
+class TeamCityTest(unittest.TestCase):
+    def setUp(self):
+        self.env = patch.dict(os.environ, {
+            "TC_BUILD_ID": "99", "TC_SHOULD_BUILD": "true",
+            "TC_VCS_BRANCH": "refs/heads/develop", "TC_URL": "https://example.test",
+            "TC_USER": "user", "TC_PASSWORD": "secret"}, clear=True)
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.system = pathlib.Path(directory.name) / "build.properties"
+        self.config = pathlib.Path(directory.name) / "config.properties"
+        self.system.write_text("teamcity.configuration.properties.file="
+                               + str(self.config).replace("\\", "\\\\") + "\n")
+        os.environ["TEAMCITY_BUILD_PROPERTIES_FILE"] = str(self.system)
+        self.pr_facts()
+        self.output = io.StringIO()
+        self.addCleanup(self.assert_safe_output)
+        redirect = contextlib.redirect_stdout(self.output)
+        redirect.__enter__()
+        self.addCleanup(redirect.__exit__, None, None, None)
+
+    def assert_safe_output(self):
+        self.assertNotIn("secret", self.output.getvalue())
+        self.assertNotIn("##teamcity[forged]", self.output.getvalue())
+
+    def assert_failure(self, identity, text):
+        self.assert_safe_output()
+        self.assertIn(f"##teamcity[message text='{text}' status='ERROR']",
+                      self.output.getvalue())
+        self.assertIn(f"##teamcity[buildProblem description='{text}' identity='{identity}']",
+                      self.output.getvalue())
+
+    def pr_facts(self, source="refs/heads/topic", target="refs/heads/develop"):
+        self.config.write_text("teamcity.pullRequest.source.branch=" + source + "\n"
+                               + "teamcity.pullRequest.target.branch=" + target + "\n",
+                               encoding="iso-8859-1")
+
+    def test_properties_decode_java_escapes_separators_and_continuations(self):
+        self.config.write_bytes(
+            b"  # comment\r\n!comment\rkey\\:part\\=x : va\\:l\\=ue\\\\path\n"
+            b"white\\ key value\\ with\\ spaces\nunicode=\\u0064\\u00e9\n"
+            b"continued=de\\\r\n \t vel\\\n  op\n"
+            b"blank=\\\n  #value\ncontrols=\\t\\n\\r\\f\\z\n"
+            b"even=two\\\\\ncolon:ok\nbare\nsame=first\nsame=last\nlatin=\xe9\n")
+        self.assertEqual(tc.properties(self.config), {
+            "key:part=x": "va:l=ue\\path", "white key": "value with spaces",
+            "unicode": "dé", "continued": "develop", "blank": "#value",
+            "controls": "\t\n\r\fz", "even": "two\\", "colon": "ok",
+            "bare": "", "same": "last", "latin": "é"})
+
+    def test_pr_reads_both_properties_files_and_accepts_both_target_forms(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/12/head"
+        # The path in the first file also needs Java properties unescaping.
+        renamed = self.config.with_name("config:= file.properties")
+        self.config.rename(renamed)
+        self.config = renamed
+        self.system.write_text("teamcity.configuration.properties.file="
+                               + str(renamed).replace(":", r"\:").replace("=", r"\=")
+                               .replace(" ", r"\ ") + "\n")
+        for target in ("develop", "refs/heads/develop", r"refs/heads/de\u0076elop"):
+            with self.subTest(target=target):
+                self.pr_facts(target=target)
+                with patch.object(tc.detect, "main", return_value=0) as detector, \
+                     patch.object(tc.detect, "git", return_value=b"a" * 40) as git:
+                    self.assertEqual(tc.detect_build(), 0)
+                    self.assertIn("--same-repository", detector.call_args.args[0])
+                    self.assertEqual(detector.call_args.args[0][-1], "a" * 40)
+                    self.assertEqual(git.call_args_list[1].args[-1], "refs/heads/develop")
+
+    def test_pr_without_source_or_readable_valid_files_fails_before_git_or_detection(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/1/head"
+        for content in ("", "teamcity.pullRequest.source.branch=\n",
+                        r"teamcity.pullRequest.source.branch=\u12xy",
+                        "teamcity.pullRequest.source.branch=topic\\"):
+            with self.subTest(content=content):
+                self.config.write_text(content)
+                self.assert_pr_failure()
+        self.pr_facts()
+        for path in (self.system, self.config):
+            with self.subTest(missing=path):
+                data = path.read_bytes()
+                path.unlink()
+                self.assert_pr_failure()
+                path.write_bytes(data)
+        for path in (self.system, self.config):
+            original = pathlib.Path.read_text
+
+            def read(file, *args, **kwargs):
+                if file == path:
+                    raise PermissionError("Unreadable agent properties")
+                return original(file, *args, **kwargs)
+
+            with self.subTest(unreadable=path), patch.object(pathlib.Path, "read_text", read):
+                self.assert_pr_failure()
+        for content in ("unrelated=value", r"broken=\uXXXX"):
+            self.system.write_text(content)
+            self.assert_pr_failure()
+        del os.environ["TEAMCITY_BUILD_PROPERTIES_FILE"]
+        self.assert_pr_failure()
+
+    def assert_pr_failure(self):
+        self.output.seek(0)
+        self.output.truncate()
+        with patch.object(tc.detect, "git") as git, patch.object(tc.detect, "main") as detector, \
+             patch.object(tc.sys, "argv", ["script", "detect"]):
+            self.assertEqual(tc.main(), 1)
+            git.assert_not_called()
+            detector.assert_not_called()
+            self.assert_failure("pr-source", "PR has no readable same-repository source.")
+
+    def test_hostile_pr_text_never_becomes_a_service_message_or_git_option(self):
+        os.environ["TC_VCS_BRANCH"] = "refs/pull/1/head"
+        for target in ("", "--upload-pack=evil", "refs/heads/--upload-pack=evil",
+                       r"develop\n##teamcity[buildStatus status='SUCCESS']",
+                       "refs/heads/topic", "refs/heads/develop:other", "develop "):
+            self.output.seek(0)
+            self.output.truncate()
+            self.pr_facts(source=r"topic\n##teamcity[forged]", target=target)
+            with self.subTest(target=target), \
+                 patch.object(tc.detect, "git") as git, \
+                 patch.object(tc.detect, "main", return_value=0) as detector:
+                self.assertEqual(tc.detect_build(), 0)
+                git.assert_not_called()
+                self.assertEqual(detector.call_args.args[0][-1], "")
+                self.assertIn("WARNING", self.output.getvalue())
+        self.pr_facts(source=r"topic\n##teamcity[forged]", target="develop")
+        with patch.object(tc.detect, "git", return_value=b"a" * 40) as git, \
+             patch.object(tc.detect, "main", return_value=0):
+            self.assertEqual(tc.detect_build(), 0)
+            self.assertEqual(git.call_args_list[1].args[-1], "refs/heads/develop")
+        self.assertNotIn("##teamcity[forged]", self.output.getvalue())
+        self.assertNotIn("##teamcity[buildStatus", self.output.getvalue())
+
+    def settings_source(self):
+        settings = pathlib.Path(tc.__file__).resolve().parents[2] / ".teamcity/settings.kts"
+        return settings.read_text(encoding="utf-8")
+
+    def test_history_id_matches_the_arm64_build_in_the_dsl(self):
+        build = re.search(r'val UnitTestsLinuxArm64 = BuildType\(\{\s*id\("(\w+)"\)'
+                          r'\s*name = "Unit tests Linux ARM64"', self.settings_source())
+        self.assertIsNotNone(build)
+        self.assertEqual(build[1], "UnitTestsLinuxArm64")
+        self.assertEqual(tc.BUILD, "YouTrackDB_" + build[1])
+
+    def test_only_unit_build_triggers_on_develop_queue_and_all_same_repo_prs(self):
+        settings = self.settings_source()
+        trigger_filter = re.search(r'^val unitTrigger = "([^"]*)"$', settings, re.M)
+        self.assertIsNotNone(trigger_filter)
+        self.assertEqual(trigger_filter[1].split(r"\n"),
+                         ["+:develop", "+:gh-readonly-queue/develop/*", "+pr: sourceRepo=same"])
+        # One vcs block configures checkout. The other is the unit build trigger.
+        self.assertEqual(len(re.findall(r'\bvcs\s*\{', settings)), 2)
+        unit = self.build_source("UnitTestsLinuxArm64")
+        self.assertTrue(re.search(r'triggers\s*\{\s*vcs\s*\{\s*branchFilter = unitTrigger\s*\}',
+                                  unit))
+
+    def build_source(self, name):
+        match = re.search(rf'^val {name} = BuildType\(\{{\n(.*?)^\}}\)', self.settings_source(),
+                          re.M | re.S)
+        self.assertIsNotNone(match, name)
+        return match[1]
+
+    def test_both_builds_cancel_older_running_work_on_the_same_pr_branch(self):
+        for name in ("DetectChanges", "UnitTestsLinuxArm64"):
+            with self.subTest(name=name):
+                build = self.build_source(name)
+                self.assertIn('maxRunningBuildsPerBranch = "pull/*:1"', build)
+                self.assertIn("runningBuildsLimitingMode = BuildsLimitingMode."
+                              "CANCEL_OLDEST_RUNNING_BUILD", build)
+
+    def test_snapshot_rechecks_scope_and_fails_to_start_on_detector_failure_or_cancel(self):
+        unit = self.build_source("UnitTestsLinuxArm64")
+        snapshot = re.search(r'snapshot\(DetectChanges\)\s*\{(.*?)\n    \}', unit, re.S)
+        self.assertIsNotNone(snapshot)
+        options = dict(re.findall(r'^\s*(\w+) = ([\w.]+)$', snapshot[1], re.M))
+        self.assertEqual(options, {
+            "synchronizeRevisions": "true",
+            "reuseBuilds": "ReuseBuilds.NO",
+            "onDependencyFailure": "FailureAction.FAIL_TO_START",
+            "onDependencyCancel": "FailureAction.FAIL_TO_START",
+        })
+
+    def test_maven_and_verify_need_positive_detection_and_verify_runs_after_failure(self):
+        unit = self.build_source("UnitTestsLinuxArm64")
+        for name, command in (("Run unit tests", "maven"),
+                              ("Check reports and test count", "verify")):
+            with self.subTest(step=name):
+                step = re.search(rf'name = "{name}"(.*?)\n    \}}', unit, re.S)
+                self.assertIsNotNone(step)
+                self.assertIn('conditions { equals("dep.${DetectChanges.id}.detect.should_build",'
+                              ' "true") }', step[1])
+                self.assertIn(f"python3 .github/scripts/teamcity-build.py {command}", step[1])
+                if command == "verify":
+                    self.assertIn("executionMode = BuildStep.ExecutionMode.RUN_ON_FAILURE", step[1])
+
+    def test_maven_uses_disk_arm64_and_enables_coverage_only_for_prs(self):
+        for branch, kind in BRANCH_CASES:
+            with self.subTest(branch=branch), \
+                 patch.dict(os.environ, TC_VCS_BRANCH=branch), \
+                 patch.object(tc.subprocess, "run") as run, \
+                 patch.object(tc.sys, "argv", ["script", "maven"]):
+                run.return_value.returncode = 3
+                self.assertEqual(tc.main(), 3)
+                profile = "docker-images,coverage" if kind == "pr" else "docker-images"
+                run.assert_called_once_with([
+                    "./mvnw", "-s", ".github/workflows/settings.xml", "clean", "package", "-B",
+                    "-Dmaven.test.failure.ignore=true", "-Dyoutrackdb.test.env=ci",
+                    "-P", profile, "-Ddocker.platforms=linux/arm64/v8",
+                ])
+
+    def test_verify_checks_count_for_pr_only_and_never_reads_other_history(self):
+        for branch, kind in BRANCH_CASES:
+            with self.subTest(branch=branch), self.reports(branch), \
+                 patch.object(tc, "baseline", return_value=tc.TestBuild("/b", "a" * 40)) as baseline, \
+                 patch.object(tc, "rest", return_value=b"3") as rest:
+                self.assertEqual(tc.main(), int(kind == "pr"))
+                if kind == "pr":
+                    baseline.assert_called_once_with(branch, successful=True)
+                    rest.assert_called_once_with("/b/statistics/ytdb.tests", plain=True)
+                    self.assert_failure("test-count-drop", "Test count dropped: 2, comparison: 3.")
+                else:
+                    baseline.assert_not_called()
+                    rest.assert_not_called()
+
+    def test_unsupported_or_missing_branch_fails_visibly_in_every_command(self):
+        for branch in (None, "refs/heads/topic", "refs/pull/a/head",
+                       "refs/pull/12/merge", "refs/heads/gh-readonly-queue/develop/"):
+            for command in ("detect", "guard", "maven", "verify"):
+                with self.subTest(branch=branch, command=command), \
+                     patch.object(tc.sys, "argv", ["script", command]), \
+                     patch.object(tc.subprocess, "run") as run, \
+                     patch.object(tc, "rest") as rest:
+                    self.output.seek(0)
+                    self.output.truncate()
+                    if branch is None:
+                        os.environ.pop("TC_VCS_BRANCH", None)
+                    else:
+                        os.environ["TC_VCS_BRANCH"] = branch
+                    self.assertEqual(tc.main(), 1)
+                    self.assert_failure("vcs-branch", "Unsupported VCS branch.")
+                    run.assert_not_called()
+                    rest.assert_not_called()
+
+    def test_guard_rejects_malformed_values_but_explains_skip(self):
+        for value in ("", "TRUE", "##teamcity[buildStatus status='SUCCESS']"):
+            os.environ["TC_SHOULD_BUILD"] = value
+            with self.assertRaises(ValueError):
+                tc.guard()
+            with patch.object(tc.sys, "argv", ["script", "guard"]):
+                self.assertEqual(tc.main(), 1)
+                self.assert_failure("detect-should-build",
+                                    "detect.should_build is missing or malformed.")
+        self.output.seek(0)
+        self.output.truncate()
+        os.environ["TC_SHOULD_BUILD"] = "false"
+        with patch.object(tc.subprocess, "run") as run, patch.object(tc, "rest") as rest:
+            self.assertEqual(tc.guard(), 0)
+            self.assertEqual(tc.maven(), 0)
+            self.assertEqual(tc.verify(), 0)
+            run.assert_not_called()
+            rest.assert_not_called()
+        self.assertIn("No build needed", self.output.getvalue())
+        self.assertNotIn("ran-tests", self.output.getvalue())
+        self.assertNotIn("ytdb.tests", self.output.getvalue())
+
+    def test_rest_credentials_stay_in_headers_and_adapter_failures_propagate(self):
+        with patch.object(tc.urllib.request, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value = io.StringIO("{}")
+            self.assertEqual(tc.rest("/app/rest/builds"), {})
+            request = opener.return_value.open.call_args.args[0]
+            self.assertNotIn("secret", request.full_url)
+            self.assertTrue(request.get_header("Authorization").startswith("Basic "))
+            redirect = opener.call_args.args[0]
+            with self.assertRaises(ValueError):
+                redirect.redirect_request(None)
+            for failure in (OSError(), ValueError()):
+                opener.return_value.open.side_effect = failure
+                with self.assertRaises(type(failure)):
+                    tc.rest("/app/rest/builds")
+        with patch.object(tc.sys, "argv", ["script", "guard"]):
+            del os.environ["TC_SHOULD_BUILD"]
+            self.assertEqual(tc.main(), 1)
+            self.assertIn("ERROR", self.output.getvalue())
+
+    @contextlib.contextmanager
+    def transport(self, *responses):
+        """Keep the real request and decoding code, replacing only the network opener."""
+        pending = iter(responses)
+        requests = []
+
+        def open_response(request, timeout):
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_header("Authorization"), "Basic dXNlcjpzZWNyZXQ=")
+            requests.append(request)
+            response = next(pending)
+            if callable(response):
+                response = response(request)
+            if isinstance(response, Exception):
+                raise response
+            return io.BytesIO(response) if isinstance(response, bytes) else response
+
+        with patch.object(tc.urllib.request, "build_opener") as opener:
+            opener.return_value.open.side_effect = open_response
+            yield requests
+            for call in opener.call_args_list:
+                with self.assertRaises(ValueError):
+                    call.args[0].redirect_request(None)
+
+    def pilot_history(self):
+        branch = "refs/pull/1454/head"
+        return json.dumps({"count": 6, "build": [
+            self.build(7300, branch, "SUCCESS", "0"),
+            self.build(7336, branch, "SUCCESS", "1"),
+            self.build(7409, branch, "UNKNOWN", "2"),
+            self.build(7410, branch, "FAILURE", "3"),
+            self.build(7428, branch, "SUCCESS", "4"),
+            self.build(7430, "refs/heads/develop", "SUCCESS", "5")]}).encode()
+
+    def test_plain_statistic_transport_compares_pilot_counts_and_keeps_gate_failure(self):
+        # Older success 7300 has 78700 tests, so using it would hide the drop from 7336.
+        # Newer failed/interrupted builds, this build and develop cannot replace 7336.
+        def statistic(request):
+            return {"/app/rest/builds/id:7300/statistics/ytdb.tests": b"78700\n",
+                    "/app/rest/builds/id:7336/statistics/ytdb.tests": b"78740\n"}[
+                        tc.urllib.parse.urlsplit(request.full_url).path]
+
+        os.environ["TC_BUILD_ID"] = "7428"
+        for count in (78726, 78740, 78741):
+            for gate_code in (0, 1):
+                with self.subTest(count=count, gate=gate_code), \
+                     self.reports("refs/pull/1454/head") as (report, gate), \
+                     self.transport(self.pilot_history(), statistic) as requests:
+                    self.output.seek(0)
+                    self.output.truncate()
+                    report.write_text(f"<testsuite tests='{count}' failures='{gate_code}'/>")
+                    gate.return_value.returncode = gate_code
+                    result = tc.main()
+                    self.assertEqual(len(requests), 2)
+                    self.assertEqual(requests[0].get_header("Accept"), "application/json")
+                    self.assertEqual(requests[1].get_header("Accept"), "text/plain")
+                    self.assertEqual((requests[1].full_url, result), (
+                        "https://example.test/app/rest/builds/id:7336/statistics/ytdb.tests",
+                        int(bool(gate_code or count < 78740))))
+                    if gate_code:
+                        self.assert_failure(
+                            "test-failure-gate",
+                            "Test-failure gate failed: failed tests or missing or unreadable reports.")
+                    if count < 78740:
+                        self.assert_failure("test-count-drop",
+                                            "Test count dropped: 78726, comparison: 78740.")
+                    else:
+                        self.assertIn(f"Test count: {count}, baseline: 78740.",
+                                      self.output.getvalue())
+
+    def test_statistic_bytes_require_a_positive_ascii_integer(self):
+        # Only ordinary surrounding whitespace is accepted, not JSON or Unicode digits.
+        os.environ["TC_BUILD_ID"] = "7428"
+        for raw in (b"", b"0", b"-1", b"+2", b"1.0", b"1 2", b'"2"',
+                    b'{"value":"2"}', b"null", b"true", b"9" * 5000,
+                    "２".encode(), "\u00a02\u00a0".encode(), b"\xff2",
+                    b"secret##teamcity[forged]"):
+            with self.subTest(raw=raw[:40]), self.reports("refs/pull/1454/head"), \
+                 self.transport(self.pilot_history(), raw):
+                self.output.seek(0)
+                self.output.truncate()
+                self.assertEqual(tc.main(), 1)
+                self.assert_failure("comparison-count", "Test-count comparison count is invalid.")
+                self.assertNotIn("comparison-read", self.output.getvalue())
+        with self.reports("refs/pull/1454/head"), \
+             self.transport(self.pilot_history(), b" \t\r\n\v\f2 \n"):
+            self.assertEqual(tc.main(), 0)
+
+    def test_transport_read_failures_name_the_stage_without_leaking_details(self):
+        # HTTP/open/read failures must not look like missing history or lose the report failure.
+        hostile = "secret Authorization: ##teamcity[forged]"
+        os.environ["TC_BUILD_ID"] = "7428"
+
+        class Unreadable(io.BytesIO):
+            def read(self, *args):
+                raise OSError(hostile)
+
+        for stage in ("history lookup", "statistic read"):
+            for kind in (403, 406, "open", "read", "json"):
+                if kind == "json" and stage != "history lookup":
+                    continue
+                if isinstance(kind, int):
+                    response = urllib.error.HTTPError(
+                        "https://example.test/secret", kind, hostile, {}, None)
+                    self.addCleanup(response.close)
+                elif kind == "open":
+                    response = OSError(hostile)
+                elif kind == "read":
+                    response = Unreadable()
+                else:
+                    response = hostile.encode()
+                responses = ([self.pilot_history()] if stage == "statistic read" else [])
+                with self.subTest(stage=stage, kind=kind), \
+                     self.reports("refs/pull/1454/head") as (_, gate), \
+                     self.transport(*responses, response) as requests:
+                    self.output.seek(0)
+                    self.output.truncate()
+                    gate.return_value.returncode = 1
+                    self.assertEqual(tc.main(), 1)
+                    self.assertEqual(len(requests), 2 if stage == "statistic read" else 1)
+                    self.assert_failure("comparison-read",
+                                        f"Test-count comparison {stage} failed.")
+                    self.assert_failure(
+                        "test-failure-gate",
+                        "Test-failure gate failed: failed tests or missing or unreadable reports.")
+                    self.assertNotIn("No test-count comparison point exists.", self.output.getvalue())
+                    self.assertNotIn("example.test", self.output.getvalue())
+
+    def test_baseline_paginates_and_uses_latest_finished_same_branch(self):
+        branch = "refs/pull/1/head"
+        # The later local clock time finished earlier after applying the timezone.
+        pages = [{"build": [self.build(1, branch) | {"branchName": "old-logical-name"}],
+                  "nextHref": "/app/rest/builds?next"},
+                 {"build": [self.build(2, branch) | {"finishDate": "20261118T083808+0200"},
+                            self.build(3, "refs/pull/2/head", finished="9"),
+                            self.build(99, branch, finished="9")]}]
+        for counted in (False, True):
+            if counted:
+                for page in pages:
+                    page["count"] = len(page["build"])
+            with self.subTest(counted=counted), \
+                 patch.object(tc, "rest", side_effect=pages) as rest:
+                self.assertEqual(tc.baseline(branch).path, "/app/rest/builds/id:1")
+                query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(
+                    rest.call_args_list[0].args[0]).query)
+                self.assertIn("revisions(revision(version,vcsBranchName))", query["fields"][0])
+                self.assertIn("buildType:" + tc.BUILD + ",", query["locator"][0])
+                self.assertNotIn("refs/pull/1/head", query["locator"][0])
+        with patch.object(tc, "rest", return_value={
+                "build": [self.build(4, tc.DEVELOP) | {"branchName": "<default>"}]}):
+            self.assertEqual(tc.baseline(tc.DEVELOP).path, "/app/rest/builds/id:4")
+            self.assertIsNone(tc.baseline("refs/pull/1/head"))
+        for page in ({}, {"count": 0, "nextHref": "https://evil.test"}):
+            with patch.object(tc, "rest", return_value=page), self.assertRaises(ValueError):
+                tc.baseline("refs/pull/1/head")
+        with patch.object(tc, "rest", return_value={"count": 0}):
+            self.assertIsNone(tc.baseline("refs/pull/1/head"))
+
+    def test_inconsistent_build_pages_fail_closed_but_empty_history_passes(self):
+        unrelated = self.build(1, "refs/pull/2/head")
+        invalid = [
+            {"count": 2, "build": [unrelated]},  # Nonempty truncated gate counterexample.
+            {"count": 0, "build": [unrelated]},  # Count below the page length.
+            {"count": 1, "build": []}, {"count": 1},
+            {"count": 0, "build": {}}, {"count": 0, "build": None},
+            {"count": 0, "build": "bad"}, {"build": None}, {"build": "bad"},
+            {}, {"build": []}]
+        for count in (None, "1", True, False, -1, 1.0, "secret##teamcity[forged]"):
+            for entries in ([], [unrelated]):
+                invalid.append({"count": count, "build": entries})
+            invalid.append({"count": count})
+        # The same validation applies to the first page and every continuation.
+        for page in invalid:
+            for later in (False, True):
+                pages = ([{"count": 1, "build": [unrelated],
+                           "nextHref": "/app/rest/builds?next"}] if later else []) + [page]
+                with self.subTest(page=page, later=later), self.reports(), \
+                     patch.object(tc, "rest", side_effect=pages):
+                    self.output.seek(0)
+                    self.output.truncate()
+                    self.assertEqual(tc.main(), 1)
+                    self.assert_failure(
+                        "comparison-read",
+                        "Test-count comparison history lookup failed.")
+                    self.assertNotIn("No test-count comparison point exists.", self.output.getvalue())
+                    self.assertNotIn("unexpected-error", self.output.getvalue())
+                # Develop detection must warn and build fully instead of using partial history.
+                with self.subTest(page=page, later=later, caller="detect"), \
+                     patch.object(tc, "rest", side_effect=pages), \
+                     patch.object(tc.detect, "git", return_value=b"a" * 40) as git, \
+                     patch.object(tc.detect, "main", return_value=0) as detector:
+                    self.output.seek(0)
+                    self.output.truncate()
+                    self.assertEqual(tc.detect_build(), 0)
+                    self.assertEqual(detector.call_args.args[0][-1], "--full")
+                    git.assert_called_once_with(".", "rev-parse", "HEAD")
+                    self.assertIn("Full develop build fallback: ValueError", self.output.getvalue())
+                    self.assertIn("status='WARNING'", self.output.getvalue())
+                    self.assert_safe_output()
+        # Explicit zero may omit the list. An absent count needs a nonempty actual list.
+        for page in ({"count": 0}, {"count": 0, "build": []},
+                     {"count": 1, "build": [unrelated]}, {"build": [unrelated]}):
+            with self.subTest(valid=page), self.reports(), \
+                 patch.object(tc, "rest", return_value=page):
+                self.output.seek(0)
+                self.output.truncate()
+                self.assertEqual(tc.main(), 0)
+                self.assertIn("No test-count comparison point exists.", self.output.getvalue())
+                self.assertNotIn("comparison-read", self.output.getvalue())
+
+    @contextlib.contextmanager
+    def develop_repo(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.chdir(directory):
+            tc.detect.git(".", "init", "-q")
+            tc.detect.git(".", "config", "user.name", "Test")
+            tc.detect.git(".", "config", "user.email", "test@example.test")
+            pathlib.Path("pom.xml").write_text(
+                "<project xmlns='http://maven.apache.org/POM/4.0.0'>"
+                "<modules><module>core</module></modules></project>")
+            pathlib.Path("core").mkdir()
+            pathlib.Path("core/pom.xml").write_text("<project/>")
+            yield self.commit("core/pom.xml")
+
+    def commit(self, path):
+        pathlib.Path(path).touch()
+        tc.detect.git(".", "add", ".")
+        tc.detect.git(".", "-c", "core.hooksPath=/dev/null", "commit", "-qm", "Change")
+        return tc.detect.git(".", "rev-parse", "HEAD").strip().decode()
+
+    def assert_detect_decision(self, needs_build, warning=False):
+        self.output.seek(0)
+        self.output.truncate()
+        self.assertEqual(tc.detect_build(), 0)
+        value = str(needs_build).lower()
+        self.assertIn(f"setParameter name='detect.should_build' value='{value}'",
+                      self.output.getvalue())
+        self.assertEqual("Full develop build fallback:" in self.output.getvalue(), warning)
+        self.assertEqual("status='WARNING'" in self.output.getvalue(), warning)
+
+    def assert_tagged_history_locator(self, path):
+        query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(path).query)
+        self.assertTrue({f"buildType:{tc.BUILD}", "tag:ran-tests", "state:finished"}
+                        <= set(query["locator"][0].split(",")))
+
+    def test_develop_diff_uses_tested_revision_even_when_head_only_changes_markdown(self):
+        with self.develop_repo() as base:
+            self.commit("core/Example.java")
+            self.commit("README.md")
+            tested = self.build(1, tc.DEVELOP, revision=base)
+            # The matching develop revision need not be first in the response.
+            tested["revisions"]["revision"].insert(0, {
+                "version": "a" * 40, "vcsBranchName": "refs/heads/other"})
+            with patch.object(tc, "rest", side_effect=[
+                    {"count": 0}, {"build": [tested]}]) as rest:
+                self.assert_detect_decision(True)
+            self.assertEqual(rest.call_count, 2)
+            self.assert_tagged_history_locator(rest.call_args_list[1].args[0])
+
+    def test_develop_rebuild_does_not_skip_after_an_untagged_finished_attempt(self):
+        with self.develop_repo() as base:
+            head = self.commit("README.md")
+            queue = self.build(2, "refs/heads/gh-readonly-queue/develop/pr-12", revision=head)
+            tested = {"build": [self.build(1, tc.DEVELOP, revision=base)]}
+            attempt = self.build(3, tc.DEVELOP, revision=head)
+            for previous, needs_build in (([], False), ([queue], False), ([queue, attempt], True)):
+                with self.subTest(previous=len(previous)), patch.object(tc, "rest", side_effect=[
+                        {"count": len(previous), "build": previous}, tested]) as rest:
+                    self.assert_detect_decision(needs_build)
+                    self.assertEqual(rest.call_count, 1 if needs_build else 2)
+                    query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(
+                        rest.call_args_list[0].args[0]).query)
+                    self.assertEqual(set(query["locator"][0].split(",")), {
+                        f"buildType:{tc.BUILD}", "state:finished", "defaultFilter:false",
+                        "branch:default:any", f"revision:(version:{head})", "count:100"})
+
+    def test_develop_uses_full_build_with_warning_if_repeat_lookup_is_unreadable(self):
+        with self.develop_repo():
+            self.commit("README.md")
+            for unreadable in (OSError(), {"count": 1}, {"count": 0, "nextHref": 42}):
+                with self.subTest(unreadable=unreadable), \
+                     patch.object(tc, "rest", side_effect=[unreadable]) as rest:
+                    self.assert_detect_decision(True, warning=True)
+                    self.assertEqual(rest.call_count, 1)
+
+    def test_develop_reads_revision_pages_until_a_finished_develop_attempt_or_end(self):
+        with self.develop_repo() as base:
+            head = self.commit("README.md")
+            queue = self.build(2, "refs/heads/gh-readonly-queue/develop/pr-12", revision=head)
+            attempt = self.build(3, tc.DEVELOP, revision=head)
+            next_path = "/app/rest/builds?next"
+            empty = {"count": 0}
+            tested = {"build": [self.build(1, tc.DEVELOP, revision=base)]}
+            cases = (
+                ("empty pages", empty, empty, False),
+                ("queue then develop", {"build": [queue]},
+                 {"build": [attempt], "nextHref": "/app/rest/builds?unneeded"}, True),
+                ("queue only", {"build": [queue]}, empty, False),
+            )
+            for name, first, second, needs_build in cases:
+                pages = [first | {"nextHref": next_path}, second, tested]
+                with self.subTest(history=name), patch.object(tc, "rest", side_effect=pages) as rest:
+                    self.assert_detect_decision(needs_build)
+                    self.assertEqual(rest.call_count, 2 if needs_build else 3)
+                    self.assertEqual(rest.call_args_list[1].args, (next_path,))
+                    if not needs_build:
+                        self.assert_tagged_history_locator(rest.call_args_list[2].args[0])
+
+    def test_develop_uses_full_build_with_warning_if_a_revision_continuation_fails(self):
+        with self.develop_repo() as base:
+            self.commit("README.md")
+            next_path = "/app/rest/builds?next"
+            first = {"count": 0, "nextHref": next_path}
+            cases = (
+                ("unreadable continuation", OSError()),
+                ("invalid next path", {"count": 0, "nextHref": "/app/rest/other?next"}),
+                ("malformed page", {"count": 1}),
+                ("wrong revision", {"build": [self.build(1, tc.DEVELOP, revision=base)]}),
+            )
+            for name, second in cases:
+                with self.subTest(history=name), \
+                     patch.object(tc, "rest", side_effect=[first, second]) as rest:
+                    self.assert_detect_decision(True, warning=True)
+                    self.assertEqual(rest.call_count, 2)
+                    self.assertEqual(rest.call_args_list[1].args, (next_path,))
+
+    def test_verify_real_surefire_gate_passes_green_and_names_failures(self):
+        # Run the actual gate from the fixture checkout, without a subprocess mock.
+        scripts = pathlib.Path(__file__).resolve().parent
+        gate_failure = "Test-failure gate failed: failed tests or missing or unreadable reports."
+        cases = (
+            ("<testsuite tests='2'/>", 0, None, None, True),
+            ("<testsuite tests='2' failures='1'/>", 1, "test-failure-gate", gate_failure, True),
+            ("<testsuite tests='2' skipped='2'/>", 1, "no-executed-tests",
+             "No reported tests were executed.", False),
+            ("<testsuite tests='2' skipped='1'/>", 0, None, None, True),
+            ("<testsuite tests='0'/>", 1, "no-tests", "No tests were reported.", False),
+            ("<", 1, "test-failure-gate", gate_failure, False),
+            (None, 1, "no-tests", "No tests were reported.", False),
+        )
+        for branch, _ in BRANCH_CASES:
+            for xml, code, identity, cause, executed in cases:
+                with self.subTest(branch=branch, xml=xml), tempfile.TemporaryDirectory() as directory:
+                    with contextlib.chdir(directory), patch.dict(os.environ, TC_VCS_BRANCH=branch):
+                        gate = pathlib.Path(".github/scripts/test-failure-gate.py")
+                        gate.parent.mkdir(parents=True)
+                        shutil.copyfile(scripts / gate.name, gate)
+                        if xml is not None:
+                            report = pathlib.Path("core/target/surefire-reports/TEST-example.xml")
+                            report.parent.mkdir(parents=True)
+                            report.write_text(xml)
+                        self.output.seek(0)
+                        self.output.truncate()
+                        with patch.object(tc, "rest", return_value={"count": 0}) as rest, \
+                             patch.object(tc.sys, "argv", ["script", "verify"]):
+                            self.assertEqual(tc.main(), code)
+                        if identity:
+                            self.assert_failure(identity, cause)
+                        output = self.output.getvalue()
+                        self.assertNotIn("unexpected-error", output)
+                        if executed:
+                            self.assertIn("key='ytdb.tests' value='2'", output)
+                            self.assertIn("addBuildTag 'ran-tests'", output)
+                        else:
+                            self.assertNotIn("key='ytdb.tests'", output)
+                            self.assertNotIn("addBuildTag 'ran-tests'", output)
+                            rest.assert_not_called()
+
+    def test_baseline_rejects_missing_or_unreadable_vcs_branches(self):
+        for revisions in ([], [{}], [{"vcsBranchName": None}], [{"vcsBranchName": ""}],
+                          [{"vcsBranchName": 1}], [{"vcsBranchName": "   "}]):
+            with self.subTest(revisions=revisions), patch.object(tc, "rest", return_value={
+                    "build": [{"id": 1, "branchName": "other", "finishDate": "9",
+                               "revisions": {"revision": revisions}}]}):
+                with self.assertRaises(ValueError):
+                    tc.baseline("refs/heads/develop")
+                with patch.object(tc.detect, "main", return_value=0) as detector:
+                    self.assertEqual(tc.detect_build(), 0)
+                    self.assertIn("--full", detector.call_args.args[0])
+                    self.assertIn("WARNING", self.output.getvalue())
+
+    def test_develop_with_missing_or_invalid_base_or_git_failure_builds_fully(self):
+        for reason in ("bad-head", "bad-base", "no-base", "git", "same-commit"):
+            with self.subTest(reason=reason), \
+                 patch.object(tc, "earlier_develop_build", return_value=False) as earlier, \
+                 patch.object(tc, "baseline", return_value=(
+                     None if reason == "no-base" else
+                     tc.TestBuild("/b", "bad" if reason == "bad-base" else "a" * 40))), \
+                 patch.object(tc.detect, "main", return_value=0) as detector, \
+                 patch.object(tc.detect, "git", side_effect=(
+                     [b"not-a-sha"] if reason == "bad-head" else
+                     [b"a" * 40] if reason == "same-commit" else
+                     [b"b" * 40, OSError()])) as git:
+                self.output.seek(0)
+                self.output.truncate()
+                self.assertEqual(tc.detect_build(), 0)
+                self.assertIn("--full", detector.call_args.args[0])
+                self.assertEqual("WARNING" in self.output.getvalue(), reason != "same-commit")
+                if reason == "bad-head":
+                    earlier.assert_not_called()
+                if reason == "same-commit":
+                    git.assert_called_once_with(".", "rev-parse", "HEAD")
+
+    def test_pr_head_fetch_same_repository_and_queue_classification(self):
+        for branch, kind in (("refs/pull/12/head", "pr"),
+                             ("refs/heads/gh-readonly-queue/develop/pr-12", "merge-queue")):
+            os.environ["TC_VCS_BRANCH"] = branch
+            with patch.object(tc.detect, "main", return_value=0) as detector, \
+                 patch.object(tc.detect, "git", return_value=b"a" * 40) as git:
+                tc.detect_build()
+                self.assertIn(kind, detector.call_args.args[0])
+                self.assertIn("HEAD", detector.call_args.args[0])
+                self.assertEqual("--same-repository" in detector.call_args.args[0], kind == "pr")
+                self.assertIn("https://github.com/JetBrains/youtrackdb.git", git.call_args_list[1].args)
+                self.assertIn("http.https://github.com/.extraheader=", git.call_args_list[1].args)
+            for failed_call in range(3):
+                with patch.object(tc.detect, "main", return_value=0) as detector, \
+                     patch.object(tc.detect, "git", side_effect=[b""] * failed_call + [OSError()]):
+                    tc.detect_build()
+                    self.assertEqual(detector.call_args.args[0][-1], "")
+        for branch, source in (("refs/heads/topic", "x"), ("refs/pull/1/head", "")):
+            os.environ["TC_VCS_BRANCH"] = branch
+            self.pr_facts(source=source)
+            with self.assertRaises(ValueError):
+                tc.detect_build()
+            with patch.object(tc.sys, "argv", ["script", "detect"]):
+                self.assertEqual(tc.main(), 1)
+                self.assert_failure(
+                    "vcs-branch" if source else "pr-source",
+                    "Unsupported VCS branch." if source
+                    else "PR has no readable same-repository source.")
+
+    @contextlib.contextmanager
+    def reports(self, branch="refs/pull/1/head"):
+        with tempfile.TemporaryDirectory() as directory:
+            old = os.getcwd()
+            try:
+                os.chdir(directory)
+                report = pathlib.Path("core/target/surefire-reports/TEST-example.xml")
+                report.parent.mkdir(parents=True)
+                report.write_text("<testsuite tests='2'/>")
+                with patch.dict(os.environ, TC_VCS_BRANCH=branch), \
+                     patch.object(tc.subprocess, "run", return_value=subprocess.CompletedProcess(
+                         [], 0, b"##teamcity[forged]", b"")) as gate, \
+                     patch.object(tc.sys, "argv", ["script", "verify"]):
+                    yield report, gate
+            finally:
+                os.chdir(old)
+
+    def build(self, id, branch, status="SUCCESS", finished="1", revision="a" * 40):
+        return {"id": id, "status": status, "finishDate": f"20261118T0738{int(finished):02d}+0000",
+                "revisions": {"revision": [{"version": revision, "vcsBranchName": branch}]}}
+
+    def test_comparison_ignores_newer_failed_build_and_uses_older_success(self):
+        os.environ["TC_VCS_BRANCH"] = branch = "refs/pull/1/head"
+        pages = [{"build": [self.build(2, branch, "FAILURE", "9")],
+                  "nextHref": "/app/rest/builds?next"},
+                 {"build": [self.build(1, branch), self.build(99, branch, finished="10"),
+                            self.build(3, "refs/pull/2/head", finished="10")]},
+                 b"2"]
+        for counted in (False, True):
+            if counted:
+                for page in pages[:2]:
+                    page["count"] = len(page["build"])
+            with self.subTest(counted=counted), self.reports(), \
+                 patch.object(tc, "rest", side_effect=pages) as rest:
+                self.assertEqual(tc.main(), 0)
+                self.assertEqual(rest.call_args_list[-1].args[0],
+                                 "/app/rest/builds/id:1/statistics/ytdb.tests")
+                query = tc.urllib.parse.parse_qs(tc.urllib.parse.urlsplit(
+                    rest.call_args_list[0].args[0]).query)
+                self.assertIn("status", query["fields"][0])
+                self.assert_tagged_history_locator(rest.call_args_list[0].args[0])
+                self.assertNotIn(branch, query["locator"][0])
+
+    def test_only_failed_branch_builds_fall_back_to_successful_develop_or_none(self):
+        os.environ["TC_VCS_BRANCH"] = branch = "refs/pull/1/head"
+        for status in ("SUCCESS", "FAILURE"):
+            with self.subTest(develop_status=status), self.reports(), \
+                 patch.object(tc, "rest", side_effect=[
+                     {"build": [self.build(1, branch, "FAILURE")]},
+                     {"build": [self.build(1, branch, "FAILURE"),
+                                self.build(2, "refs/heads/develop", status)]},
+                     b"2"]) as rest:
+                self.output.seek(0)
+                self.output.truncate()
+                self.assertEqual(tc.main(), 0)
+                if status == "SUCCESS":
+                    self.assertEqual(rest.call_args_list[-1].args[0],
+                                     "/app/rest/builds/id:2/statistics/ytdb.tests")
+                else:
+                    self.assertEqual(rest.call_count, 2)
+                    self.assertIn("No test-count comparison point exists.", self.output.getvalue())
+
+    def test_matching_unreadable_status_raises_and_comparison_fails_closed(self):
+        for status in (None, "", "   ", 1, []):
+            build = self.build(1, "refs/heads/develop", status)
+            for missing in (False, True):
+                if missing:
+                    build.pop("status", None)
+                with self.subTest(status=status, missing=missing), self.reports(), \
+                     patch.object(tc, "rest", return_value={"build": [build]}):
+                    self.output.seek(0)
+                    self.output.truncate()
+                    with self.assertRaises(ValueError):
+                        tc.baseline("refs/heads/develop", successful=True)
+                    self.assertEqual(tc.main(), 1)
+                    self.assert_failure(
+                        "comparison-read",
+                        "Test-count comparison history lookup failed.")
+
+    def test_invalid_status_or_finish_date_fails_pr_comparison_and_warns_on_develop(self):
+        for field, value in (("status", "INVALID"), ("finishDate", ""),
+                             ("finishDate", "20261131T073808+0000"), ("finishDate", None)):
+            for branch in ("refs/pull/1/head", tc.DEVELOP):
+                invalid = self.build(1, branch, finished="9")
+                if value is None:
+                    del invalid[field]
+                else:
+                    invalid[field] = value
+                entries = [invalid]
+                if field == "finishDate":
+                    entries.append(self.build(2, branch))
+                history = {"build": entries}
+                with self.subTest(branch=branch, field=field, value=value):
+                    if branch == tc.DEVELOP:
+                        with self.develop_repo() as base:
+                            self.commit("README.md")
+                            for entry in entries:
+                                entry["revisions"]["revision"][0]["version"] = base
+                            with patch.object(tc, "rest", side_effect=[{"count": 0}, history]):
+                                self.assert_detect_decision(True, warning=True)
+                    else:
+                        self.output.seek(0)
+                        self.output.truncate()
+                        with self.reports(), patch.object(
+                                tc, "rest", side_effect=lambda _, plain=False: b"2" if plain else history):
+                            self.assertEqual(tc.main(), 1)
+                        self.assert_failure("comparison-read",
+                                            "Test-count comparison history lookup failed.")
+                        self.assertNotIn("No test-count comparison point", self.output.getvalue())
+
+    def test_develop_change_base_still_uses_failed_tagged_build(self):
+        with patch.object(tc, "rest", side_effect=[
+                {"count": 0},
+                {"build": [self.build(1, tc.DEVELOP, "FAILURE", "9"),
+                           self.build(2, tc.DEVELOP, revision="c" * 40)]}]) as rest, \
+             patch.object(tc.detect, "git", side_effect=[b"b" * 40, b"README.md\0"]) as git, \
+             patch.object(tc.detect, "main", return_value=0) as detector:
+            self.assertEqual(tc.detect_build(), 0)
+            self.assertEqual(rest.call_count, 2)
+            self.assert_tagged_history_locator(rest.call_args_list[-1].args[0])
+            self.assertIn("a" * 40, git.call_args.args)
+            self.assertIn("--changes", detector.call_args.args[0])
+
+    def test_zero_missing_or_malformed_reports_have_fixed_failures(self):
+        for xml in ("", "<testsuite tests='0'/>", "<testsuite tests='bad'/>", None):
+            with self.subTest(xml=xml), self.reports() as (report, gate):
+                self.output.seek(0)
+                self.output.truncate()
+                if xml is None:
+                    report.unlink()
+                    gate.return_value.returncode = 1
+                else:
+                    report.write_text(xml)
+                self.assertEqual(tc.main(), 1)
+                if xml in (None, "<testsuite tests='0'/>"):
+                    self.assert_failure("no-tests", "No tests were reported.")
+                if xml != "<testsuite tests='0'/>":
+                    self.assert_failure(
+                        "test-failure-gate",
+                        "Test-failure gate failed: failed tests or missing or unreadable reports.")
+
+    def test_gate_failure_and_reactor_count_drop_are_reported_alone_and_together(self):
+        for gate_code, previous in ((0, "5"), (0, "6"), (1, "5"), (1, "6")):
+            with self.subTest(gate=gate_code, previous=previous), self.reports() as (_, gate), \
+                 patch.object(tc, "baseline", return_value=tc.TestBuild("/b", "a" * 40)) as baseline, \
+                 patch.object(tc, "rest", return_value=previous.encode()):
+                report = pathlib.Path("server/target/surefire-reports/TEST-server.xml")
+                report.parent.mkdir(parents=True)
+                report.write_text("<testsuite tests='3'/>")
+                self.output.seek(0)
+                self.output.truncate()
+                gate.return_value.returncode = gate_code
+                self.assertEqual(tc.main(), int(bool(gate_code or previous == "6")))
+                baseline.assert_called_once_with("refs/pull/1/head", successful=True)
+                if gate_code:
+                    self.assert_failure(
+                        "test-failure-gate",
+                        "Test-failure gate failed: failed tests or missing or unreadable reports.")
+                if previous == "6":
+                    self.assert_failure("test-count-drop", "Test count dropped: 5, comparison: 6.")
+                else:
+                    self.assertIn("Test count: 5, baseline: 5.", self.output.getvalue())
+                self.assertIn("key='ytdb.tests' value='5'", self.output.getvalue())
+                self.assertIn("addBuildTag 'ran-tests'", self.output.getvalue())
+
+    def test_invalid_comparison_counts_fail_with_fixed_text(self):
+        for data in ({}, None, {"value": "bad"}, {"value": "0"}, {"value": "-1"},
+                     {"value": None}, {"value": True}, {"value": "9" * 5000},
+                     {"value": "secret##teamcity[forged]"}):
+            with self.subTest(data=data), self.reports(), \
+                 patch.object(tc, "baseline", return_value=tc.TestBuild("/b", "a" * 40)), \
+                 patch.object(tc, "rest", return_value=data):
+                self.output.seek(0)
+                self.output.truncate()
+                self.assertEqual(tc.main(), 1)
+                self.assert_failure("comparison-count", "Test-count comparison count is invalid.")
+
+    def test_rest_listing_gate_and_unexpected_errors_never_leak_exception_text(self):
+        for target in ("baseline", "rest", "gate", "unexpected"):
+            with self.subTest(target=target), self.reports() as (_, gate), \
+                 patch.object(tc, "baseline", return_value=tc.TestBuild("/b", "a" * 40)) as baseline, \
+                 patch.object(tc, "rest", return_value=b"2") as rest:
+                self.output.seek(0)
+                self.output.truncate()
+                error = OSError("secret Authorization: ##teamcity[forged]")
+                if target == "unexpected":
+                    context = patch.object(tc, "build_needed", side_effect=error)
+                else:
+                    {"baseline": baseline, "rest": rest, "gate": gate}[target].side_effect = error
+                    context = contextlib.nullcontext()
+                with context:
+                    self.assertEqual(tc.main(), 1)
+                if target in ("baseline", "rest"):
+                    stage = "history lookup" if target == "baseline" else "statistic read"
+                    self.assert_failure("comparison-read",
+                                        f"Test-count comparison {stage} failed.")
+                elif target == "gate":
+                    self.assert_failure(
+                        "test-failure-gate",
+                        "Test-failure gate failed: failed tests or missing or unreadable reports.")
+                else:
+                    self.assert_failure("unexpected-error",
+                                        "TeamCity connecting script failed: OSError")
+
+
+if __name__ == "__main__":
+    unittest.main()
