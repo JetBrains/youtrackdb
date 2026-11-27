@@ -8,9 +8,12 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -136,9 +139,7 @@ public class DirectMemoryOnlyDiskCacheTest {
 
   /**
    * Verifies that {@code flush(fileId)}, {@code close(fileId, flush)},
-   * {@code flush()}, {@code syncDataFiles()}, {@code flushTillSegment()},
-   * and {@code recordOptimisticAccess()} are
-   * no-ops that complete without throwing.
+   * {@code flush()}, {@code syncDataFiles()}, and {@code flushTillSegment()} do not throw.
    */
   @Test
   public void testFlushAndCloseNoOps() {
@@ -149,7 +150,6 @@ public class DirectMemoryOnlyDiskCacheTest {
     cache.flush();
     cache.syncDataFiles();
     cache.flushTillSegment(0L);
-    cache.recordOptimisticAccess(fileId, 0L);
   }
 
   // ---------------------------------------------------------------------------
@@ -684,14 +684,15 @@ public class DirectMemoryOnlyDiskCacheTest {
   // Optimistic-read and page-verification stubs
   // ---------------------------------------------------------------------------
 
-  /**
-   * Verifies that {@code getCacheEntryOptimistic()} always returns {@code null} — the in-memory
-   * cache does not support lock-free optimistic reads.
-   */
   @Test
-  public void testGetCacheEntryOptimisticAlwaysNull() {
+  public void testInMemoryCacheDoesNotSupportOrRecordOptimisticReads() {
     var fileId = cache.addFile("opt.cf");
+    assertFalse(cache.supportsOptimisticReads());
     assertNull(cache.getCacheEntryOptimistic(fileId, 0));
+
+    var entry = mock(CacheEntry.class);
+    cache.recordOptimisticAccess(entry);
+    verifyNoInteractions(entry);
   }
 
   /**

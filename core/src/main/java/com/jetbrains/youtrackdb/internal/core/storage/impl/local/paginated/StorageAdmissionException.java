@@ -19,6 +19,7 @@ public class StorageAdmissionException extends IOException {
 
   private final Reason reason;
   private final String detail;
+  private final boolean pageSizeRejection;
 
   public StorageAdmissionException(
       final Reason reason, final Path storageDirectory, final String message) {
@@ -30,9 +31,28 @@ public class StorageAdmissionException extends IOException {
       final Path storageDirectory,
       final String message,
       final Throwable cause) {
+    this(reason, storageDirectory, message, cause, false);
+  }
+
+  private StorageAdmissionException(
+      final Reason reason, final Path storageDirectory, final String message,
+      final Throwable cause, final boolean pageSizeRejection) {
     super(composeMessage(reason, storageDirectory, message), cause);
     this.reason = reason;
     this.detail = message;
+    this.pageSizeRejection = pageSizeRejection;
+  }
+
+  /** Marks invalid or inconsistent page sizes without changing the admission reason. */
+  static StorageAdmissionException pageSizeFailure(Path directory, String message) {
+    return new StorageAdmissionException(
+        Reason.AUTHORITY_INVALID_CONTENT, directory, message, null, true);
+  }
+
+  /** Keeps size-specific guidance and layout details, and describes every other rejection. */
+  public String operatorMessage() {
+    return pageSizeRejection || reason == Reason.UNSUPPORTED_STORAGE_LAYOUT_VERSION
+        ? detail : reason.description();
   }
 
   /** Returns the single named cause of this rejection. */
@@ -40,7 +60,7 @@ public class StorageAdmissionException extends IOException {
     return reason;
   }
 
-  /** Returns the operator guidance without diagnostic context. */
+  /** Returns the rejection detail without the reason identifier or storage path. */
   public String detail() {
     return detail;
   }
@@ -49,8 +69,8 @@ public class StorageAdmissionException extends IOException {
    * Builds the diagnostic message of one rejection.
    *
    * <p>This message carries the reason identifier and the storage path, because a developer and a
-   * log reader need both values. The operator-facing message of the caller states the cause in
-   * plain words through {@link Reason#description()}, so no caller repeats the identifier.
+   * log reader need both values. Storage open uses {@link #operatorMessage()} for plain words
+   * without the reason identifier or storage path.
    */
   private static String composeMessage(
       final Reason reason, final Path storageDirectory, final String message) {
@@ -156,8 +176,8 @@ public class StorageAdmissionException extends IOException {
      * Returns one plain sentence that an operator can read.
      *
      * <p>A bootstrap authority record is the durable record that names one storage identity, one
-     * storage lineage, and one lifecycle state. Every operator-facing message of a rejected
-     * admission uses the sentence of this method instead of the reason identifier.
+     * storage lineage, and one lifecycle state. Storage open uses this description except for
+     * page-size rejections and unsupported storage layouts, which need their specific details.
      */
     public String description() {
       return switch (this) {

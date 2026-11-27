@@ -300,6 +300,10 @@ Run each pattern with both `PAGES=1` and `PAGES=32`.
 `sharedPages=-1` means all reader pages overlap for `SHARED`, not a negative overlap count.
 The other patterns have no overlap.
 
+Match the process page size to the recorded size of a prebuilt database or backup.
+The default is 4-kilobyte (KB) pages. A comparison against a run that uses 8 KB pages
+measures different storage page sizes unless you pin the same size for both runs.
+
 ```bash
 PATTERN=DISJOINT                    # Also SHARED and DIFFERENT.
 PAGES=1                            # Also 32.
@@ -451,12 +455,29 @@ with additional `-D` options before `-jar`.
 ### First Run
 
 On the first run, the benchmark setup phase will:
-1. Check for an existing database at `./target/ldbc-bench-db` (or the path specified by `-Dldbc.db.path`). If a database exists, it is reused directly (skips steps 2-3).
-2. Otherwise, look for the LDBC CSV dataset at `./target/ldbc-dataset/sf1` (or the path specified by `-Dldbc.dataset.path`). The dataset must be obtained beforehand — see [Dataset](#dataset).
+1. Check for an existing database at `./target/ldbc-bench-db` or the path set by
+   `-Dldbc.db.path`. Reuse it and skip steps 2 and 3 if its page size matches the process.
+   Stop if the sizes differ.
+2. If no database exists, look for the LDBC CSV dataset at `./target/ldbc-dataset/sf1`
+   or the path set by `-Dldbc.dataset.path`. Obtain the dataset first. See [Dataset](#dataset).
 3. Create a YouTrackDB database, create the LDBC schema from `ldbc-schema.sql` (vertex/edge classes + indexes), and load all CSV data (~3.6M records for SF 1, ~21 min on CCX33).
 4. Run **parameter curation** — compute factor tables from the loaded data (friend counts, FoF/FoFoF counts, name frequencies, etc.), apply gap-based grouping to select entities with similar query difficulty, and generate 500 per-query parameter tuples. Factor tables are cached to `factor-tables.json` alongside the DB so they are computed only once.
 
-Subsequent runs reuse the existing database and cached factor tables (~2s startup).
+Subsequent runs with the matching page size reuse the existing database and cached factor
+tables (~2s startup). The default process uses 4 KB pages. If an existing database uses
+8 KB pages, setup fails with a page-size error. It does not fall back to loading the CSV
+dataset.
+
+To reuse an 8 KB database, use the [two-step launcher](#two-steps-package--dskiptests-then-java--jar).
+Pass the size before `-jar` so Java Microbenchmark Harness (JMH) passes it to the trial process:
+
+```bash
+java "${LDBC_JAVA_OPTS[@]}" -Dyoutrackdb.storage.diskCache.pageSize=8 -jar "$LDBC_JAR" "LdbcSingleThread.*"
+```
+
+To rebuild at 4 KB, leave the page-size property unset and point
+`-Dldbc.db.path` to a fresh directory. The benchmark loads the dataset into that directory.
+For a binary backup, see [Database Tool](#database-tool) before restoring.
 
 ## Running via Uber-Jar
 
@@ -496,9 +517,21 @@ java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool import 
 
 # Binary backup (~182 MB, ~20s)
 java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool backup ./target/ldbc-backup
+```
 
-# Restore from binary backup (~10s)
-java -cp "$CP" com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool restore ./target/ldbc-backup ./target/new-db
+Before restoring, confirm that the backup page size matches the tool process. The default
+is 4 KB. For a backup made at 8 KB, set `-Dyoutrackdb.storage.diskCache.pageSize=8` on the
+tool Java command line.
+
+**Use a fresh target directory.** The tool removes an existing `ldbc_benchmark` database
+in the target directory before it tries to restore. The existing database can be lost
+even if the tool then refuses the restore. A refusal leaves the backup unchanged.
+You can retry from that backup with the matching page size.
+
+```bash
+# Restore an 8 KB binary backup into a fresh directory
+java -Dyoutrackdb.storage.diskCache.pageSize=8 -cp "$CP" \
+    com.jetbrains.youtrackdb.benchmarks.ldbc.LdbcDatabaseTool restore ./target/ldbc-backup ./target/restored-db
 ```
 
 ## Parameter Curation

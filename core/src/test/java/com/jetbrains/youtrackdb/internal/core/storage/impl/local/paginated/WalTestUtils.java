@@ -1,11 +1,15 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated;
 
+import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBInternalEmbedded;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Map;
 import org.apache.commons.io.FileUtils;
 
 public final class WalTestUtils {
@@ -16,6 +20,30 @@ public final class WalTestUtils {
   }
 
   private WalTestUtils() {
+  }
+
+  /** Applies a fixture change and discards the source without a checkpoint on failure. */
+  public static <T> T commitFixtureChange(YouTrackDBImpl manager, DiskStorage storage,
+      TxFunction<T> change) throws IOException, ReflectiveOperationException {
+    // Resolve the registry before the change. A lookup failure must not strand a failed source.
+    var field = YouTrackDBInternalEmbedded.class.getDeclaredField("storages");
+    field.setAccessible(true);
+    var storages = (Map<?, ?>) field.get(manager.internal);
+    var name = storage.getName();
+    try {
+      return storage.getAtomicOperationsManager().calculateInsideAtomicOperation(change);
+    } catch (IOException | RuntimeException | Error failure) {
+      try {
+        storage.delete();
+      } catch (RuntimeException | Error cleanupFailure) {
+        if (cleanupFailure != failure) {
+          failure.addSuppressed(cleanupFailure);
+        }
+        // A failed delete can leave source resources open. Do not retry via manager shutdown.
+        storages.remove(name, storage);
+      }
+      throw failure;
+    }
   }
 
   /**

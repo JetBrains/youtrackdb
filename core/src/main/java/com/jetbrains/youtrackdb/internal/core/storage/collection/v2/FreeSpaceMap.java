@@ -36,8 +36,8 @@ public final class FreeSpaceMap extends StorageComponent {
 
   /**
    * Normalization divisor that converts raw free-space bytes to a 0..255 range. Computed as
-   * {@code floor(MAX_PAGE_SIZE_BYTES / 256)}. For the default 8 KB page size (8192 bytes),
-   * this equals 32, so each unit represents ~32 bytes of free space.
+   * {@code floor(MAX_PAGE_SIZE_BYTES / 256)}. For the default 4 KB page size (4,096 bytes),
+   * the divisor is 16 bytes per unit.
    */
   static final int NORMALIZATION_INTERVAL =
       (int) Math.floor(DurablePage.MAX_PAGE_SIZE_BYTES / 256.0);

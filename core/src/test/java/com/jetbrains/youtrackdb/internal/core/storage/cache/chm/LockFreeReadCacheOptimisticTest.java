@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.chm;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
@@ -9,9 +10,13 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.collection.ConcurrentFilePageMap;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
@@ -30,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageDataVerificationError;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.readbuffer.Buffer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.BackgroundExceptionListener;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.PageIsBrokenListener;
@@ -39,9 +45,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.memory.MemoryFile;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -177,21 +187,200 @@ public class LockFreeReadCacheOptimisticTest {
   }
 
   @Test
-  public void testRecordOptimisticAccessDoesNotThrow() {
-    // After a successful optimistic read, recording the access should not throw.
-    var entry = readCache.loadForRead(0, 0, writeCache, false);
-    readCache.releaseFromRead(entry);
+  public void testLiveAccessSkipsMapLookupAndUpdatesPolicy() throws Exception {
+    var entry = loadAndRelease(0);
+    var follower = loadAndRelease(1);
+    primeReadBuffer(follower);
+    var before = frequency(entry);
+    assertEquals(List.of(entry, follower), entries(policy().eden()));
 
-    // Should not throw, even if called multiple times
-    readCache.recordOptimisticAccess(0, 0);
-    readCache.recordOptimisticAccess(0, 0);
+    var original = cacheMap();
+    var map = spy(original);
+    field(LockFreeReadCache.class, "data").set(readCache, map);
+    try {
+      readCache.recordOptimisticAccess(entry);
+      verifyNoInteractions(map);
+    } finally {
+      field(LockFreeReadCache.class, "data").set(readCache, original);
+    }
+
+    readCache.assertConsistency();
+    assertEquals(List.of(follower, entry), entries(policy().eden()));
+    assertEquals(before + 1, frequency(entry));
   }
 
   @Test
-  public void testRecordOptimisticAccessOnEvictedEntry() {
-    // Recording access for an evicted page should silently succeed (skip).
-    readCache.recordOptimisticAccess(0, 99);
-    // No exception expected
+  public void testDeadEntryDoesNotAppend() throws Exception {
+    assertDeadAccessSkipped(0);
+  }
+
+  @Test
+  public void testDeadEntryDoesNotFlushNearlyFullBatch() throws Exception {
+    assertDeadAccessSkipped(15);
+  }
+
+  private void assertDeadAccessSkipped(int pending) throws Exception {
+    var old = evictedFrame();
+    try {
+      assertTrue(old.entry().isDead());
+      assertAccessSkipped(old.entry(), loadAndRelease(1100), pending);
+    } finally {
+      old.pointer().decrementReadersReferrer();
+    }
+  }
+
+  @Test
+  public void testMappedFrozenEntryDoesNotAppend() throws Exception {
+    assertMappedFrozenAccessSkipped(0);
+  }
+
+  @Test
+  public void testMappedFrozenEntryDoesNotFlushNearlyFullBatch() throws Exception {
+    assertMappedFrozenAccessSkipped(15);
+  }
+
+  private void assertMappedFrozenAccessSkipped(int pending) throws Exception {
+    var frozen = loadAndRelease(0);
+    var live = loadAndRelease(1);
+    var map = cacheMap();
+    var policy = policy();
+    var cacheSize = (AtomicInteger) field(LockFreeReadCache.class, "cacheSize").get(readCache);
+    // Pause removal after freeze while the entry is still mapped and holds its page pointer.
+    assertTrue(frozen.freeze());
+    try {
+      assertTrue(frozen.isFrozen());
+      assertSame(frozen, map.get(frozen.getFileId(), frozen.getPageIndex()));
+      assertNotNull(frozen.getCachePointer().getPageFrame());
+      assertAccessSkipped(frozen, live, pending);
+    } finally {
+      // Complete removal before clear tries to freeze the remaining mapped entries.
+      assertTrue(map.remove(frozen.getFileId(), frozen.getPageIndex(), frozen));
+      policy.onRemove(frozen);
+      cacheSize.decrementAndGet();
+    }
+  }
+
+  private void assertAccessSkipped(CacheEntry skipped, CacheEntry live, int pending)
+      throws Exception {
+    var buffer = spyReadBuffer();
+    var batch = ((ThreadLocal<?>) field(LockFreeReadCache.class, "readBatch").get(readCache)).get();
+    var slots = (CacheEntry[]) field(batch.getClass(), "entries").get(batch);
+    var size = field(batch.getClass(), "size");
+    for (int i = 0; i < pending; i++) {
+      readCache.recordOptimisticAccess(live);
+    }
+    assertEquals(pending, size.getInt(batch));
+    var before = slots.clone();
+    var beforeFrequency = frequency(skipped);
+    var beforeLists = policyLists();
+    var beforeMemory = readCache.getUsedMemory();
+
+    var originalMap = cacheMap();
+    var map = spy(originalMap);
+    var mapField = field(LockFreeReadCache.class, "data");
+    mapField.set(readCache, map);
+    try {
+      readCache.recordOptimisticAccess(skipped);
+
+      verifyNoInteractions(map, buffer);
+    } finally {
+      mapField.set(readCache, originalMap);
+    }
+    assertEquals(pending, size.getInt(batch));
+    assertArrayEquals(before, slots);
+    assertEquals(beforeFrequency, frequency(skipped));
+    assertEquals(beforeLists, policyLists());
+    assertEquals(beforeMemory, readCache.getUsedMemory());
+  }
+
+  @Test
+  public void testAccessAcceptedBeforeEvictionDoesNotRestoreDeadEntry() throws Exception {
+    readCache = new LockFreeReadCache(bufferPool, 5L * PAGE_SIZE, PAGE_SIZE);
+    for (int i = 0; i < 5; i++) {
+      loadAndRelease(i);
+    }
+    var candidate = policy().eden().next();
+    var victim = entries(policy().probation()).getFirst();
+    primeReadBuffer(candidate);
+    var buffer = spyReadBuffer();
+    var candidatePointer = candidate.getCachePointer();
+    var victimPointer = victim.getCachePointer();
+    var referrers = field(CachePointer.class, "referrersCount");
+    assertEquals(1, referrers.getInt(candidatePointer));
+    assertEquals(1, referrers.getInt(victimPointer));
+    readCache.recordOptimisticAccess(candidate);
+    readCache.recordOptimisticAccess(victim);
+
+    // Eviction after append reaches the same state as eviction between the check and append.
+    loadAndRelease(5);
+    var dead = candidate.isDead() ? candidate : victim;
+    var deadPointer = dead == candidate ? candidatePointer : victimPointer;
+    assertTrue(dead.isDead());
+    var beforeMemory = readCache.getUsedMemory();
+
+    readCache.assertConsistency();
+
+    verify(buffer).offer(dead);
+    assertEquals(2, buffer.reads());
+    assertNull(cacheMap().get(dead.getFileId(), dead.getPageIndex()));
+    assertTrue(policyLists().stream().flatMap(List::stream).noneMatch(entry -> entry == dead));
+    assertNull(dead.getCachePointer());
+    assertEquals("Recording must not retain the evicted frame", 0, referrers.getInt(deadPointer));
+    assertEquals(beforeMemory, readCache.getUsedMemory());
+    readCache.assertSize();
+  }
+
+  private CacheEntry loadAndRelease(int pageIndex) {
+    var entry = readCache.loadForRead(0, pageIndex, writeCache, false);
+    readCache.releaseFromRead(entry);
+    return entry;
+  }
+
+  private WTinyLFUPolicy policy() throws ReflectiveOperationException {
+    return (WTinyLFUPolicy) field(LockFreeReadCache.class, "policy").get(readCache);
+  }
+
+  private List<List<CacheEntry>> policyLists() throws ReflectiveOperationException {
+    var policy = policy();
+    return List.of(entries(policy.eden()), entries(policy.probation()),
+        entries(policy.protection()));
+  }
+
+  private static List<CacheEntry> entries(Iterator<CacheEntry> iterator) {
+    var entries = new ArrayList<CacheEntry>();
+    iterator.forEachRemaining(entries::add);
+    // The policy iterator starts at the tail. Return entries in head-to-tail order.
+    return entries.reversed();
+  }
+
+  private int frequency(CacheEntry entry) throws ReflectiveOperationException {
+    var sketch = (FrequencySketch) field(WTinyLFUPolicy.class, "admittor").get(policy());
+    return sketch.frequency(
+        ConcurrentFilePageMap.hashForFrequencySketch(entry.getFileId(), entry.getPageIndex()));
+  }
+
+  private void primeReadBuffer(CacheEntry entry) throws ReflectiveOperationException {
+    // The first offer creates a stripe but does not advance its write counter.
+    ((Buffer) field(LockFreeReadCache.class, "readBuffer").get(readCache)).offer(entry);
+  }
+
+  private Buffer spyReadBuffer() throws ReflectiveOperationException {
+    var bufferField = field(LockFreeReadCache.class, "readBuffer");
+    var buffer = spy((Buffer) bufferField.get(readCache));
+    bufferField.set(readCache, buffer);
+    return buffer;
+  }
+
+  @SuppressWarnings("unchecked")
+  private ConcurrentFilePageMap<CacheEntry> cacheMap() throws ReflectiveOperationException {
+    return (ConcurrentFilePageMap<CacheEntry>) field(LockFreeReadCache.class, "data")
+        .get(readCache);
+  }
+
+  private static Field field(Class<?> owner, String name) throws NoSuchFieldException {
+    var field = owner.getDeclaredField(name);
+    field.setAccessible(true);
+    return field;
   }
 
   @Test
@@ -399,6 +588,7 @@ public class LockFreeReadCacheOptimisticTest {
       var scope = new OptimisticReadScope();
       long stamp = frame.tryOptimisticRead();
       scope.record(frame, stamp, entry);
+      scope.validateOrThrow();
       captured.add(new Evicted(entry, pointer, frame, stamp, scope));
       readCache.releaseFromRead(entry);
     }
@@ -437,9 +627,9 @@ public class LockFreeReadCacheOptimisticTest {
     }
   }
 
-  /** A write-cache hit can reload the same frame under a new read-cache entry. */
+  /** A same-frame reload does not receive an access for the entry that validation checked. */
   @Test
-  public void testSameFrameReloadUnderNewEntryRejectsOldEntry() throws IOException {
+  public void testSameFrameReloadRejectsOldEntryAndDoesNotRecordForReplacement() throws Exception {
     var old = evictedFrame();
     var retainingWriteCache = mock(WriteCache.class);
     when(retainingWriteCache.loadOrAdd(eq(0L), eq((long) old.entry().getPageIndex()), eq(false)))
@@ -455,6 +645,27 @@ public class LockFreeReadCacheOptimisticTest {
       readCache.releaseFromRead(replacement);
       assertTrue(old.frame().validate(old.stamp()));
       assertIdentityFailure(old.scope());
+
+      var follower = loadAndRelease(1100);
+      primeReadBuffer(follower);
+      var before = entries(policy().eden());
+      assertSame(replacement, before.get(before.size() - 2));
+      assertSame(follower, before.getLast());
+      var beforeFrequency = frequency(replacement);
+
+      readCache.recordOptimisticAccess(old.entry());
+      readCache.assertConsistency();
+
+      assertEquals(before, entries(policy().eden()));
+      assertEquals(beforeFrequency, frequency(replacement));
+      assertTrue(policyLists().stream().flatMap(List::stream)
+          .noneMatch(entry -> entry == old.entry()));
+
+      readCache.recordOptimisticAccess(replacement);
+      readCache.assertConsistency();
+
+      assertSame(replacement, entries(policy().eden()).getLast());
+      assertEquals(beforeFrequency + 1, frequency(replacement));
     } finally {
       old.pointer().decrementReadersReferrer();
     }

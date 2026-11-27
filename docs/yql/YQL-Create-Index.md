@@ -104,9 +104,18 @@ CREATE INDEX addresses ON Employee (address) NOTUNIQUE METADATA { ignoreNullValu
 ## Key size and shortened keys
 
 An index key is the value stored in an index to find a record.
-The `BTREE_MAX_KEY_SIZE` setting limits its size in bytes.
-The default is 30% of the database page size.
-The limit is recorded with the database when the database is created.
+The Java property `youtrackdb.btree.maxKeySize` (`BTREE_MAX_KEY_SIZE`) limits its size in bytes.
+The default and the ceiling are 30% of the page size, rounded down to a whole byte.
+This gives 1,228 bytes for a 4-kilobyte (KB) page and 2,457 bytes for an 8 KB page.
+
+A value above the ceiling prevents database creation and open. For example, to use a
+limit of 2,000 bytes, set `-Dyoutrackdb.storage.diskCache.pageSize=8` on the Java command
+line and restart. To create a database at the default page size of 4 KB, set a limit of
+at most 1,228 bytes instead.
+
+The database records the limit at creation. To open the database, the process must match
+both its page size and its recorded key limit. If you created it with a custom limit,
+set the same `youtrackdb.btree.maxKeySize` on the Java command line for every open.
 
 A single-field index indexes one field.
 If its string or binary key is too large, the index stores a fixed prefix instead.

@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock;
 import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.TimeRate;
 import com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -48,6 +49,7 @@ public final class AsyncFile implements File {
   private final boolean callFsync;
   private final Runnable creationNotification;
 
+  private final Counter dataFileFsyncCount;
   private final TimeRate diskReadMeter;
   private final TimeRate diskWriteMeter;
 
@@ -84,6 +86,8 @@ public final class AsyncFile implements File {
     this.logFileDeletion = logFileDeletion;
     this.dbName = dbName;
     this.callFsync = callFsync;
+    this.dataFileFsyncCount = YouTrackDBEnginesManager.instance().getMetricsRegistry()
+        .globalMetric(CoreMetrics.DATA_FILE_FSYNC_COUNT);
 
     this.diskReadMeter = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
@@ -421,6 +425,7 @@ public final class AsyncFile implements File {
         if (dirtyCounterValue > 0) {
           if (callFsync) {
             try {
+              dataFileFsyncCount.add(1);
               fileChannel.force(true);
             } catch (final IOException e) {
               // Keep the dirty count so the next synchronization tries this file again.

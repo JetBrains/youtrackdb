@@ -4,12 +4,14 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
@@ -81,9 +83,26 @@ public class IndexHistogramSlotReuseTest {
     verifyNoInteractions(fixture.operation);
   }
 
+  @Test
+  public void standaloneBuildDetachedAtScanCloseDoesNotRequestWriteAdmission() throws Exception {
+    var fixture = new Fixture();
+    fixture.manager.setFileIdForTest(42);
+    fixture.cache.put(fixture.engineId, snapshot(8));
+    fixture.manager.setKeyStreamSupplier(operation -> Stream.<Object>of(1, 2)
+        .onClose(fixture.manager::detach));
+    // Let a mistaken write admission return without dereferencing an absent cache entry.
+    when(fixture.atomicOperationsManager.calculateInsideAtomicOperation(any())).thenReturn(false);
+
+    assertNull(fixture.manager.analyzeIndex());
+
+    assertTrue(fixture.manager.isDetached());
+    verify(fixture.operation).deactivate();
+    verify(fixture.atomicOperationsManager, never()).calculateInsideAtomicOperation(any());
+  }
+
   /** U5 detaches at the publication seam after synchronous analysis has scanned its stale keys. */
   @Test
-  public void detachAtPublicationPreventsRebalanceMerge() {
+  public void detachAtPublicationPreventsRebalanceMerge() throws Exception {
     var fixture = new Fixture();
     fixture.manager.setFileIdForTest(42);
     fixture.cache.put(fixture.engineId, snapshot(8));
@@ -91,6 +110,12 @@ public class IndexHistogramSlotReuseTest {
         operation -> IntStream.range(0, 8).boxed().map(value -> (Object) value));
     var replacement = snapshot(77);
     fixture.installDetachAndSeedHook(replacement);
+    // The publication seam now runs inside both write callbacks.
+    doAnswer(inv -> inv.<TxFunction<Boolean>>getArgument(0).accept(fixture.operation))
+        .when(fixture.atomicOperationsManager).calculateInsideAtomicOperation(any());
+    doAnswer(inv -> inv.<TxFunction<Boolean>>getArgument(2).accept(fixture.operation))
+        .when(fixture.atomicOperationsManager)
+        .calculateInsideComponentOperation(any(), any(), any());
 
     try {
       assertSame(replacement, fixture.manager.analyzeIndex());

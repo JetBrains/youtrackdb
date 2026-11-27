@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.CollectionPositionMapV2.CollectionPositionEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
@@ -66,10 +67,7 @@ public class CollectionPositionMapV2Test {
 
   private CollectionPositionMapV2 positionMap;
 
-  // Page size used by both the buffer pool and the WriteCache mock. Aligned with the
-  // production default (DISK_CACHE_PAGE_SIZE=8 KB) so the in-test buffers match the
-  // shrink-target arithmetic the verifyAndTruncateOrphans tests pin.
-  private static final int PAGE_SIZE_BYTES = 8 * 1024;
+  private static final int PAGE_SIZE_BYTES = ProcessPageSize.bytes();
 
   @Before
   public void setUp() throws IOException {
@@ -1309,8 +1307,7 @@ public class CollectionPositionMapV2Test {
 
   /**
    * Creates a mock {@link AtomicOperation} that simulates a file with an in-memory page
-   * store backed by real direct-memory buffers. Each page is a real 8 KB buffer so that
-   * {@link CollectionPositionMapBucket} and {@link MapEntryPoint} operate correctly.
+   * store backed by direct-memory buffers of the process page size.
    */
   private AtomicOperation createAtomicOperation() throws IOException {
     var op = mock(AtomicOperation.class);

@@ -1,11 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.LongSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ShortSerializer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import java.nio.ByteBuffer;
 
 /**
@@ -16,7 +16,7 @@ import java.nio.ByteBuffer;
 public final class WALPageChangesPortion implements WALChanges {
 
   private static final int PAGE_SIZE =
-      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+      ProcessPageSize.bytes();
 
   private static final int CHUNK_SIZE = 32;
   private static final int PORTION_SIZE = 32;

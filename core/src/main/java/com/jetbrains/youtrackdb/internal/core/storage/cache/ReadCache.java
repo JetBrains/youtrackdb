@@ -211,12 +211,11 @@ public interface ReadCache {
   }
 
   /**
-   * Records a successful optimistic read access for the given page, updating the
-   * frequency sketch used by the eviction policy. Call this after cached-frame identity,
-   * stamps, and the apply-phase epoch have passed validation.
+   * Records an access for the cache entry that optimistic read validation checked.
+   * The read cache makes no cache map lookup and skips the entry if it is not alive.
+   * If eviction and reload replace the entry before the check, the replacement receives no record.
    *
-   * <p>If the entry has been evicted between validation and this call, the access
-   * is silently skipped (acceptable — one missed frequency bump is harmless).
+   * <p>File close, delete, and truncate must not overlap an optimistic read of the same file.
    */
-  void recordOptimisticAccess(long fileId, long pageIndex);
+  void recordOptimisticAccess(CacheEntry entry);
 }

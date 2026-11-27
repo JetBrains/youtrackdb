@@ -115,6 +115,11 @@ public class AbstractStorageWALCutTest {
     storage.configuration = mock(CollectionBasedStorageConfiguration.class, RETURNS_DEEP_STUBS);
     setPrivateField(storage, "initializedConfiguration", storage.configuration);
     // CALLS_REAL_METHODS skips constructor field initializers.
+    for (var field : new String[] {
+        "walVacuumRunCount", "walVacuumTimeNanos", "walVacuumRemovalRunCount"}) {
+      setPrivateField(storage, field,
+          com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter.NOOP);
+    }
     for (var field : new String[] {"idGen", "atomicOperationsManager"}) {
       setPrivateField(storage, field,
           mock(AbstractStorage.class.getDeclaredField(field).getType()));
@@ -282,6 +287,54 @@ public class AbstractStorageWALCutTest {
     verify(writeCache, never()).syncDataFiles();
     verify(storage, never()).checkpointChangedPages(anyLong());
     verify(writeAheadLog, never()).cutAllSegmentsSmallerThan(anyLong());
+  }
+
+  /** A task observes only the replacement WAL under the state lock and clears after failure. */
+  @Test
+  public void vacuumObservesCurrentWalAndCountsRemovalBeforeFailure() throws Exception {
+    prepareOnlineMaintenance();
+    final var oldWal = writeAheadLog;
+    final var task = new WALVacuum(storage);
+    final var currentWal = mock(WriteAheadLog.class);
+    storage.writeAheadLog = currentWal;
+    final var runs = com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter.create();
+    final var time = com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter.create();
+    final var removals = com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter.create();
+    setPrivateField(storage, "walVacuumRunCount", runs);
+    setPrivateField(storage, "walVacuumTimeNanos", time);
+    setPrivateField(storage, "walVacuumRemovalRunCount", removals);
+    final var lockField = AbstractStorage.class.getDeclaredField("stateLock");
+    lockField.setAccessible(true);
+    final var lock = (ScalableRWLock) lockField.get(storage);
+    final var listener = new AtomicReference<Runnable>();
+    doAnswer(call -> {
+      assertThat(lock.isReadLockedByCurrentThread()).isTrue();
+      listener.set(call.getArgument(0));
+      return null;
+    }).when(currentWal).setSegmentRemovalListener(org.mockito.ArgumentMatchers.any());
+    when(currentWal.nonActiveSegments()).thenAnswer(call -> {
+      listener.get().run();
+      listener.get().run();
+      throw new IllegalStateException("failure after segment removal");
+    });
+    task.run();
+    assertThat(runs.getValue()).isEqualTo(1);
+    assertThat(time.getValue()).isPositive();
+    assertThat(removals.getValue()).isEqualTo(1);
+    assertThat(listener.get()).isNull();
+    verify(oldWal, never()).setSegmentRemovalListener(org.mockito.ArgumentMatchers.any());
+    final long previousTime = time.getValue();
+    org.mockito.Mockito.doReturn(new long[0]).when(currentWal).nonActiveSegments();
+    task.run();
+    assertThat(runs.getValue()).isEqualTo(2);
+    assertThat(time.getValue()).isGreaterThan(previousTime);
+    assertThat(removals.getValue()).isEqualTo(1);
+    assertThat(listener.get()).isNull();
+    storage.status = Storage.STATUS.CLOSED;
+    task.run();
+    assertThat(runs.getValue()).isEqualTo(3);
+    assertThat(time.getValue()).isGreaterThan(previousTime);
+    verify(currentWal, times(2)).nonActiveSegments();
   }
 
   /** A final cache sample newer than vacuum's early active segment cannot raise the cut cap. */

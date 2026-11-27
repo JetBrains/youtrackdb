@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPage;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.PaginatedCollection;
@@ -513,6 +514,7 @@ public class ComponentIdAllocationTest {
       assertEquals(Integer.valueOf(expectedId), cache.registeredFileId(name));
       assertTrue(cache.exists(name));
       if (cache instanceof WOWCache diskCache) {
+        diskCache.flush(registered);
         assertTrue(Files.exists(diskCache.getRootDirectory().resolve(
             PageFileNames.layout28DiskName(identity))));
       }
@@ -791,7 +793,8 @@ public class ComponentIdAllocationTest {
       for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
           PageFileRole.CONFIG_DATA}) {
         var identity = new PageFileIdentity(role, counters[role.kind().ordinal()] + 1);
-        cache.addFile(PageFileNames.layout28(identity), identity.internalId());
+        assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity),
+            cache.externalFileId(identity.internalId()), RecoveryFilePermission.RESTORE));
         leftovers.put(identity, Files.readAllBytes(
             database.resolve(PageFileNames.layout28DiskName(identity))));
       }
@@ -821,10 +824,27 @@ public class ComponentIdAllocationTest {
         assertEquals(identity.componentId() + 1, next);
         var retry = new PageFileIdentity(identity.role(), next);
         var retryName = PageFileNames.layout28(retry);
-        wc.bookFileId(retryName, retry.internalId(), false);
-        wc.addFile(retryName, retry.internalId());
-        assertTrue(wc.exists(retryName));
-        assertTrue(Files.exists(database.resolve(PageFileNames.layout28DiskName(retry))));
+        var path = database.resolve(PageFileNames.layout28DiskName(retry));
+        wc.pauseBackgroundFlush();
+        try {
+          wc.bookFileId(retryName, retry.internalId(), false);
+          var retryId = wc.externalFileId(retry.internalId());
+          assertEquals(retryId, wc.addFile(retryName, retryId));
+          assertTrue(wc.exists(retryName));
+          assertFalse(Files.exists(path));
+          storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+            var page = op.allocatePageForWrite(retryId, 0);
+            try {
+              new PaginatedCollectionStateV2(page).setFileSize(1);
+            } finally {
+              op.releasePageFromWrite(page);
+            }
+          });
+          wc.flush(retryId);
+          assertTrue(Files.exists(path));
+        } finally {
+          wc.resumeBackgroundFlush();
+        }
       }
     }
   }
@@ -1194,6 +1214,7 @@ public class ComponentIdAllocationTest {
             op -> config(storage).getIndexEngine(indexName, -1, op));
         assertTrue(entry.getFileBaseId() > maxima.get(PageFileKind.INDEX_ENGINE));
         assertOrdinaryFamily(storage, collectionId);
+        assertIndexTreeRegistrations(storage, entry.getFileBaseId(), true);
         assertTrue(storage.engineFilesPresent(entry.getFileBaseId()));
       }
     }
@@ -3407,7 +3428,14 @@ public class ComponentIdAllocationTest {
     for (var role : new PageFileRole[] {PageFileRole.RECORD_DATA, PageFileRole.INDEX_DATA,
         PageFileRole.CONFIG_DATA}) {
       var identity = new PageFileIdentity(role, id);
-      storage.getWriteCache().addFile(PageFileNames.layout28(identity), identity.internalId());
+      var cache = storage.getWriteCache();
+      var name = PageFileNames.layout28(identity);
+      if (cache instanceof WOWCache) {
+        assertTrue(cache.resolveRecoveryFile(name, cache.externalFileId(identity.internalId()),
+            RecoveryFilePermission.RESTORE));
+      } else {
+        cache.addFile(name, identity.internalId());
+      }
     }
   }
 

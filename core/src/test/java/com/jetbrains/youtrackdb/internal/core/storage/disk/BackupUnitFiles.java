@@ -45,8 +45,8 @@ public final class BackupUnitFiles {
   public static final int LEGACY_BACKUP_FORMAT_VERSION = VERSION_2;
   public static final int FIRST_BACKUP_FORMAT_VERSION = 1;
   public static final int VERSION_6 = 6;
-  public static final int CURRENT_BACKUP_FORMAT_VERSION = VERSION_6;
-  public static final int FUTURE_BACKUP_FORMAT_VERSION = 7;
+  public static final int CURRENT_BACKUP_FORMAT_VERSION = 7;
+  public static final int FUTURE_BACKUP_FORMAT_VERSION = 8;
 
   /** The accepted creation completion evidence of this build. */
   public static final int COMPLETED_CREATION_EVIDENCE = DiskStorage.CREATION_COMPLETED_EVIDENCE;
@@ -214,18 +214,29 @@ public final class BackupUnitFiles {
           unit[unit.length - 1] ^= 1;
         }
       }
+      if (backupFormatVersion == 7) {
+        unit = version7Bytes(content, java.util.Arrays.copyOfRange(unit, unit.length - 74,
+            unit.length),
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize
+                .kibibytes());
+        if (!validHash) {
+          unit[unit.length - 1] ^= 1;
+        }
+      }
       Files.write(directory.resolve(fileName), unit);
       return fileName;
     }
   }
 
-  /** Replaces ZIP entries while retaining v6 admission metadata and repairing both hashes. */
+  /** Replaces ZIP entries while retaining v6 or v7 admission metadata and repairing both hashes. */
   public static void rewriteZipEntries(Path path,
       java.util.function.Consumer<java.util.Map<String, byte[]>> change) throws IOException {
     var unit = Files.readAllBytes(path);
-    if (ByteBuffer.wrap(unit).getShort(unit.length - 74) != VERSION_6) {
-      throw new IOException("Expected a version 6 backup fixture");
+    var version = ByteBuffer.wrap(unit).getShort(unit.length - 74);
+    if (version != VERSION_6 && version != 7) {
+      throw new IOException("Expected a version 6 or 7 backup fixture");
     }
+    int metadataSize = version == 7 ? 126 : 122;
     var entries = new java.util.LinkedHashMap<String, byte[]>();
     try (var zip = new java.util.zip.ZipInputStream(
         new java.io.ByteArrayInputStream(zipPayload(unit)))) {
@@ -245,11 +256,27 @@ public final class BackupUnitFiles {
     }
     var payload = output.toByteArray();
     int offset = payload.length % 512;
-    int padding = offset + 122 <= 512 ? 0 : 512 - offset;
-    var result = java.util.Arrays.copyOf(payload, payload.length + padding + 122);
-    System.arraycopy(unit, unit.length - 122, result, result.length - 122, 122);
+    int padding = offset + metadataSize <= 512 ? 0 : 512 - offset;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + metadataSize);
+    System.arraycopy(unit, unit.length - metadataSize, result,
+        result.length - metadataSize, metadataSize);
     repairVersion6Hashes(result, true, true);
     Files.write(path, result);
+  }
+
+  /** Builds a literal v7 fixture with independently encoded page-size metadata. */
+  public static byte[] version7Bytes(byte[] payload, byte[] shared, int pageSize) {
+    int padding = payload.length % 512 + 126 <= 512 ? 0 : 512 - payload.length % 512;
+    var result = java.util.Arrays.copyOf(payload, payload.length + padding + 126);
+    int tail = result.length - 126;
+    System.arraycopy(shared, 0, result, tail + 52, 74);
+    var buffer = ByteBuffer.wrap(result);
+    buffer.putInt(tail + 48, pageSize).putShort(tail + 52, (short) 7);
+    buffer.putLong(tail, DiskStorage.XX_HASH_64.hash(result, tail + 8, 110,
+        DiskStorage.METADATA_HASH_SEED));
+    buffer.putLong(result.length - 8, DiskStorage.XX_HASH_64.hash(result, 0, result.length - 8,
+        DiskStorage.XX_HASH_SEED));
+    return result;
   }
 
   /** Builds a literal v6 fixture from payload and the unchanged 74-byte shared suffix. */
@@ -276,10 +303,11 @@ public final class BackupUnitFiles {
 
   /** Repairs hashes independently so corruption tests do not mask the other check. */
   static void repairVersion6Hashes(byte[] unit, boolean metadata, boolean content) {
-    var tail = unit.length - 122;
+    var size = ByteBuffer.wrap(unit).getShort(unit.length - 74) == 7 ? 126 : 122;
+    var tail = unit.length - size;
     var buffer = ByteBuffer.wrap(unit);
     if (metadata) {
-      buffer.putLong(tail, DiskStorage.XX_HASH_64.hash(unit, tail + 8, 106,
+      buffer.putLong(tail, DiskStorage.XX_HASH_64.hash(unit, tail + 8, size - 16,
           DiskStorage.METADATA_HASH_SEED));
     }
     if (content) {
@@ -289,7 +317,7 @@ public final class BackupUnitFiles {
   }
 
   /** Converts real supported ZIP output without changing payload or shared metadata fields. */
-  static void rewriteAsVersion6(Path path, int barrier,
+  public static void rewriteAsVersion6(Path path, int barrier,
       DiskStorage.BackupContinuity continuity) throws IOException {
     var unit = Files.readAllBytes(path);
     Files.write(path, version6Bytes(zipPayload(unit),
@@ -303,6 +331,7 @@ public final class BackupUnitFiles {
       case 3 -> 74;
       case 4, 5 -> 86;
       case 6 -> 122;
+      case 7 -> 126;
       default -> throw new IOException("Unsupported fixture source version " + version);
     };
     var zipEnd = -1;

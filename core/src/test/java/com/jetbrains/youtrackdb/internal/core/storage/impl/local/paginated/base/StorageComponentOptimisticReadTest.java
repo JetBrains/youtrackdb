@@ -8,9 +8,13 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailureCounters.Cause;
@@ -195,9 +200,9 @@ public class StorageComponentOptimisticReadTest {
 
   @Test
   public void testExecuteOptimisticStorageReadHappyPath() throws IOException {
-    // When optimistic read succeeds, the result is returned without fallback.
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
+    var entry = cacheEntry(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(entry);
 
     String result = component.testExecuteOptimisticStorageRead(
         mockAtomicOp,
@@ -208,8 +213,7 @@ public class StorageComponentOptimisticReadTest {
         () -> "pinned-result");
 
     assertEquals("optimistic-result", result);
-    // Verify frequency recording happened
-    verify(mockReadCache).recordOptimisticAccess(FILE_ID, PAGE_INDEX);
+    verify(mockReadCache).recordOptimisticAccess(same(entry));
 
     releaseFrame(frame);
   }
@@ -367,25 +371,32 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
-  public void testVoidVariant() throws IOException {
-    // The void variant should work the same way, just without a return value.
+  public void testVoidWrapperRecordsEntryAfterValidation() throws IOException {
+    scope = spy(scope);
+    when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
+    var entry = cacheEntry(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(entry);
 
-    final boolean[] optimisticRan = {false};
+    try {
+      component.testExecuteOptimisticStorageReadVoid(
+          mockAtomicOp,
+          () -> component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX),
+          () -> {
+            throw new AssertionError("Should not fall back");
+          });
 
-    component.testExecuteOptimisticStorageReadVoid(
-        mockAtomicOp,
-        () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
-          optimisticRan[0] = true;
-        },
-        () -> {
-          throw new AssertionError("Should not fall back");
-        });
+      assertRecordedAfterValidation(entry);
+    } finally {
+      releaseFrame(frame);
+    }
+  }
 
-    assertEquals(true, optimisticRan[0]);
-    releaseFrame(frame);
+  private void assertRecordedAfterValidation(CacheEntry entry) {
+    var calls = inOrder(scope, mockReadCache);
+    calls.verify(scope).validateOrThrow();
+    calls.verify(mockReadCache).recordOptimisticAccess(same(entry));
+    verify(mockReadCache).recordOptimisticAccess(any());
   }
 
   @Test
@@ -532,35 +543,48 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
-  public void testMultiPageOptimisticReadRecordsAllAccesses() throws IOException {
-    // A real BTree.get() reads multiple pages (root + internal nodes + leaf).
-    // Verify that all pages in a single optimistic read are tracked in the scope
-    // and that recordOptimisticAccess is called for each.
-    var frame1 = acquireFrameWithCoordinates(FILE_ID, 0);
-    var frame2 = acquireFrameWithCoordinates(FILE_ID, 1);
-    var frame3 = acquireFrameWithCoordinates(FILE_ID, 2);
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 0)).thenReturn(cacheEntry(frame1));
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 1)).thenReturn(cacheEntry(frame2));
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 2)).thenReturn(cacheEntry(frame3));
+  public void testOutermostValidationRecordsOnlyUnpinnedEntriesOnce() throws IOException {
+    scope = spy(scope);
+    when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
+    var firstFrame = acquireFrameWithCoordinates(FILE_ID, 0);
+    var nestedFrame = acquireFrameWithCoordinates(FILE_ID, 1);
+    var pinnedFrame = acquireFrameWithCoordinates(FILE_ID, 2);
+    var first = cacheEntry(firstFrame);
+    var nested = cacheEntry(nestedFrame);
+    var pinned = cacheEntry(pinnedFrame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 0)).thenReturn(first);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, 1)).thenReturn(nested);
 
-    String result = component.testExecuteOptimisticStorageRead(
-        mockAtomicOp,
-        () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 0);
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 1);
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 2);
-          return "multi-page-result";
-        },
-        () -> "pinned-result");
+    try {
+      var result = component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 0);
+            scope.recordPinned(pinnedFrame, pinnedFrame.tryOptimisticRead(), pinned);
+            var inner = component.testExecuteOptimisticStorageRead(
+                mockAtomicOp,
+                () -> {
+                  component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, 1);
+                  return "nested";
+                },
+                () -> "fallback");
+            verify(mockReadCache, never()).recordOptimisticAccess(any());
+            return inner;
+          },
+          () -> "fallback");
 
-    assertEquals("multi-page-result", result);
-    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 0);
-    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 1);
-    verify(mockReadCache).recordOptimisticAccess(FILE_ID, 2);
-
-    releaseFrame(frame1);
-    releaseFrame(frame2);
-    releaseFrame(frame3);
+      assertEquals("nested", result);
+      var calls = inOrder(scope, mockReadCache);
+      calls.verify(scope, times(2)).validateOrThrow();
+      calls.verify(mockReadCache).recordOptimisticAccess(same(first));
+      calls.verify(mockReadCache).recordOptimisticAccess(same(nested));
+      verify(mockReadCache, never()).recordOptimisticAccess(same(pinned));
+      verify(mockReadCache, times(2)).recordOptimisticAccess(any());
+    } finally {
+      releaseFrame(firstFrame);
+      releaseFrame(nestedFrame);
+      releaseFrame(pinnedFrame);
+    }
   }
 
   @Test
@@ -635,8 +659,7 @@ public class StorageComponentOptimisticReadTest {
       epoch.exitApplyPhase();
     }
 
-    // A failed validation must not bump the eviction frequency sketch.
-    verify(mockReadCache, never()).recordOptimisticAccess(FILE_ID, PAGE_INDEX);
+    verify(mockReadCache, never()).recordOptimisticAccess(any());
     releaseFrame(frame);
   }
 
@@ -827,30 +850,32 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
-  public void testNonNullValidatedResultSkipsRecheck() throws IOException {
-    // A cleanly validated non-null result must not pay the re-check: the pinned lambda
-    // never runs.
-    final int[] pinnedRuns = {0};
+  public void testNonNullResultRecordsEntryAfterValidationAndSkipsRecheck() throws IOException {
+    scope = spy(scope);
+    when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
-    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(cacheEntry(frame));
+    var entry = cacheEntry(frame);
+    when(mockReadCache.getCacheEntryOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(entry);
 
-    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
-        mockAtomicOp,
-        () -> {
-          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
-          return "optimistic-hit";
-        },
-        () -> {
-          pinnedRuns[0]++;
-          return "pinned";
-        },
-        Objects::isNull,
-        () -> "key=42");
+    try {
+      String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+            return "optimistic-hit";
+          },
+          () -> {
+            throw new AssertionError("Should not recheck");
+          },
+          Objects::isNull,
+          () -> "key=42");
 
-    assertEquals("optimistic-hit", result);
-    assertEquals(0, pinnedRuns[0]);
-    assertEquals(0, component.nullRecheckErrorCount);
-    releaseFrame(frame);
+      assertEquals("optimistic-hit", result);
+      assertEquals(0, component.nullRecheckErrorCount);
+      assertRecordedAfterValidation(entry);
+    } finally {
+      releaseFrame(frame);
+    }
   }
 
   @Test

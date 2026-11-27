@@ -11,13 +11,16 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -27,8 +30,15 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDelta;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexHistogramManager;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 import org.junit.Test;
@@ -42,37 +52,238 @@ import org.junit.Test;
  */
 public class BTreeEngineHistogramBuildTest {
 
-  /**
-   * Concurrency-contract note shared by every clear() unit test below for
-   * both the single-value and multi-value engines.
-   *
-   * <p>Both Mockito-based fixtures (SingleValueFixture and MultiValueFixture)
-   * short-circuit the inner tree-clearing helper: the mock trees return
-   * Mockito's primitive default 0L from size(), so the iterate-and-remove
-   * while-loop body inside doClearTree() (SV) and clearSVTree() (MV) never
-   * executes. tree.remove → executeInsideComponentOperation →
-   * acquireExclusiveLockTillOperationComplete is never reached, and the
-   * per-tree exclusive lock that the production comment in
-   * BTreeSingleValueIndexEngine.clear() and BTreeMultiValueIndexEngine.clear()
-   * calls "load-bearing" is NOT acquired during these tests.
-   *
-   * <p>That makes these tests valid pins for the pure-delta accumulator
-   * contract (negative delta recorded, in-memory AtomicLongs untouched,
-   * persisted EP page not written directly) but they say nothing about the
-   * lock-window race against a concurrent commit's apply hook on the same
-   * engine. That race is exercised by the commit-path rollback regression
-   * tests on both engines (BTreeMultiValueIndexEngineClearRollbackTest,
-   * BTreeSingleValueIndexEngineClearRollbackTest) and is out of scope here.
-   */
+  /** The Mockito trees verify calls but do not take real component locks. */
   private static final String CLEAR_CONCURRENCY_CONTRACT_NOTE =
-      "Mockito fixtures short-circuit doClearTree()/clearSVTree(); the"
-          + " per-tree exclusive lock claimed in the production comment is NOT"
-          + " acquired here. The lock-window race is exercised by the"
-          + " commit-path rollback regression tests, not by this unit test.";
+      "These fixtures do not exercise lock contention between threads.";
 
   // ═══════════════════════════════════════════════════════════════════════
   // Single-value: buildInitialHistogram()
   // ═══════════════════════════════════════════════════════════════════════
+
+  @Test
+  public void singleValue_fillClosesMainScanBeforeTreeLockAndPublication() throws IOException {
+    var f = new SingleValueFixture();
+    var mainClosed = mock(Runnable.class);
+    var key = new CompositeKey("a", 0L);
+    when(f.sbTree.firstKey(f.op)).thenReturn(key);
+    when(f.sbTree.iterateEntriesMajor(key, true, true, f.op)).thenAnswer(
+        inv -> Stream.of(new RawPair<>(key, new RecordId(2, 1))).onClose(mainClosed));
+    var prepared = prepareByScanning(f.manager, f.op);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    var order = inOrder(f.manager, mainClosed, f.sbTree);
+    order.verify(f.sbTree).getVisible(eq(CompositeKey.asCompositeKey(null)), any(), eq(f.op));
+    order.verify(f.sbTree).firstKey(f.op);
+    order.verify(f.sbTree).iterateEntriesMajor(key, true, true, f.op);
+    order.verify(f.manager).getKeyFieldCount();
+    order.verify(f.manager).prepareHistogram(any(), anyLong(), anyLong(), anyInt());
+    order.verify(mainClosed).run();
+    order.verify(f.sbTree).acquireAtomicExclusiveLock(f.op);
+    order.verify(f.manager).publishHistogramAfterFill(f.op, prepared);
+    order.verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    // Unordered verification also checks for calls that InOrder skipped.
+    verifyNoMoreInteractions(f.sbTree, f.manager, mainClosed);
+  }
+
+  @Test
+  public void multiValue_fillClosesBothScansBeforeMainThenNullLocksAndPublication()
+      throws IOException {
+    var f = new MultiValueFixture();
+    var mainClosed = mock(Runnable.class);
+    var nullClosed = mock(Runnable.class);
+    var rid = new RecordId(2, 1);
+    var key = new CompositeKey("a", rid, 0L);
+    var nullKey = new CompositeKey(rid, 0L);
+    when(f.svTree.firstKey(f.op)).thenReturn(key);
+    when(f.svTree.iterateEntriesMajor(key, true, true, f.op)).thenAnswer(
+        inv -> Stream.of(new RawPair<>(key, rid)).onClose(mainClosed));
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullKey);
+    when(f.nullTree.iterateEntriesMajor(nullKey, true, true, f.op)).thenAnswer(
+        inv -> Stream.of(new RawPair<>(nullKey, rid)).onClose(nullClosed));
+    var prepared = prepareByScanning(f.manager, f.op);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    var order = inOrder(f.manager, mainClosed, nullClosed, f.svTree, f.nullTree);
+    order.verify(f.svTree).firstKey(f.op);
+    order.verify(f.svTree).iterateEntriesMajor(key, true, true, f.op);
+    order.verify(f.manager).getKeyFieldCount();
+    order.verify(f.manager).prepareHistogram(any(), anyLong(), anyLong(), anyInt());
+    order.verify(mainClosed).run();
+    order.verify(f.nullTree).firstKey(f.op);
+    order.verify(f.nullTree).iterateEntriesMajor(nullKey, true, true, f.op);
+    order.verify(nullClosed).run();
+    order.verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    order.verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
+    order.verify(f.manager).publishHistogramAfterFill(f.op, prepared);
+    order.verify(f.svTree).setApproximateEntriesCount(f.op, 0L);
+    order.verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
+    verifyNoMoreInteractions(f.svTree, f.nullTree, f.manager, mainClosed, nullClosed);
+  }
+
+  @Test
+  public void singleValue_declinedFillWritesNeitherPageNorCountAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.setHistogramManager(detachedManager(f.storage, true));
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.sbTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void multiValue_declinedFillWritesNeitherPageNorCountsAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.setHistogramManager(detachedManager(f.storage, false));
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void singleValue_acceptedNegativeNonNullCountStillWritesCountAndCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    f.engine.setHistogramManager(fillManager(f.storage, true));
+    stubStatisticsPage(f.op);
+    when(f.sbTree.getVisible(any(), any(), eq(f.op))).thenAnswer(inv -> {
+      // A null insert commits after the total sample and before the exact null lookup.
+      f.engine.addToApproximateEntriesCount(1);
+      f.engine.addToApproximateNullCount(1);
+      return new RecordId(1, 1);
+    });
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.op).loadPageForWrite(42L, 0L, 1, true);
+    verify(f.sbTree).setApproximateEntriesCount(f.op, 0L);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-1, delta.getInMemAdjustTotal());
+    assertEquals(0, delta.getInMemAdjustNull());
+  }
+
+  @Test
+  public void multiValue_acceptedNegativeNonNullCountStillWritesCountsAndCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    f.engine.setHistogramManager(fillManager(f.storage, false));
+    stubStatisticsPage(f.op);
+    // Feed the scan samples from opposite sides of a null insertion.
+    f.engine.addToApproximateNullCount(1);
+    when(f.svTree.firstKey(f.op)).thenAnswer(inv -> {
+      f.engine.addToApproximateEntriesCount(1);
+      return null;
+    });
+    var rid = new RecordId(1, 1);
+    var nullKey = new CompositeKey(rid, 0L);
+    when(f.nullTree.firstKey(f.op)).thenReturn(nullKey);
+    when(f.nullTree.iterateEntriesMajor(nullKey, true, true, f.op))
+        .thenAnswer(inv -> Stream.of(new RawPair<>(nullKey, rid)));
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(f.op).loadPageForWrite(42L, 0L, 1, true);
+    // The mock tree observes the negative count that the real tree assertion rejects.
+    verify(f.svTree).setApproximateEntriesCount(f.op, -1L);
+    verify(f.nullTree).setApproximateEntriesCount(f.op, 1L);
+    var delta = f.op.getOrCreateIndexCountDeltas().getDeltas().get(f.engine.getId());
+    assertNotNull(delta);
+    assertEquals(-1, delta.getInMemAdjustTotal());
+    assertEquals(0, delta.getInMemAdjustNull());
+  }
+
+  @Test
+  public void singleValue_detachAtPublicationWritesNeitherPageNorCountAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new SingleValueFixture();
+    var manager = fillManager(f.storage, true);
+    var publication = detachAtPublication(manager);
+    f.engine.setHistogramManager(manager);
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(publication).run();
+    verify(f.sbTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  @Test
+  public void multiValue_detachAtPublicationWritesNeitherPageNorCountsAndEnrollsNoCorrection()
+      throws IOException {
+    var f = new MultiValueFixture();
+    var manager = fillManager(f.storage, false);
+    var publication = detachAtPublication(manager);
+    f.engine.setHistogramManager(manager);
+    f.engine.addToApproximateEntriesCount(8);
+
+    f.engine.buildInitialHistogram(f.op);
+
+    verify(publication).run();
+    verify(f.svTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verify(f.nullTree, never()).setApproximateEntriesCount(any(), anyLong());
+    verifyNoInteractions(f.op);
+  }
+
+  private static Runnable detachAtPublication(IndexHistogramManager manager) {
+    var hook = mock(Runnable.class);
+    doAnswer(inv -> {
+      manager.detach();
+      return null;
+    }).when(hook).run();
+    BTreeEngineTestFixtures.injectField(manager, "prePublicationTestHook", hook);
+    return hook;
+  }
+
+  private static void stubStatisticsPage(AtomicOperation op) throws IOException {
+    var page = mock(CacheEntry.class);
+    var pointer = mock(CachePointer.class);
+    when(pointer.getBuffer()).thenReturn(
+        ByteBuffer.allocateDirect(DurablePage.MAX_PAGE_SIZE_BYTES).order(ByteOrder.nativeOrder()));
+    when(page.getCachePointer()).thenReturn(pointer);
+    when(op.loadPageForWrite(42L, 0L, 1, true)).thenReturn(page);
+  }
+
+  private static IndexHistogramManager detachedManager(AbstractStorage storage,
+      boolean singleValue) {
+    var manager = fillManager(storage, singleValue);
+    manager.detach();
+    return manager;
+  }
+
+  private static IndexHistogramManager fillManager(AbstractStorage storage, boolean singleValue) {
+    var serializer = IntegerSerializer.INSTANCE;
+    var manager = new IndexHistogramManager(storage, "declined-fill", 0, singleValue,
+        new ConcurrentHashMap<>(), serializer,
+        BinarySerializerFactory.create(BinarySerializerFactory.currentBinaryFormatVersion()),
+        serializer.getId());
+    BTreeEngineTestFixtures.injectField(manager, "fileId", 42L);
+    return manager;
+  }
+
+  private static IndexHistogramManager.PreparedHistogram prepareByScanning(
+      IndexHistogramManager manager, AtomicOperation op) throws IOException {
+    var prepared = new IndexHistogramManager.PreparedHistogram(null, 0);
+    when(manager.prepareHistogram(any(), anyLong(), anyLong(), anyInt())).thenAnswer(inv -> {
+      assertEquals(1L, inv.<Stream<Object>>getArgument(0).count());
+      return prepared;
+    });
+    when(manager.publishHistogramAfterFill(op, prepared)).thenReturn(true);
+    return prepared;
+  }
 
   @Test
   public void singleValue_buildInitialHistogram_delegatesToManager()
@@ -99,15 +310,14 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("c", 0L), new RecordId(2, 3))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram mock returns exact non-null count (3) for recalibration
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(3L);
+    stubBuild(f.manager, f.op, 3L);
 
     f.engine.buildInitialHistogram(f.op);
 
     // Delegation pin: approxTotal=7, exactNullCount=1 (pre-state read before scan;
     // exactNullCount is the live null-count scan, not the pre-state approxNull=2).
-    verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(7L), eq(1L), eq(1));
+    verify(f.manager).prepareHistogram(
+        any(), eq(7L), eq(1L), eq(1));
     // Recalibration is post-commit via Hook B. exactTotal = 3 + 1 = 4,
     // currentTotal = 7 → inMemAdjustTotal = -3; exactNullCount = 1,
     // currentNull = 2 → inMemAdjustNull = -1.
@@ -146,13 +356,12 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1)),
             new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
-    verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(2L), eq(0L), eq(1));
+    verify(f.manager).prepareHistogram(
+        any(), eq(2L), eq(0L), eq(1));
     verify(f.sbTree).setApproximateEntriesCount(f.op, 2L);
   }
 
@@ -179,8 +388,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram scans 2 non-null keys and returns the exact count
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -235,8 +443,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey(new RecordId(3, 2), 0L), new RecordId(3, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram scans 3 non-null keys and returns the exact count
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(3L);
+    stubBuild(f.manager, f.op, 3L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -284,8 +491,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey(null, 0L), nullRid)));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram returns 0 — no non-null keys found
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(0L);
+    stubBuild(f.manager, f.op, 0L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -338,8 +544,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey(new RecordId(4, 3), 0L), new RecordId(4, 3))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram returns 0 — no non-null keys found
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(0L);
+    stubBuild(f.manager, f.op, 0L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -395,15 +600,14 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("a", "x", 0L), new RecordId(1, 1)),
             new RawPair<>(new CompositeKey("b", "y", 0L), new RecordId(1, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(2);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     // When buildInitialHistogram is called
     f.engine.buildInitialHistogram(f.op);
 
     // Then keyFieldCount=2 is passed, approxTotal=2, nullCount=0
-    verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(2L), eq(0L), eq(2));
+    verify(f.manager).prepareHistogram(
+        any(), eq(2L), eq(0L), eq(2));
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -437,8 +641,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("e", 0L), new RecordId(2, 5))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram receives stream with 3 live keys (tombstones filtered)
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(3L);
+    stubBuild(f.manager, f.op, 3L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -491,8 +694,7 @@ public class BTreeEngineHistogramBuildTest {
                 new TombstoneRID(new RecordId(2, 3)))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram receives 2 keys: "a" (RecordId) + "b" (SnapshotMarkerRID)
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -537,12 +739,11 @@ public class BTreeEngineHistogramBuildTest {
     f.engine.addToApproximateEntriesCount(0);
     // sbTree.firstKey returns null by default (Mockito default for Object)
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(0L);
+    stubBuild(f.manager, f.op, 0L);
 
     f.engine.buildInitialHistogram(f.op);
 
-    verify(f.manager).buildHistogram(eq(f.op), any(), eq(0L), eq(0L), eq(1));
+    verify(f.manager).prepareHistogram(any(), eq(0L), eq(0L), eq(1));
     // Holder-inspection pattern: the recalibration call is the only mutator
     // of inMemAdjust* on this path, so a (0, 0) row materialises even when
     // both deltas are zero. The per-put accumulators must stay at zero.
@@ -588,8 +789,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("c", 0L),
                 new TombstoneRID(new RecordId(2, 3)))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(0L);
+    stubBuild(f.manager, f.op, 0L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -643,8 +843,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("b", 0L), new RecordId(2, 2)),
             new RawPair<>(new CompositeKey("c", 0L), new RecordId(2, 3))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(3L);
+    stubBuild(f.manager, f.op, 3L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -706,8 +905,7 @@ public class BTreeEngineHistogramBuildTest {
           return entries.stream();
         });
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(20L);
+    stubBuild(f.manager, f.op, 20L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -764,8 +962,7 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey(null, 0L), nullRid),
             new RawPair<>(new CompositeKey("a", 0L), new RecordId(2, 1))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(1L);
+    stubBuild(f.manager, f.op, 1L);
 
     try {
       f.engine.buildInitialHistogram(f.op);
@@ -857,14 +1054,13 @@ public class BTreeEngineHistogramBuildTest {
         .thenAnswer(inv -> Stream.of(
             new RawPair<>(new CompositeKey(new RecordId(3, 1), 0L), new RecordId(3, 1))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
     // Delegation pin: approxTotal=7, approxNull=2 (pre-state read before scan).
-    verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(7L), eq(2L), eq(1));
+    verify(f.manager).prepareHistogram(
+        any(), eq(7L), eq(2L), eq(1));
     // Recalibration is post-commit via Hook B. targetTotal = 2 + 1 = 3,
     // currentTotal = 7 → inMemAdjustTotal = -4; exactNullCount = 1,
     // currentNull = 2 → inMemAdjustNull = -1.
@@ -901,14 +1097,13 @@ public class BTreeEngineHistogramBuildTest {
             new RawPair<>(new CompositeKey("x", new RecordId(1, 1), 0L), new RecordId(1, 1)),
             new RawPair<>(new CompositeKey("y", new RecordId(1, 2), 0L), new RecordId(1, 2))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
     // approxTotal = 2, approxNull = 0
-    verify(f.manager).buildHistogram(
-        eq(f.op), any(), eq(2L), eq(0L), eq(1));
+    verify(f.manager).prepareHistogram(
+        any(), eq(2L), eq(0L), eq(1));
     verify(f.svTree).setApproximateEntriesCount(f.op, 2L);
     // Null tree is empty (firstKey returns null by default), so exact null count = 0
     verify(f.nullTree).setApproximateEntriesCount(f.op, 0L);
@@ -936,8 +1131,7 @@ public class BTreeEngineHistogramBuildTest {
                 new RecordId(2, 3))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
     // buildHistogram receives 2 live keys (tombstone filtered out)
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(2L);
+    stubBuild(f.manager, f.op, 2L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -1006,8 +1200,7 @@ public class BTreeEngineHistogramBuildTest {
         .thenAnswer(inv -> Stream.of(
             new RawPair<>(new CompositeKey(new RecordId(3, 1), 0L), new RecordId(3, 1))));
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(0L);
+    stubBuild(f.manager, f.op, 0L);
 
     f.engine.buildInitialHistogram(f.op);
 
@@ -1064,8 +1257,7 @@ public class BTreeEngineHistogramBuildTest {
     // Null tree is empty (firstKey returns null by default), so the
     // exactNullCount path short-circuits to zero.
     when(f.manager.getKeyFieldCount()).thenReturn(1);
-    when(f.manager.buildHistogram(any(), any(), anyLong(), anyLong(), anyInt()))
-        .thenReturn(1L);
+    stubBuild(f.manager, f.op, 1L);
 
     try {
       f.engine.buildInitialHistogram(f.op);
@@ -1884,6 +2076,8 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
     // Interaction lockdown symmetric with the SV mirror at
     // singleValue_clear_onEmptyEngine_recordsZeroInMemAdjustAndAbsoluteWrite.
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -1933,6 +2127,8 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
     // Interaction lockdown symmetric with the SV mirror at
     // singleValue_clear_nullOnlyEngine_recordsEqualInMemAdjustOnBothAxes.
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -1978,6 +2174,8 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
     // Interaction lockdown symmetric with the SV mirror at
     // singleValue_clear_nonNullOnlyEngine_recordsZeroInMemAdjustNull.
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -2032,6 +2230,8 @@ public class BTreeEngineHistogramBuildTest {
     verify(f.nullTree, never()).addToApproximateEntriesCount(any(), anyLong());
     // Interaction lockdown symmetric with the SV mirror at
     // singleValue_clear_keepsPriorPutDeltasOnTheirOwnAxis.
+    verify(f.svTree).acquireAtomicExclusiveLock(f.op);
+    verify(f.nullTree).acquireAtomicExclusiveLock(f.op);
     verify(f.svTree).size(any());
     verify(f.svTree).firstKey(any());
     verify(f.nullTree).size(any());
@@ -2207,6 +2407,13 @@ public class BTreeEngineHistogramBuildTest {
         BinarySerializerFactory.create(
             BinarySerializerFactory.currentBinaryFormatVersion()),
         (byte) 0);
+  }
+
+  private static void stubBuild(IndexHistogramManager manager, AtomicOperation op, long count)
+      throws IOException {
+    var prepared = new IndexHistogramManager.PreparedHistogram(null, count);
+    when(manager.prepareHistogram(any(), anyLong(), anyLong(), anyInt())).thenReturn(prepared);
+    when(manager.publishHistogramAfterFill(op, prepared)).thenReturn(true);
   }
 
   private static class SingleValueFixture

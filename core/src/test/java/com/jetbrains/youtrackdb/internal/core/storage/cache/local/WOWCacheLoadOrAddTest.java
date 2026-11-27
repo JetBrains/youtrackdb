@@ -553,8 +553,7 @@ public class WOWCacheLoadOrAddTest {
     wowCache.setStorageFormat(
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9120);
-    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
-        wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     final var original = files.remove(fileId);
     final var entered = new CountDownLatch(1);
     final var release = new CountDownLatch(1);
@@ -968,8 +967,7 @@ public class WOWCacheLoadOrAddTest {
   public void mixedFileFailureDrainsAllStartedWrites() throws Exception {
     final long first = prepareUnwrittenMaterializedPage();
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9133);
-    final long second = wowCache.addFile(PageFileNames.layout28(identity),
-        wowCache.externalFileId(identity.internalId()));
+    final long second = createHeaderOnlyFile(identity);
     cacheUnwrittenImage(second, 2, 337);
     final var firstOriginal = files.remove(first);
     final var secondOriginal = files.remove(second);
@@ -3881,7 +3879,7 @@ public class WOWCacheLoadOrAddTest {
       replacement.extents().allocateThrough(3);
       beforeBlank.release.countDown();
       stale.get(10, TimeUnit.SECONDS);
-      assertEquals(File.HEADER_SIZE, Files.size(path));
+      assertFalse(Files.exists(path));
       assertEquals(0, replacement.diskExtent());
       cacheUnwrittenImage(id, 2, 876);
       wowCache.flush(id);
@@ -3890,6 +3888,28 @@ public class WOWCacheLoadOrAddTest {
       beforeDelete.release.countDown();
       beforeBlank.release.countDown();
     }
+  }
+
+  @Test
+  public void staleBlankFromPendingFixtureCannotWriteIntoHandleBackedReplacement()
+      throws Exception {
+    final long id = preparePendingPage(9411, null);
+    final int internal = wowCache.internalFileId(id);
+    final var oldState = wowCache.logicalFiles().live(internal);
+    final var blank = new EnsurePageIsValidInFileTask(internal, 2, wowCache);
+    final var replacementId = asyncFileExecutor.submit(() -> {
+      wowCache.deleteFile(id);
+      return createHeaderOnlyFile(oldState.identity());
+    }).get(10, TimeUnit.SECONDS);
+    assertEquals(id, replacementId.longValue());
+    assertNotNull(files.get(id));
+    final var replacement = wowCache.logicalFiles().live(internal);
+    assertNotSame(oldState.extents(), replacement.extents());
+    replacement.extents().allocateThrough(3);
+
+    flushExecutor().submit(blank).get(10, TimeUnit.SECONDS);
+    assertEquals(File.HEADER_SIZE, Files.size(pendingPath(id)));
+    assertEquals(0, replacement.diskExtent());
   }
 
   @Test
@@ -6166,6 +6186,99 @@ public class WOWCacheLoadOrAddTest {
     assertMaterializedContents(id, 3, 2, 728);
   }
 
+  // The pending fixture leaves a gap below a changed page. Publication can cross the gap
+  // after the loader misses the double-write log, while it still owns the shared page key.
+  @Test
+  public void pendingFixtureGapLoadRetriesAfterWrittenExtentPublication() throws Exception {
+    final long id = preparePendingPage(9269, null);
+    final int internalId = wowCache.internalFileId(id);
+    final var dwlField = WOWCache.class.getDeclaredField("doubleWriteLog");
+    dwlField.setAccessible(true);
+    final var originalDwl = dwlField.get(wowCache);
+    final var dwl = mock(DoubleWriteLog.class);
+    when(dwl.write(any(), any(), any())).thenReturn(new DoubleWriteLog.AppendResult(1L, false, 1L));
+    final var missed = new CountDownLatch(1);
+    final var resume = new CountDownLatch(1);
+    when(dwl.loadPage(eq(internalId), eq(1), any())).thenAnswer(call -> {
+      missed.countDown();
+      assertTrue("Loader must resume after publication", resume.await(10, TimeUnit.SECONDS));
+      return null;
+    });
+    dwlField.set(wowCache, dwl);
+
+    // Block the read only after the gap write releases its exclusive page key.
+    final var written = new CountDownLatch(1);
+    final var publish = new CountDownLatch(1);
+    wowCache = Mockito.spy(wowCache);
+    Mockito.doAnswer(invocation -> {
+      final File original = (File) invocation.callRealMethod();
+      final var wrapper = mock(File.class, Mockito.withSettings()
+          .defaultAnswer(AdditionalAnswers.delegatesTo(original)));
+      Mockito.doAnswer(call -> {
+        final var result = original.write(call.getArgument(0));
+        final List<
+            com.jetbrains.youtrackdb.internal.common.util.RawPairLongObject<ByteBuffer>> buffers =
+                call.getArgument(0);
+        if (buffers.getFirst().first != 2L * PAGE_SIZE) {
+          return result;
+        }
+        return (com.jetbrains.youtrackdb.internal.core.storage.fs.IOResult) () -> {
+          result.await();
+          written.countDown();
+          try {
+            assertTrue("Writer must resume after the loader misses",
+                publish.await(10, TimeUnit.SECONDS));
+          } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Writer gate interrupted", interrupted);
+          }
+        };
+      }).when(wrapper).write(Mockito.anyList());
+      return wrapper;
+    }).when(wowCache).createFileHandle(any(), eq(internalId));
+
+    final var flush = asyncFileExecutor.submit(() -> wowCache.flush(id));
+    Future<Long> load = null;
+    try {
+      assertTrue("Gap must be written before the loader takes its key",
+          written.await(10, TimeUnit.SECONDS));
+      load = asyncFileExecutor.submit(() -> {
+        final var page = wowCache.loadOrAdd(id, 1, true);
+        try {
+          return page.getBuffer().getLong(0);
+        } finally {
+          page.decrementReadersReferrer();
+        }
+      });
+      assertTrue("Loader must miss before extent publication", missed.await(10, TimeUnit.SECONDS));
+      publish.countDown();
+      // Flush cleanup can need the loader's stripe. Wait only for extent publication here.
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+      while (wowCache.logicalFiles().live(internalId).diskExtent() != 3
+          && System.nanoTime() - deadline < 0) {
+        Thread.onSpinWait();
+      }
+      assertEquals(3, wowCache.logicalFiles().live(internalId).diskExtent());
+      resume.countDown();
+      flush.get(10, TimeUnit.SECONDS);
+      assertEquals(WOWCache.MAGIC_NUMBER_WITH_CHECKSUM, load.get(10, TimeUnit.SECONDS).longValue());
+    } finally {
+      publish.countDown();
+      resume.countDown();
+      try {
+        flush.get(10, TimeUnit.SECONDS);
+      } finally {
+        try {
+          if (load != null && !load.isDone()) {
+            load.get(10, TimeUnit.SECONDS);
+          }
+        } finally {
+          dwlField.set(wowCache, originalDwl);
+        }
+      }
+    }
+  }
+
   // Pending initialization failure drains writes already submitted for another pending file.
   @Test
   public void pendingInitializationFailureDrainsEarlierFileAndRetainsProtection() throws Exception {
@@ -6230,9 +6343,9 @@ public class WOWCacheLoadOrAddTest {
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
     final var name = PageFileNames.layout28(identity);
     final long id = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()), true);
-    files.remove(id).delete();
-    wowCache.logicalFiles().forget(identity.internalId());
-    wowCache.logicalFiles().register(name, identity.internalId(), true, 3, 0, false);
+    assertTrue(wowCache.isNonDurable(id));
+    assertFalse(wowCache.logicalFiles().live(identity.internalId()).diskPresent());
+    assertNull(files.get(id));
     cacheUnwrittenImage(id, 2, 728);
     return id;
   }
@@ -6330,6 +6443,14 @@ public class WOWCacheLoadOrAddTest {
     return (Long) method.invoke(wowCache);
   }
 
+  // These fixtures need a physical header with no written pages.
+  private long createHeaderOnlyFile(PageFileIdentity identity) throws IOException {
+    final long id = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(
+        PageFileNames.layout28(identity), id, RecoveryFilePermission.RESTORE));
+    return id;
+  }
+
   private long prepareUnwrittenMaterializedPage() throws Exception {
     return prepareUnwrittenMaterializedPage(9122);
   }
@@ -6341,8 +6462,7 @@ public class WOWCacheLoadOrAddTest {
           com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     }
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, componentId);
-    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
-        wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     files.get(fileId).reserveSpaceThrough(3L * PAGE_SIZE);
     wowCache.logicalFiles().live(identity.internalId()).extents().allocateThrough(3);
     final var pointer = wowCache.loadOrAdd(fileId, 2, false);
@@ -6363,7 +6483,7 @@ public class WOWCacheLoadOrAddTest {
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9123);
     final var name = PageFileNames.layout28(identity);
-    final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     wowCache.logicalFiles().forget(identity.internalId());
     final var original = files.remove(fileId);
     final var wrapper = mock(File.class, Mockito.withSettings()
@@ -6475,8 +6595,7 @@ public class WOWCacheLoadOrAddTest {
     wowCache.setStorageFormat(
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9110);
-    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
-        wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     final var file = files.get(fileId);
     file.allocateSpace(12 * PAGE_SIZE);
     assertEquals(0, wowCache.getFilledUpTo(fileId));
@@ -6522,8 +6641,7 @@ public class WOWCacheLoadOrAddTest {
     wowCache.setStorageFormat(
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9111);
-    final var name = PageFileNames.layout28(identity);
-    final var fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     wowCache.loadOrAdd(fileId, 1, false).decrementReadersReferrer();
     wowCache.flush(fileId);
 
@@ -6550,8 +6668,7 @@ public class WOWCacheLoadOrAddTest {
     wowCache.setStorageFormat(
         com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat.LAYOUT_28);
     final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9112);
-    final var fileId = wowCache.addFile(PageFileNames.layout28(identity),
-        wowCache.externalFileId(identity.internalId()));
+    final var fileId = createHeaderOnlyFile(identity);
     wowCache.loadOrAdd(fileId, 2, false).decrementReadersReferrer();
     wowCache.flush(fileId);
     final var path = storagePath.resolve(wowCache.nativeFileNameById(fileId));
@@ -6647,7 +6764,7 @@ public class WOWCacheLoadOrAddTest {
     final long deleted = wowCache.addFile(deletedName, deletedIdentity.internalId());
     wowCache.deleteFile(deleted);
     wowCache.bookFileId(bookedName, bookedIdentity.internalId(), false);
-    final long live = wowCache.addFile(liveName, liveIdentity.internalId());
+    final long live = createHeaderOnlyFile(liveIdentity);
     // Seed independent stale live evidence so cold open must not install its handle.
     com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport
         .seedNameIdMap(wowCache, liveName, liveIdentity.internalId(),

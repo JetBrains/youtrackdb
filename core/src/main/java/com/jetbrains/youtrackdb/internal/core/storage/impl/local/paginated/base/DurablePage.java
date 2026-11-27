@@ -20,7 +20,6 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
-import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.ByteSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -30,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.Bi
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALChanges;
 import java.nio.ByteBuffer;
@@ -66,7 +66,7 @@ public class DurablePage {
   public static final int WAL_POSITION_OFFSET = WAL_SEGMENT_OFFSET + LongSerializer.LONG_SIZE;
 
   public static final int MAX_PAGE_SIZE_BYTES =
-      GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+      ProcessPageSize.bytes();
 
   public static final int NEXT_FREE_POSITION = WAL_POSITION_OFFSET + LongSerializer.LONG_SIZE;
 

@@ -33,8 +33,10 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
@@ -629,19 +631,19 @@ public class AtomicOperationSuppliedIdTest {
     var path = diskDirectory.getRoot().toPath();
     var executor = Executors.newCachedThreadPool();
     var pool = new ByteBufferPool(4096);
-    wal = new MemoryWriteAheadLog();
+    wal = spy(new MemoryWriteAheadLog());
+    org.mockito.Mockito.doReturn(new LogSequenceNumber(0, Integer.MAX_VALUE))
+        .when(wal).getFlushedLsn();
     when(storage.getWALInstance()).thenReturn(wal);
     var disk = new WOWCache(4096, false, pool, wal, new DoubleWriteLogNoOP(), 0, 10000,
         100, path, "owned", new ClosableLinkedContainer<>(1024), 1,
         ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME, ChecksumMode.StoreAndVerify,
         null, null, false, executor);
+    var read = spy(new LockFreeReadCache(pool, 64L * 1024 * 1024, 4096));
     try {
       disk.setStorageFormat(StorageFormat.LAYOUT_28);
       disk.loadRegisteredFiles();
-      var read = mock(ReadCache.class);
-      when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any()))
-          .thenAnswer(invocation -> disk.addFile(invocation.getArgument(0),
-              invocation.getArgument(1)));
+      disk.pauseBackgroundFlush();
       for (int scenario = 0; scenario < 6; scenario++) {
         var identity = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 700 + scenario);
         var name = PageFileNames.layout28(identity);
@@ -657,6 +659,7 @@ public class AtomicOperationSuppliedIdTest {
           op.deleteFile(id);
           if (scenario == 3) {
             assertEquals(id, op.addFile(name, expected, false, false));
+            initStatePage(op, id);
           }
         } else if (scenario == 4) {
           // Validation fails before cache application when creation exclusion is lost.
@@ -665,14 +668,15 @@ public class AtomicOperationSuppliedIdTest {
           var second = new PageFileIdentity(PageFileRole.RECORD_DATA, 800);
           var secondName = PageFileNames.layout28(second);
           long secondId = op.addFile(secondName, second.internalId(), false, false);
+          initStatePage(op, id);
+          initStatePage(op, secondId);
           var applied = new java.util.concurrent.atomic.AtomicInteger();
-          when(read.addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any()))
-              .thenAnswer(invocation -> {
-                if (applied.incrementAndGet() == 2) {
-                  throw new IOException("partial apply");
-                }
-                return disk.addFile(invocation.getArgument(0), invocation.getArgument(1));
-              });
+          doAnswer(invocation -> {
+            if (applied.incrementAndGet() == 2) {
+              throw new IOException("partial apply");
+            }
+            return invocation.callRealMethod();
+          }).when(read).addFile(anyString(), anyLong(), eq(disk), anyBoolean(), any());
           assertThrows(IOException.class, () -> end(op));
           assertEquals(2, applied.get());
           // Iteration order is not a contract. Exactly one published file survives.
@@ -693,15 +697,29 @@ public class AtomicOperationSuppliedIdTest {
           end(op);
         }
         boolean live = scenario == 3;
-        assertEquals(live, Files.exists(path.resolve(PageFileNames.layout28DiskName(identity))));
+        var pageFile = path.resolve(PageFileNames.layout28DiskName(identity));
         assertEquals(scenario == 1 ? Integer.valueOf(-identity.internalId())
             : live ? Integer.valueOf(identity.internalId()) : null, disk.registeredFileId(name));
+        assertFalse(Files.exists(pageFile));
+        if (live) {
+          disk.flush(id);
+          assertTrue(Files.exists(pageFile));
+        }
       }
     } finally {
-      disk.delete();
+      read.deleteStorage(disk);
       executor.shutdownNow();
       assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
       pool.clear();
+    }
+  }
+
+  private static void initStatePage(AtomicOperation op, long id) throws IOException {
+    final var page = op.allocatePageForWrite(id, 0);
+    try {
+      new PaginatedCollectionStateV2(page).setFileSize(0);
+    } finally {
+      op.releasePageFromWrite(page);
     }
   }
 

@@ -14,12 +14,12 @@ replays the full backup and each following increment from the same database.
 
 Each unit carries a small **backup header** at its tail. The header records the database
 identifier as a universally unique identifier (UUID). It also records the unit position,
-covered log range, and full content hash code. This release writes format version 6.
-It reads format versions 3, 4, 5, and 6. Versions 4, 5, and 6 have a metadata checksum
+covered log range, and full content hash code. This release writes format version 7.
+It reads format versions 3 through 7. Versions 4 through 7 have a metadata checksum
 and a force-barrier flag. The flag states whether the writer made the payload durable
 before it wrote the tail.
 
-Version 6 has a 122-byte tail with optional **continuity** fields. Continuity identifies
+Version 7 has a 126-byte tail with a recorded page size and optional **continuity** fields. Continuity identifies
 tracker history with a tracker UUID and a generation UUID.
 The changed-page tracker records which pages changed.
 A generation groups those tracked changes.
@@ -92,19 +92,19 @@ An input/output error during directory synchronization does not fail the backup.
 A successful local backup therefore does not strictly guarantee durable publication of
 its new file name.
 
-An incremental backup checks the chain before adding a unit. For version 4, 5, and 6 units, it checks
+An incremental backup checks the chain before adding a unit. For versions 4 through 7, it checks
 metadata without reading the payload when the input supplier can read the tail. A newest unit
 with a valid metadata checksum and a present force-barrier flag needs only this check. A version
-3 newest unit, a version 4, 5, or 6 newest unit without the flag, and a unit with a failed metadata
+3 newest unit, a newest unit without the flag, and a unit with a failed metadata
 checksum need a full content hash check.
 
 A unit below the chain head needs only header admission. With a tail-read supplier, the
-extension reads only its tail, including for a version 3 unit below a version 4, 5, or 6 head.
+extension reads only its tail, including for a version 3 unit below a version 4 through 7 head.
 Without tail reads, the supplier reads the complete unit, but admission still skips the
 full content hash check when the metadata is valid. An unreadable tail stops extension.
 
 A restore checks the full content hash of every unit and the metadata checksum of every
-version 4, 5, or 6 unit. An extension does not detect payload damage in a unit admitted from its
+version 4 through 7 unit. An extension does not detect payload damage in a unit admitted from its
 header alone. Restore detects such damage.
 
 ## Run a backup or restore
@@ -142,20 +142,32 @@ The header evidence does not replace the final restore checks. After replay, the
 that the restored database finished its creation. The restore writes all restored data to disk
 before the database becomes available.
 
-## Older backups are unsupported
+## Choose the restore page size
 
-This release reads backup format versions 3, 4, 5, and 6. It writes version 6.
-Version 5 introduced a page-allocation WAL record that older releases
-cannot replay. Version 5 uses the version 4 header layout, metadata checksum, and
-force-barrier flag. Version 6 adds continuity fields to that header.
+The process uses 4-kilobyte (KB) pages by default and fixes the size at startup.
+All units in a restore chain must match the process page size.
 
-An incremental backup can append version 6 to supported version 3, 4, or 5 chains.
-It does not rewrite existing units. Restore accepts mixed version 3, 4, 5, and 6 chains.
+- **Recorded size:** Version 7 records the page size in each unit. Use that size.
+  For an 8 KB chain, set `-Dyoutrackdb.storage.diskCache.pageSize=8` on the Java command
+  line and restart before restoring.
+- **Independently confirmed size:** Versions 3 through 6 do not record a size.
+  Admission assumes 8 KB for these units. Set 8 KB only if independent evidence, such as
+  the source configuration, confirms that the backup used 8 KB. If the backup used another
+  size, keep the chain intact. Restore a copy with a compatible earlier YouTrackDB release
+  at the original size. Then [export and import](operator-migration-procedure.md#convert-to-a-different-page-size).
+- **Unknown size:** Stop. The assumed 8 KB is not proof. With the wrong size, a backup can
+  pass admission and fail during replay. Failed replay leaves the target in the interrupted
+  restore state.
 
-Readers limited to versions 3, 4, and 5 refuse version 6 restore and extension.
-They refuse before target replay or mutation and before removing source units.
-See the separate exception below for releases older than format version 3.
-Keep a copy of the old chain before upgrading if a downgrade may be needed.
+A page-size refusal creates no fresh restore target and does not change database contents.
+On restart of an interrupted restore, checking the target can create an empty lock file
+before the refusal.
+
+## Unsupported backup versions
+
+A chain can contain supported units in different formats. Extension writes new units
+without rewriting existing ones. Keep a copy of the old chain if you need to use a release
+that cannot read version 7.
 
 Versions 1 and 2 lack the database format and creation completion evidence. This release also
 refuses units with an unknown format version. A refusal leaves every source unit in place:
@@ -171,7 +183,7 @@ directory unchanged until the new chain is complete.
 A full backup replaces every unit for its database in the target directory, including
 units with an unknown format version. The new, empty directory protects the old chain from
 that overwrite behavior. A build older than format version 3 can remove a newest unit
-that it cannot validate. This includes version 3, 4, 5, and 6 units. Do not extend a
+that it cannot validate. This includes versions 3 through 7. Do not extend a
 newer chain with such a build. Use a new, empty directory.
 
 ## Unreadable backup output needs an operator decision
@@ -195,7 +207,7 @@ the `ytdbIncrementalBackup` service again.
 You can instead create a full backup in a new, empty directory. This option leaves the existing
 chain unchanged.
 
-An incremental backup removes recognized incomplete version 3, 4, 5, or 6 units above the chain
+An incremental backup removes recognized incomplete units in versions 3 through 7 above the chain
 head only after a full content hash check fails for each one.
 Removal starts only after the entire chain passes inspection. A failed metadata checksum alone never allows removal. An incremental
 extension never removes an unclassifiable file. It leaves unclassifiable output from a
@@ -216,7 +228,8 @@ A restore performs its checks in this order:
 1. It checks the database name, target directory, target existence, reserved prefixes, and
    expected database identifier. These checks do not read the backup source or change a file.
 2. It copies every selected unit into temporary files and checks the full content hash of each
-   unit. It also checks the metadata checksum of each version 4, 5, or 6 unit and validates the chain.
+   unit. It checks metadata checksums for versions 4 through 7 and checks each unit's page size
+   before accepting the chain.
 3. It creates the target, replays only the temporary copies, performs final checks, and makes
    the database available.
 

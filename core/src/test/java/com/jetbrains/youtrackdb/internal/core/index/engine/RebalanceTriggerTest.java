@@ -5,19 +5,30 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
@@ -603,6 +614,82 @@ public class RebalanceTriggerTest {
     }
   }
 
+  @Test
+  @Category(SequentialTest.class)
+  public void noFitRebalance_coolsDownScansAndWarningsForExistingAndInitialSnapshots() {
+    // A failed fit keeps the snapshot and throttles planner-triggered retries.
+    // ANALYZE is explicit work and can retry during the background cooldown.
+    pinRebalanceDefaults();
+    setConfig(GlobalConfiguration.QUERY_STATS_HISTOGRAM_MIN_SIZE, 10);
+    var records = new java.util.ArrayList<java.util.logging.LogRecord>();
+    var logger = java.util.logging.Logger.getLogger(IndexHistogramManager.class.getName());
+    var handler = new java.util.logging.Handler() {
+      @Override
+      public void publish(java.util.logging.LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    logger.addHandler(handler);
+    try {
+      for (boolean initial : new boolean[] {false, true}) {
+        records.clear();
+        var factory = BinarySerializerFactory.create(
+            BinarySerializerFactory.CURRENT_BINARY_FORMAT_VERSION);
+        var serializer =
+            com.jetbrains.youtrackdb.internal.common.serialization.types.DecimalSerializer.INSTANCE;
+        var cache = new ConcurrentHashMap<Integer, HistogramSnapshot>();
+        var manager = new IndexHistogramManager(createMockStorage(), "no-fit-retry", 0,
+            true, cache, serializer, factory, serializer.getId());
+        var previous = new HistogramSnapshot(new IndexStatistics(2000, 2000, 0),
+            initial ? null : createTestHistogram(), 10000, initial ? 0 : 2000,
+            0, false, null, false);
+        cache.put(0, previous);
+        manager.setFileIdForTest(42);
+        var scans = new java.util.concurrent.atomic.AtomicInteger();
+        var base = java.math.BigInteger.ONE.shiftLeft(
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+                * 8);
+        manager.setKeyStreamSupplier(op -> {
+          scans.incrementAndGet();
+          return IntStream.range(0, 2000)
+              .mapToObj(i -> new java.math.BigDecimal(base.add(java.math.BigInteger.valueOf(i))));
+        });
+        var executor = mock(java.util.concurrent.ExecutorService.class);
+        org.mockito.Mockito.doAnswer(invocation -> {
+          ((Runnable) invocation.getArgument(0)).run();
+          return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }).when(executor).submit(org.mockito.ArgumentMatchers.any(Runnable.class));
+        manager.setBackgroundExecutor(executor);
+        for (int i = 0; i < 5; i++) {
+          manager.getHistogram();
+        }
+        assertEquals("No new scan during no-fit cooldown", 1, scans.get());
+        assertSame(previous, cache.get(0));
+        assertEquals(1, records.stream()
+            .filter(record -> record.getMessage().contains("No histogram fits")).count());
+        manager.setLastRebalanceFailureNanos(
+            System.nanoTime() - TimeUnit.SECONDS.toNanos(61));
+        manager.getHistogram();
+        assertEquals("Retry after cooldown expires", 2, scans.get());
+        assertSame(previous, cache.get(0));
+        assertSame(previous, manager.analyzeIndex());
+        assertEquals("Explicit ANALYZE bypasses background cooldown", 3, scans.get());
+        assertEquals(3, records.stream()
+            .filter(record -> record.getMessage().contains("No histogram fits")).count());
+      }
+    } finally {
+      logger.removeHandler(handler);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════
   // Fixtures and helpers
   // ═══════════════════════════════════════════════════════════════════════
@@ -671,12 +758,39 @@ public class RebalanceTriggerTest {
     var factory = new CurrentStorageComponentsFactory(
         BinarySerializerFactory.currentBinaryFormatVersion());
     when(storage.getComponentsFactory()).thenReturn(factory);
-    var atomicOps = mock(AtomicOperationsManager.class);
-    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+    var atomicOps = mockRebalanceOperations();
     when(storage.getAtomicOperationsManager()).thenReturn(atomicOps);
     when(storage.getReadCache()).thenReturn(mock(ReadCache.class));
     when(storage.getWriteCache()).thenReturn(mock(WriteCache.class));
     return storage;
+  }
+
+  static AtomicOperationsManager mockRebalanceOperations() {
+    var atomicOps = mock(AtomicOperationsManager.class);
+    when(atomicOps.startAtomicOperation()).thenReturn(mock(AtomicOperation.class));
+
+    // A standalone build publishes and writes inside the callbacks. Give its
+    // write operation a page buffer so both steps can run without disk I/O.
+    var writeOp = mock(AtomicOperation.class);
+    var page = mock(CacheEntry.class);
+    var pointer = mock(CachePointer.class);
+    when(pointer.getBuffer()).thenReturn(
+        ByteBuffer.allocateDirect(DurablePage.MAX_PAGE_SIZE_BYTES).order(ByteOrder.nativeOrder()));
+    when(page.getCachePointer()).thenReturn(pointer);
+    try {
+      when(writeOp.loadPageForWrite(anyLong(), eq(0L), eq(1), eq(true))).thenReturn(page);
+      doAnswer(invocation -> invocation.<TxFunction<?>>getArgument(0).accept(writeOp))
+          .when(atomicOps).calculateInsideAtomicOperation(any());
+    } catch (IOException e) {
+      throw new AssertionError("Could not configure the write operation", e);
+    }
+    doAnswer(invocation -> {
+      AtomicOperation operation = invocation.getArgument(0);
+      var result = invocation.<TxFunction<?>>getArgument(2).accept(operation);
+      operation.flushPendingOperations();
+      return result;
+    }).when(atomicOps).calculateInsideComponentOperation(any(), any(), any());
+    return atomicOps;
   }
 
   private static void setFileId(

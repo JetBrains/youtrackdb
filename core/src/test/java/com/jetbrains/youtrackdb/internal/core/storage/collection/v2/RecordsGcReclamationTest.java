@@ -132,7 +132,7 @@ public class RecordsGcReclamationTest {
 
       session.command("CREATE CLASS GcMultiChunk");
 
-      // Create a large record that spans multiple pages (~20KB with 8KB page size)
+      // Create a record that spans multiple pages at 4 KB and 8 KB.
       var largeValue = "x".repeat(20_000);
       session.begin();
       session.command("INSERT INTO GcMultiChunk SET data = '" + largeValue + "'");

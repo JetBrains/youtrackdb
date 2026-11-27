@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.index.engine;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -29,6 +30,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.common.comparator.DefaultComparator;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
+import com.jetbrains.youtrackdb.internal.common.serialization.types.StringSerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.UTF8Serializer;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -941,7 +943,9 @@ public class HistogramConstructionTest {
     // Use a boundary calculator that reports large sizes, forcing reduction
     var fitResult = IndexHistogramManager.fitToPage(
         scanResult, 800, true, 0,
-        (bounds, count) -> (count + 1) * 2000);
+        (bounds, count) -> (count + 1)
+            * (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+                / 8));
 
     assertNotNull(fitResult);
     // Verify boundaries are monotonically non-decreasing
@@ -1086,8 +1090,8 @@ public class HistogramConstructionTest {
   }
 
   @Test
-  public void mergeBuckets_6to3_lastBucketAbsorbsRemainder() {
-    // Given: 6 buckets (ratio = 2, but last bucket absorbs remainder)
+  public void mergeBuckets_6to3_balancesGroups() {
+    // Six source buckets form three groups of two.
     var boundaries = new Comparable<?>[] {
         0, 10, 20, 30, 40, 50, 60};
     var frequencies = new long[] {10, 10, 10, 10, 10, 10};
@@ -1099,16 +1103,14 @@ public class HistogramConstructionTest {
     assertEquals(3, merged.actualBucketCount);
     assertEquals(20, merged.frequencies[0]); // 10+10
     assertEquals(20, merged.frequencies[1]); // 10+10
-    assertEquals(20, merged.frequencies[2]); // 10+10 (last absorbs rest)
+    assertEquals(20, merged.frequencies[2]); // 10+10
     assertEquals(0, merged.boundaries[0]);
     assertEquals(60, merged.boundaries[3]);
   }
 
   @Test
-  public void mergeBuckets_7to4_lastBucketAbsorbsRemainder() {
-    // 7 buckets merged to 4 — ratio = 7/4 = 1 (integer division), so
-    // first 3 buckets get 1 source each, last bucket absorbs remainder
-    // (indices 3,4,5,6 → 4 source buckets).
+  public void mergeBuckets_7to4_balancesGroups() {
+    // Seven source buckets form groups of one, two, two and two.
     Comparable<?>[] bounds = {0, 10, 20, 30, 40, 50, 60, 70};
     long[] freqs = {100, 100, 100, 100, 100, 100, 100};
     long[] ndvs = {10, 10, 10, 10, 10, 10, 10};
@@ -1118,9 +1120,9 @@ public class HistogramConstructionTest {
 
     assertEquals(4, result.actualBucketCount);
     assertEquals(100, result.frequencies[0]);
-    assertEquals(100, result.frequencies[1]);
-    assertEquals(100, result.frequencies[2]);
-    assertEquals(400, result.frequencies[3]); // 4 buckets merged
+    assertEquals(200, result.frequencies[1]);
+    assertEquals(200, result.frequencies[2]);
+    assertEquals(200, result.frequencies[3]);
   }
 
   @Test
@@ -1144,10 +1146,11 @@ public class HistogramConstructionTest {
     // With 4 buckets, no HLL, no MCV → should leave plenty of space
     int space = IndexHistogramManager.computeMaxBoundarySpace(4, 0, 0);
     assertTrue("Space should be positive, got " + space, space > 0);
-    // Page payload = 8192 - 28 = 8164, minus FIXED_HEADER (53),
-    // minus HISTOGRAM_BLOB_HEADER (24),
-    // minus 4*8*2 (frequencies+distinctCounts) = 8164 - 53 - 24 - 64 = 8023
-    assertEquals(8023, space);
+    // The statistics header and four-bucket blob overhead consume 169 bytes.
+    assertEquals(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+            - 169,
+        space);
   }
 
   @Test
@@ -1192,7 +1195,9 @@ public class HistogramConstructionTest {
         + buckets * 8 + buckets * 8;
 
     // This blob + FIXED_HEADER_SIZE must fit within the page payload
-    int pagePayload = 8192 - 28; // MAX_PAGE_SIZE - NEXT_FREE_POSITION
+    int pagePayload =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+            - 28;
     int totalUsed = IndexHistogramManager.FIXED_HEADER_SIZE + expectedBlobSize;
     assertTrue(
         "Boundary-budget histogram blob must fit on page: totalUsed="
@@ -1239,16 +1244,15 @@ public class HistogramConstructionTest {
         800, 8);
     assertNotNull(scanResult);
 
-    // Boundary calculator: reports huge boundaries to force reduction
-    // Available for 8 buckets with no HLL/MCV ≈ 7919 bytes
-    // Report each boundary as 1000 bytes → 9 * 1000 = 9000 > 7919
-    // After merge to 4 buckets → 5 * 1000 = 5000 < 8047 → fits
+    // Scale the synthetic boundaries so reduction is required at either page size.
     var fitResult = IndexHistogramManager.fitToPage(
         scanResult, 800, true, 0,
-        (bounds, count) -> (count + 1) * 1000);
+        (bounds, count) -> (count + 1)
+            * (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+                / 8));
 
     assertNotNull(fitResult);
-    assertEquals(4, fitResult.histogram().bucketCount());
+    assertEquals(6, fitResult.histogram().bucketCount());
     // Frequencies should sum to 800
     long totalFreq = 0;
     for (long f : fitResult.histogram().frequencies()) {
@@ -1278,24 +1282,16 @@ public class HistogramConstructionTest {
 
   @Test
   public void fitToPage_multiValue_spillsHllToPage1WhenNeeded() {
-    // Given: multi-value index (singleValue=false), 6 buckets where
-    // boundaries don't fit with HLL inline. The loop halves:
-    //   6→3 (< MINIMUM) with HLL → spill HLL to page 1
-    //   Reset to 6 (no HLL) → 6 > 4, check budget:
-    //   6 without HLL fits → result has hllOnPage1=true, 6 buckets.
+    // The original count fits only after the sketch moves to page 1.
     var scanResult = IndexHistogramManager.scanAndBuild(
         IntStream.range(0, 600).mapToObj(i -> (Object) (i / 100)),
         600, 6);
     assertNotNull(scanResult);
 
-    // Boundary size = 1100 per boundary (7 boundaries * 1100 = 7700).
-    // 6 buckets + HLL(1024): available = 8164-53-48-48-1024 = 6991
-    //   7700 > 6991 → halve to 3 → 3 < MINIMUM → spill HLL
-    // Reset to 6, no HLL: available = 8164-53-48-48-0 = 8015
-    //   7700 < 8015 → fits!
+    int boundaryBytes = IndexHistogramManager.computeMaxBoundarySpace(6, 0, 0);
     var fitResult = IndexHistogramManager.fitToPage(
         scanResult, 600, false, 0,
-        (bounds, count) -> (count + 1) * 1100);
+        (bounds, count) -> boundaryBytes);
 
     assertNotNull(fitResult);
     assertTrue("HLL should be spilled to page 1",
@@ -1332,10 +1328,12 @@ public class HistogramConstructionTest {
         800, 8);
     assertNotNull(scanResult);
 
-    // Force merge: 8 → 4
+    // Scale the synthetic boundaries so reduction is required at either page size.
     var fitResult = IndexHistogramManager.fitToPage(
         scanResult, 800, true, 0,
-        (bounds, count) -> (count + 1) * 1000);
+        (bounds, count) -> (count + 1)
+            * (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+                / 8));
 
     assertNotNull(fitResult);
     var h = fitResult.histogram();
@@ -1368,14 +1366,13 @@ public class HistogramConstructionTest {
     var result = new IndexHistogramManager.BuildResult(
         bounds, freqs, ndvs, 128, 1000, 50, 500);
 
-    // Large MCV key (4000 bytes) eats into the boundary budget.
-    // Page budget for 128 buckets:
-    //   8164 - 53 - 1024 - 1024 - 4000 = 2063 bytes for boundaries.
-    // With 40 bytes per boundary: 129 * 40 = 5160 > 2063 → must merge.
-    // Without MCV: 8164 - 53 - 1024 - 1024 = 6063 → 5160 < 6063 → fits.
-    int mcvKeySize = 4000;
+    // Fill the original boundary budget, then reserve a half-page MCV.
+    int mcvKeySize =
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+            / 2;
+    int boundaryWidth = IndexHistogramManager.computeMaxBoundarySpace(128, 0, 0) / 129;
     IndexHistogramManager.BoundarySizeCalculator calc =
-        (b, bc) -> (bc + 1) * 40;
+        (b, bc) -> (bc + 1) * boundaryWidth;
 
     var fitResult = IndexHistogramManager.fitToPage(
         result, 12800, true, mcvKeySize, calc);
@@ -1387,32 +1384,23 @@ public class HistogramConstructionTest {
   }
 
   @Test
-  public void fitToPage_multiStepHalving_correctlyMergesFromPrevious() {
-    // Given: 16 buckets that need two rounds of halving (16→8→4).
-    // This exercises the sourceBucketCount tracking — the second merge
-    // must use 8 (the result of the first merge) as the source count,
-    // not the original 16.
+  public void fitToPage_largestUnevenMerge_preservesTotals() {
+    // A non-power-of-two target must preserve counts and ordered endpoints.
     var scanResult = IndexHistogramManager.scanAndBuild(
         IntStream.range(0, 1600).mapToObj(i -> (Object) (i / 100)),
         1600, 16);
     assertNotNull(scanResult);
     assertEquals(16, scanResult.actualBucketCount);
 
-    // Per-boundary size = 500 bytes.
-    // 16 buckets: available = 8164-53-128-128 = 7855, 17*500=8500 → no
-    // Halve to 8: merge 16→8, 9*500=4500 vs available =
-    //   8164-53-64-64 = 7983 → 4500 < 7983 → fits, BUT 8>4 so we check
-    //   the available first: 4500 < 7983 → fits! Loop exits at 8.
-    //
-    // To force two halvings, make 8-bucket boundaries still too large:
-    // 9 * 900 = 8100 > 7983 → need to halve again: 8→4
-    // 5 * 900 = 4500 < 8047 → fits at 4
+    // Seven buckets fit, but eight do not.
     var fitResult = IndexHistogramManager.fitToPage(
         scanResult, 1600, true, 0,
-        (bounds, count) -> (count + 1) * 900);
+        (bounds, count) -> (count + 1)
+            * (com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+                / 9));
 
     assertNotNull(fitResult);
-    assertEquals(4, fitResult.histogram().bucketCount());
+    assertEquals(7, fitResult.histogram().bucketCount());
     // Frequencies should sum to 1600
     long totalFreq = 0;
     for (long f : fitResult.histogram().frequencies()) {
@@ -1421,7 +1409,7 @@ public class HistogramConstructionTest {
     assertEquals(1600, totalFreq);
     // Verify boundaries are valid
     var h = fitResult.histogram();
-    assertEquals(5, h.boundaries().length);
+    assertEquals(8, h.boundaries().length);
     var comparator = DefaultComparator.INSTANCE;
     for (int i = 0; i < h.bucketCount(); i++) {
       assertTrue(
@@ -1433,12 +1421,7 @@ public class HistogramConstructionTest {
 
   @Test
   public void fitToPage_initialBucketCountEqualsMinimum_exceedsBudget() {
-    // When actualBucketCount == MINIMUM_BUCKET_COUNT (4) and boundaries
-    // exceed the page budget, fitToPage cannot halve further (4/2=2 < 4).
-    // The while-loop condition (bucketCount > MINIMUM) is false from the
-    // start, so the histogram is constructed as-is. This test documents
-    // the current behavior: oversized boundaries are not rejected when
-    // the initial bucket count is already at the minimum.
+    // An oversized histogram must be rejected even when it starts at the minimum.
     var scanResult = IndexHistogramManager.scanAndBuild(
         IntStream.range(0, 400).mapToObj(i -> (Object) (i / 100)),
         400, 4);
@@ -1449,30 +1432,21 @@ public class HistogramConstructionTest {
         scanResult, 400, true, 0,
         (bounds, count) -> (count + 1) * 5000);
 
-    // Current behavior: returns non-null even though boundaries exceed
-    // page space. This is acceptable because in practice 4-bucket
-    // histograms have very small boundaries. If this becomes a real
-    // issue, production code should add a post-loop budget check.
-    assertNotNull(fitResult);
-    assertEquals(scanResult.actualBucketCount,
-        fitResult.histogram().bucketCount());
+    assertNull(fitResult);
   }
 
   // ── Long string boundary truncation ──
 
   @Test
   public void fitToPage_longStringBoundaries_mergePreservesSortOrder() {
-    // Given: a histogram with 128 buckets and long string boundaries.
-    // Each boundary has a 950-char common prefix + unique 50-char suffix.
-    // Total serialized size per boundary = 4 (length prefix) + 1000 chars
-    // = 1004 bytes. For 129 boundaries: 129 × 1004 = 129,516 bytes, far
-    // exceeding the ~6000-byte budget on a single page. fitToPage must
-    // halve repeatedly (128 → 64 → 32 → 16 → 8 → 4) until it fits.
+    // Long boundaries force reduction after the sketch spills.
     int buckets = 128;
     var boundaries = new Comparable<?>[buckets + 1];
     var frequencies = new long[buckets];
     var distinctCounts = new long[buckets];
-    String prefix = "X".repeat(950);
+    String prefix = "X".repeat(
+        com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.MAX_PAGE_SIZE_BYTES
+            / 16 - 50);
     for (int i = 0; i <= buckets; i++) {
       boundaries[i] = prefix + String.format("%050d", i);
     }
@@ -1500,9 +1474,9 @@ public class HistogramConstructionTest {
     var comparator = DefaultComparator.INSTANCE;
     for (int i = 0; i < h.bucketCount(); i++) {
       assertTrue(
-          "boundaries[" + i + "]=" + h.boundaries()[i].toString().substring(950)
+          "boundaries[" + i + "]=" + h.boundaries()[i].toString().substring(prefix.length())
               + " should be <= boundaries[" + (i + 1) + "]="
-              + h.boundaries()[i + 1].toString().substring(950),
+              + h.boundaries()[i + 1].toString().substring(prefix.length()),
           comparator.compare(
               h.boundaries()[i], h.boundaries()[i + 1]) <= 0);
     }
@@ -1731,6 +1705,81 @@ public class HistogramConstructionTest {
     }
   }
 
+  @Test
+  public void truncateBoundaries_utf8Inversion_clampsAndMergesInterior() {
+    String prefix = "a".repeat(253);
+    String fits = prefix + "b";
+    String oversized = prefix + "\u00E9";
+    assertEquals(256, UTF8Serializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, oversized));
+
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {fits, oversized, "z"},
+        new String[] {fits, "z"}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_successiveUtf8Inversions_clampToAdjustedPredecessor() {
+    String prefix = "a".repeat(253);
+    String fits = prefix + "b";
+    String firstOversized = prefix + "\u00E9";
+    String secondOversized = prefix + "\u00EA";
+    assertEquals(256, UTF8Serializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, firstOversized));
+    assertEquals(257, UTF8Serializer.INSTANCE.getObjectSize(null, secondOversized));
+
+    // Both oversized boundaries shorten to the same prefix. Both must move up to fits.
+    assertShortenedHistogram(UTF8Serializer.INSTANCE,
+        new String[] {"0", fits, firstOversized, secondOversized},
+        new String[] {"0", fits}, new long[] {47}, new long[] {16});
+  }
+
+  @Test
+  public void truncateBoundaries_utf16SurrogateInversion_mergesTerminalCounts() {
+    String prefix = "a".repeat(125);
+    String fits = prefix + "b";
+    String oversized = prefix + "\uD83D\uDE00";
+    assertEquals(256, StringSerializer.INSTANCE.getObjectSize(null, fits));
+    assertEquals(258, StringSerializer.INSTANCE.getObjectSize(null, oversized));
+
+    assertShortenedHistogram(StringSerializer.INSTANCE, new String[] {"a", fits, oversized},
+        new String[] {"a", fits}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_equalTerminalBoundaries_mergeIntoLastBucket() {
+    String b = "b".repeat(254);
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {"a", b, b + "x"},
+        new String[] {"a", b}, new long[] {24}, new long[] {7});
+  }
+
+  @Test
+  public void truncateBoundaries_equalInteriorBoundaries_keepExistingAllocation() {
+    String b = "b".repeat(254);
+    assertShortenedHistogram(UTF8Serializer.INSTANCE, new String[] {"a", b, b + "x", "c"},
+        new String[] {"a", b, "c"}, new long[] {7, 40}, new long[] {2, 14});
+  }
+
+  private static void assertShortenedHistogram(BinarySerializer<String> serializer,
+      String[] boundaries, String[] expectedBoundaries, long[] expectedFrequencies,
+      long[] expectedDistinctCounts) {
+    int buckets = boundaries.length - 1;
+    var original = new IndexHistogramManager.BuildResult(boundaries,
+        Arrays.copyOf(new long[] {7, 17, 23}, buckets),
+        Arrays.copyOf(new long[] {2, 5, 9}, buckets), buckets, buckets == 2 ? 7 : 16,
+        boundaries[2], 6);
+    @SuppressWarnings("unchecked")
+    var ser = (BinarySerializer<Object>) (BinarySerializer<?>) serializer;
+    var result = IndexHistogramManager.truncateBoundaries(original, 256, ser, null);
+
+    assertEquals(expectedFrequencies.length, result.actualBucketCount);
+    assertArrayEquals(expectedBoundaries, result.boundaries);
+    assertArrayEquals(expectedFrequencies, result.frequencies);
+    assertArrayEquals(expectedDistinctCounts, result.distinctCounts);
+    assertSame(original.mcvValue, result.mcvValue);
+    assertEquals(original.mcvFrequency, result.mcvFrequency);
+    assertEquals(original.totalDistinct, result.totalDistinct);
+  }
+
   /**
    * When no boundaries exceed maxBoundaryBytes, truncateBoundaries
    * should return the original BuildResult unchanged (fast path).
@@ -1754,7 +1803,7 @@ public class HistogramConstructionTest {
     Arrays.fill(distinctCounts, 10L);
 
     var original = new IndexHistogramManager.BuildResult(
-        boundaries, frequencies, distinctCounts, buckets, 40, null, 0);
+        boundaries, frequencies, distinctCounts, buckets, 40, "key_2", 6);
 
     var result = IndexHistogramManager.truncateBoundaries(
         original, 256, ser, factory);
@@ -1762,6 +1811,14 @@ public class HistogramConstructionTest {
     // Should be the same instance (no truncation needed)
     assertSame("No truncation needed — should return original",
         original, result);
+    assertArrayEquals(new String[] {"key_0", "key_1", "key_2", "key_3", "key_4"},
+        result.boundaries);
+    assertArrayEquals(new long[] {25, 25, 25, 25}, result.frequencies);
+    assertArrayEquals(new long[] {10, 10, 10, 10}, result.distinctCounts);
+    assertEquals(4, result.actualBucketCount);
+    assertEquals(40, result.totalDistinct);
+    assertEquals("key_2", result.mcvValue);
+    assertEquals(6, result.mcvFrequency);
   }
 
   /**

@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.ChangedPageTrackerFile;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -332,7 +333,9 @@ public class DiskStorageMaintenanceFloorTest {
     var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     var classpath =
         System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
-    var process = new ProcessBuilder(java, "-cp", classpath,
+    var process = new ProcessBuilder(java,
+        "-Dyoutrackdb.storage.diskCache.pageSize=" + ProcessPageSize.kibibytes(),
+        "-cp", classpath,
         DiskStorageMaintenanceFloorTest.class.getName(), mode, root.toString(), mark.toString())
         .redirectErrorStream(true).start();
     var output = CompletableFuture.supplyAsync(() -> {

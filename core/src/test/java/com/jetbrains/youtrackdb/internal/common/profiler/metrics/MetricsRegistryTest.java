@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.internal.SequentialTest;
+import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator;
 import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.CountDownLatch;
@@ -13,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.management.Attribute;
 import javax.management.MBeanServer;
+import javax.management.MBeanServerFactory;
 import javax.management.ObjectName;
 import javax.management.RuntimeMBeanException;
 import org.junit.After;
@@ -31,6 +33,58 @@ import org.junit.experimental.categories.Category;
 @Category(SequentialTest.class)
 public class MetricsRegistryTest {
 
+  /** External readers see cumulative boxed longs under stable object and attribute names. */
+  @Test
+  public void cumulativeMetricsAreReadableThroughJmx() throws Exception {
+    var server = privateJmxServer();
+    var databaseName = "walMetrics";
+    var database = new ObjectName(
+        "com.jetbrains.youtrackdb.metrics:scope=Database,databaseName=" + databaseName);
+    var definitions = java.util.List.of(
+        CoreMetrics.WAL_QUEUE_WAIT_COUNT, CoreMetrics.WAL_QUEUE_WAIT_TIME_NANOS,
+        CoreMetrics.WAL_VACUUM_RUN_COUNT, CoreMetrics.WAL_VACUUM_TIME_NANOS,
+        CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT);
+    var names = java.util.List.of("WalQueueWaitCount", "WalQueueWaitTimeNanos",
+        "WalVacuumRunCount", "WalVacuumTimeNanos", "WalVacuumRemovalRunCount");
+    for (int i = 0; i < definitions.size(); i++) {
+      var counter = registry.databaseMetric(definitions.get(i), databaseName);
+      assertThat(server.getAttribute(database, names.get(i))).isEqualTo(0L);
+      counter.add(7);
+      assertThat(server.getAttribute(database, names.get(i))).isEqualTo(7L);
+      assertThat(registry.databaseMetric(definitions.get(i), databaseName))
+          .isSameAs(counter);
+    }
+    var global = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+    assertThat(server.getAttribute(global, "DataFileFsyncCount")).isEqualTo(0L);
+    registry.globalMetric(CoreMetrics.DATA_FILE_FSYNC_COUNT).add(3);
+    assertThat(server.getAttribute(global, "DataFileFsyncCount")).isEqualTo(3L);
+  }
+
+  /** The current direct-memory gauge follows allocation and release without a refresh task. */
+  @Test
+  public void directMemoryJmxReadsLiveAllocatorTotal() throws Exception {
+    var server = privateJmxServer();
+    var name = new ObjectName("com.jetbrains.youtrackdb.metrics:scope=Global");
+    var allocator =
+        DirectMemoryAllocator.instance();
+    long before = (Long) server.getAttribute(name, "DirectMemoryBytes");
+    var pointer = allocator.allocate(1234, false,
+        com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention.TEST);
+    try {
+      assertThat(server.getAttribute(name, "DirectMemoryBytes")).isEqualTo(before + 1234);
+    } finally {
+      allocator.deallocate(pointer);
+    }
+    assertThat(server.getAttribute(name, "DirectMemoryBytes")).isEqualTo(before);
+  }
+
+  private MBeanServer privateJmxServer() {
+    // A private server keeps these tests from reading or removing another registry's beans.
+    var server = MBeanServerFactory.newMBeanServer();
+    registry = new MetricsRegistry(ticker, server);
+    return server;
+  }
+
   private final StubTicker ticker = new StubTicker(1_000_000);
   private MetricsRegistry registry;
 
@@ -38,6 +92,7 @@ public class MetricsRegistryTest {
   public void cleanup() {
     if (registry != null) {
       registry.shutdown();
+      registry = null;
     }
   }
 

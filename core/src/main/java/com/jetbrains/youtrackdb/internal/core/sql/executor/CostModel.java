@@ -21,6 +21,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 
 /**
  * Shared cost model for query plan optimization. Provides I/O-based cost
@@ -37,9 +38,6 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
  */
 public final class CostModel {
 
-  /** Default page size in bytes (8 KB). */
-  private static final int PAGE_SIZE_BYTES = 8192;
-
   /**
    * Rough average row size in bytes used to estimate rows per page. The exact
    * value is not critical — it only affects the relative weight of the I/O
@@ -48,9 +46,9 @@ public final class CostModel {
    */
   private static final int ESTIMATED_ROW_SIZE_BYTES = 200;
 
-  /** Pre-computed rows per page (constant — both inputs are compile-time constants). */
+  /** Rows per page use the same fixed process size as storage and shared buffers. */
   private static final int ROWS_PER_PAGE =
-      Math.max(1, PAGE_SIZE_BYTES / ESTIMATED_ROW_SIZE_BYTES);
+      Math.max(1, ProcessPageSize.bytes() / ESTIMATED_ROW_SIZE_BYTES);
 
   private CostModel() {
   }
@@ -78,7 +76,7 @@ public final class CostModel {
   /**
    * Index seek cost = {@link #randomPageReadCost()} × tree depth.
    * Tree depth defaults to 4 (covers B-trees up to ~millions of entries
-   * with 8 KB pages and typical key sizes).
+   * with typical key sizes).
    */
   public static double indexSeekCost() {
     int depth = GlobalConfiguration.QUERY_STATS_DEFAULT_INDEX_TREE_DEPTH.getValueAsInteger();

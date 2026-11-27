@@ -302,6 +302,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     if (suppliedFileCreated) {
       requireCreationLock();
     }
+    if (writeCache.supportsIdentityRecovery()) {
+      for (final var file : fileChanges.values()) {
+        // The first write creates the file. An unchanged allocation cannot trigger that write.
+        if (file.isNew && file.pageChangesMap.values().stream()
+            .noneMatch(page -> page.changes.hasChanges())) {
+          throw new StorageException(writeCache.getStorageName(),
+              "New page file has no changed pages: " + file.fileName);
+        }
+      }
+    }
   }
 
   private void requireCreationLock() {

@@ -33,6 +33,7 @@ import com.jetbrains.youtrackdb.internal.common.concur.lock.ThreadInterruptedExc
 import com.jetbrains.youtrackdb.internal.common.io.YTIOException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.CoreMetrics;
+import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Counter;
 import com.jetbrains.youtrackdb.internal.common.profiler.metrics.Stopwatch;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.BinarySerializer;
 import com.jetbrains.youtrackdb.internal.common.serialization.types.IntegerSerializer;
@@ -136,6 +137,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageF
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileKind;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.ProcessPageSize;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageLineageIdentity;
@@ -507,6 +509,9 @@ public abstract class AbstractStorage
   private final Stopwatch dropDuration;
   private final Stopwatch synchDuration;
   private final Stopwatch shutdownDuration;
+  private final Counter walVacuumRunCount;
+  private final Counter walVacuumTimeNanos;
+  private final Counter walVacuumRemovalRunCount;
 
   // Per-thread holder for the minimum active operation timestamp (tsMin).
   // Used by the low-water-mark GC to determine which snapshot index entries are safe to evict.
@@ -647,6 +652,11 @@ public abstract class AbstractStorage
     shutdownDuration = YouTrackDBEnginesManager.instance()
         .getMetricsRegistry()
         .databaseMetric(CoreMetrics.DATABASE_SHUTDOWN_DURATION, this.name);
+    var metrics = YouTrackDBEnginesManager.instance().getMetricsRegistry();
+    walVacuumRunCount = metrics.databaseMetric(CoreMetrics.WAL_VACUUM_RUN_COUNT, this.name);
+    walVacuumTimeNanos = metrics.databaseMetric(CoreMetrics.WAL_VACUUM_TIME_NANOS, this.name);
+    walVacuumRemovalRunCount =
+        metrics.databaseMetric(CoreMetrics.WAL_VACUUM_REMOVAL_RUN_COUNT, this.name);
   }
 
   protected static String normalizeName(String name) {
@@ -844,7 +854,7 @@ public abstract class AbstractStorage
   }
 
   private static void checkPageSizeAndRelatedParametersInGlobalConfiguration(String dbName) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
     var bTreeMaxKeySize = (int) (pageSize * 0.3);
 
@@ -884,6 +894,7 @@ public abstract class AbstractStorage
   }
 
   public final void open(final ContextConfiguration contextConfiguration) {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     try {
       stateLock.readLock().lock();
       try {
@@ -1715,6 +1726,7 @@ public abstract class AbstractStorage
   protected void doCreate(ContextConfiguration contextConfiguration,
       @Nullable StorageFormat sourceFormat)
       throws IOException, java.lang.InterruptedException {
+    ProcessPageSize.checkConfiguration(contextConfiguration);
     checkPageSizeAndRelatedParametersInGlobalConfiguration(name);
 
     if (name == null) {
@@ -1835,7 +1847,7 @@ public abstract class AbstractStorage
           ((CollectionBasedStorageConfiguration) configuration)
               .setPageSize(
                   atomicOperation,
-                  GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10);
+                  ProcessPageSize.bytes());
           ((CollectionBasedStorageConfiguration) configuration)
               .setMaxKeySize(
                   atomicOperation, GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger());
@@ -2146,7 +2158,7 @@ public abstract class AbstractStorage
   protected abstract void initIv() throws IOException;
 
   private void checkPageSizeAndRelatedParameters(AtomicOperation atomicOperation) {
-    final var pageSize = GlobalConfiguration.DISK_CACHE_PAGE_SIZE.getValueAsInteger() << 10;
+    final var pageSize = ProcessPageSize.bytes();
     final var maxKeySize = GlobalConfiguration.BTREE_MAX_KEY_SIZE.getValueAsInteger();
 
     if (configuration.getPageSize(atomicOperation) != -1
@@ -5198,9 +5210,8 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().int2ObjectEntrySet()) {
       int engineId = entry.getIntKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The storage state lock protects indexEngines through Hook B. Transaction commits and
+      // the fill tail also retain the index tree locks through this hook.
       if (engineId >= 0 && engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -5269,9 +5280,7 @@ public abstract class AbstractStorage
     for (var entry : holder.getDeltas().entrySet()) {
       var engineId = entry.getKey();
       var delta = entry.getValue();
-      // indexEngines is a plain ArrayList. Ordinary transaction commits retain the state read lock
-      // and index tree component lock through Hook B. The histogram rebuild tail retains state
-      // read protection through its callIndexEngine callback, but not the tree component lock.
+      // The commit retains the storage state lock and its index tree locks through Hook B.
       if (engineId < indexEngines.size()) {
         var engine = indexEngines.get(engineId);
         if (engine instanceof BTreeIndexEngine btreeEngine) {
@@ -11145,6 +11154,10 @@ public abstract class AbstractStorage
   }
 
   void runWALVacuum() {
+    final var start = System.nanoTime();
+    walVacuumRunCount.add(1);
+    final var removed = new boolean[1];
+    WriteAheadLog observedWal = null;
     var coordinatorStarted = false;
     stateLock.readLock().lock();
     try {
@@ -11153,6 +11166,9 @@ public abstract class AbstractStorage
         return;
       }
 
+      // Bind observation to the WAL protected by this lock, including after a reopen.
+      observedWal = writeAheadLog;
+      observedWal.setSegmentRemovalListener(() -> removed[0] = true);
       final var nonActiveSegments = writeAheadLog.nonActiveSegments();
       if (nonActiveSegments.length == 0) {
         return;
@@ -11226,8 +11242,18 @@ public abstract class AbstractStorage
             e, name);
       }
     } finally {
-      stateLock.readLock().unlock();
-      walVacuumInProgress.set(false);
+      try {
+        if (observedWal != null) {
+          observedWal.setSegmentRemovalListener(null);
+        }
+        if (removed[0]) {
+          walVacuumRemovalRunCount.add(1);
+        }
+        walVacuumTimeNanos.add(System.nanoTime() - start);
+      } finally {
+        stateLock.readLock().unlock();
+        walVacuumInProgress.set(false);
+      }
     }
   }
 

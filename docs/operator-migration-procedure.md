@@ -17,6 +17,33 @@ fresh database with the new release.
 Both layouts use a three-level free-space map. Layout 27 is the production default.
 Layout 28 uses identity-owned page-file names and remains test-selected only.
 
+## Convert to a different page size
+
+The process fixes one storage page size at startup. It defaults to 4-kilobyte (KB) pages.
+Set `-Dyoutrackdb.storage.diskCache.pageSize=<size in KB>` on the Java command line and
+restart to use a different size. The setting does not convert an existing database.
+
+Use the size recorded in the database identity. If an older identity does not record a
+size, admission assumes 8 KB. That assumption does not prove the original size.
+Confirm the size from the original process configuration or other independent records.
+Stop if you cannot confirm the size. Do not try 8 KB as a guess.
+
+**Before converting to smaller pages**, check the longest indexed key values against the
+target limit. The default maximum index key size drops from 2,457 bytes at 8 KB to
+1,228 bytes at 4 KB. A single-field string or binary index stores only a prefix when the
+value exceeds the index's prefix budget. Check that values in each unique index still
+have distinct stored keys. Check that keys that cannot be shortened fit the target limit.
+A duplicate stored key in a unique index or an oversized key that cannot be shortened
+stops the import. The source stays unchanged.
+See [Key size and shortened keys](yql/YQL-Create-Index.md#key-size-and-shortened-keys)
+for the prefix budgets and key types.
+
+1. Open the source with a compatible release at its original page size. For a backup,
+   [restore a copy first](backup-restore.md#choose-the-restore-page-size).
+2. Export the source using the procedure below.
+3. Start a separate process at the desired page size, or restart after changing the size.
+   Create a fresh database and import the export. Keep the source until you validate the import.
+
 ## How the tools are invoked
 
 Export and import are **programmatic tools**, run from a small JVM program (or script

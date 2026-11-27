@@ -64,6 +64,7 @@
     <module>embedded</module>
     <module>docker-tests</module>
     <module>jmh-ldbc</module>
+    <module>jmh-manual</module>
   </modules>
 
   <scm>

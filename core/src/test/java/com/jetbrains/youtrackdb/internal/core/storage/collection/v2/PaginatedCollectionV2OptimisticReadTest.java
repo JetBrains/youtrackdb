@@ -217,7 +217,7 @@ public class PaginatedCollectionV2OptimisticReadTest {
   @Test
   public void testReadRecordOptimisticFallbackForMultiPageRecord() throws IOException {
     // 131172 bytes = (2 << 16) + 100 = 128 KB + 100 bytes. This is much larger than
-    // the default 8 KB page size, guaranteeing the record spans multiple pages. The +100
+    // the process page sizes of 4 KB and 8 KB, so the record spans multiple pages. The +100
     // avoids landing exactly on a page boundary, exercising partial-page handling.
     var bigData = new byte[(2 << 16) + 100];
     new Random(42).nextBytes(bigData);

@@ -87,12 +87,15 @@ import java.nio.ByteOrder;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -529,11 +532,6 @@ public final class WOWCache extends AbstractWriteCache
 
   private void registerLogicalFile(String name, int internalId, boolean nonDurable)
       throws IOException {
-    registerLogicalFile(name, internalId, nonDurable, null);
-  }
-
-  private void registerLogicalFile(String name, int internalId, boolean nonDurable,
-      LogSequenceNumber creationLsn) throws IOException {
     // Layout 28 validates explicit admissions and registrations, not persisted map records.
     // Layout 27 keeps registrations in maps and has no logical table.
     validateLogicalRegistration(name, internalId);
@@ -542,8 +540,7 @@ public final class WOWCache extends AbstractWriteCache
         final var file = files.get(composeFileId(id, internalId));
         final var allocated = file == null ? 0 : file.getFileSize() / pageSize;
         // Publish before sampling disk so a concurrent flush can record its completed write.
-        logicalFiles.register(name, internalId, nonDurable, allocated, 0, file != null,
-            creationLsn);
+        logicalFiles.register(name, internalId, nonDurable, allocated, 0, file != null);
         final var written = file == null ? 0 : file.getUnderlyingFileSize() / pageSize;
         recordWrittenExtent(internalId, written);
       } else {
@@ -840,6 +837,9 @@ public final class WOWCache extends AbstractWriteCache
 
   // Additions need a successful save or load. Removals precede I/O. Published sets are immutable.
   private volatile IntOpenHashSet savedNonDurableFileIds = new IntOpenHashSet();
+
+  // Guarded by filesLock. Until a save completes, recovery might read either registry copy.
+  private boolean nonDurableRegistrySaveIncomplete;
 
   /**
    * When {@code true}, {@link #deleteFile(long)} skips the per-file
@@ -1219,6 +1219,7 @@ public final class WOWCache extends AbstractWriteCache
                 "Not a canonical layout 28 logical name: " + fileName));
         int internalId = identity.internalId();
         if (logicalFiles.live(internalId) != null
+            || files.get(composeFileId(id, internalId)) != null
             || backingFileMayExist(fileName, internalId)) {
           throw new StorageException(storageName,
               "File " + fileName + " has already been added or its backing path exists");
@@ -1254,11 +1255,11 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long bookFileId(String fileName, long fileId, boolean reconstructAuxiliary) {
-    final int intId = extractFileId(fileId);
-    if (intId <= 0) {
+    final int intFileId = extractFileId(fileId);
+    if (intFileId <= 0) {
       throw new IllegalArgumentException("Internal file identifier must be positive");
     }
-    validateLogicalRegistration(fileName, intId);
+    validateLogicalRegistration(fileName, intFileId);
     if (reconstructAuxiliary) {
       validateAuxiliaryReconstruction(fileName, storageName);
     }
@@ -1266,37 +1267,38 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
       if (logicalFiles != null) {
-        if (logicalFiles.live(intId) != null
+        if (logicalFiles.live(intFileId) != null
             || (!reconstructAuxiliary
-                && (logicalFiles.reserved(intId) || logicalFiles.deleted(intId)))
-            || files.get(composeFileId(id, intId)) != null
-            || backingFileMayExist(fileName, intId)) {
+                && (logicalFiles.reserved(intFileId) || logicalFiles.deleted(intFileId)))
+            || files.get(composeFileId(id, intFileId)) != null
+            || backingFileMayExist(fileName, intFileId)) {
           throw new StorageException(storageName,
-              "Conflicting registration or backing file for " + fileName + " and id " + intId);
+              "Conflicting registration or backing file for " + fileName + " and id " + intFileId);
         }
-        if (!logicalFiles.reserved(intId)) {
-          logicalFiles.reserve(fileName, intId);
+        if (!logicalFiles.reserved(intFileId)) {
+          logicalFiles.reserve(fileName, intFileId);
         }
-        return composeFileId(id, intId);
+        return composeFileId(id, intFileId);
       }
       final var registered = nameIdMap.get(fileName);
-      final var liveName = idNameMap.get(intId);
-      final var bookedOrDeletedName = idNameMap.get(-intId);
+      final var liveName = idNameMap.get(intFileId);
+      final var bookedOrDeletedName = idNameMap.get(-intFileId);
       final boolean nameRegisteredWithOtherState =
-          registered != null && (!reconstructAuxiliary || registered != -intId);
+          registered != null && (!reconstructAuxiliary || registered != -intFileId);
       final boolean liveRegistrationExists = liveName != null;
       final boolean idBookedOrDeletedUnderOtherName =
           bookedOrDeletedName != null && !bookedOrDeletedName.equals(fileName);
       // Keep scans and disk path construction after the cheap conflict checks.
       if (nameRegisteredWithOtherState || liveRegistrationExists || idBookedOrDeletedUnderOtherName
-          || hasOtherAliasForId(fileName, intId) || files.get(composeFileId(id, intId)) != null
-          || backingFileMayExist(fileName, intId)) {
+          || hasOtherAliasForId(fileName, intFileId)
+          || files.get(composeFileId(id, intFileId)) != null
+          || backingFileMayExist(fileName, intFileId)) {
         throw new StorageException(storageName,
-            "Conflicting registration or backing file for " + fileName + " and id " + intId);
+            "Conflicting registration or backing file for " + fileName + " and id " + intFileId);
       }
-      nameIdMap.put(fileName, -intId);
-      idNameMap.put(-intId, fileName);
-      return composeFileId(id, intId);
+      nameIdMap.put(fileName, -intFileId);
+      idNameMap.put(-intFileId, fileName);
+      return composeFileId(id, intFileId);
     } finally {
       filesLock.releaseWriteLock();
     }
@@ -1333,19 +1335,21 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private boolean hasOtherAliasForId(String fileName, int intId) {
+  private boolean hasOtherAliasForId(String fileName, int intFileId) {
     // Older registries can contain several negative aliases for one id.
     for (final var entry : nameIdMap.entrySet()) {
-      if (Math.abs(entry.getValue()) == intId && !entry.getKey().equals(fileName)) {
+      if (Math.abs(entry.getValue()) == intFileId && !entry.getKey().equals(fileName)) {
         return true;
       }
     }
     return false;
   }
 
-  private boolean backingFileMayExist(String fileName, int intId) {
+  private boolean backingFileMayExist(String fileName, int intFileId) {
     // An indeterminate disk probe must also prevent booking.
-    return !Files.notExists(storagePath.resolve(createInternalFileName(fileName, intId)));
+    final var path = storagePath.resolve(createInternalFileName(fileName, intFileId));
+    return logicalFiles == null ? !Files.notExists(path)
+        : !Files.notExists(path, LinkOption.NOFOLLOW_LINKS);
   }
 
   @Override
@@ -1559,14 +1563,14 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public long fileIdByName(final String fileName) {
-    final var intId = logicalFiles == null ? nameIdMap.get(fileName)
+    final var intFileId = logicalFiles == null ? nameIdMap.get(fileName)
         : logicalFiles.fileId(fileName);
 
-    if (intId == null || intId < 0) {
+    if (intFileId == null || intFileId < 0) {
       return -1;
     }
 
-    return composeFileId(id, intId);
+    return composeFileId(id, intFileId);
   }
 
   @Override
@@ -1654,19 +1658,19 @@ public final class WOWCache extends AbstractWriteCache
 
       File fileClassic;
 
-      final var intId = extractFileId(fileId);
+      final var intFileId = extractFileId(fileId);
       // Replay preservation suppresses tracker clearing, not file-ID validation.
-      if (intId <= 0) {
+      if (intFileId <= 0) {
         throw new IllegalArgumentException("Internal file identifier must be positive");
       }
 
-      validateLogicalRegistration(fileName, intId);
+      validateLogicalRegistration(fileName, intFileId);
       if (logicalFiles != null) {
-        return createLogicalFile(fileName, intId, nonDurable, creationLsn);
+        return registerPendingFile(fileName, intFileId, nonDurable, creationLsn);
       }
       final var existingFileId = nameIdMap.get(fileName);
       if (existingFileId != null && existingFileId >= 0) {
-        if (existingFileId == intId) {
+        if (existingFileId == intFileId) {
           throw new StorageException(storageName,
               "File with name '" + fileName + "'' already exists in storage '" + storageName + "'");
         } else {
@@ -1681,16 +1685,16 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       // Map-free admission publishes live membership only in the layout 28 logical table.
-      if (logicalFiles != null && logicalFiles.live(intId) != null) {
+      if (logicalFiles != null && logicalFiles.live(intFileId) != null) {
         throw new StorageException(storageName,
             "File with name '" + fileName + "'' already exists in storage '" + storageName + "'");
       }
 
-      fileId = composeFileId(id, intId);
+      fileId = composeFileId(id, intFileId);
       fileClassic = files.get(fileId);
 
       if (fileClassic != null) {
-        if (!fileClassic.getName().equals(createInternalFileName(fileName, intId))) {
+        if (!fileClassic.getName().equals(createInternalFileName(fileName, intFileId))) {
           throw new StorageException(storageName,
               "File with given id exists but has different name "
                   + fileClassic.getName()
@@ -1706,7 +1710,7 @@ public final class WOWCache extends AbstractWriteCache
         }
       } else {
         discardRetainedContents(fileId, 0);
-        fileClassic = createFileHandle(fileName, intId);
+        fileClassic = createFileHandle(fileName, intFileId);
         createFile(fileClassic, callFsync);
 
         files.add(fileId, fileClassic);
@@ -1716,22 +1720,22 @@ public final class WOWCache extends AbstractWriteCache
       // exclusion during recovery/restore. filesLock orders inventory, not lock-free marks.
       // Empty-file creation during startup keeps both generations and their existing trust.
       if (!startupReplayPreservation) {
-        changedPageTracker.resetFile(intId);
+        changedPageTracker.resetFile(intFileId);
       }
-      idNameMap.remove(-intId);
+      idNameMap.remove(-intFileId);
 
-      nameIdMap.put(fileName, intId);
-      idNameMap.put(intId, fileName);
+      nameIdMap.put(fileName, intFileId);
+      idNameMap.put(intFileId, fileName);
       // Mirror the current set even if the name-id write below fails.
-      registerLogicalFile(fileName, intId, nonDurableFileIds.contains(intId));
+      registerLogicalFile(fileName, intFileId, nonDurableFileIds.contains(intFileId));
 
-      writeNameIdEntry(new NameFileIdEntry(fileName, intId, fileClassic.getName()), true);
+      writeNameIdEntry(new NameFileIdEntry(fileName, intFileId, fileClassic.getName()), true);
 
       if (nonDurable) {
         final var updated = new IntOpenHashSet(nonDurableFileIds);
-        updated.add(intId);
+        updated.add(intFileId);
         nonDurableFileIds = updated;
-        registerLogicalFile(fileName, intId, nonDurableFileIds.contains(intId));
+        registerLogicalFile(fileName, intFileId, nonDurableFileIds.contains(intFileId));
         writeNonDurableRegistry();
       }
 
@@ -1744,39 +1748,53 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  // Fresh creation never opens an existing path. File.create uses exclusive filesystem creation,
-  // including when a path appears after the presence check. Keep handle publication before LIVE.
-  private long createLogicalFile(String name, int internalId, boolean nonDurable,
-      LogSequenceNumber creationLsn)
-      throws IOException, java.lang.InterruptedException {
+  // The caller holds filesLock for registration. The first changed-page write owns creation.
+  private long registerPendingFile(String name, int internalId, boolean nonDurable,
+      LogSequenceNumber creationLsn) throws IOException {
     long externalId = composeFileId(id, internalId);
     if (logicalFiles.live(internalId) != null || files.get(externalId) != null) {
       throw new StorageException(storageName, "File with name " + name + " already exists");
     }
-    var file = createFileHandle(name, internalId);
-    if (file.exists()) {
+    final var path = storagePath.resolve(createInternalFileName(name, internalId));
+    BasicFileAttributes attributes = null;
+    try {
+      attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+    } catch (NoSuchFileException absent) {
+      // Only a definite absence permits registration.
+    }
+    if (attributes != null) {
+      if (attributes.isSymbolicLink()) {
+        try {
+          Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (NoSuchFileException danglingLink) {
+          // Keep the exclusive-create refusal for the link itself.
+          throw new FileAlreadyExistsException(path.toString());
+        }
+      }
       throw new StorageException(storageName, "Backing file already exists for " + name);
     }
-    createFile(file, callFsync, true);
+    if (nonDurable) {
+      final var candidate = new IntOpenHashSet(nonDurableFileIds);
+      candidate.add(internalId);
+      // A failed save must not classify this identity or let the writer see the file.
+      writeNonDurableRegistry(candidate);
+      nonDurableFileIds = candidate;
+    } else if (nonDurableRegistrySaveIncomplete) {
+      // Recovery must not discard a durable retry based on an unpublished registry candidate.
+      writeNonDurableRegistry();
+    }
     if (!startupReplayPreservation) {
       changedPageTracker.resetFile(internalId);
     }
-    files.add(externalId, file);
-    registerLogicalFile(name, internalId, nonDurableFileIds.contains(internalId), creationLsn);
-    if (nonDurable) {
-      var updated = new IntOpenHashSet(nonDurableFileIds);
-      updated.add(internalId);
-      nonDurableFileIds = updated;
-      registerLogicalFile(name, internalId, true);
-      writeNonDurableRegistry();
-    }
+    logicalFiles.register(name, internalId, nonDurableFileIds.contains(internalId),
+        0, 0, false, creationLsn);
     return externalId;
   }
 
   @Override
   public boolean isNonDurable(final long fileId) {
-    final var intId = extractFileId(fileId);
-    return nonDurableFileIds.contains(intId);
+    final var intFileId = extractFileId(fileId);
+    return nonDurableFileIds.contains(intFileId);
   }
 
   @SuppressWarnings("CheckedExceptionNotThrown") // Interface contract declares IOException
@@ -1805,8 +1823,8 @@ public final class WOWCache extends AbstractWriteCache
     try {
       // Delete each non-durable file from both caches (lock-free iteration over snapshot)
       for (final var intIterator = deletedIds.iterator(); intIterator.hasNext();) {
-        final var intId = intIterator.nextInt();
-        final var externalId = composeFileId(id, intId);
+        final var intFileId = intIterator.nextInt();
+        final var externalId = composeFileId(id, intFileId);
 
         try {
           // readCache.deleteFile() clears read cache pages and delegates to
@@ -1821,7 +1839,7 @@ public final class WOWCache extends AbstractWriteCache
           logger.error(
               "Failed to delete non-durable file with internal ID {} during crash recovery,"
                   + " continuing. WAL replay will skip records for this file.",
-              intId,
+              intFileId,
               e);
         }
       }
@@ -1864,19 +1882,19 @@ public final class WOWCache extends AbstractWriteCache
 
       doubleWriteLog.startCheckpoint();
       try {
-        for (final var intId : liveFileIds()) {
-          if (intId < 0 || !hasDiskFile(intId)) {
+        for (final var intFileId : liveFileIds()) {
+          if (intFileId < 0 || !hasDiskFile(intFileId)) {
             continue;
           }
 
           // Non-durable files do not need fsync — their data is discarded on crash,
           // so forcing it to stable storage would be unnecessary write amplification.
-          if (nonDurableFileIds.contains(intId)) {
+          if (nonDurableFileIds.contains(intFileId)) {
             continue;
           }
 
           if (callFsync) {
-            final var fileId = composeFileId(id, intId);
+            final var fileId = composeFileId(id, intFileId);
             final var entry = files.acquire(fileId);
             try {
               final var fileClassic = entry.get();
@@ -1920,9 +1938,9 @@ public final class WOWCache extends AbstractWriteCache
       if (logicalFiles != null) {
         return logicalFiles.fileId(fileName) != null;
       }
-      final var intId = nameIdMap.get(fileName);
-      if (intId != null && intId >= 0) {
-        final var fileClassic = files.get(externalFileId(intId));
+      final var intFileId = nameIdMap.get(fileName);
+      if (intFileId != null && intFileId >= 0) {
+        final var fileClassic = files.get(externalFileId(intFileId));
 
         if (fileClassic == null) {
           return false;
@@ -1940,13 +1958,13 @@ public final class WOWCache extends AbstractWriteCache
     filesLock.acquireReadLock();
     try {
       checkForClose();
-      var intId = extractFileId(fileId);
+      var intFileId = extractFileId(fileId);
       if (logicalFiles != null) {
-        var state = logicalFiles.live(intId);
+        var state = logicalFiles.live(intFileId);
         return state != null && Files.exists(
             storagePath.resolve(PageFileNames.layout28DiskName(state.identity())));
       }
-      var file = files.get(composeFileId(id, intId));
+      var file = files.get(composeFileId(id, intFileId));
       return file != null && file.exists();
     } finally {
       filesLock.releaseReadLock();
@@ -1959,11 +1977,11 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
-      final var intId = extractFileId(fileId);
+      final var intFileId = extractFileId(fileId);
       if (logicalFiles != null) {
-        return logicalFiles.live(intId) != null;
+        return logicalFiles.live(intFileId) != null;
       }
-      fileId = composeFileId(id, intId);
+      fileId = composeFileId(id, intFileId);
 
       final var file = files.get(fileId);
       if (file == null) {
@@ -2055,13 +2073,13 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void store(final long fileId, final long pageIndex, final CachePointer dataPointer) {
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
 
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var pageKey = new PageKey(intId, pageIndex);
+      final var pageKey = new PageKey(intFileId, pageIndex);
 
       final var groupLock = lockManager.acquireExclusiveLock(pageKey);
       try {
@@ -2181,12 +2199,12 @@ public final class WOWCache extends AbstractWriteCache
       final ModifiableBoolean cacheHit,
       final boolean verifyChecksums)
       throws IOException {
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var pageKey = new PageKey(intId, startPageIndex);
+      final var pageKey = new PageKey(intFileId, startPageIndex);
       final var pageLock = lockManager.acquireSharedLock(pageKey);
 
       // check if page already presented in write cache
@@ -2197,7 +2215,7 @@ public final class WOWCache extends AbstractWriteCache
         try {
           // load requested page and preload requested amount of pages
           final var filePagePointer =
-              loadFileContent(intId, startPageIndex, verifyChecksums);
+              loadFileContent(intFileId, startPageIndex, verifyChecksums);
           if (filePagePointer != null) {
             filePagePointer.incrementReadersReferrer();
           }
@@ -2239,12 +2257,12 @@ public final class WOWCache extends AbstractWriteCache
   @Override
   public CachePointer loadIfPresent(
       final long fileId, final long pageIndex, final boolean verifyChecksums) throws IOException {
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var pageKey = new PageKey(intId, pageIndex);
+      final var pageKey = new PageKey(intFileId, pageIndex);
       final var pageLock = lockManager.acquireSharedLock(pageKey);
 
       // Dirty-write priority: a more recent in-memory pointer shadows the on-disk image.
@@ -2254,7 +2272,7 @@ public final class WOWCache extends AbstractWriteCache
         try {
           // A canonical unwritten range with no DWL copy is a miss. Legacy files use
           // wrapper size for this boundary. Unlike loadOrAdd, this read never extends.
-          final var filePagePointer = loadFileContent(intId, pageIndex, verifyChecksums);
+          final var filePagePointer = loadFileContent(intFileId, pageIndex, verifyChecksums);
           if (filePagePointer != null) {
             filePagePointer.incrementReadersReferrer();
           }
@@ -2289,15 +2307,15 @@ public final class WOWCache extends AbstractWriteCache
     if (pageIndex < 0) {
       throw new IllegalArgumentException("Illegal page index value " + pageIndex);
     }
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var state = logicalState(intId);
+      final var state = logicalState(intFileId);
       if (state != null) {
         if (pageIndex < state.logicalExtent()) {
-          return loadOrAddLoadBranch(intId, pageIndex, verifyChecksums);
+          return loadOrAddLoadBranch(intFileId, pageIndex, verifyChecksums);
         }
         final long growth = pageIndex - state.logicalExtent() + 1;
         if (pageIndex > Integer.MAX_VALUE || growth > Integer.MAX_VALUE / pageSize) {
@@ -2306,7 +2324,7 @@ public final class WOWCache extends AbstractWriteCache
         if (state.diskPresent()) {
           final var entry = files.acquire(fileId);
           if (entry == null) {
-            throw new StorageException(storageName, "Missing materialized file " + intId);
+            throw new StorageException(storageName, "Missing materialized file " + intFileId);
           }
           try {
             final var file = entry.get();
@@ -2316,11 +2334,11 @@ public final class WOWCache extends AbstractWriteCache
             files.release(entry);
           }
           for (long gap = state.logicalExtent(); gap <= pageIndex; gap++) {
-            commitExecutor().submit(new EnsurePageIsValidInFileTask(intId, (int) gap, this));
+            commitExecutor().submit(new EnsurePageIsValidInFileTask(intFileId, (int) gap, this));
           }
         }
         state.extents().allocateThrough(pageIndex + 1);
-        return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+        return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
       }
 
       // Single files.acquire / files.release cycle covers the whole call: the dispatch
@@ -2335,14 +2353,14 @@ public final class WOWCache extends AbstractWriteCache
       // across the two paths.
       if (entry == null) {
         throw new IllegalArgumentException(
-            "File with id " + intId + " not found in WOW Cache");
+            "File with id " + intFileId + " not found in WOW Cache");
       }
       var entryConsumed = false;
       try {
         final var fileClassic = entry.get();
         if (fileClassic == null) {
           throw new IllegalArgumentException(
-              "File with id " + intId + " not found in WOW Cache");
+              "File with id " + intFileId + " not found in WOW Cache");
         }
         // currentSize is in pages; the value is consistent within the call but other
         // threads may extend the file concurrently (different pageIndex keys are not
@@ -2353,13 +2371,13 @@ public final class WOWCache extends AbstractWriteCache
           // internally, so holding it across the call would double-acquire.
           files.release(entry);
           entryConsumed = true;
-          return loadOrAddLoadBranch(intId, pageIndex, verifyChecksums);
+          return loadOrAddLoadBranch(intFileId, pageIndex, verifyChecksums);
         }
         if (pageIndex == currentSize) {
-          return loadOrAddExtendBranch(intId, pageIndex, fileClassic);
+          return loadOrAddExtendBranch(intFileId, pageIndex, fileClassic);
         }
         // pageIndex > currentSize: gap-fill (recovery-only path under normal callers).
-        return loadOrAddGapFillBranch(intId, pageIndex, currentSize, fileClassic);
+        return loadOrAddGapFillBranch(intFileId, pageIndex, currentSize, fileClassic);
       } finally {
         if (!entryConsumed) {
           files.release(entry);
@@ -2380,9 +2398,9 @@ public final class WOWCache extends AbstractWriteCache
    * blank page only beyond the written range. A missing materialized page is an error.
    */
   private CachePointer loadOrAddLoadBranch(
-      final int intId, final long pageIndex, final boolean verifyChecksums) throws IOException {
+      final int intFileId, final long pageIndex, final boolean verifyChecksums) throws IOException {
     final var context = recoveryPageContext.get();
-    final var pageKey = new PageKey(intId, pageIndex);
+    final var pageKey = new PageKey(intFileId, pageIndex);
     final var pageLock = lockManager.acquireSharedLock(pageKey);
 
     // Dirty-write priority: a more recent in-memory pointer wins over the on-disk image.
@@ -2394,22 +2412,31 @@ public final class WOWCache extends AbstractWriteCache
     }
 
     try {
-      final var filePagePointer = loadFileContent(
-          intId, pageIndex, verifyChecksums,
-          context != null && context.isDeclaredPage(intId, pageIndex));
+      final var state = logicalState(intFileId);
+      final long writtenExtent = state == null ? -1 : state.diskExtent();
+      final boolean rebuildAllowed =
+          context != null && context.isDeclaredPage(intFileId, pageIndex);
+      var filePagePointer =
+          loadFileContent(intFileId, pageIndex, verifyChecksums, rebuildAllowed, writtenExtent);
+      if (filePagePointer == null && state != null && pageIndex >= writtenExtent) {
+        // The writer can publish the gap after the unwritten lookup misses the double-write log.
+        // Retry from disk if publication crossed the page. Otherwise the unwritten view is valid.
+        final long publishedExtent = state.diskExtent();
+        if (pageIndex < publishedExtent) {
+          filePagePointer =
+              loadFileContent(intFileId, pageIndex, verifyChecksums, rebuildAllowed,
+                  publishedExtent);
+        } else if (pageIndex < state.logicalExtent()) {
+          return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
+        }
+      }
       if (filePagePointer != null) {
         filePagePointer.incrementReadersReferrer();
         return filePagePointer;
       }
-      final var state = logicalState(intId);
       if (state != null) {
-        if (pageIndex < state.logicalExtent() && pageIndex >= state.diskExtent()) {
-          // Unwritten allocated ranges use the blank representation. Changed pages stay in
-          // writeCachePages until a successful write publishes the written extent.
-          return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
-        }
         throw new StorageException(storageName,
-            "Missing materialized page " + pageIndex + " of file " + intId);
+            "Missing materialized page " + pageIndex + " of file " + intFileId);
       }
       // Legacy-only defensive totality fallback: if
       // loadFileContent ever returns null on this path, return a magic-stamped empty
@@ -2423,8 +2450,8 @@ public final class WOWCache extends AbstractWriteCache
       assert false
           : "loadFileContent returned null on load branch — dispatch prelude invariant"
               + " violated; pageIndex < currentSize should always find a page on disk"
-              + " (intId=" + intId + " pageIndex=" + pageIndex + ")";
-      return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+              + " (intFileId=" + intFileId + " pageIndex=" + pageIndex + ")";
+      return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
     } finally {
       pageLock.unlock();
     }
@@ -2444,7 +2471,7 @@ public final class WOWCache extends AbstractWriteCache
    * not re-acquire.
    */
   private CachePointer loadOrAddExtendBranch(
-      final int intId, final long pageIndex, final File fileClassic) throws IOException {
+      final int intFileId, final long pageIndex, final File fileClassic) throws IOException {
     final var allocatedPosition = fileClassic.allocateSpace(pageSize);
     final long allocatedIndex = allocatedPosition / pageSize;
     if (allocatedIndex < 0) {
@@ -2466,12 +2493,12 @@ public final class WOWCache extends AbstractWriteCache
               + pageIndex);
     }
     commitExecutor()
-        .submit(new EnsurePageIsValidInFileTask(intId, (int) pageIndex, this));
+        .submit(new EnsurePageIsValidInFileTask(intFileId, (int) pageIndex, this));
     // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
     // throw from allocateSpace, the hard sanity check above, or the EnsurePageIsValidInFileTask
     // submission does not record a spurious increment.
     loadOrAddExtendBranchInvocations.increment();
-    return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+    return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
   }
 
   /**
@@ -2490,7 +2517,7 @@ public final class WOWCache extends AbstractWriteCache
    * not re-acquire.
    */
   private CachePointer loadOrAddGapFillBranch(
-      final int intId, final long pageIndex, final long currentSize, final File fileClassic)
+      final int intFileId, final long pageIndex, final long currentSize, final File fileClassic)
       throws IOException {
     final long pagesToAllocate = pageIndex - currentSize + 1L;
     final long requestedBytes = pagesToAllocate * pageSize;
@@ -2530,13 +2557,13 @@ public final class WOWCache extends AbstractWriteCache
     // resubmission against an already-stamped page is a no-op.
     for (long gapPage = currentSize; gapPage <= pageIndex; gapPage++) {
       commitExecutor()
-          .submit(new EnsurePageIsValidInFileTask(intId, (int) gapPage, this));
+          .submit(new EnsurePageIsValidInFileTask(intFileId, (int) gapPage, this));
     }
     // Positive-evidence probe — see field Javadoc. Counted at the end of the branch so a
     // throw from allocateSpace or the hard sanity check above does not record a spurious
     // increment.
     loadOrAddGapFillBranchInvocations.increment();
-    return newEmptyCachePointer(composeFileId(id, intId), pageIndex);
+    return newEmptyCachePointer(composeFileId(id, intFileId), pageIndex);
   }
 
   /**
@@ -2695,14 +2722,14 @@ public final class WOWCache extends AbstractWriteCache
   @SuppressWarnings("deprecation")
   @Override
   public long getFilledUpTo(long fileId) {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+    final var intFileId = extractFileId(fileId);
+    fileId = composeFileId(id, intFileId);
 
     filesLock.acquireReadLock();
     try {
       checkForClose();
 
-      final var state = logicalState(intId);
+      final var state = logicalState(intFileId);
       if (state != null) {
         return state.logicalExtent();
       }
@@ -2831,13 +2858,13 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void deleteFile(final long fileId) throws IOException {
-    final var intId = extractFileId(fileId);
-    if (intId <= 0) {
+    final var intFileId = extractFileId(fileId);
+    if (intFileId <= 0) {
       throw new IllegalArgumentException("Internal file identifier must be positive");
     }
 
     if (logicalFiles != null) {
-      orderedDeleteFile(fileId, intId);
+      orderedDeleteFile(fileId, intFileId);
       return;
     }
 
@@ -2859,13 +2886,13 @@ public final class WOWCache extends AbstractWriteCache
             storageName);
       }
 
-      finishDeleteFile(intId, file);
+      finishDeleteFile(intFileId, file);
     } finally {
       filesLock.releaseWriteLock();
     }
   }
 
-  private void orderedDeleteFile(long fileId, int intId) throws IOException {
+  private void orderedDeleteFile(long fileId, int intFileId) throws IOException {
     FileLifecycleStep.requireCaller(commitExecutor());
     try (var step = new FileLifecycleStep(storageName, "File data removal")) {
       filesLock.acquireWriteLock();
@@ -2883,7 +2910,7 @@ public final class WOWCache extends AbstractWriteCache
         }
 
         try {
-          finishDeleteFile(intId, file);
+          finishDeleteFile(intFileId, file);
         } catch (ClosedByInterruptException failure) {
           // Keep the I/O error primary even if registry I/O consumes the interrupt.
           Thread.currentThread().interrupt();
@@ -2899,19 +2926,19 @@ public final class WOWCache extends AbstractWriteCache
     return commitExecutor().submit(() -> executeDeleteFile(fileId, true));
   }
 
-  private void finishDeleteFile(int intId, @Nullable RawPair<String, String> file)
+  private void finishDeleteFile(int intFileId, @Nullable RawPair<String, String> file)
       throws IOException {
     // The caller excludes writers for this file through its component or lifecycle lock.
     // Startup removal keeps both generations and their existing trust, even for an absent file.
     // Ordinary deletion clears marks even for absent IDs.
     if (!startupReplayPreservation) {
-      changedPageTracker.deleteFile(intId);
+      changedPageTracker.deleteFile(intFileId);
     }
     if (file != null || logicalFiles != null) {
       // Remove from non-durable registry if present (clone-mutate-publish under filesLock)
-      if (nonDurableFileIds.contains(intId)) {
+      if (nonDurableFileIds.contains(intFileId)) {
         final var updated = new IntOpenHashSet(nonDurableFileIds);
-        updated.remove(intId);
+        updated.remove(intFileId);
         nonDurableFileIds = updated;
 
         // During bulk recovery the caller batches a single registry write at the end,
@@ -2922,7 +2949,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       if (file != null && logicalFiles == null) {
-        writeNameIdEntry(new NameFileIdEntry(file.second(), -intId, file.first()), true);
+        writeNameIdEntry(new NameFileIdEntry(file.second(), -intFileId, file.first()), true);
       }
     }
   }
@@ -2970,8 +2997,8 @@ public final class WOWCache extends AbstractWriteCache
               + " pageSize="
               + pageSizeLocal);
     }
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+    final var intFileId = extractFileId(fileId);
+    fileId = composeFileId(id, intFileId);
     final int minPageIndex = (int) (targetBytes / pageSizeLocal);
     if (logicalFiles != null) {
       return orderedShrinkFile(fileId, targetBytes, minPageIndex, clearTail);
@@ -3028,39 +3055,40 @@ public final class WOWCache extends AbstractWriteCache
   // thread. Later writes cannot observe the file before its extents have been clamped.
   private void shrinkPageFile(long fileId, long targetBytes, int minPageIndex)
       throws IOException, InterruptedException {
-    final int intId = extractFileId(fileId);
-    final var state = logicalState(intId);
+    final int intFileId = extractFileId(fileId);
+    final var state = logicalState(intFileId);
     if (state != null && !state.diskPresent()) {
       if (files.get(fileId) == null) {
         if (pageRetentionState.hasRetainedContents(fileId)
             && !Files.notExists(storagePath.resolve(PageFileNames.layout28DiskName(
                 state.identity())))) {
-          throw new IOException("Cannot confirm absence of pending page file " + intId);
+          throw new IOException("Cannot confirm absence of pending page file " + intFileId);
         }
-        discardPagesForOrderedShrink(intId, minPageIndex);
+        discardPagesForOrderedShrink(intFileId, minPageIndex);
         state.extents().shrink(minPageIndex);
         pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
         return;
       }
-      if (pendingCreationHandles.get(intId) != state.extents()) {
-        throw new IOException("Cannot truncate an unowned pending page file " + intId);
+      if (pendingCreationHandles.get(intFileId) != state.extents()) {
+        throw new IOException("Cannot truncate an unowned pending page file " + intFileId);
       }
     }
 
     final var entry = acquireFileForShrink(fileId);
     try {
       if (state == null) {
-        throw new IOException("Cannot truncate a page file without a live logical entry " + intId);
+        throw new IOException(
+            "Cannot truncate a page file without a live logical entry " + intFileId);
       }
       final var file = entry.get();
       final long reservedBytes = file.getFileSize();
-      discardPagesForOrderedShrink(intId, minPageIndex);
+      discardPagesForOrderedShrink(intFileId, minPageIndex);
       file.shrink(Math.min(targetBytes, reservedBytes));
       // A failed channel truncate can leave the wrapper counter at the target. Check the disk
       // length before lowering extents or discarding protection, including on retry.
       if (file.getUnderlyingFileSize() > targetBytes) {
         throw new IOException(
-            "Page file " + intId + " still exceeds " + targetBytes + " bytes after shrink");
+            "Page file " + intFileId + " still exceeds " + targetBytes + " bytes after shrink");
       }
       state.extents().shrink(minPageIndex);
       pageRetentionState.discardAfterRemoval(fileId, minPageIndex);
@@ -3069,9 +3097,9 @@ public final class WOWCache extends AbstractWriteCache
     }
   }
 
-  private void discardPagesForOrderedShrink(int intId, int minPageIndex) {
+  private void discardPagesForOrderedShrink(int intFileId, int minPageIndex) {
     try {
-      doRemoveCachePages(intId, minPageIndex);
+      doRemoveCachePages(intFileId, minPageIndex);
     } catch (Exception | Error failure) {
       // Discard declares no checked exceptions. Catch Exception to include any checked failures.
       // Keep the original behind a wrapper to avoid the HighLevelException shortcut.
@@ -3133,8 +3161,8 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void renameFile(long fileId, final String newFileName) throws IOException {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+    final var intFileId = extractFileId(fileId);
+    fileId = composeFileId(id, intFileId);
     if (logicalFiles != null) {
       throw new StorageException(storageName, "Layout 28 page files cannot be renamed: "
           + newFileName);
@@ -3151,7 +3179,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       final String oldOsFileName;
-      final var newOsFileName = createInternalFileName(newFileName, intId);
+      final var newOsFileName = createInternalFileName(newFileName, intFileId);
 
       try {
         final var file = entry.get();
@@ -3163,15 +3191,15 @@ public final class WOWCache extends AbstractWriteCache
         files.release(entry);
       }
 
-      final var oldFileName = idNameMap.get(intId);
+      final var oldFileName = idNameMap.get(intFileId);
 
       nameIdMap.remove(oldFileName);
-      nameIdMap.put(newFileName, intId);
+      nameIdMap.put(newFileName, intFileId);
 
-      idNameMap.put(intId, newFileName);
+      idNameMap.put(intFileId, newFileName);
 
       writeNameIdEntry(new NameFileIdEntry(oldFileName, -1, oldOsFileName), false);
-      writeNameIdEntry(new NameFileIdEntry(newFileName, intId, newOsFileName), true);
+      writeNameIdEntry(new NameFileIdEntry(newFileName, intFileId, newOsFileName), true);
     } catch (final java.lang.InterruptedException e) {
       throw BaseException.wrapException(
           new StorageException(storageName, "Rename of file was interrupted"),
@@ -3344,15 +3372,15 @@ public final class WOWCache extends AbstractWriteCache
       final var closedIds = new LongArrayList(1_000);
       final var idFileNameMap = new Int2ObjectOpenHashMap<String>(1_000);
 
-      for (final var intId : fileIds) {
-        if (intId >= 0) {
-          final var extId = composeFileId(id, intId);
+      for (final var intFileId : fileIds) {
+        if (intFileId >= 0) {
+          final var extId = composeFileId(id, intFileId);
           final var fileClassic = files.get(extId);
           if (logicalFiles != null && fileClassic == null) {
             continue;
           }
 
-          idFileNameMap.put(intId.intValue(), fileClassic.getName());
+          idFileNameMap.put(intFileId.intValue(), fileClassic.getName());
           // Transition the container entry as well as its channel. Closed entries remain
           // registered until the registry and DWL close, so any failure can be retried.
           if (!files.close(extId)) {
@@ -3449,10 +3477,10 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public void close(long fileId, final boolean flush) {
-    final var intId = extractFileId(fileId);
-    fileId = composeFileId(id, intId);
+    final var intFileId = extractFileId(fileId);
+    fileId = composeFileId(id, intFileId);
     if (logicalFiles != null) {
-      orderedCloseFile(fileId, intId, flush);
+      orderedCloseFile(fileId, intFileId, flush);
       return;
     }
 
@@ -3461,38 +3489,38 @@ public final class WOWCache extends AbstractWriteCache
       checkForClose();
 
       if (flush) {
-        flush(intId);
+        flush(intFileId);
       } else {
-        removeCachedPages(intId);
+        removeCachedPages(intFileId);
       }
 
-      closePageFileHandle(fileId, intId);
+      closePageFileHandle(fileId, intFileId);
     } finally {
       filesLock.releaseWriteLock();
     }
   }
 
-  private void orderedCloseFile(long fileId, int intId, boolean flush) {
+  private void orderedCloseFile(long fileId, int intFileId, boolean flush) {
     FileLifecycleStep.requireCaller(commitExecutor());
     final var operation = flush ? "File flush" : "File data removal";
     try (var step = new FileLifecycleStep(storageName, operation)) {
       filesLock.acquireWriteLock();
       try {
         checkForClose();
-        step.awaitClose(submitCloseStep(fileId, intId, flush, operation));
+        step.awaitClose(submitCloseStep(fileId, intFileId, flush, operation));
       } finally {
         filesLock.releaseWriteLock();
       }
     }
   }
 
-  Future<Void> submitCloseStep(long fileId, int intId, boolean flush, String operation) {
+  Future<Void> submitCloseStep(long fileId, int intFileId, boolean flush, String operation) {
     return commitExecutor().submit(() -> {
       try {
         if (flush) {
-          executeFileFlush(new IntOpenHashSet(new int[] {intId}));
+          executeFileFlush(new IntOpenHashSet(new int[] {intFileId}));
         } else {
-          doRemoveCachePages(intId, 0);
+          doRemoveCachePages(intFileId, 0);
         }
       } catch (IOException | InterruptedException | RuntimeException | Error failure) {
         throw FileLifecycleStep.fileWorkFailure(storageName, operation,
@@ -3500,14 +3528,14 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       // Close on the commitExecutor() thread without dropping registration or pending ownership.
-      closePageFileHandle(fileId, intId);
+      closePageFileHandle(fileId, intFileId);
       return null;
     });
   }
 
-  private void closePageFileHandle(long fileId, int intId) {
+  private void closePageFileHandle(long fileId, int intFileId) {
     if (!files.close(fileId)) {
-      throw FileLifecycleStep.closeInUse(storageName, intId);
+      throw FileLifecycleStep.closeInUse(storageName, intFileId);
     }
   }
 
@@ -3517,13 +3545,13 @@ public final class WOWCache extends AbstractWriteCache
       // Deleted map entries never authorize creation of layout 28 files.
       return null;
     }
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
     filesLock.acquireWriteLock();
     try {
       checkForClose();
 
       for (final var entry : nameIdMap.entrySet()) {
-        if (entry.getValue() == -intId) {
+        if (entry.getValue() == -intFileId) {
           addFile(entry.getKey(), fileId);
           return entry.getKey();
         }
@@ -3546,17 +3574,17 @@ public final class WOWCache extends AbstractWriteCache
     try {
       checkForClose();
 
-      for (final var intId : liveFileIds()) {
-        if (intId < 0) {
+      for (final var intFileId : liveFileIds()) {
+        if (intFileId < 0) {
           continue;
         }
         // Pending work can materialize here. Never pin a verification handle across flush.
-        flush(intId);
-        if (!hasDiskFile(intId)) {
+        flush(intFileId);
+        if (!hasDiskFile(intFileId)) {
           continue;
         }
 
-        checkFileStoredPages(commandOutputListener, notificationTimeOut, errors, intId);
+        checkFileStoredPages(commandOutputListener, notificationTimeOut, errors, intFileId);
       }
 
       return errors.toArray(new PageDataVerificationError[0]);
@@ -3572,10 +3600,10 @@ public final class WOWCache extends AbstractWriteCache
       final CommandOutputListener commandOutputListener,
       @SuppressWarnings("SameParameterValue") final int notificationTimeOut,
       final List<PageDataVerificationError> errors,
-      final Integer intId)
+      final Integer intFileId)
       throws java.lang.InterruptedException {
     boolean fileIsCorrect;
-    final var externalId = composeFileId(id, intId);
+    final var externalId = composeFileId(id, intFileId);
     final var entry = files.acquire(externalId);
     final var fileClassic = entry.get();
     final var fileName = fileNameById(externalId);
@@ -3592,7 +3620,7 @@ public final class WOWCache extends AbstractWriteCache
 
       var time = System.currentTimeMillis();
 
-      final var state = logicalState(intId);
+      final var state = logicalState(intFileId);
       final var filledUpTo = state == null ? fileClassic.getFileSize()
           : state.diskExtent() * pageSize;
       fileIsCorrect = true;
@@ -3759,13 +3787,13 @@ public final class WOWCache extends AbstractWriteCache
 
   @Override
   public String fileNameById(final long fileId) {
-    final var intId = extractFileId(fileId);
+    final var intFileId = extractFileId(fileId);
 
     if (logicalFiles != null) {
-      var state = logicalFiles.live(intId);
+      var state = logicalFiles.live(intFileId);
       return state == null ? null : PageFileNames.layout28(state.identity());
     }
-    return idNameMap.get(intId);
+    return idNameMap.get(intFileId);
   }
 
   @Nullable @Override
@@ -3941,7 +3969,10 @@ public final class WOWCache extends AbstractWriteCache
    * <p>Must be called under {@link #filesLock} write lock.
    */
   private void writeNonDurableRegistry() throws IOException {
-    final var currentSet = nonDurableFileIds;
+    writeNonDurableRegistry(nonDurableFileIds);
+  }
+
+  private void writeNonDurableRegistry(IntOpenHashSet currentSet) throws IOException {
     // A partial write can make recovery use the shadow without removed IDs. Withdraw their
     // creation evidence before I/O, but authorize added IDs only after both writes succeed.
     final var retainedSavedSet = new IntOpenHashSet(savedNonDurableFileIds);
@@ -3951,9 +3982,11 @@ public final class WOWCache extends AbstractWriteCache
       // No non-durable files — delete both side files if they exist.
       // Delete shadow first, then primary: a crash between the two deletions leaves
       // the primary (which is read first on recovery) as the authoritative source.
+      nonDurableRegistrySaveIncomplete = true;
       Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES_SHADOW));
       Files.deleteIfExists(storagePath.resolve(NON_DURABLE_FILES));
       savedNonDurableFileIds = currentSet;
+      nonDurableRegistrySaveIncomplete = false;
       return;
     }
 
@@ -3991,6 +4024,7 @@ public final class WOWCache extends AbstractWriteCache
 
     // Write shadow first, then primary
     final var shadowPath = storagePath.resolve(NON_DURABLE_FILES_SHADOW);
+    nonDurableRegistrySaveIncomplete = true;
     try (final var channel =
         FileChannel.open(
             shadowPath,
@@ -4018,6 +4052,7 @@ public final class WOWCache extends AbstractWriteCache
       }
     }
     savedNonDurableFileIds = currentSet;
+    nonDurableRegistrySaveIncomplete = false;
   }
 
   /**
@@ -4688,22 +4723,27 @@ public final class WOWCache extends AbstractWriteCache
   @Nullable private CachePointer loadFileContent(
       final int internalFileId, final long pageIndex, final boolean verifyChecksums)
       throws IOException {
-    return loadFileContent(internalFileId, pageIndex, verifyChecksums, false);
+    final var state = logicalState(internalFileId);
+    return loadFileContent(internalFileId, pageIndex, verifyChecksums, false,
+        state == null ? -1 : state.diskExtent());
   }
 
-  /** Rebuilding is allowed only for a declared page loaded for crash replay writes. */
+  /**
+   * Rebuilding is allowed only for a declared page loaded for crash replay writes.
+   * A negative extent selects legacy file-size checks.
+   */
   @Nullable private CachePointer loadFileContent(final int internalFileId, final long pageIndex,
-      final boolean verifyChecksums, final boolean rebuildAllowed)
+      final boolean verifyChecksums, final boolean rebuildAllowed, final long writtenExtent)
       throws IOException {
     final var fileId = composeFileId(id, internalFileId);
-    final var state = logicalState(internalFileId);
-    // Pending files have no handle to acquire. An unwritten range has no disk image.
-    if (state != null && (!state.diskPresent() || pageIndex >= state.diskExtent())) {
+    final boolean tracksWrittenExtent = writtenExtent >= 0;
+    // Publication follows handle admission and initialization of the written range.
+    if (tracksWrittenExtent && pageIndex >= writtenExtent) {
       return loadUnwrittenFromDoubleWriteLog(internalFileId, pageIndex, verifyChecksums);
     }
     try {
       final var entry = files.acquire(fileId);
-      if (entry == null && state != null) {
+      if (entry == null && tracksWrittenExtent) {
         throw new StorageException(storageName, "Missing materialized file " + internalFileId);
       }
       try {
@@ -4717,7 +4757,7 @@ public final class WOWCache extends AbstractWriteCache
         final var pageEndPosition = pagePosition + pageSize;
 
         // if page is not stored in the file may be page is stored in double write log
-        if (state != null || fileClassic.getFileSize() >= pageEndPosition) {
+        if (tracksWrittenExtent || fileClassic.getFileSize() >= pageEndPosition) {
           var pageFrame = pageFramePool.acquire(true, Intention.LOAD_PAGE_FROM_DISK);
           var buffer = pageFrame.getBuffer();
 
@@ -4725,9 +4765,9 @@ public final class WOWCache extends AbstractWriteCache
           assert buffer.order() == ByteOrder.nativeOrder();
 
           try {
-            fileClassic.read(pagePosition, buffer, state != null);
+            fileClassic.read(pagePosition, buffer, tracksWrittenExtent);
           } catch (IOException | RuntimeException | Error failure) {
-            if (state != null) {
+            if (tracksWrittenExtent) {
               pageFramePool.release(pageFrame);
             }
             throw failure;
@@ -4870,7 +4910,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void addMagicChecksumAndEncryption(
-      final int intId, final int pageIndex, final ByteBuffer buffer) {
+      final int intFileId, final int pageIndex, final ByteBuffer buffer) {
     assert buffer.order() == ByteOrder.nativeOrder();
 
     if (checksumMode != ChecksumMode.Off) {
@@ -4896,7 +4936,7 @@ public final class WOWCache extends AbstractWriteCache
       }
 
       buffer.putLong(MAGIC_NUMBER_OFFSET, magicNumber);
-      doEncryptionDecryption(intId, pageIndex, Cipher.ENCRYPT_MODE, buffer, updateCounter);
+      doEncryptionDecryption(intFileId, pageIndex, Cipher.ENCRYPT_MODE, buffer, updateCounter);
     } else {
       buffer.putLong(
           MAGIC_NUMBER_OFFSET,
@@ -4907,7 +4947,7 @@ public final class WOWCache extends AbstractWriteCache
   }
 
   private void doEncryptionDecryption(
-      final int intId,
+      final int intFileId,
       final int pageIndex,
       final int mode,
       final ByteBuffer buffer,
@@ -4924,7 +4964,7 @@ public final class WOWCache extends AbstractWriteCache
 
       for (var i = 0; i < IntegerSerializer.INT_SIZE; i++) {
         updatedIv[i + IntegerSerializer.INT_SIZE] =
-            (byte) (iv[i + IntegerSerializer.INT_SIZE] ^ ((intId >>> i) & 0xFF));
+            (byte) (iv[i + IntegerSerializer.INT_SIZE] ^ ((intFileId >>> i) & 0xFF));
       }
 
       for (var i = 0; i < LongSerializer.LONG_SIZE - 1; i++) {
@@ -4959,7 +4999,7 @@ public final class WOWCache extends AbstractWriteCache
 
   @SuppressWarnings("BooleanMethodIsAlwaysInverted")
   private boolean verifyMagicChecksumAndDecryptPage(
-      final ByteBuffer buffer, final int intId, final long pageIndex) {
+      final ByteBuffer buffer, final int intFileId, final long pageIndex) {
     assert buffer.order() == ByteOrder.nativeOrder();
 
     buffer.position(MAGIC_NUMBER_OFFSET);
@@ -4976,7 +5016,7 @@ public final class WOWCache extends AbstractWriteCache
 
       if (aesKey != null && (magicNumber & 0xFF) == MAGIC_NUMBER_WITHOUT_CHECKSUM_ENCRYPTED) {
         doEncryptionDecryption(
-            intId, (int) pageIndex, Cipher.DECRYPT_MODE, buffer, magicNumber >>> 8);
+            intFileId, (int) pageIndex, Cipher.DECRYPT_MODE, buffer, magicNumber >>> 8);
       }
 
       return true;
@@ -4984,7 +5024,7 @@ public final class WOWCache extends AbstractWriteCache
 
     if (aesKey != null && (magicNumber & 0xFF) == MAGIC_NUMBER_WITH_CHECKSUM_ENCRYPTED) {
       doEncryptionDecryption(
-          intId, (int) pageIndex, Cipher.DECRYPT_MODE, buffer, magicNumber >>> 8);
+          intFileId, (int) pageIndex, Cipher.DECRYPT_MODE, buffer, magicNumber >>> 8);
     }
 
     buffer.position(CHECKSUM_OFFSET);

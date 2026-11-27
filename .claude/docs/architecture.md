@@ -4,7 +4,8 @@ Reference material for working on YouTrackDB internals. Load on demand from `CLA
 
 ## Storage Engine
 
-- **Page-based**: Default 8 KB pages, configurable via `DISK_CACHE_PAGE_SIZE`
+- **Page-based**: The process uses 4-kilobyte (KB) pages by default. Set
+  `youtrackdb.storage.diskCache.pageSize` at startup to match an existing database.
 - **Two engine types** loaded via Java SPI (`META-INF/services`):
   - `EngineLocalPaginated` (disk) — Full disk storage with WAL and double-write log
   - `EngineMemory` (memory) — In-memory storage using direct memory buffers
