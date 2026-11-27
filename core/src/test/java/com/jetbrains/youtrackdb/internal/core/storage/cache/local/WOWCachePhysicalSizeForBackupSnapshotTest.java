@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
@@ -8,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.Cl
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
 import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
@@ -188,7 +190,8 @@ public class WOWCachePhysicalSizeForBackupSnapshotTest {
     wowCache.setStorageFormat(StorageFormat.LAYOUT_28);
     var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9100);
     var name = PageFileNames.layout28(identity);
-    long fileId = wowCache.addFile(name, wowCache.externalFileId(identity.internalId()));
+    long fileId = wowCache.externalFileId(identity.internalId());
+    assertTrue(wowCache.resolveRecoveryFile(name, fileId, RecoveryFilePermission.RESTORE));
     files.get(fileId).reserveSpaceThrough(5L * PAGE_SIZE);
     wowCache.logicalFiles().live(identity.internalId()).extents().allocateThrough(5);
     var pointer = wowCache.loadOrAdd(fileId, 4, false);

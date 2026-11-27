@@ -1624,7 +1624,8 @@ public class RestoreLifecycleTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12012);
       var name = PageFileNames.layout28(identity);
       var registry = databasesPath.resolve(SOURCE).resolve("name_id_map_v3.cm");
-      long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
       StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
       StorageBirthTestSupport.seedNameIdMap(cache, name, -identity.internalId(), "");
       var mapBytes = Files.readAllBytes(registry);
@@ -1741,7 +1742,8 @@ public class RestoreLifecycleTest {
       var name = PageFileNames.layout28(identity);
       assertNull(lookup.invoke(storage, identity.internalId()));
       assertNull(lookup.invoke(storage, -1));
-      long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
       StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
       assertEquals(name, lookup.invoke(storage, identity.internalId()));
       cache.deleteFile(id);
@@ -1856,8 +1858,13 @@ public class RestoreLifecycleTest {
         .getWriteCache();
     cache.pauseBackgroundFlush();
     var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12005);
-    long id = cache.addFile(PageFileNames.layout28(identity),
-        cache.externalFileId(identity.internalId()), nonDurable);
+    var name = PageFileNames.layout28(identity);
+    long id = cache.externalFileId(identity.internalId());
+    if (nonDurable) {
+      cache.addFile(name, id, true);
+      assertTrue(cache.isNonDurable(id));
+    }
+    assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
     StorageBirthTestSupport.removeNameIdMaps(Path.of(arguments[0]).resolve(SOURCE));
     storage.makeStorageDirty();
     var wal = storage.getWALInstance();
@@ -1891,8 +1898,9 @@ public class RestoreLifecycleTest {
       var cache = (com.jetbrains.youtrackdb.internal.core.storage.cache.local.WOWCache) storage
           .getWriteCache();
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12006);
-      long id = cache.addFile(PageFileNames.layout28(identity),
-          cache.externalFileId(identity.internalId()));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+          WriteCache.RecoveryFilePermission.RESTORE));
       var path = databasesPath.resolve(SOURCE).resolve(PageFileNames.layout28DiskName(identity));
       StorageBirthTestSupport.detachRecoveryIdentity(cache, id);
       assertTrue(Files.exists(path));
@@ -1925,7 +1933,8 @@ public class RestoreLifecycleTest {
           .getWriteCache();
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 12007);
       var name = PageFileNames.layout28(identity);
-      long id = cache.addFile(name, cache.externalFileId(identity.internalId()));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, WriteCache.RecoveryFilePermission.RESTORE));
       var path = databasesPath.resolve(SOURCE).resolve(PageFileNames.layout28DiskName(identity));
       cache.pauseBackgroundFlush();
       var bytes = new byte[cache.pageSize()];

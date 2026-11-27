@@ -256,6 +256,9 @@ public class IndexHistogramIdentityTest {
     try (var session = open()) {
       var storage = session.getStorage();
       assertHistogram(storage, id);
+      var cache = storage.getWriteCache();
+      cache.flush(cache.fileIdByName(PageFileNames.layout28(
+          new PageFileIdentity(PageFileRole.HISTOGRAM, id))));
       assertTrue(Files.exists(diskFile));
       assertEquals(1, engine(storage).getHistogramManager().getStatistics().totalCount());
       session.execute("drop index Hist.value").close();
@@ -326,10 +329,20 @@ public class IndexHistogramIdentityTest {
         } else {
           cache.addFile("ie_9000.ixs");
         }
-        var unrelated = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9000);
-        cache.addFile(PageFileNames.layout28(unrelated), unrelated.internalId());
-        var other = new PageFileIdentity(PageFileRole.HISTOGRAM, 9001);
-        cache.addFile(PageFileNames.layout28(other), other.internalId());
+        for (var decoy : new PageFileIdentity[] {
+            new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9000),
+            new PageFileIdentity(PageFileRole.HISTOGRAM, 9001)
+        }) {
+          var name = PageFileNames.layout28(decoy);
+          if (cache instanceof WOWCache diskCache) {
+            assertTrue(cache.resolveRecoveryFile(name, cache.externalFileId(decoy.internalId()),
+                com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
+            assertTrue(Files.exists(diskCache.getRootDirectory().resolve(
+                PageFileNames.layout28DiskName(decoy))));
+          } else {
+            cache.addFile(name, decoy.internalId());
+          }
+        }
         assertFalse(storage.engineFilesPresent(9000));
         for (var role : PageFileRole.values()) {
           if (role.kind() != PageFileKind.INDEX_ENGINE) {
@@ -337,7 +350,14 @@ public class IndexHistogramIdentityTest {
           }
           var identity = new PageFileIdentity(role, 9000);
           var name = PageFileNames.layout28(identity);
-          long fileId = cache.addFile(name, identity.internalId());
+          final long fileId;
+          if (cache instanceof WOWCache) {
+            fileId = identity.internalId();
+            assertTrue(cache.resolveRecoveryFile(name, fileId,
+                com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
+          } else {
+            fileId = cache.addFile(name, identity.internalId());
+          }
           assertTrue("Single survivor: " + role, storage.engineFilesPresent(9000));
           storage.getReadCache().deleteFile(fileId, cache);
           assertFalse(storage.engineFilesPresent(9000));
@@ -358,13 +378,17 @@ public class IndexHistogramIdentityTest {
       var cache = (WOWCache) storage.getWriteCache();
       cache.pauseBackgroundFlush();
       var owner = data(storage).getFileBaseId();
+      assertHistogram(storage, owner);
+      cache.flush();
       for (var role : PageFileRole.values()) {
         if (role.kind() != PageFileKind.INDEX_ENGINE) {
           continue;
         }
         var identity = new PageFileIdentity(role, 9000);
         var name = PageFileNames.layout28(identity);
-        long fileId = cache.addFile(name, identity.internalId());
+        long fileId = cache.externalFileId(identity.internalId());
+        assertTrue(cache.resolveRecoveryFile(name, fileId,
+            com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
         var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
         var bytes = Files.readAllBytes(path);
         assertTrue(cache.physicalFileExists(fileId));

@@ -7,6 +7,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -15,10 +16,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.api.YourTracks;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.collection.closabledictionary.ClosableLinkedContainer;
 import com.jetbrains.youtrackdb.internal.common.directmemory.ByteBufferPool;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
@@ -30,28 +33,50 @@ import com.jetbrains.youtrackdb.internal.core.exception.WriteCacheException;
 import com.jetbrains.youtrackdb.internal.core.storage.ChecksumMode;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.chm.LockFreeReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLog;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.local.doublewritelog.DoubleWriteLogNoOP;
+import com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionStateV2;
 import com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.fs.File;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AtomicOperationIdGen;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.StorageBirthTestSupport;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileIdentity;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileRole;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.StorageFormat;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.MemoryWriteAheadLog;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.cas.CASDiskWriteAheadLog;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.io.FileUtils;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.function.ThrowingRunnable;
 
 public class WOWCacheLogicalFileStateTest {
@@ -222,6 +247,9 @@ public class WOWCacheLogicalFileStateTest {
           assertFalse(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.OPEN_ONLY));
           if (route == 0) {
             cache.addFile(name, id);
+            assertEquals(route, notifications.size());
+            assertPending(cache, identity, false);
+            storeAndFlushPage(cache, id, 123);
           } else {
             cache.resolveRecoveryFile(name, id, route == 1
                 ? RecoveryFilePermission.REPLAY_CREATE : RecoveryFilePermission.RESTORE);
@@ -277,6 +305,8 @@ public class WOWCacheLogicalFileStateTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9070);
       var name = PageFileNames.layout28(identity);
       long id = cache.addFile(name);
+      assertPending(cache, identity, false);
+      assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
       var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
       assertFalse(Files.exists(map));
       StorageBirthTestSupport.seedNameIdMap(cache, name, identity.internalId(),
@@ -298,7 +328,10 @@ public class WOWCacheLogicalFileStateTest {
         var created = new PageFileIdentity(PageFileRole.RECORD_DATA, 9072);
         var createdName = PageFileNames.layout28(created);
         assertEquals(cache.externalFileId(created.internalId()), cache.bookFileId(createdName));
-        cache.addFile(createdName);
+        long createdId = cache.addFile(createdName);
+        assertPending(cache, created, false);
+        assertTrue(
+            cache.resolveRecoveryFile(createdName, createdId, RecoveryFilePermission.RESTORE));
         assertLive(cache, created, false);
         assertTrue(Files.exists(cache.getRootDirectory()
             .resolve(PageFileNames.layout28DiskName(created))));
@@ -334,6 +367,82 @@ public class WOWCacheLogicalFileStateTest {
         }
       }
       Files.delete(map);
+    });
+  }
+
+  // Neither booking form may treat a dangling link as an absent layout 28 path.
+  @Test
+  public void layout28BookingRejectsDanglingLinkWithoutChangingIt() throws Exception {
+    withStandaloneCache(cache -> {
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9075);
+      final var name = PageFileNames.layout28(identity);
+      final var id = cache.externalFileId(identity.internalId());
+      final var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      final var target = Path.of("missing");
+      Files.createSymbolicLink(path, target);
+      try {
+        assertThrows(StorageException.class, () -> cache.bookFileId(name));
+        assertThrows(StorageException.class, () -> cache.bookFileId(name, id, false));
+        assertNull(cache.registeredFileId(name));
+        assertEquals(target, Files.readSymbolicLink(path));
+      } finally {
+        Files.delete(path);
+      }
+    });
+  }
+
+  // A link that appears after booking must be refused before constructing a file handle.
+  @Test
+  public void layout28RegistrationRejectsDanglingLinkBeforeConstructingHandle() throws Exception {
+    withStandaloneCache(cache -> {
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9076);
+      final var name = PageFileNames.layout28(identity);
+      final var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      final var target = Path.of("missing");
+      final var registeringCache = spy(cache);
+      final var id = registeringCache.bookFileId(name);
+      Files.createSymbolicLink(path, target);
+      try {
+        assertThrows(java.nio.file.FileAlreadyExistsException.class,
+            () -> registeringCache.addFile(name, id));
+        verify(registeringCache, never()).createFileHandle(name, identity.internalId());
+        assertEquals(target, Files.readSymbolicLink(path));
+        assertEquals(Integer.valueOf(-identity.internalId()), cache.registeredFileId(name));
+      } finally {
+        Files.delete(path);
+      }
+    });
+  }
+
+  @Test(timeout = 60_000)
+  public void layout28RegistrationPreservesAccessDeniedFromPathLookup() throws Exception {
+    withStandaloneCache(cache -> {
+      final var root = cache.getRootDirectory();
+      assumeTrue(Files.getFileAttributeView(root, PosixFileAttributeView.class) != null);
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9077);
+      final var name = PageFileNames.layout28(identity);
+      final var id = cache.bookFileId(name);
+      final var path = root.resolve(PageFileNames.layout28DiskName(identity));
+      final var original = Files.getPosixFilePermissions(root);
+      final var withoutSearch = new HashSet<>(original);
+      withoutSearch.removeAll(List.of(PosixFilePermission.OWNER_EXECUTE,
+          PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_EXECUTE));
+      Files.write(path, new byte[] {42});
+      try {
+        Files.setPosixFilePermissions(root, withoutSearch);
+        boolean denied = false;
+        try {
+          Files.readAttributes(path, BasicFileAttributes.class);
+        } catch (AccessDeniedException expected) {
+          denied = true;
+        }
+        assumeTrue("The test process must not bypass directory search permissions", denied);
+        assertThrows(AccessDeniedException.class, () -> cache.addFile(name, id));
+        assertNull(cache.logicalFiles().live(identity.internalId()));
+      } finally {
+        Files.setPosixFilePermissions(root, original);
+        Files.delete(path);
+      }
     });
   }
 
@@ -376,7 +485,7 @@ public class WOWCacheLogicalFileStateTest {
       assertReserved(cache, identity);
       cache.addFile(name);
       next.release().run();
-      assertLive(cache, identity, false);
+      assertPending(cache, identity, false);
     });
   }
 
@@ -580,6 +689,8 @@ public class WOWCacheLogicalFileStateTest {
         assertReserved(cache, identity);
         assertEquals(Integer.valueOf(-identity.internalId()), cache.registeredFileId(name));
         cache.addFile(name, id, true);
+        assertPending(cache, identity, true);
+        assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
         assertLive(cache, identity, true);
         assertEquals(id, cache.loadFile(name));
         assertLive(cache, identity, true);
@@ -597,7 +708,7 @@ public class WOWCacheLogicalFileStateTest {
         assertEquals(id, cache.bookFileId(name));
         assertReserved(cache, identity);
         cache.addFile(name);
-        assertLive(cache, identity, false);
+        assertPending(cache, identity, false);
 
         // A reservation does not authorize ordinary lookup to adopt an unknown disk file.
         var loadedName = PageFileNames.layout28(loaded);
@@ -640,7 +751,7 @@ public class WOWCacheLogicalFileStateTest {
         assertAbsent(cache, identity);
         assertAbsent(cache, loaded);
         cache.addFile(name, cache.externalFileId(identity.internalId()));
-        assertLive(cache, identity, false);
+        assertPending(cache, identity, false);
         var reserved = new PageFileIdentity(PageFileRole.RECORD_DATA, 9002);
         assertAbsent(cache, reserved);
         cache.deleteFile(cache.externalFileId(identity.internalId()));
@@ -659,7 +770,7 @@ public class WOWCacheLogicalFileStateTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9040);
       var name = PageFileNames.layout28(identity);
       var id = cache.externalFileId(identity.internalId());
-      cache.addFile(name, id);
+      assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
       var reserved = new PageFileIdentity(PageFileRole.RECORD_DATA, 9041);
       cache.bookFileId(PageFileNames.layout28(reserved),
           cache.externalFileId(reserved.internalId()), false);
@@ -756,8 +867,12 @@ public class WOWCacheLogicalFileStateTest {
         var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
         assertFalse(Files.exists(map));
         try (var ignored = StorageBirthTestSupport.poisonSessionMaps(cache)) {
-          long id = cache.addFile(PageFileNames.layout28(identity));
-          long kept = cache.addFile(PageFileNames.layout28(survivor));
+          long id = cache.externalFileId(identity.internalId());
+          long kept = cache.externalFileId(survivor.internalId());
+          assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+              RecoveryFilePermission.RESTORE));
+          assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(survivor), kept,
+              RecoveryFilePermission.RESTORE));
           assertTrue(Files.exists(disk));
           var handlesField = WOWCache.class.getDeclaredField("files");
           handlesField.setAccessible(true);
@@ -814,7 +929,9 @@ public class WOWCacheLogicalFileStateTest {
   public void physicalDeletionFailurePropagatesWithoutLogicalDeletion() throws Exception {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9083);
-      long id = cache.addFile(PageFileNames.layout28(identity));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+          RecoveryFilePermission.RESTORE));
       var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
       var field = WOWCache.class.getDeclaredField("files");
       field.setAccessible(true);
@@ -866,7 +983,9 @@ public class WOWCacheLogicalFileStateTest {
   public void missingPhysicalFileIsDeletedLogically() throws Exception {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9085);
-      long id = cache.addFile(PageFileNames.layout28(identity));
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+          RecoveryFilePermission.RESTORE));
       var disk = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
       Files.delete(disk);
       cache.deleteFile(id);
@@ -883,7 +1002,8 @@ public class WOWCacheLogicalFileStateTest {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9086);
       var name = PageFileNames.layout28(identity);
-      long id = cache.addFile(name);
+      long id = cache.externalFileId(identity.internalId());
+      assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
       StorageBirthTestSupport.seedNameIdMap(cache, name, identity.internalId(),
           PageFileNames.layout28DiskName(identity));
       var map = cache.getRootDirectory().resolve("name_id_map_v3.cm");
@@ -931,7 +1051,8 @@ public class WOWCacheLogicalFileStateTest {
       for (int component = 9050; component < 9052; component++) {
         var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, component);
         long id = cache.externalFileId(identity.internalId());
-        cache.addFile(PageFileNames.layout28(identity), id);
+        assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+            RecoveryFilePermission.RESTORE));
         var handle = org.mockito.Mockito.spy(handles.remove(id));
         handles.add(id, handle);
         observed.add(handle);
@@ -986,7 +1107,8 @@ public class WOWCacheLogicalFileStateTest {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9053);
       long id = cache.externalFileId(identity.internalId());
-      cache.addFile(PageFileNames.layout28(identity), id);
+      assertTrue(cache.resolveRecoveryFile(PageFileNames.layout28(identity), id,
+          RecoveryFilePermission.RESTORE));
       for (var fieldName : List.of("nameIdMap", "idNameMap")) {
         var field = WOWCache.class.getDeclaredField(fieldName);
         field.setAccessible(true);
@@ -1026,6 +1148,7 @@ public class WOWCacheLogicalFileStateTest {
         try {
           storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
             op.addFile(name, id, false, false);
+            initStatePage(op, id, 42);
             assertTrue(op.isFileExists(name, id));
             assertEquals(before, cache.files());
             assertFalse(cache.exists(name));
@@ -1046,6 +1169,579 @@ public class WOWCacheLogicalFileStateTest {
     }
   }
 
+  // The commit returns with both lifetimes pending while the commitExecutor() thread is held.
+  @Category(SequentialTest.class)
+  @Test(timeout = 90_000)
+  public void layout28RealCommitDoesNotWaitAndFirstWriteMaterializesEachDurability()
+      throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      final var cache = (WOWCache) storage.getWriteCache();
+      final var durable = new PageFileIdentity(PageFileRole.RECORD_DATA, 9060);
+      final var nonDurable = new PageFileIdentity(PageFileRole.RECORD_DATA, 9061);
+      final var identities = List.of(durable, nonDurable);
+      final var count = new java.util.concurrent.atomic.AtomicInteger();
+      final var executor = (ScheduledThreadPoolExecutor) YouTrackDBEnginesManager.instance()
+          .getWowCacheFlushExecutor();
+      final var entered = new CountDownLatch(1);
+      final var release = new CountDownLatch(1);
+      final var worker = Executors.newSingleThreadExecutor();
+      try (var observation = cache.observePhysicalCreation(internalId -> {
+        if (internalId == durable.internalId() || internalId == nonDurable.internalId()) {
+          count.incrementAndGet();
+        }
+      })) {
+        worker.submit(cache::pauseBackgroundFlush).get(10, TimeUnit.SECONDS);
+        executor.submit(() -> {
+        }).get(10, TimeUnit.SECONDS);
+        final var trackerField = WOWCache.class.getDeclaredField("changedPageTracker");
+        trackerField.setAccessible(true);
+        final var tracker = (ChangedPageTracker) trackerField.get(cache);
+        tracker.mark(durable.internalId(), 7);
+        assertTrue(trackedPages(tracker, durable.internalId()).contains(7L));
+        final var wal = storage.getWALInstance();
+        final var beforeCommit = wal.end();
+        final var gate = executor.submit(() -> {
+          entered.countDown();
+          assertTrue(release.await(20, TimeUnit.SECONDS));
+          return null;
+        });
+        final LogSequenceNumber afterCommit;
+        try {
+          assertTrue(entered.await(10, TimeUnit.SECONDS));
+          final long submissionsBefore = executor.getTaskCount();
+          afterCommit = worker.submit(() -> {
+            storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+              for (var identity : identities) {
+                long id = op.addFile(PageFileNames.layout28(identity), identity.equals(nonDurable));
+                initStatePage(op, id, identity.componentId());
+              }
+            });
+            return wal.end();
+          }).get(10, TimeUnit.SECONDS);
+          assertEquals("Commit must not submit work to the commitExecutor() thread",
+              submissionsBefore, executor.getTaskCount());
+          assertFalse("Registration must reset the prior lifetime's tracker marks",
+              trackedPages(tracker, durable.internalId()).contains(7L));
+          tracker.mark(durable.internalId(), 8);
+          assertNotNull(afterCommit);
+          assertEquals("Registration must retain the committing unit's end LSN", afterCommit,
+              cache.logicalFiles().live(durable.internalId()).creationLsn());
+          for (var identity : identities) {
+            var name = PageFileNames.layout28(identity);
+            long id = cache.externalFileId(identity.internalId());
+            assertEquals(id, cache.loadFile(name));
+            assertEquals(name, cache.fileNameById(id));
+            var state = cache.logicalFiles().live(identity.internalId());
+            assertEquals(identity.equals(nonDurable), state.nonDurable());
+            assertEquals(1, state.logicalExtent());
+            assertEquals(0, state.diskExtent());
+            assertFalse(state.diskPresent());
+            assertFalse(Files.exists(cache.getRootDirectory().resolve(
+                PageFileNames.layout28DiskName(identity))));
+          }
+          assertEquals(0, count.get());
+        } finally {
+          release.countDown();
+          gate.get(10, TimeUnit.SECONDS);
+        }
+
+        // Match the end record to the unit that logged this file's creation.
+        final var endLsn = worker.submit(() -> {
+          wal.flush();
+          final var records = wal.next(beforeCommit, 32);
+          final var creation = records.stream().filter(FileCreatedWALRecord.class::isInstance)
+              .map(FileCreatedWALRecord.class::cast)
+              .filter(record -> record.getFileName().equals(PageFileNames.layout28(durable)))
+              .findFirst().orElseThrow();
+          return records.stream().filter(AtomicUnitEndRecord.class::isInstance)
+              .map(AtomicUnitEndRecord.class::cast)
+              .filter(record -> record.getOperationUnitId() == creation.getOperationUnitId())
+              .findFirst().orElseThrow().getLsn();
+        }).get(10, TimeUnit.SECONDS);
+        assertEquals(endLsn, afterCommit);
+
+        for (var identity : identities) {
+          long id = cache.externalFileId(identity.internalId());
+          worker.submit(() -> cache.flush(id)).get(10, TimeUnit.SECONDS);
+          var state = cache.logicalFiles().live(identity.internalId());
+          assertTrue(state.diskPresent());
+          assertEquals(1, state.diskExtent());
+          var image = Files.readAllBytes(cache.getRootDirectory().resolve(
+              PageFileNames.layout28DiskName(identity)));
+          assertEquals(File.HEADER_SIZE + cache.pageSize(), image.length);
+          assertArrayEquals(new byte[File.HEADER_SIZE], java.util.Arrays.copyOf(image,
+              File.HEADER_SIZE));
+          // The state page stores its file size after two reserved integers.
+          final int payloadOffset =
+              com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION
+                  + 2 * Integer.BYTES;
+          assertEquals(identity.componentId(), java.nio.ByteBuffer.wrap(image)
+              .order(java.nio.ByteOrder.nativeOrder()).getInt(File.HEADER_SIZE + payloadOffset));
+        }
+        assertEquals(2, count.get());
+        assertTrue("First write must preserve tracker marks from the current lifetime",
+            trackedPages(tracker, durable.internalId()).contains(8L));
+      } finally {
+        try {
+          worker.shutdownNow();
+          assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+          executor.submit(() -> {
+          }).get(10, TimeUnit.SECONDS);
+        } finally {
+          cache.resumeBackgroundFlush();
+        }
+      }
+    });
+  }
+
+  private static List<Long> trackedPages(ChangedPageTracker tracker, int id) throws IOException {
+    final var seal = tracker.beginBackup();
+    assertNotNull(seal);
+    try {
+      final var result = new ArrayList<Long>();
+      final var bitmap = tracker.candidateBitmap(seal, id);
+      if (bitmap != null) {
+        bitmap.forEachCandidate(9, result::add);
+      }
+      return result;
+    } finally {
+      tracker.mergeBack(seal);
+    }
+  }
+
+  @Test
+  public void layout28RollbackKeepsOnlyTheBookingItDidNotOwn() throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      var cache = (WOWCache) storage.getWriteCache();
+      var owner = new PageFileIdentity(PageFileRole.RECORD_DATA, 9065);
+      var foreign = new PageFileIdentity(PageFileRole.FREE_SPACE_MAP, 9066);
+      var ownedName = PageFileNames.layout28(owner);
+      var borrowedName = PageFileNames.layout28(foreign);
+      long borrowedId = cache.externalFileId(foreign.internalId());
+      var registry = cache.getRootDirectory().resolve("non_durable_files.cm");
+      var lockField = AbstractStorage.class.getDeclaredField("stateLock");
+      lockField.setAccessible(true);
+      var lock = (com.jetbrains.youtrackdb.internal.common.concur.lock.ScalableRWLock) lockField
+          .get(storage);
+      cache.pauseBackgroundFlush();
+      lock.writeLock().lock();
+      try {
+        var foreignBooking = cache.bookFileIdWithOwnership(borrowedName, borrowedId, false);
+        byte[] before = Files.exists(registry) ? Files.readAllBytes(registry) : null;
+        try {
+          storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+            initStatePage(op, op.addFile(ownedName, true), 1);
+            assertEquals(borrowedId, op.addFile(borrowedName, borrowedId, true, true));
+            initStatePage(op, borrowedId, 2);
+            op.rollbackInProgress();
+          });
+          assertAbsent(cache, owner);
+          assertReserved(cache, foreign);
+          for (var identity : List.of(owner, foreign)) {
+            assertFalse(cache.isNonDurable(cache.externalFileId(identity.internalId())));
+            assertFalse(Files.exists(cache.getRootDirectory().resolve(
+                PageFileNames.layout28DiskName(identity))));
+          }
+          assertArrayEquals(before, Files.exists(registry) ? Files.readAllBytes(registry) : null);
+        } finally {
+          foreignBooking.release().run();
+        }
+      } finally {
+        lock.writeLock().unlock();
+        cache.resumeBackgroundFlush();
+      }
+    });
+  }
+
+  @Test(timeout = 60_000)
+  public void layout28LateDanglingLinkRefusalReachesRealChangedPageCommit() throws Exception {
+    withStandaloneAtomicOperations((cache, manager) -> {
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9069);
+      final var name = PageFileNames.layout28(identity);
+      final var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      final var target = Path.of("missing");
+      try {
+        assertThrows(java.nio.file.FileAlreadyExistsException.class,
+            () -> manager.executeInsideAtomicOperation(op -> {
+              initStatePage(op, op.addFile(name, false), 42);
+              Files.createSymbolicLink(path, target);
+            }));
+        assertEquals(target, Files.readSymbolicLink(path));
+        assertNull(cache.logicalFiles().live(identity.internalId()));
+      } finally {
+        Files.deleteIfExists(path);
+      }
+    });
+  }
+
+  @Test
+  public void layout28RegistryFailureReachesRealCommitWithoutPublishingFile() throws Exception {
+    withStandaloneAtomicOperations((cache, manager) -> {
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9068);
+      var name = PageFileNames.layout28(identity);
+      long id = cache.externalFileId(identity.internalId());
+      var registry = cache.getRootDirectory().resolve("non_durable_files.cm");
+      var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      var saved = WOWCache.class.getDeclaredField("savedNonDurableFileIds");
+      saved.setAccessible(true);
+      assertFalse(((IntSet) saved.get(cache)).contains(identity.internalId()));
+      Files.createDirectory(registry);
+      try {
+        var failure = assertThrows(IOException.class, () -> manager
+            .executeInsideAtomicOperation(op -> initStatePage(op, op.addFile(name, true), 42)));
+        assertTrue(failure.getMessage(), failure.getMessage().contains(registry.toString()));
+        assertNull(cache.logicalFiles().live(identity.internalId()));
+        assertFalse(cache.isNonDurable(id));
+        assertFalse(((IntSet) saved.get(cache)).contains(identity.internalId()));
+        assertFalse(Files.exists(path));
+      } finally {
+        Files.delete(registry);
+      }
+    });
+  }
+
+  @FunctionalInterface
+  private interface AtomicCacheAction {
+    void run(WOWCache cache, AtomicOperationsManager manager) throws Exception;
+  }
+
+  private void withStandaloneAtomicOperations(AtomicCacheAction action) throws Exception {
+    YouTrackDBEnginesManager.startUp(false);
+    var root = Path.of(DbTestBase.getBaseDirectoryPathStr(getClass()) + "-failed-commit");
+    Files.createDirectories(root);
+    var pool = new ByteBufferPool(4096);
+    var io = Executors.newCachedThreadPool();
+    var wal = new MemoryWriteAheadLog();
+    try {
+      var cache = new WOWCache(4096, false, pool, wal, new DoubleWriteLogNoOP(),
+          0, 10000, 128L * 4096, root, "logical", new ClosableLinkedContainer<>(128),
+          1, ContextConfiguration.DOUBLE_WRITE_LOG_DEFAULT_NAME,
+          ChecksumMode.StoreAndVerify, null, null, false, io);
+      var readCache = new LockFreeReadCache(pool, 64L * 1024 * 1024, 4096);
+      // Delete the caches directly. A storage close would hit the checkpoint failure in YTDB-1389.
+      try (AutoCloseable ignored = () -> readCache.deleteStorage(cache)) {
+        cache.setStorageFormat(StorageFormat.LAYOUT_28);
+        cache.loadRegisteredFiles();
+        cache.pauseBackgroundFlush();
+        var storage = mock(AbstractStorage.class);
+        when(storage.getName()).thenReturn("logical");
+        when(storage.getId()).thenReturn(1);
+        when(storage.getIdGen()).thenReturn(new AtomicOperationIdGen());
+        when(storage.getWALInstance()).thenReturn(wal);
+        when(storage.getReadCache()).thenReturn(readCache);
+        when(storage.getWriteCache()).thenReturn(cache);
+        when(storage.getSharedSnapshotIndex()).thenReturn(new ConcurrentSkipListMap<>());
+        when(storage.getVisibilityIndex()).thenReturn(new ConcurrentSkipListMap<>());
+        when(storage.getSnapshotIndexSize()).thenReturn(new AtomicLong());
+        when(storage.getSharedEdgeSnapshotIndex()).thenReturn(new ConcurrentSkipListMap<>());
+        when(storage.getEdgeVisibilityIndex()).thenReturn(new ConcurrentSkipListMap<>());
+        when(storage.getEdgeSnapshotIndexSize()).thenReturn(new AtomicLong());
+        var manager = new AtomicOperationsManager(storage, new AtomicOperationsTable(100, 0));
+        action.run(cache, manager);
+      }
+    } finally {
+      io.shutdownNow();
+      assertTrue(io.awaitTermination(10, TimeUnit.SECONDS));
+      pool.clear();
+      FileUtils.deleteDirectory(root.toFile());
+    }
+  }
+
+  @Test(timeout = 60_000)
+  public void layout28IntegrityCheckMaterializesAndVerifiesPendingRealCommit() throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      final var cache = (WOWCache) storage.getWriteCache();
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9070);
+      final var name = PageFileNames.layout28(identity);
+      final var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      final var worker = Executors.newSingleThreadExecutor();
+      try {
+        worker.submit(cache::pauseBackgroundFlush).get(10, TimeUnit.SECONDS);
+        storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+            op -> initStatePage(op, op.addFile(name, false), 42));
+        assertFalse(Files.exists(path));
+        final var output = new StringBuilder();
+        final var errors = worker.submit(() -> cache.checkStoredPages(output::append))
+            .get(10, TimeUnit.SECONDS);
+        assertEquals(0, errors.length);
+        assertTrue(output.toString(), output.toString().contains(
+            "Verification of file '" + name + "' is successfully finished."));
+        assertTrue(Files.exists(path));
+        final int payloadOffset =
+            com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage.NEXT_FREE_POSITION
+                + 2 * Integer.BYTES;
+        assertEquals(42, java.nio.ByteBuffer.wrap(Files.readAllBytes(path))
+            .order(java.nio.ByteOrder.nativeOrder()).getInt(File.HEADER_SIZE + payloadOffset));
+      } finally {
+        try {
+          worker.shutdownNow();
+          assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        } finally {
+          cache.resumeBackgroundFlush();
+        }
+      }
+    });
+  }
+
+  @Test
+  public void layout28PendingPageReadWriteShrinkAndCloseWithFlush() throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      var cache = (WOWCache) storage.getWriteCache();
+      var operations = storage.getAtomicOperationsManager();
+      var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9067);
+      var name = PageFileNames.layout28(identity);
+      var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(identity));
+      cache.pauseBackgroundFlush();
+      try {
+        long id = operations.calculateInsideAtomicOperation(op -> {
+          long added = op.addFile(name, false);
+          initStatePage(op, added, 42);
+          var tail = op.allocatePageForWrite(added, 1);
+          try {
+            new PaginatedCollectionStateV2(tail).setFileSize(99);
+          } finally {
+            op.releasePageFromWrite(tail);
+          }
+          return added;
+        });
+        assertEquals(2, cache.getFilledUpTo(id));
+        assertEquals(0, cache.logicalFiles().live(identity.internalId()).diskExtent());
+        assertFalse(Files.exists(path));
+        operations.executeInsideAtomicOperation(op -> {
+          var page = op.loadPageForWrite(id, 0, 1, true);
+          try {
+            var data = new PaginatedCollectionStateV2(page);
+            assertEquals(42, data.getFileSize());
+            data.setFileSize(43);
+          } finally {
+            op.releasePageFromWrite(page);
+          }
+        });
+        storage.getReadCache().shrinkFile(id, cache.pageSize(), cache);
+        assertEquals(1, cache.getFilledUpTo(id));
+        assertFalse(Files.exists(path));
+        storage.getReadCache().closeFile(id, true, cache);
+        assertTrue(cache.exists(id));
+        assertEquals(File.HEADER_SIZE + cache.pageSize(), Files.size(path));
+        assertEquals(0, cache.checkStoredPages(null).length);
+        var marker = operations.calculateInsideAtomicOperation(op -> {
+          var page = op.loadPageForRead(id, 0);
+          try {
+            return new PaginatedCollectionStateV2(page).getFileSize();
+          } finally {
+            op.releasePageFromRead(page);
+          }
+        });
+        assertEquals(43, marker.intValue());
+      } finally {
+        cache.resumeBackgroundFlush();
+      }
+    });
+  }
+
+  @Test
+  public void layout28BirthWritesItsFilesAndClosePersistsPendingCollectionContent()
+      throws Exception {
+    var root = Path.of(DbTestBase.getBaseDirectoryPathStr(getClass()) + "-deferred-close");
+    var birthFiles = new HashSet<Path>();
+    WOWCache closeCache = null;
+    WOWCache dropCache = null;
+    try {
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root.toString())) {
+        var birthCache = new java.util.concurrent.atomic.AtomicReference<WOWCache>();
+        try (var selection = StorageBirthTestSupport.selectBirthFormat(
+            manager, "logical", StorageFormat.LAYOUT_28);
+            var observation = StorageBirthTestSupport.observeBirthCompletion(storage -> {
+              var cache = (WOWCache) storage.getWriteCache();
+              birthCache.set(cache);
+              cache.pauseBackgroundFlush();
+              for (var id : cache.files().values()) {
+                birthFiles.add(cache.getRootDirectory().resolve(cache.nativeFileNameById(id)));
+              }
+            }, storage -> {
+            })) {
+          manager.create("logical", DatabaseType.DISK, "admin", "adminpwd", "admin");
+          assertFalse(birthFiles.isEmpty());
+          for (var birthFile : birthFiles) {
+            assertTrue(birthFile.toString(), Files.isRegularFile(birthFile));
+          }
+        } finally {
+          if (birthCache.get() != null) {
+            birthCache.get().resumeBackgroundFlush();
+          }
+        }
+        try (var session = (DatabaseSessionEmbedded) manager.open("logical", "admin", "adminpwd")) {
+          var cache = (WOWCache) session.getStorage().getWriteCache();
+          closeCache = cache;
+          cache.pauseBackgroundFlush();
+          int dropped = session.addCollection("pendingdrop");
+          var pending = collectionPageFile(session, dropped);
+          var path = cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(pending));
+          assertTrue(cache.exists(PageFileNames.layout28(pending)));
+          assertFalse(Files.exists(path));
+          assertTrue(session.dropCollection(dropped));
+          assertFalse(cache.exists(PageFileNames.layout28(pending)));
+          assertFalse(Files.exists(path));
+
+          session.execute("create class DeferredMarker").close();
+          session.begin();
+          session.execute("insert into DeferredMarker set marker = 'written on clean close'")
+              .close();
+          session.commit();
+          int id = session.getMetadata().getSchema().getClass("DeferredMarker")
+              .getCollectionIds()[0];
+          var retained = collectionPageFile(session, id);
+          assertTrue(cache.exists(PageFileNames.layout28(retained)));
+          assertFalse(Files.exists(cache.getRootDirectory().resolve(
+              PageFileNames.layout28DiskName(retained))));
+        }
+      }
+      try (var manager = (YouTrackDBImpl) YourTracks.instance(root.toString())) {
+        PageFileIdentity dropFile;
+        try (var session = (DatabaseSessionEmbedded) manager.open("logical", "admin", "adminpwd")) {
+          try (var rows = session.query("select from DeferredMarker")) {
+            assertTrue(rows.hasNext());
+            assertEquals("written on clean close", rows.next().getProperty("marker"));
+            assertFalse(rows.hasNext());
+          }
+          dropCache = (WOWCache) session.getStorage().getWriteCache();
+          dropCache.pauseBackgroundFlush();
+          dropFile = collectionPageFile(session, session.addCollection("pendingdatabasedrop"));
+        }
+        assertTrue(dropCache.exists(PageFileNames.layout28(dropFile)));
+        assertFalse(Files.exists(dropCache.getRootDirectory().resolve(
+            PageFileNames.layout28DiskName(dropFile))));
+        manager.drop("logical");
+        assertFalse(Files.exists(root.resolve("logical")));
+      }
+    } finally {
+      if (closeCache != null) {
+        closeCache.resumeBackgroundFlush();
+      }
+      if (dropCache != null) {
+        dropCache.resumeBackgroundFlush();
+      }
+      FileUtils.deleteDirectory(root.toFile());
+    }
+  }
+
+  private static PageFileIdentity collectionPageFile(DatabaseSessionEmbedded session, int id) {
+    var collection =
+        (com.jetbrains.youtrackdb.internal.core.storage.collection.v2.PaginatedCollectionV2) session
+            .getStorage().getCollectionInstances().stream()
+            .filter(candidate -> candidate.getId() == id).findFirst().orElseThrow();
+    return new PageFileIdentity(PageFileRole.RECORD_DATA,
+        collection.generateCollectionConfig().getComponentId());
+  }
+
+  @Test
+  public void layout28CommitRejectsAllocationWithoutChangesAndAllowsCheckpoint() throws Exception {
+    assertLayout28EmptyFileRollsBack(false);
+  }
+
+  @Test
+  public void layout28CommitRejectsEmptyFileEvenWhenSiblingChangesAndAllowsCheckpoint()
+      throws Exception {
+    assertLayout28EmptyFileRollsBack(true);
+  }
+
+  private void assertLayout28EmptyFileRollsBack(boolean changedSibling) throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      final var cache = (WOWCache) storage.getWriteCache();
+      cache.pauseBackgroundFlush();
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9081);
+      final var sibling = new PageFileIdentity(PageFileRole.RECORD_DATA, 9082);
+      final var name = PageFileNames.layout28(identity);
+      final var siblingName = PageFileNames.layout28(sibling);
+      final var failure = assertThrows(StorageException.class,
+          () -> storage.getAtomicOperationsManager().executeInsideAtomicOperation(op -> {
+            final var id = op.addFile(name, false);
+            op.releasePageFromWrite(op.allocatePageForWrite(id, 0));
+            if (changedSibling) {
+              initStatePage(op, op.addFile(siblingName, false), 0);
+            }
+          }));
+      assertTrue(failure.getMessage(), failure.getMessage().contains(name));
+      assertNull(cache.registeredFileId(name));
+      assertNull(cache.registeredFileId(siblingName));
+      assertTrue(Files.notExists(cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(
+          identity)), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+      assertTrue(Files.notExists(cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(
+          sibling)), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+      assertNoInProgressOperationAndCheckpoint(storage);
+    });
+  }
+
+  @Test
+  public void layout28CommitAllowsCancelledEmptyAddAndThenCheckpoints() throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28, storage -> {
+      final var cache = (WOWCache) storage.getWriteCache();
+      cache.pauseBackgroundFlush();
+      final var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9081);
+      final var name = PageFileNames.layout28(identity);
+      storage.getAtomicOperationsManager()
+          .executeInsideAtomicOperation(op -> op.deleteFile(op.addFile(name, false)));
+      assertNull(cache.registeredFileId(name));
+      assertTrue(Files.notExists(cache.getRootDirectory().resolve(PageFileNames.layout28DiskName(
+          identity)), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+      assertNoInProgressOperationAndCheckpoint(storage);
+    });
+  }
+
+  @Test
+  public void layout27AndMemoryStillCommitEmptyFiles() throws Exception {
+    assertEmptyFileCommits(DatabaseType.DISK, StorageFormat.LAYOUT_27);
+    assertEmptyFileCommits(DatabaseType.MEMORY, StorageFormat.LAYOUT_28);
+  }
+
+  private void assertEmptyFileCommits(DatabaseType engine, StorageFormat format)
+      throws Exception {
+    withStorage(engine, format, storage -> {
+      final var cache = storage.getWriteCache();
+      final var name = "empty.pcl";
+      final var id = storage.getAtomicOperationsManager()
+          .calculateInsideAtomicOperation(op -> op.addFile(name, false));
+      final var registered = cache.fileIdByName(name);
+      assertTrue(cache.exists(name));
+      assertEquals(cache.internalFileId(id), cache.internalFileId(registered));
+      if (cache instanceof WOWCache disk) {
+        assertTrue(Files.exists(disk.getRootDirectory().resolve(disk.nativeFileNameById(id))));
+      }
+      assertNoInProgressOperationAndCheckpoint(storage);
+    });
+  }
+
+  private static void storeAndFlushPage(WOWCache cache, long id, long marker) throws IOException {
+    var page = cache.loadOrAdd(id, 0, false);
+    var stamp = page.acquireExclusiveLock();
+    try {
+      page.getBuffer().putLong(64, marker);
+      cache.store(id, 0, page);
+    } finally {
+      page.releaseExclusiveLock(stamp);
+      page.decrementReadersReferrer();
+    }
+    cache.flush(id);
+  }
+
+  private static void initStatePage(AtomicOperation op, long id, int size) throws IOException {
+    final var page = op.allocatePageForWrite(id, 0);
+    try {
+      new PaginatedCollectionStateV2(page).setFileSize(size);
+    } finally {
+      op.releasePageFromWrite(page);
+    }
+  }
+
+  private static void assertNoInProgressOperationAndCheckpoint(AbstractStorage storage)
+      throws ReflectiveOperationException {
+    final var field = AbstractStorage.class.getDeclaredField("atomicOperationsTable");
+    field.setAccessible(true);
+    final var table = (AtomicOperationsTable) field.get(storage);
+    assertEquals(-1, table.getSegmentEarliestOperationInProgress());
+    storage.synch();
+  }
+
   // A handle cannot override an explicit disk-absent logical state during force or verification.
   @Test
   public void diskAbsentLogicalStateWithHandleIsNotForcedOrVerified() throws Exception {
@@ -1053,7 +1749,7 @@ public class WOWCacheLogicalFileStateTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9062);
       var name = PageFileNames.layout28(identity);
       long id = cache.externalFileId(identity.internalId());
-      cache.addFile(name, id);
+      assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
       var field = WOWCache.class.getDeclaredField("files");
       field.setAccessible(true);
       @SuppressWarnings("unchecked")
@@ -1192,7 +1888,7 @@ public class WOWCacheLogicalFileStateTest {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9063);
       var name = PageFileNames.layout28(identity);
       long id = cache.externalFileId(identity.internalId());
-      cache.addFile(name, id);
+      assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
       var field = WOWCache.class.getDeclaredField("files");
       field.setAccessible(true);
       @SuppressWarnings("unchecked")
@@ -1268,12 +1964,12 @@ public class WOWCacheLogicalFileStateTest {
           pathField.set(cache, originalPath);
         }
         assertTrue(cache.isNonDurable(id));
-        assertLive(cache, identity, true);
+        assertPending(cache, identity, true);
         assertFalse(cache.logicalFiles().reserved(identity.internalId()));
         cache.deleteFile(id);
         cache.addFile(name, id, true);
         assertTrue(cache.isNonDurable(id));
-        assertLive(cache, identity, true);
+        assertPending(cache, identity, true);
       }
     } finally {
       manager.close();
@@ -1300,6 +1996,8 @@ public class WOWCacheLogicalFileStateTest {
             var name = PageFileNames.layout28(identity);
             var id = cache.externalFileId(identity.internalId());
             cache.addFile(name, id, identity.equals(nonDurable));
+            assertPending(cache, identity, identity.equals(nonDurable));
+            assertTrue(cache.resolveRecoveryFile(name, id, RecoveryFilePermission.RESTORE));
             assertLive(cache, identity, identity.equals(nonDurable));
           }
         }
@@ -1360,7 +2058,8 @@ public class WOWCacheLogicalFileStateTest {
     withStandaloneCache(cache -> {
       var identity = new PageFileIdentity(PageFileRole.RECORD_DATA, 9022);
       var name = PageFileNames.layout28(identity);
-      cache.addFile(name, cache.externalFileId(identity.internalId()));
+      assertTrue(cache.resolveRecoveryFile(name, cache.externalFileId(identity.internalId()),
+          RecoveryFilePermission.RESTORE));
       assertLive(cache, identity, false);
       cache.close();
       assertTrue(snapshot(cache.logicalFiles(), "states").isEmpty());
@@ -1460,15 +2159,25 @@ public class WOWCacheLogicalFileStateTest {
     void run(WOWCache cache) throws Exception;
   }
 
+  @FunctionalInterface
+  private interface StorageAction {
+    void run(AbstractStorage storage) throws Exception;
+  }
+
   private void withCache(CacheAction action) throws Exception {
+    withStorage(DatabaseType.DISK, StorageFormat.LAYOUT_28,
+        storage -> action.run((WOWCache) storage.getWriteCache()));
+  }
+
+  private void withStorage(DatabaseType engine, StorageFormat format, StorageAction action)
+      throws Exception {
     var directory = DbTestBase.getBaseDirectoryPathStr(getClass()) + "-registration";
     try (var manager = (YouTrackDBImpl) YourTracks.instance(directory)) {
-      try (var selection = StorageBirthTestSupport.selectBirthFormat(
-          manager, "logical", StorageFormat.LAYOUT_28)) {
-        manager.create("logical", DatabaseType.DISK, "admin", "adminpwd", "admin");
+      try (var selection = StorageBirthTestSupport.selectBirthFormat(manager, "logical", format)) {
+        manager.create("logical", engine, "admin", "adminpwd", "admin");
       }
       try (var session = (DatabaseSessionEmbedded) manager.open("logical", "admin", "adminpwd")) {
-        action.run((WOWCache) session.getStorage().getWriteCache());
+        action.run(session.getStorage());
       }
     } finally {
       FileUtils.deleteDirectory(Path.of(directory).toFile());
@@ -1569,14 +2278,24 @@ public class WOWCacheLogicalFileStateTest {
     assertTrue(cache.logicalFiles().reserved(identity.internalId()));
   }
 
+  private static void assertPending(WOWCache cache, PageFileIdentity identity,
+      boolean nonDurable) {
+    assertLive(cache, identity, nonDurable, false);
+  }
+
   private static void assertLive(WOWCache cache, PageFileIdentity identity, boolean nonDurable) {
+    assertLive(cache, identity, nonDurable, true);
+  }
+
+  private static void assertLive(WOWCache cache, PageFileIdentity identity, boolean nonDurable,
+      boolean diskPresent) {
     assertOracle(cache);
     assertFalse(cache.logicalFiles().reserved(identity.internalId()));
     assertFalse(cache.logicalFiles().deleted(identity.internalId()));
     var state = cache.logicalFiles().live(PageFileNames.layout28(identity), identity.internalId());
     assertNotNull(state);
     assertEquals(identity, state.identity());
-    assertTrue(state.diskPresent());
+    assertEquals(diskPresent, state.diskPresent());
     assertEquals(nonDurable, state.nonDurable());
     assertEquals(0, state.logicalExtent());
     assertEquals(0, state.diskExtent());

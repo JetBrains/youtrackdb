@@ -997,7 +997,8 @@ public class CollectionNameIndexTest {
                 com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.PageFileNames
                     .layout28(extra);
             long extraId = targetCache.externalFileId(extra.internalId());
-            targetCache.addFile(extraName, extraId);
+            assertTrue(targetCache.resolveRecoveryFile(extraName, extraId,
+                com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache.RecoveryFilePermission.RESTORE));
             var extraPath =
                 ((com.jetbrains.youtrackdb.internal.core.storage.disk.DiskStorage) target.storage())
                     .getStoragePath().resolve(targetCache.nativeFileNameById(extraId));
