@@ -1832,4 +1832,611 @@ public class PaginatedCollectionV2OptimisticReadTest {
     Assert.assertNotNull(buf);
     Assertions.assertThat(buf.buffer()).isEqualTo(data);
   }
+
+  // --- Root knowledge of nested operations and of file lifecycle changes ---
+
+  private AtomicOperation startOperation() throws IOException {
+    var operation = atomicOps().startAtomicOperation();
+    atomicOps().startToApplyOperations(operation);
+    return operation;
+  }
+
+  private void endOperation(AtomicOperation operation, boolean commit) throws IOException {
+    if (!commit) {
+      operation.rollbackInProgress();
+    }
+    atomicOps().endAtomicOperation(operation, null);
+  }
+
+  private Object rootViews() {
+    try {
+      var field = PaginatedCollectionV2.class.getDeclaredField("rootViews");
+      field.setAccessible(true);
+      return field.get(collection);
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError(e);
+    }
+  }
+
+  /**
+   * Two distinct operations on one thread reserve position 0 in the pageless collection.
+   * The inner operation ends first. A lookup in the outer operation then sees four local
+   * roots. Neither operation may publish root presence.
+   */
+  private void reserveInNestedOperations(boolean commitInner, boolean commitOuter)
+      throws IOException {
+    var outer = startOperation();
+    try {
+      Assert.assertEquals(0, collection.allocatePosition((byte) 2, outer).collectionPosition);
+      var inner = startOperation();
+      try {
+        Assert.assertEquals(0, collection.allocatePosition((byte) 2, inner).collectionPosition);
+      } finally {
+        endOperation(inner, commitInner);
+      }
+      Assert.assertFalse("Inner operation published root presence", rootsPresent());
+      Assert.assertEquals(PaginatedCollection.RECORD_STATUS.ALLOCATED,
+          collection.getRecordStatus(0, outer));
+      Assert.assertFalse("Outer lookup published uncommitted root presence", rootsPresent());
+    } finally {
+      endOperation(outer, commitOuter);
+    }
+    Assert.assertFalse(rootsPresent());
+  }
+
+  /**
+   * Nested writers on one thread never publish root presence, for every commit and rollback
+   * combination. After both operations end, a fresh operation creates every missing root
+   * and a later reader discovers the committed roots.
+   */
+  @Test
+  public void nestedDiskWritersNeverPublishUncommittedRoots() throws IOException {
+    for (var commitInner : new boolean[] {false, true}) {
+      for (var commitOuter : new boolean[] {false, true}) {
+        createStandaloneCollection("nested" + commitInner + commitOuter);
+        reserveInNestedOperations(commitInner, commitOuter);
+        var committed = commitInner || commitOuter;
+        if (committed) {
+          assertRootExtents(1, 2, 1, 1);
+        } else {
+          assertRootExtents(0, 0, 0, 0);
+        }
+        var created = atomicOps().calculateInsideAtomicOperation(op -> {
+          var reserved = collection.allocatePosition((byte) 2, op);
+          return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+        });
+        Assert.assertEquals(committed ? 1 : 0, created.collectionPosition);
+        assertRootExtents(2, 2, 3, 1);
+        assertRecord(created, new byte[] {5});
+        Assert.assertTrue("A later reader must discover the committed roots", rootsPresent());
+      }
+    }
+  }
+
+  /**
+   * Both nested writers roll back on disk. The files stay pageless. The retry writes all
+   * four roots and the record survives a reopen.
+   */
+  @Test
+  public void nestedDiskRollbacksLeaveNoPagesAndTheRetrySurvivesReopen() throws IOException {
+    reserveInNestedOperations(false, false);
+    assertRootExtents(0, 0, 0, 0);
+    var created = atomicOps().calculateInsideAtomicOperation(op -> {
+      var reserved = collection.allocatePosition((byte) 2, op);
+      return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+    });
+    Assert.assertEquals(0, created.collectionPosition);
+    assertRootExtents(2, 2, 3, 1);
+    flushToReadCache();
+    assertRootExtents(2, 2, 3, 1);
+    assertRecord(created, new byte[] {5});
+  }
+
+  /**
+   * Memory installs new pages before commit. A distinct reader on the writer thread sees
+   * them but must not publish root presence. After the rollback a later operation may
+   * discover the retained blank roots and the next insert must not reset them.
+   */
+  @Test
+  public void nestedMemoryReaderCannotPublishActiveWritersRoots() throws IOException {
+    var memory = DB_NAME + "_nestedReader";
+    youTrackDB.create(memory, DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var session = youTrackDB.open(memory, "admin", "admin")) {
+      storage = session.getStorage();
+      createStandaloneCollection("memoryNestedReader");
+      var writer = startOperation();
+      try {
+        collection.allocatePosition((byte) 2, writer);
+        atomicOps().executeInsideAtomicOperation(reader -> {
+          Assert.assertEquals(PaginatedCollection.RECORD_STATUS.NOT_EXISTENT,
+              collection.getRecordStatus(0, reader));
+          Assert.assertFalse(collection.exists(0, reader));
+        });
+        Assert.assertFalse("Nested reader published an active writer's roots", rootsPresent());
+      } finally {
+        endOperation(writer, false);
+      }
+      Assert.assertFalse(rootsPresent());
+      assertRootExtents(1, 2, 1, 1);
+      assertEmptyReads();
+      Assert.assertTrue("A later operation may discover the retained blank roots",
+          rootsPresent());
+      var created = atomicOps().calculateInsideAtomicOperation(op -> {
+        var reserved = collection.allocatePosition((byte) 2, op);
+        return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+      });
+      Assert.assertEquals(0, created.collectionPosition);
+      assertRootExtents(2, 2, 3, 1);
+      assertRecord(created, new byte[] {5});
+    }
+  }
+
+  /**
+   * Operation A creates the roots on disk and stays active. Nested operation B creates
+   * them again and commits. Each distinct reader on the thread of A then pays exactly one
+   * position map extent query, at the cache level and at the operation level. A distinct
+   * writer pays one four-file pass and nothing for a repeated reservation. A pays nothing.
+   * Nobody publishes before A ends. The first reader after A pays one ordinary discovery.
+   */
+  @Test
+  public void nestedCommittedBootstrapKeepsExtentQueriesBounded() throws IOException {
+    for (var commitOuter : new boolean[] {false, true}) {
+      createStandaloneCollection("nestedBootstrapCost" + commitOuter);
+      var data = collection.getFileId();
+      var map = fileId(".cpm");
+      var fsm = fileId(".fsm");
+      var dirty = fileId(".dpb");
+      var probe = new CollectionAccessProbe(storage, collection);
+      var outer = startOperation();
+      try {
+        var observedOuter = probe.observe(outer);
+        collection.allocatePosition((byte) 2, observedOuter);
+        atomicOps().executeInsideAtomicOperation(
+            inner -> collection.allocatePosition((byte) 2, probe.observe(inner)));
+        Assert.assertFalse(rootsPresent());
+
+        for (int i = 0; i < 3; i++) {
+          probe.clear();
+          atomicOps().executeInsideAtomicOperation(reader -> {
+            var observed = probe.observe(reader);
+            Assert.assertEquals(PaginatedCollection.RECORD_STATUS.ALLOCATED,
+                collection.getRecordStatus(0, observed));
+            Assert.assertFalse(collection.exists(0, observed));
+            Assert.assertThrows(RecordNotFoundException.class,
+                () -> collection.readRecord(0, observed));
+            Assert.assertEquals(0, collection.getEntries(observed));
+            Assertions.assertThat(probe.extents).containsExactly(map);
+            Assertions.assertThat(probe.operationExtents).containsExactly(map);
+          });
+          Assert.assertFalse("Reader published while the first writer is active",
+              rootsPresent());
+        }
+
+        probe.clear();
+        atomicOps().executeInsideAtomicOperation(writer -> {
+          var observed = probe.observe(writer);
+          collection.allocatePosition((byte) 2, observed);
+          Assertions.assertThat(probe.extents).containsExactly(map, data, fsm, dirty);
+          Assertions.assertThat(probe.operationExtents).containsExactly(map, data, fsm, dirty);
+          probe.clear();
+          collection.allocatePosition((byte) 2, observed);
+          collection.getRecordStatus(0, observed);
+          Assertions.assertThat(probe.operationExtents).isEmpty();
+        });
+        Assert.assertFalse(rootsPresent());
+
+        probe.clear();
+        collection.getRecordStatus(0, observedOuter);
+        collection.allocatePosition((byte) 2, observedOuter);
+        Assertions.assertThat(probe.operationExtents).isEmpty();
+        Assert.assertFalse(rootsPresent());
+      } finally {
+        endOperation(outer, commitOuter);
+      }
+      Assert.assertFalse(rootsPresent());
+
+      probe.clear();
+      atomicOps().executeInsideAtomicOperation(op -> {
+        var observed = probe.observe(op);
+        collection.getRecordStatus(0, observed);
+        Assertions.assertThat(probe.extents).containsExactly(map, map, data, fsm, dirty);
+        probe.clear();
+        collection.getRecordStatus(0, observed);
+        Assertions.assertThat(probe.operationExtents).isEmpty();
+      });
+      Assert.assertTrue(rootsPresent());
+    }
+  }
+
+  /**
+   * One operation deletes the collection files and creates them again on the same
+   * instance. The private root knowledge of that operation describes the old files and must
+   * expire. A distinct reader on the same thread still sees the old committed files and
+   * must not publish. The next reservation creates all four roots of the new files.
+   */
+  @Test
+  public void sameInstanceDeleteThenCreateStartsFromPagelessFilesOnDisk() throws IOException {
+    deleteThenCreateOnTheSameInstance("diskRecreate");
+  }
+
+  /** The memory variant of the delete then create scenario above. */
+  @Test
+  public void sameInstanceDeleteThenCreateStartsFromPagelessFilesInMemory() throws IOException {
+    var memory = DB_NAME + "_recreate";
+    youTrackDB.create(memory, DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var session = youTrackDB.open(memory, "admin", "admin")) {
+      storage = session.getStorage();
+      deleteThenCreateOnTheSameInstance("memoryRecreate");
+    }
+  }
+
+  private void deleteThenCreateOnTheSameInstance(String name) throws IOException {
+    for (var rooted : new boolean[] {false, true}) {
+      createStandaloneCollection(name + rooted);
+      if (rooted) {
+        var old = atomicOps().calculateInsideAtomicOperation(
+            op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+        assertRecord(old, new byte[] {9});
+        Assert.assertTrue(rootsPresent());
+      }
+      var created = atomicOps().calculateInsideAtomicOperation(op -> {
+        if (!rooted) {
+          Assert.assertEquals(0, collection.allocatePosition((byte) 2, op).collectionPosition);
+        }
+        collection.delete(op);
+        Assert.assertFalse("Delete must clear root presence", rootsPresent());
+        collection.create(op);
+        Assert.assertFalse(rootsPresent());
+        atomicOps().executeInsideAtomicOperation(
+            reader -> collection.getRecordStatus(0, reader));
+        Assert.assertFalse("Nested reader published roots of the replaced files",
+            rootsPresent());
+        var reserved = collection.allocatePosition((byte) 2, op);
+        Assert.assertEquals(0, reserved.collectionPosition);
+        return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+      });
+      assertRootExtents(2, 2, 3, 1);
+      assertRecord(created, new byte[] {5});
+      Assert.assertTrue(rootsPresent());
+    }
+  }
+
+  /**
+   * An update grows a pageless free space map or dirty page bit set on disk. A nested
+   * reader and a nested writer that rolls back run before the update ends. A later lookup
+   * in the update sees four roots, one of them uncommitted, and must not publish. The
+   * lookups after the nested writer make no extent query.
+   */
+  @Test
+  public void mixedRootUpdateNeverPublishesAroundNestedOperations() throws IOException {
+    for (var versionOnly : new boolean[] {false, true}) {
+      createStandaloneCollection("mixedNested" + versionOnly);
+      var original = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+      var missingId = fileId(versionOnly ? ".dpb" : ".fsm");
+      storage.getReadCache().shrinkFile(missingId, 0, storage.getWriteCache());
+      var mixedExtents = new long[] {2, 2, versionOnly ? 3 : 0, versionOnly ? 0 : 1};
+      assertRootExtents(mixedExtents);
+      var probe = new CollectionAccessProbe(storage, collection);
+      var writer = startOperation();
+      try {
+        var observedWriter = probe.observe(writer);
+        if (versionOnly) {
+          collection.updateRecordVersion(original.collectionPosition, observedWriter);
+        } else {
+          collection.updateRecord(original.collectionPosition, new byte[] {8}, (byte) 2,
+              observedWriter);
+        }
+        Assert.assertTrue("Update must allocate the missing root",
+            writer.filledUpTo(missingId) > 0);
+        atomicOps().executeInsideAtomicOperation(reader -> Assert.assertEquals(
+            PaginatedCollection.RECORD_STATUS.PRESENT,
+            collection.getRecordStatus(original.collectionPosition, reader)));
+        Assert.assertFalse("Nested reader published", rootsPresent());
+        var inner = startOperation();
+        try {
+          collection.allocatePosition((byte) 2, inner);
+        } finally {
+          endOperation(inner, false);
+        }
+        probe.clear();
+        Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT,
+            collection.getRecordStatus(original.collectionPosition, observedWriter));
+        Assertions.assertThat(probe.operationExtents).isEmpty();
+        Assert.assertFalse("Update published its own uncommitted root", rootsPresent());
+      } finally {
+        endOperation(writer, false);
+      }
+      Assert.assertFalse(rootsPresent());
+      assertRootExtents(mixedExtents);
+      var inserted = atomicOps().calculateInsideAtomicOperation(op -> {
+        var reserved = collection.allocatePosition((byte) 2, op);
+        return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+      });
+      assertRecord(original, new byte[] {9});
+      assertRecord(inserted, new byte[] {5});
+      Assert.assertTrue(rootsPresent());
+    }
+  }
+
+  /**
+   * A version update grows the pageless dirty page bit set in memory. The new page is
+   * visible to every operation at once. A distinct reader on the writer thread must not
+   * publish root presence while the update is active.
+   */
+  @Test
+  public void nestedMemoryReaderCannotPublishActiveHelperRoot() throws IOException {
+    var memory = DB_NAME + "_mixedNestedReader";
+    youTrackDB.create(memory, DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var session = youTrackDB.open(memory, "admin", "admin")) {
+      storage = session.getStorage();
+      createStandaloneCollection("memoryMixedNested");
+      var original = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+      var dirty = fileId(".dpb");
+      var writes = storage.getWriteCache();
+      var reads = storage.getReadCache();
+      // Memory does not support shrinking. Replace this fixture's file with an empty one.
+      var dirtyName = writes.fileNameById(dirty);
+      reads.deleteFile(dirty, writes);
+      reads.addFile(dirtyName, dirty, writes);
+      assertRootExtents(2, 2, 3, 0);
+      Assert.assertFalse(rootsPresent());
+      var writer = startOperation();
+      try {
+        collection.updateRecordVersion(original.collectionPosition, writer);
+        atomicOps().executeInsideAtomicOperation(reader -> Assert.assertEquals(
+            PaginatedCollection.RECORD_STATUS.PRESENT,
+            collection.getRecordStatus(original.collectionPosition, reader)));
+        Assert.assertFalse("Nested reader published an active helper root", rootsPresent());
+      } finally {
+        endOperation(writer, false);
+      }
+      Assert.assertFalse(rootsPresent());
+      assertRecord(original, new byte[] {9});
+      Assert.assertTrue("A later reader may discover the retained blank root", rootsPresent());
+    }
+  }
+
+  /**
+   * Four cold readers start before the fact is stored. The test holds the discovery monitor
+   * until each reader has made its optimistic position map query. The readers then share
+   * one locked pass over the four files.
+   */
+  @Test
+  public void racingColdReadersShareOneLockedDiscovery() throws Exception {
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+    Assert.assertFalse(rootsPresent());
+    var data = collection.getFileId();
+    var map = fileId(".cpm");
+    var fsm = fileId(".fsm");
+    var dirty = fileId(".dpb");
+    var probe = new CollectionAccessProbe(storage, collection);
+    final int readers = 4;
+    try (var executor = Executors.newFixedThreadPool(readers)) {
+      var futures = new ArrayList<java.util.concurrent.Future<?>>();
+      synchronized (collection) {
+        for (int i = 0; i < readers; i++) {
+          futures.add(executor.submit(() -> {
+            atomicOps().executeInsideAtomicOperation(
+                op -> Assert.assertTrue(collection.exists(0, probe.observe(op))));
+            return null;
+          }));
+        }
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+        while (probe.extents.size() < readers && System.nanoTime() < deadline) {
+          Thread.sleep(5);
+        }
+        Assertions.assertThat(probe.extents).hasSize(readers).containsOnly(map);
+        Assert.assertFalse(rootsPresent());
+      }
+      for (var future : futures) {
+        future.get(30, TimeUnit.SECONDS);
+      }
+    }
+    Assertions.assertThat(probe.extents).hasSize(readers + 4);
+    Assertions.assertThat(probe.extents.subList(readers, readers + 4))
+        .containsExactly(map, data, fsm, dirty);
+    Assert.assertTrue(rootsPresent());
+  }
+
+  /**
+   * Garbage collection holds the collection writer lock and a write overlay on an existing
+   * tail page before its first map lookup. The lookup discovers the committed roots with
+   * one pass over the four files. The next lookup makes no extent query.
+   */
+  @Test
+  public void lockOwnerWithExistingTailOverlayDiscoversRootsWithOnePass() throws IOException {
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+    var data = collection.getFileId();
+    var map = fileId(".cpm");
+    var fsm = fileId(".fsm");
+    var dirty = fileId(".dpb");
+    var probe = new CollectionAccessProbe(storage, collection);
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var observed = probe.observe(op);
+      collection.acquireAtomicExclusiveLock(observed);
+      try (var ignored = op.loadPageForWrite(data, 1, 1, true)) {
+        Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT,
+            collection.getRecordStatus(0, observed));
+        Assertions.assertThat(probe.extents).containsExactly(map, data, fsm, dirty);
+        Assert.assertTrue(rootsPresent());
+        probe.clear();
+        Assert.assertEquals(PaginatedCollection.RECORD_STATUS.PRESENT,
+            collection.getRecordStatus(0, observed));
+        Assertions.assertThat(probe.operationExtents).isEmpty();
+      }
+    });
+  }
+
+  /**
+   * A repeated reservation in the first-write operation makes no extent query at the
+   * operation level. The first case creates all four roots. The second case creates only
+   * the position map root beside three committed roots.
+   */
+  @Test
+  public void repeatedReservationsMakeNoOperationLevelExtentQuery() throws IOException {
+    var probe = new CollectionAccessProbe(storage, collection);
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var observed = probe.observe(op);
+      Assert.assertEquals(0, collection.allocatePosition((byte) 2, observed).collectionPosition);
+      probe.clear();
+      Assert.assertEquals(1, collection.allocatePosition((byte) 2, observed).collectionPosition);
+      Assertions.assertThat(probe.operationExtents).isEmpty();
+      Assert.assertFalse(rootsPresent());
+    });
+
+    createStandaloneCollection("mixedRepeat");
+    var data = collection.getFileId();
+    var fsm = fileId(".fsm");
+    var dirty = fileId(".dpb");
+    atomicOps().executeInsideAtomicOperation(op -> {
+      try (var entry = op.allocatePageForWrite(data, 0)) {
+        new PaginatedCollectionStateV2(entry).setFileSize(0);
+      }
+      try (var entry = op.allocatePageForWrite(fsm, 0)) {
+        new FreeSpaceMapPage(entry).init();
+      }
+      try (var entry = op.allocatePageForWrite(dirty, 0)) {
+        new DirtyPageBitSetPage(entry).init();
+      }
+    });
+    var mixedProbe = new CollectionAccessProbe(storage, collection);
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var observed = mixedProbe.observe(op);
+      Assert.assertEquals(0, collection.allocatePosition((byte) 2, observed).collectionPosition);
+      mixedProbe.clear();
+      Assert.assertEquals(1, collection.allocatePosition((byte) 2, observed).collectionPosition);
+      Assertions.assertThat(mixedProbe.operationExtents).isEmpty();
+      Assert.assertFalse(rootsPresent());
+    });
+  }
+
+  /** Close and open clear root presence. The next reader discovers the roots again. */
+  @Test
+  public void closeAndOpenClearRootPresence() throws IOException {
+    var created = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+    assertRecord(created, new byte[] {9});
+    Assert.assertTrue(rootsPresent());
+    collection.close();
+    Assert.assertFalse("Close must clear root presence", rootsPresent());
+    atomicOps().executeInsideAtomicOperation(collection::open);
+    Assert.assertFalse(rootsPresent());
+    assertRecord(created, new byte[] {9});
+    Assert.assertTrue(rootsPresent());
+  }
+
+  /**
+   * A writer on another thread created the roots and ended. The next writer owns the lock
+   * on a different thread. It must treat the first writer as ended, discover the committed
+   * roots with one pass, publish them and drop the private knowledge.
+   */
+  @Test
+  public void endedWriterOnAnotherThreadDoesNotBlockDiscovery() throws Exception {
+    var data = collection.getFileId();
+    var map = fileId(".cpm");
+    var fsm = fileId(".fsm");
+    var dirty = fileId(".dpb");
+    try (var executor = Executors.newSingleThreadExecutor()) {
+      executor.submit(() -> {
+        atomicOps().executeInsideAtomicOperation(
+            op -> collection.allocatePosition((byte) 2, op));
+        return null;
+      }).get(30, TimeUnit.SECONDS);
+    }
+    Assert.assertFalse(rootsPresent());
+    Assert.assertNotNull(rootViews());
+    var probe = new CollectionAccessProbe(storage, collection);
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var observed = probe.observe(op);
+      Assert.assertEquals(1, collection.allocatePosition((byte) 2, observed).collectionPosition);
+      Assert.assertTrue(rootsPresent());
+      Assertions.assertThat(probe.extents).containsExactly(map, data, fsm, dirty);
+      Assert.assertNull(rootViews());
+    });
+  }
+
+  /**
+   * The collection keeps no private root knowledge after the fact is stored. A reader
+   * publication drops the entry of the ended first writer. A reopened complete collection
+   * and its warm writes never allocate the list.
+   */
+  @Test
+  public void publicationDropsPrivateRootKnowledge() throws IOException {
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+    Assert.assertNotNull(rootViews());
+    atomicOps().executeInsideAtomicOperation(op -> Assert.assertTrue(collection.exists(0, op)));
+    Assert.assertTrue(rootsPresent());
+    Assert.assertNull(rootViews());
+    flushToReadCache();
+    Assert.assertTrue(rootsPresent());
+    Assert.assertNull(rootViews());
+    atomicOps().executeInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {8}, (byte) 2, null, op));
+    Assert.assertNull(rootViews());
+  }
+
+  /**
+   * The first reservation fails after it created the data and position map roots. The
+   * operation must not remember a complete root set. A second reservation in the same
+   * operation creates the two missing roots and the insert succeeds.
+   */
+  @Test
+  public void failedBootstrapRecordsNoPrivateCompletion() throws IOException {
+    var fsm = fileId(".fsm");
+    var fail = new java.util.concurrent.atomic.AtomicBoolean(true);
+    var operation = startOperation();
+    PhysicalPosition created;
+    try {
+      var delegate = delegatesTo(operation);
+      var observed = mock(AtomicOperation.class, call -> {
+        if (fail.get() && call.getMethod().getName().equals("allocatePageForWrite")
+            && (long) call.getArgument(0) == fsm) {
+          throw new IOException("injected");
+        }
+        return delegate.answer(call);
+      });
+      Assert.assertThrows(RuntimeException.class,
+          () -> collection.allocatePosition((byte) 2, observed));
+      Assert.assertFalse(rootsPresent());
+      Assert.assertEquals(0, operation.filledUpTo(fsm));
+      fail.set(false);
+      var reserved = collection.allocatePosition((byte) 2, observed);
+      created = collection.createRecord(new byte[] {5}, (byte) 2, reserved, observed);
+      Assert.assertFalse(rootsPresent());
+    } finally {
+      endOperation(operation, true);
+    }
+    assertRootExtents(2, 2, 3, 1);
+    assertRecord(created, new byte[] {5});
+  }
+
+  /**
+   * A read in a pageless collection costs one position map extent query and no page
+   * request, also for an operation that owns the collection writer lock.
+   */
+  @Test
+  public void pagelessReadsByTheLockOwnerCostOneMapExtentQuery() throws IOException {
+    var map = fileId(".cpm");
+    var probe = new CollectionAccessProbe(storage, collection);
+    atomicOps().executeInsideAtomicOperation(op -> {
+      var observed = probe.observe(op);
+      collection.acquireAtomicExclusiveLock(observed);
+      Assert.assertFalse(collection.exists(0, observed));
+      Assertions.assertThat(probe.extents).containsExactly(map);
+      probe.clear();
+      Assert.assertThrows(RecordNotFoundException.class,
+          () -> collection.readRecord(0, observed));
+      Assertions.assertThat(probe.extents).containsExactly(map);
+      Assertions.assertThat(probe.pages).isEmpty();
+    });
+    assertRootExtents(0, 0, 0, 0);
+  }
 }

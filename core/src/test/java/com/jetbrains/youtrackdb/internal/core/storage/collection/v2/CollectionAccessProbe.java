@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.mockito.invocation.InvocationOnMock;
 
@@ -21,8 +22,11 @@ final class CollectionAccessProbe {
   record PageRequest(String kind, long file, long page) {
   }
 
-  final List<PageRequest> pages = new ArrayList<>();
-  final List<Long> extents = new ArrayList<>();
+  final List<PageRequest> pages = Collections.synchronizedList(new ArrayList<>());
+  /** Extent queries that reached the write cache. Disk takes the storage-wide file lock. */
+  final List<Long> extents = Collections.synchronizedList(new ArrayList<>());
+  /** Every extent query on an observed operation, including answers from local state. */
+  final List<Long> operationExtents = Collections.synchronizedList(new ArrayList<>());
   private final WriteCache writeCache;
 
   CollectionAccessProbe(AbstractStorage storage, PaginatedCollectionV2 collection) {
@@ -56,6 +60,7 @@ final class CollectionAccessProbe {
         case "loadPageForRead" -> record("pinned", call);
         case "loadPageForWrite" -> record("write", call);
         case "allocatePageForWrite" -> record("allocate", call);
+        case "filledUpTo" -> operationExtents.add(call.getArgument(0));
         default -> {
         }
       }
@@ -66,6 +71,7 @@ final class CollectionAccessProbe {
   void clear() {
     pages.clear();
     extents.clear();
+    operationExtents.clear();
   }
 
   private void record(String kind, InvocationOnMock call) {

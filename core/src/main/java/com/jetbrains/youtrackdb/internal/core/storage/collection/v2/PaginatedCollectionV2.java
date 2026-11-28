@@ -84,7 +84,7 @@ import javax.annotation.Nullable;
  *
  * <h2>Architecture Overview</h2>
  *
- * <p>A {@code PaginatedCollectionV2} is composed of three on-disk components, each stored as a
+ * <p>A {@code PaginatedCollectionV2} is composed of four on-disk components, each stored as a
  * separate file managed through the disk-cache layer ({@link
  * com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache ReadCache} /
  * {@link com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache WriteCache}):
@@ -103,9 +103,13 @@ import javax.annotation.Nullable;
  *  |         [status: 1B][pageIndex: 8B][recordPosition: 4B][recordVersion: 8B]
  *  |
  *  |-- Free-space map  (.fsm)      -- FreeSpaceMap (three-level segment tree)
- *        page 0: root summary (max free space per middle page)
- *        middle pages: max free space per leaf page
- *        leaf pages: max free space per data page, in depth-first file order
+ *  |     page 0: root summary (max free space per middle page)
+ *  |     middle pages: max free space per leaf page
+ *  |     leaf pages: max free space per data page, in depth-first file order
+ *  |
+ *  |-- Dirty page bit set  (.dpb)  -- CollectionDirtyPageBitSet
+ *        page 0..K: DirtyPageBitSetPage, one bit per data page
+ *        a set bit marks a data page that holds the start chunk of a stale record
  * }</pre>
  *
  * <h2>Record Storage Layout</h2>
@@ -277,12 +281,33 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   private static final int ALL_ROOTS = MAP_ROOT | DATA_ROOT | FREE_SPACE_ROOT | DIRTY_BITS_ROOT;
 
   // Presence only. The contents of the roots still require the usual page validation.
+  // The collection sets this fact only from committed state.
   private volatile boolean rootsPresent;
 
-  // Guarded by the collection lock. Only the allocating operation may use this
-  // knowledge. Do not retain the operation after commit or rollback.
-  private WeakReference<AtomicOperation> rootInitializer;
-  private boolean initializedAllRoots;
+  // Operations with private root knowledge. Guarded by the collection writer lock.
+  // Only the thread that owns the writer lock reads or changes the list. A reader
+  // that publishes under the shared lock may reset it to null. Null when empty.
+  private ArrayList<RootView> rootViews;
+
+  /**
+   * Private root knowledge of one operation. The reference is weak so that the
+   * collection does not retain an operation after its commit or rollback.
+   */
+  private static final class RootView extends WeakReference<AtomicOperation> {
+
+    /** The thread that owned the collection writer lock at registration. */
+    private final long threadId = Thread.currentThread().threadId();
+
+    /** True if the operation can hold an uncommitted root or file binding. */
+    private boolean writer;
+
+    /** Roots that the operation sees in the current file binding. */
+    private int known;
+
+    private RootView(final AtomicOperation operation) {
+      super(operation);
+    }
+  }
 
   /** Strategy for resolving concurrent-modification conflicts on records in this collection. */
   private volatile RecordConflictStrategy recordConflictStrategy;
@@ -420,7 +445,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            rootsPresent = false;
+            resetRootKnowledge(atomicOperation);
             fileId = addFile(atomicOperation, getFullName(), dataIdentity);
             collectionPositionMap.create(atomicOperation);
             freeSpaceMap.create(atomicOperation);
@@ -438,8 +463,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
-            rootsPresent = false;
-            initializedAllRoots = false;
+            resetRootKnowledge(null);
             fileId = openFile(atomicOperation, getFullName(), dataIdentity);
             collectionPositionMap.open(atomicOperation);
 
@@ -555,6 +579,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
   public void close(final boolean flush) {
     acquireExclusiveLock();
     try {
+      resetRootKnowledge(null);
       if (flush) {
         synch();
       }
@@ -573,6 +598,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         operation -> {
           acquireExclusiveLock();
           try {
+            resetRootKnowledge(atomicOperation);
             deleteFile(atomicOperation, fileId, dataIdentity);
             collectionPositionMap.delete(atomicOperation);
             freeSpaceMap.delete(atomicOperation);
@@ -1007,7 +1033,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     // path that used to exist here is unreachable and was removed.
 
     var chunkSize = calculateChunkSize(bytesToWrite);
-    final boolean knowsRoots = rootsPresent || initializedRootsIn(atomicOperation);
+    final boolean knowsRoots = rootsPresent || knowsAllRoots(atomicOperation);
     var pageIndex = freeSpaceMap.findFreePage(chunkSize, atomicOperation, knowsRoots);
 
     // Fallback: for large entries, try to find a page that can hold at least half.
@@ -2454,6 +2480,10 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     if (rootsPresent) {
       return true;
     }
+    if (isExclusiveOwner()) {
+      // This thread owns the writer lock. The answer is exact without a retry.
+      return hasPositionMapRootAsLockOwner(operation);
+    }
     if (operation.getOptimisticReadScope().isAttemptActive()) {
       if (rootExtent(operation, collectionPositionMap.getFileId()) == 0) {
         return false;
@@ -2464,7 +2494,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
     acquireSharedLock();
     try {
-      return (probeRootsUnderLock(operation, false) & MAP_ROOT) != 0;
+      return (discoverRootsAsReader(operation) & MAP_ROOT) != 0;
     } finally {
       releaseSharedLock();
     }
@@ -2474,84 +2504,179 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return physicalSize(operation, id, PhysicalReadIntent.DEFENSIVE_PRESENCE);
   }
 
-  private boolean isRootInitializer(final AtomicOperation operation) {
-    return rootInitializer != null && rootInitializer.refersTo(operation);
-  }
-
-  private boolean initializedRootsIn(final AtomicOperation operation) {
-    return initializedAllRoots && isRootInitializer(operation);
-  }
-
-  // Record the writer before it can expose the new root through an extent query.
-  void markRootAllocation(final AtomicOperation operation) {
-    assert isExclusiveOwner();
-    if (!isRootInitializer(operation)) {
-      rootInitializer = new WeakReference<>(operation);
-      initializedAllRoots = false;
-    }
-  }
-
-  // Serialize discovery among pinned readers. Writers already exclude other lock holders.
-  private synchronized int probeRootsUnderLock(
-      final AtomicOperation operation, final boolean forWrite) {
-    assert isSharedOwner() || isExclusiveOwner();
-    if (rootsPresent || initializedRootsIn(operation)) {
+  // Serialize discovery among pinned readers. The shared lock excludes every thread
+  // that owns the writer lock. Each operation that changed a root has ended.
+  private synchronized int discoverRootsAsReader(final AtomicOperation operation) {
+    assert isSharedOwner() && !isExclusiveOwner();
+    if (rootsPresent) {
       return ALL_ROOTS;
     }
+    return probeRoots(operation, false, true);
+  }
 
-    final long mapId = collectionPositionMap.getFileId();
-    final long mapPages = rootExtent(operation, mapId);
-    if (mapPages == 0 && !forWrite) {
+  // Answers for an operation on the thread that owns the writer lock. Another
+  // operation on this thread can still hold uncommitted roots.
+  private boolean hasPositionMapRootAsLockOwner(final AtomicOperation operation) {
+    final var view = rootView(operation);
+    if (view != null && (view.known & MAP_ROOT) != 0) {
+      return true;
+    }
+    if (!hasRootWriter()) {
+      return (probeRoots(operation, false, true) & MAP_ROOT) != 0;
+    }
+    // Do not publish. Answer from the view of this operation and remember the answer.
+    if (rootExtent(operation, collectionPositionMap.getFileId()) == 0) {
+      return false;
+    }
+    (view != null ? view : addRootView(operation)).known |= MAP_ROOT;
+    return true;
+  }
+
+  // Reads the root extents in the view of the operation. A caller may publish only
+  // if no operation can hold an uncommitted root.
+  private int probeRoots(
+      final AtomicOperation operation, final boolean allFiles, final boolean publish) {
+    assert isSharedOwner() || isExclusiveOwner();
+    final long mapPages = rootExtent(operation, collectionPositionMap.getFileId());
+    if (mapPages == 0 && !allFiles) {
       return 0;
     }
 
-    final long fsmId = freeSpaceMap.getFileId();
-    final long dirtyId = dirtyPageBitSet.getFileId();
     final long dataPages = rootExtent(operation, fileId);
-    final long fsmPages = rootExtent(operation, fsmId);
-    final long dirtyPages = rootExtent(operation, dirtyId);
+    final long fsmPages = rootExtent(operation, freeSpaceMap.getFileId());
+    final long dirtyPages = rootExtent(operation, dirtyPageBitSet.getFileId());
     final int present = (mapPages > 0 ? MAP_ROOT : 0)
         | (dataPages > 0 ? DATA_ROOT : 0)
         | (fsmPages > 0 ? FREE_SPACE_ROOT : 0)
         | (dirtyPages > 0 ? DIRTY_BITS_ROOT : 0);
-
-    // The lock excludes other writers. A writer that allocated a root can use
-    // its local extent but cannot publish it. Other operations can learn that
-    // the root was already present, even if they have grown an existing file.
-    if (present == ALL_ROOTS && !isRootInitializer(operation)) {
+    if (publish && present == ALL_ROOTS) {
+      // No listed operation holds an uncommitted root. The shared fact replaces
+      // all private knowledge.
+      rootViews = null;
       rootsPresent = true;
     }
     return present;
   }
 
-  /** Called under the collection writer lock before creating a position or record. */
-  private void ensureRoots(final AtomicOperation operation) throws IOException {
-    if (rootsPresent || initializedRootsIn(operation)) {
-      return;
+  // Drops the entries of ended operations. Returns the entry of this operation or null.
+  private RootView rootView(final AtomicOperation operation) {
+    assert isExclusiveOwner();
+    final var views = rootViews;
+    if (views == null) {
+      return null;
     }
-    final int present = probeRootsUnderLock(operation, true);
-    if (present != ALL_ROOTS) {
-      markRootAllocation(operation);
-    }
-    if ((present & DATA_ROOT) == 0) {
-      try (final var entry = allocatePageForWrite(operation, fileId, STATE_ENTRY_INDEX)) {
-        final var state = new PaginatedCollectionStateV2(entry);
-        state.setFileSize(0);
-        state.setApproximateRecordsCount(0);
+    final long threadId = Thread.currentThread().threadId();
+    final var lockName = getLockName();
+    RootView found = null;
+    for (int i = views.size() - 1; i >= 0; i--) {
+      final var view = views.get(i);
+      final var owner = view.get();
+      if (owner == operation) {
+        found = view;
+      } else if (owner == null
+          // Another thread owned the writer lock. That operation released the lock.
+          || view.threadId != threadId
+          // An operation drops its lock bookkeeping after commit or rollback.
+          || owner.lockedObjectMode(lockName) == null) {
+        views.remove(i);
       }
     }
-    if ((present & MAP_ROOT) == 0) {
-      collectionPositionMap.initRoot(operation);
+    if (views.isEmpty()) {
+      rootViews = null;
     }
-    if ((present & FREE_SPACE_ROOT) == 0) {
-      freeSpaceMap.initRoot(operation);
+    return found;
+  }
+
+  private RootView addRootView(final AtomicOperation operation) {
+    final var view = new RootView(operation);
+    if (rootViews == null) {
+      rootViews = new ArrayList<>(1);
     }
-    if ((present & DIRTY_BITS_ROOT) == 0) {
-      dirtyPageBitSet.initRoot(operation);
+    rootViews.add(view);
+    return view;
+  }
+
+  // Call rootView first. It drops the entries of ended operations.
+  private boolean hasRootWriter() {
+    final var views = rootViews;
+    if (views != null) {
+      for (final var view : views) {
+        if (view.writer) {
+          return true;
+        }
+      }
     }
-    if (!rootsPresent) {
-      initializedAllRoots = true;
+    return false;
+  }
+
+  private boolean knowsAllRoots(final AtomicOperation operation) {
+    final var view = rootView(operation);
+    return view != null && view.known == ALL_ROOTS;
+  }
+
+  // Record the writer before it can expose the new root through an extent query.
+  void markRootAllocation(final AtomicOperation operation) {
+    var view = rootView(operation);
+    if (view == null) {
+      view = addRootView(operation);
     }
+    view.writer = true;
+  }
+
+  // Called under the writer lock when the file binding changes. The private
+  // knowledge of every operation describes the previous binding.
+  private void resetRootKnowledge(@Nullable final AtomicOperation bindingWriter) {
+    assert isExclusiveOwner();
+    rootsPresent = false;
+    if (bindingWriter != null) {
+      markRootAllocation(bindingWriter);
+    }
+    final var views = rootViews;
+    if (views != null) {
+      for (final var view : views) {
+        view.known = 0;
+      }
+    }
+  }
+
+  /** Called under the collection writer lock before creating a position or record. */
+  private void ensureRoots(final AtomicOperation operation) throws IOException {
+    if (rootsPresent) {
+      return;
+    }
+    var view = rootView(operation);
+    if (view != null && view.known == ALL_ROOTS) {
+      return;
+    }
+    final int present = probeRoots(operation, true, !hasRootWriter());
+    if (rootsPresent) {
+      return;
+    }
+    if (view == null) {
+      view = addRootView(operation);
+    }
+    if (present != ALL_ROOTS) {
+      // Record the writer before the first allocation.
+      view.writer = true;
+      if ((present & DATA_ROOT) == 0) {
+        try (final var entry = allocatePageForWrite(operation, fileId, STATE_ENTRY_INDEX)) {
+          final var state = new PaginatedCollectionStateV2(entry);
+          state.setFileSize(0);
+          state.setApproximateRecordsCount(0);
+        }
+      }
+      if ((present & MAP_ROOT) == 0) {
+        collectionPositionMap.initRoot(operation);
+      }
+      if ((present & FREE_SPACE_ROOT) == 0) {
+        freeSpaceMap.initRoot(operation);
+      }
+      if ((present & DIRTY_BITS_ROOT) == 0) {
+        dirtyPageBitSet.initRoot(operation);
+      }
+    }
+    // Only this operation may use the knowledge. It is never copied to rootsPresent.
+    view.known = ALL_ROOTS;
   }
 
   private static PhysicalPosition[] convertToPhysicalPositions(final long[] collectionPositions) {
