@@ -564,6 +564,121 @@ public class PaginatedCollectionV2OptimisticReadTest {
     }
   }
 
+  @Test
+  public void diskUpdateRollbackDoesNotPublishNewFreeSpaceRoot() throws IOException {
+    mixedRootUpdateRollbackAndRetry(false);
+  }
+
+  @Test
+  public void diskVersionUpdateRollbackDoesNotPublishNewDirtyBitsRoot() throws IOException {
+    mixedRootUpdateRollbackAndRetry(true);
+  }
+
+  private void mixedRootUpdateRollbackAndRetry(boolean versionOnly) throws IOException {
+    var original = atomicOps().calculateInsideAtomicOperation(
+        op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+    var missingId = fileId(versionOnly ? ".dpb" : ".fsm");
+    storage.getReadCache().shrinkFile(missingId, 0, storage.getWriteCache());
+    var mixedExtents = new long[] {2, 2, versionOnly ? 3 : 0, versionOnly ? 0 : 1};
+    assertRootExtents(mixedExtents);
+    Assert.assertFalse(rootsPresent());
+
+    var writer = atomicOps().startAtomicOperation();
+    atomicOps().startToApplyOperations(writer);
+    try {
+      if (versionOnly) {
+        collection.updateRecordVersion(original.collectionPosition, writer);
+      } else {
+        collection.updateRecord(original.collectionPosition, new byte[] {8}, (byte) 2, writer);
+        Assert.assertTrue("Update must allocate a new data page",
+            writer.filledUpTo(collection.getFileId()) > mixedExtents[0]);
+      }
+      Assert.assertTrue("Update must allocate the missing root", writer.filledUpTo(missingId) > 0);
+    } finally {
+      writer.rollbackInProgress();
+      atomicOps().endAtomicOperation(writer, null);
+    }
+    assertRootExtents(mixedExtents);
+    var published = rootsPresent();
+
+    var probe = new CollectionAccessProbe(storage, collection);
+    var inserted = atomicOps().calculateInsideAtomicOperation(op -> {
+      var observed = probe.observe(op);
+      var reserved = collection.allocatePosition((byte) 2, observed);
+      return collection.createRecord(new byte[] {5}, (byte) 2, reserved, observed);
+    });
+    Assert.assertFalse("Rolled-back update published uncommitted root presence", published);
+    // Check the allocation order against the mixed fixture's committed extents.
+    var files = new long[] {collection.getFileId(), fileId(".cpm"), fileId(".fsm"), fileId(".dpb")};
+    for (var request : probe.pages) {
+      for (int i = 0; i < files.length; i++) {
+        if (request.file() == files[i]) {
+          if (request.kind().equals("allocate")) {
+            Assert.assertEquals(mixedExtents[i]++, request.page());
+          } else {
+            Assert.assertTrue("Requested an unallocated page: " + request,
+                request.page() < mixedExtents[i]);
+          }
+        }
+      }
+    }
+    Assert.assertTrue("Retry must explicitly allocate the missing root",
+        probe.pages.contains(new PageRequest("allocate", missingId, 0)));
+    assertRootExtents(mixedExtents);
+    for (var extent : mixedExtents) {
+      Assert.assertTrue(extent > 0);
+    }
+    assertRecord(original, new byte[] {9});
+    assertRecord(inserted, new byte[] {5});
+    Assert.assertTrue("A later operation must discover the committed roots", rootsPresent());
+  }
+
+  @Test
+  public void memoryVersionUpdatePublishesDirtyBitsRootOnlyAfterRollbackReleasesIt()
+      throws IOException {
+    var memory = DB_NAME + "_dirtyBitsRollback";
+    youTrackDB.create(memory, DatabaseType.MEMORY,
+        new LocalUserCredential("admin", "admin", PredefinedLocalRole.ADMIN));
+    try (var session = youTrackDB.open(memory, "admin", "admin")) {
+      storage = session.getStorage();
+      createStandaloneCollection("memoryDirtyBitsRollback");
+      var original = atomicOps().calculateInsideAtomicOperation(
+          op -> collection.createRecord(new byte[] {9}, (byte) 2, null, op));
+      var dirty = fileId(".dpb");
+      var writes = storage.getWriteCache();
+      var reads = storage.getReadCache();
+      // Memory does not support shrinking. Replace this fixture's file with an empty one.
+      var dirtyName = writes.fileNameById(dirty);
+      reads.deleteFile(dirty, writes);
+      reads.addFile(dirtyName, dirty, writes);
+      assertRootExtents(2, 2, 3, 0);
+      Assert.assertFalse(rootsPresent());
+
+      var writer = atomicOps().startAtomicOperation();
+      atomicOps().startToApplyOperations(writer);
+      try {
+        collection.updateRecordVersion(original.collectionPosition, writer);
+        Assert.assertTrue("The new page is already in the memory cache",
+            writes.physicalSizeForBackupSnapshot(dirty) > 0);
+        Assert.assertFalse("Active update published uncommitted root presence", rootsPresent());
+      } finally {
+        writer.rollbackInProgress();
+        atomicOps().endAtomicOperation(writer, null);
+      }
+      Assert.assertFalse(rootsPresent());
+      assertRootExtents(2, 2, 3, 1);
+
+      var inserted = atomicOps().calculateInsideAtomicOperation(op -> {
+        var reserved = collection.allocatePosition((byte) 2, op);
+        Assert.assertTrue("The retained blank page is safe to discover", rootsPresent());
+        return collection.createRecord(new byte[] {5}, (byte) 2, reserved, op);
+      });
+      assertRootExtents(2, 2, 3, 1);
+      assertRecord(original, new byte[] {9});
+      assertRecord(inserted, new byte[] {5});
+    }
+  }
+
   private boolean rootsPresent() {
     try {
       var field = PaginatedCollectionV2.class.getDeclaredField("rootsPresent");

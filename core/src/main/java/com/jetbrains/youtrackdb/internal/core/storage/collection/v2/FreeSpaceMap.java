@@ -54,6 +54,7 @@ public final class FreeSpaceMap extends StorageComponent {
   private volatile long fileId;
 
   private final @Nullable PageFileIdentity identity;
+  private final @Nullable PaginatedCollectionV2 owner;
 
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,
@@ -65,10 +66,16 @@ public final class FreeSpaceMap extends StorageComponent {
 
   public FreeSpaceMap(AbstractStorage storage, String name, String extension, String lockName,
       @Nullable PageFileIdentity identity) {
+    this(storage, name, extension, lockName, identity, null);
+  }
+
+  FreeSpaceMap(AbstractStorage storage, String name, String extension, String lockName,
+      @Nullable PageFileIdentity identity, @Nullable PaginatedCollectionV2 owner) {
     super(storage, name, extension, lockName, true);
     validateIdentity(storage, extension, identity, PageFileRole.FREE_SPACE_MAP,
         PageFileRole.CONFIG_FREE_SPACE_MAP);
     this.identity = identity;
+    this.owner = owner;
   }
 
   public boolean exists(final AtomicOperation atomicOperation) {
@@ -98,9 +105,15 @@ public final class FreeSpaceMap extends StorageComponent {
   }
 
   void initRoot(final AtomicOperation atomicOperation) throws IOException {
-    // The root is the first page in the file.
-    try (final var firstLevelCacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
-      final var page = new FreeSpaceMapPage(firstLevelCacheEntry);
+    initPage(atomicOperation, 0);
+  }
+
+  private void initPage(AtomicOperation operation, long pageIndex) throws IOException {
+    if (pageIndex == 0 && owner != null) {
+      owner.markRootAllocation(operation);
+    }
+    try (final var entry = allocatePageForWrite(operation, fileId, pageIndex)) {
+      final var page = new FreeSpaceMapPage(entry);
       page.init();
     }
   }
@@ -219,10 +232,7 @@ public final class FreeSpaceMap extends StorageComponent {
     final var filledUpTo =
         physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
     for (var i = filledUpTo; i <= leafFilePage; i++) {
-      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, i)) {
-        final var page = new FreeSpaceMapPage(cacheEntry);
-        page.init();
-      }
+      initPage(atomicOperation, i);
     }
 
     final int oldLeafMax;

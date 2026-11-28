@@ -327,11 +327,13 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         this);
     freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getLockName(),
         dataIdentity == null ? null : new PageFileIdentity(
-            PageFileRole.fromCode(dataIdentity.kind(), 2), dataIdentity.componentId()));
+            PageFileRole.fromCode(dataIdentity.kind(), 2), dataIdentity.componentId()),
+        this);
     dirtyPageBitSet = new CollectionDirtyPageBitSet(
         storage, name, dpbExtension, getLockName(),
         dataIdentity == null ? null : new PageFileIdentity(
-            PageFileRole.fromCode(dataIdentity.kind(), 3), dataIdentity.componentId()));
+            PageFileRole.fromCode(dataIdentity.kind(), 3), dataIdentity.componentId()),
+        this);
     storageName = storage.getName();
   }
 
@@ -488,7 +490,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
               freeSpaceMap.reconstruct(atomicOperation);
               if (dataHasRoot) {
-                rootInitializer = new WeakReference<>(atomicOperation);
                 freeSpaceMap.initRoot(atomicOperation);
               }
               // FSM-rebuild recovery scan bounded by the state page's logical fileSize.
@@ -530,7 +531,6 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
             } else {
               dirtyPageBitSet.reconstruct(atomicOperation);
               if (dataHasRoot) {
-                rootInitializer = new WeakReference<>(atomicOperation);
                 dirtyPageBitSet.initRoot(atomicOperation);
               }
             }
@@ -605,9 +605,8 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
 
   @Override
   protected String getLogicalCountFieldName() {
-    // EP wrapper class PaginatedCollectionStateV2 stores the data-page count (NOT
-    // including the state page at STATE_ENTRY_INDEX = 0) as fileSize; initCollectionState()
-    // seeds it at 0.
+    // The state page stores the count of data pages, excluding the state page itself.
+    // ensureRoots initializes the count to zero.
     return "state page fileSize";
   }
 
@@ -2483,6 +2482,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     return initializedAllRoots && isRootInitializer(operation);
   }
 
+  // Record the writer before it can expose the new root through an extent query.
+  void markRootAllocation(final AtomicOperation operation) {
+    assert isExclusiveOwner();
+    if (!isRootInitializer(operation)) {
+      rootInitializer = new WeakReference<>(operation);
+      initializedAllRoots = false;
+    }
+  }
+
   // Serialize discovery among pinned readers. Writers already exclude other lock holders.
   private synchronized int probeRootsUnderLock(
       final AtomicOperation operation, final boolean forWrite) {
@@ -2507,9 +2515,9 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
         | (fsmPages > 0 ? FREE_SPACE_ROOT : 0)
         | (dirtyPages > 0 ? DIRTY_BITS_ROOT : 0);
 
-    // Only an operation that installed a root can see a positive local extent
-    // for a formerly pageless file. Overlays on existing pages do not affect
-    // this fact, even when an operation has grown an already populated file.
+    // The lock excludes other writers. A writer that allocated a root can use
+    // its local extent but cannot publish it. Other operations can learn that
+    // the root was already present, even if they have grown an existing file.
     if (present == ALL_ROOTS && !isRootInitializer(operation)) {
       rootsPresent = true;
     }
@@ -2523,7 +2531,7 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     }
     final int present = probeRootsUnderLock(operation, true);
     if (present != ALL_ROOTS) {
-      rootInitializer = new WeakReference<>(operation);
+      markRootAllocation(operation);
     }
     if ((present & DATA_ROOT) == 0) {
       try (final var entry = allocatePageForWrite(operation, fileId, STATE_ENTRY_INDEX)) {

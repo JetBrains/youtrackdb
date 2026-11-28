@@ -448,11 +448,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   // --- Recovery-time orphan-truncation template method ---
 
   /**
-   * Returns the disk-cache file id of this component's primary data file. The four
-   * entry-point-equipped components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
-   * PaginatedCollectionV2) override this with their stored {@code fileId} field; EP-less
-   * components (FreeSpaceMap, CollectionDirtyPageBitSet, IndexHistogramManager) inherit the
-   * default-throw because the recovery-time orphan-truncation pass never iterates over them.
+   * Returns the cache file ID of this component's primary file. Components that expose
+   * a backing file ID override this method. Recovery uses it for orphan truncation.
+   * Collection root discovery also uses it for the free space map and dirty page bit set.
    */
   protected long getFileId() {
     throw new UnsupportedOperationException(
@@ -504,8 +502,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * intentional: without the EP we cannot compute the truncate target, and silently skipping
    * the component would re-introduce the partial-flush-orphan path the pass exists to fix.
    *
-   * <p>{@link #verifyAndTruncateOrphansSiblings} checks the embedded position map
-   * independently, including when the primary file has no pages or reports the warning.
+   * <p>{@link #verifyAndTruncateOrphansSiblings} checks the embedded position map even
+   * when the primary file has no pages. The corruption warning ends the pass before
+   * the sibling check.
    *
    * @param atomicOperation enclosing recovery-pass atomic operation
    * @param readCache       read cache the truncate dispatches through
