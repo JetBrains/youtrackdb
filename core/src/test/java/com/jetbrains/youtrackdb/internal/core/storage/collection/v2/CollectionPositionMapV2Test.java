@@ -103,24 +103,22 @@ public class CollectionPositionMapV2Test {
   // Lifecycle operations
   // ---------------------------------------------------------------------------
 
-  // Verifies that create() initialises the entry-point page with file size 0 when the
-  // underlying file is new (filledUpTo == 0 at creation time). The entry-point page is
-  // dirtied first to prove create() actually writes 0, not just relying on zero-init.
   @Test
-  public void createOnNewFileInitialisesEntryPointToZero() throws IOException {
-    // Dirty the entry-point page so we can verify create() actually writes 0.
-    try (var entry = atomicOperation.loadPageForWrite(FILE_ID, 0, 1, false)) {
-      new MapEntryPoint(entry).setFileSize(42);
-    }
-    // Re-create should reset to 0.
-    positionMap.create(atomicOperation);
-    assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
+  public void createAndTruncateLeaveNewMapWithoutPages() throws IOException {
+    positionMap.truncate(atomicOperation);
+    assertThat(positionMap.floorPositions(0, atomicOperation, 10)).isEmpty();
+    assertThat(positionMap.lowerPositions(Long.MAX_VALUE, atomicOperation, 10)).isEmpty();
+    assertThat(positionMap.getStatus(-1, atomicOperation))
+        .isEqualTo(CollectionPositionMapBucket.NOT_EXISTENT);
+    assertThat(positionMap.getStatus(Long.MAX_VALUE, atomicOperation))
+        .isEqualTo(CollectionPositionMapBucket.NOT_EXISTENT);
+    assertThat(pageCount).isZero();
+    verify(atomicOperation, never()).loadPageForRead(FILE_ID, 0);
+    verify(atomicOperation, never()).allocatePageForWrite(FILE_ID, 0);
   }
 
-  // Verifies that create() re-initialises the entry-point page even when the file already
-  // has pages (e.g. recovery scenario where filledUpTo > 0 before create is called).
   @Test
-  public void createOnExistingFileReInitialisesEntryPoint() throws IOException {
+  public void createDoesNotResetExistingEntryPoint() throws IOException {
     // Simulate a file that already has 2 pages before create() is called.
     // This new AtomicOperation shares the same pagePointers/pageCount as the primary
     // test infrastructure, which is intentional: we need the pre-created pages to be
@@ -132,7 +130,7 @@ public class CollectionPositionMapV2Test {
     makePage(1);
     pageCount = 2;
 
-    // Write a non-zero file size into the entry-point to prove create resets it.
+    // Preserve a nonzero logical page count in the existing entry point.
     try (var entry = op.loadPageForWrite(FILE_ID, 0, 1, false)) {
       new MapEntryPoint(entry).setFileSize(5);
     }
@@ -140,9 +138,8 @@ public class CollectionPositionMapV2Test {
     var map2 = new CollectionPositionMapV2(mockStorage, "reinitMap", LOCK_NAME, EXTENSION);
     map2.create(op);
 
-    // After create(), the file size stored in the entry point should be 0.
     try (var entry = op.loadPageForRead(FILE_ID, 0)) {
-      assertThat(new MapEntryPoint(entry).getFileSize()).isEqualTo(0);
+      assertThat(new MapEntryPoint(entry).getFileSize()).isEqualTo(5);
     }
   }
 
@@ -272,7 +269,7 @@ public class CollectionPositionMapV2Test {
   // would reject this orphan-reuse shape under the allocator-only contract.
   @Test
   public void firstAllocationReusesExistingPageWhenFilledUpToIsAhead() throws IOException {
-    // The setUp() create() left pageCount == 1 (just the entry-point).
+    positionMap.initRoot(atomicOperation);
     // Pre-create page index 1 so filledUpTo will return 2, but lastPage is still 0.
     makePage(1);
     pageCount = 2;
@@ -1116,11 +1113,8 @@ public class CollectionPositionMapV2Test {
   // Recovery-time orphan truncation (verifyAndTruncateOrphans)
   // ---------------------------------------------------------------------------
   //
-  // Anchors: CollectionPositionMapV2.create() at :133-153 allocates page 0 then
-  // setFileSize(0), so a healthy fresh map has physical=1 (EP only) and fileSize=0.
-  // allocate() bumps fileSize when extending to a new bucket page; pages map 1:1 to
-  // bucket pages with the EP page sitting implicitly at index 0. The helper therefore
-  // expects physical pages == fileSize + 1 in steady state.
+  // An initialized map has an entry point at page 0 and fileSize bucket pages.
+  // allocate() bumps fileSize when extending to a new bucket page.
 
   // Orphan-present branch: physical file has N pages past (fileSize + 1). The helper
   // must invoke ReadCache.shrinkFile with targetBytes = (fileSize + 1) * pageSize.
@@ -1189,9 +1183,8 @@ public class CollectionPositionMapV2Test {
   // capture rig here.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
-    // create() left pageCount == 1 (just the EP) with fileSize == 0. Add an orphan
-    // page at index 1 without bumping the EP fileSize counter — the corruption shape
-    // the guard detects.
+    positionMap.initRoot(atomicOperation);
+    // Add an orphan at index 1 without advancing the entry point counter.
     assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
     makePage(1);
     pageCount = 2;
@@ -1201,15 +1194,14 @@ public class CollectionPositionMapV2Test {
     verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
   }
 
-  // Fresh-map branch (legitimate post-create state): fileSize == 0 AND physical == 1
+  // Initialized empty map: fileSize == 0 AND physical == 1
   // (EP only). The corruption guard MUST NOT fire — both conditions of the
   // (fileSize == 0 && physicalBytes > pageSize) test are required, and physical == 1
   // page fails the second clause. The helper dispatches a no-op shrink (target =
   // pageSize via the max(pageSize, ...) floor).
   @Test
   public void verifyAndTruncateOrphansFreshMapDispatchesWithFloorTarget() throws IOException {
-    // setUp() left pageCount == 1 (EP page only) and EP fileSize == 0 — the legitimate
-    // post-create state.
+    positionMap.initRoot(atomicOperation);
     assertThat(readLastPageFromEntryPoint()).isEqualTo(0);
     assertThat(pageCount).isEqualTo(1);
 

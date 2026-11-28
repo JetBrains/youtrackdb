@@ -50,16 +50,9 @@ import org.mockito.invocation.InvocationOnMock;
  * {@code max(pageSize, (fileSize + 1) * pageSize)}, and dispatches to
  * {@link ReadCache#shrinkFile(long, long, WriteCache)}.
  *
- * <p>Source anchor: {@code PaginatedCollectionV2.initCollectionState()} at lines
- * 2330-2354 (sets fileSize = 0 on create — the legitimate post-create state).
- *
- * <p>The PCV2 ctor wires up sub-components (cpm, fsm, dpb); to keep this unit test
- * focused on the primary-file truncate helper, the simulated file map uses distinct
- * fileIds per opened file and the helper only operates on PCV2's own {@code fileId}.
- * The sub-components have their own {@code verifyAndTruncateOrphans} suites
- * (CPMV2's is in {@code CollectionPositionMapV2Test}); FSM and CDPB are explicitly
- * out of scope (allocator-only growth loops; no logical/physical split means no
- * partial-flush orphan hazard).
+ * <p>The simulated file map assigns distinct IDs to the four files. Recovery checks
+ * the data file and the position map independently. The helper files use physical
+ * extent as their only size and do not take part in this pass.
  */
 public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
 
@@ -422,12 +415,11 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     verify(mockStorage, never()).getStorageFormat();
   }
 
-  // Sanity-check anchor: create() left fileSize == 0 (the legitimate post-create
-  // state) and PCV2.fileId == FILE_ID. If this fires the mock setup is broken.
   @Test
-  public void createLeavesCollectionInExpectedShape() throws IOException {
+  public void createRegistersAllFourFilesWithoutAllocatingPages() throws IOException {
     assertThat(collection.getFileId()).isEqualTo(FILE_ID);
-    assertThat(readFileSizeFromStatePage()).isEqualTo(0);
+    assertThat(pageCountByFile).isEmpty();
+    verify(atomicOperation, never()).allocatePageForWrite(anyLong(), anyLong());
   }
 
   // Orphan-present branch: bump the state page's fileSize to a non-zero value and
@@ -447,21 +439,76 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
   }
 
-  // Clean-shape branch: physical == (fileSize + 1). The helper dispatches shrinkFile
-  // at target = (fileSize + 1) * pageSize; the cache layer's pre-flight handles the
-  // no-op semantics. With fileSize == 0 (post-create), target = max(pageSize, 1 * pageSize)
-  // == pageSize, which matches physical == 1 page (state page only) — a clean dispatch.
   @Test
-  public void verifyAndTruncateOrphansNoOpOnFreshCollection() throws IOException {
-    // create() left fileSize == 0 and pageCount == 1 (state page only).
-    assertThat(readFileSizeFromStatePage()).isEqualTo(0);
-    assertThat(pageCountByFile.get(FILE_ID)).isEqualTo(1);
+  @SuppressWarnings("deprecation")
+  public void warmNonFullReservationDiscoversRootsOnlyOnceAndWritesOnlyMapPages()
+      throws IOException {
+    var manager = mockStorage.getAtomicOperationsManager();
+    org.mockito.Mockito.doAnswer(inv -> {
+      AtomicOperation op = inv.getArgument(0);
+      com.jetbrains.youtrackdb.internal.common.function.TxFunction<?> function =
+          inv.getArgument(2);
+      return function.accept(op);
+    }).when(manager).calculateInsideComponentOperation(eq(atomicOperation), eq(collection),
+        org.mockito.ArgumentMatchers.any());
+
+    for (long id : new long[] {FILE_ID, CPM_FILE_ID, FSM_FILE_ID, DPB_FILE_ID}) {
+      when(mockWriteCache.getFilledUpTo(id)).thenReturn(id == CPM_FILE_ID ? 2L : 1L);
+    }
+    when(atomicOperation.filledUpTo(anyLong())).thenAnswer(
+        inv -> mockWriteCache.getFilledUpTo(inv.getArgument(0)));
+    try (var root = atomicOperation.allocatePageForWrite(CPM_FILE_ID, 0);
+        var bucket = atomicOperation.allocatePageForWrite(CPM_FILE_ID, 1)) {
+      new MapEntryPoint(root).setFileSize(1);
+      new com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMapBucket(
+          bucket).init();
+    }
+    org.mockito.Mockito.clearInvocations(atomicOperation, mockWriteCache);
+
+    assertThat(collection.allocatePosition((byte) 2, atomicOperation).collectionPosition)
+        .isZero();
+    assertThat(collection.allocatePosition((byte) 2, atomicOperation).collectionPosition)
+        .isEqualTo(1);
+    for (long id : new long[] {FILE_ID, CPM_FILE_ID, FSM_FILE_ID, DPB_FILE_ID}) {
+      verify(mockWriteCache).getFilledUpTo(id);
+    }
+    verify(atomicOperation, org.mockito.Mockito.times(2)).loadPageForWrite(CPM_FILE_ID, 0, 1, true);
+    verify(atomicOperation, org.mockito.Mockito.times(2)).loadPageForWrite(CPM_FILE_ID, 1, 1, true);
+    verify(atomicOperation, never()).loadPageForRead(anyLong(), anyLong());
+    verify(atomicOperation, never()).allocatePageForWrite(anyLong(), anyLong());
+  }
+
+  @Test
+  public void orphanPassSkipsPagelessFilesWithoutLoadingTheirRoots() throws IOException {
+    collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    verify(atomicOperation, never()).loadPageForRead(anyLong(), anyLong());
+    verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
+  }
+
+  @Test
+  public void orphanPassChecksPositionMapWhenDataFileHasNoPages() throws IOException {
+    try (var entry = atomicOperation.allocatePageForWrite(CPM_FILE_ID, 0)) {
+      new MapEntryPoint(entry).setFileSize(1);
+    }
+    pageCountByFile.put(CPM_FILE_ID, 3);
 
     collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
 
-    // max(pageSize, (0 + 1) * pageSize) == pageSize. The cache layer's pre-flight
-    // makes this a no-op against the in-sync physical == 1 page state.
-    verify(mockReadCache).shrinkFile(FILE_ID, (long) PAGE_SIZE_BYTES, mockWriteCache);
+    verify(atomicOperation, never()).loadPageForRead(FILE_ID, 0);
+    verify(mockReadCache).shrinkFile(CPM_FILE_ID, 2L * PAGE_SIZE_BYTES, mockWriteCache);
+    verify(mockReadCache, never()).shrinkFile(eq(FILE_ID), anyLong(), eq(mockWriteCache));
+  }
+
+  @Test
+  public void orphanPassDispatchesOnePageForInitializedEmptyData() throws IOException {
+    try (var entry = atomicOperation.allocatePageForWrite(FILE_ID, 0)) {
+      new PaginatedCollectionStateV2(entry).setFileSize(0);
+    }
+
+    collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
+
+    verify(mockReadCache).shrinkFile(FILE_ID, PAGE_SIZE_BYTES, mockWriteCache);
   }
 
   // Boundary case: physical == target exactly. Catches off-by-one in
@@ -481,10 +528,8 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     verify(mockReadCache).shrinkFile(FILE_ID, expectedTarget, mockWriteCache);
   }
 
-  // Corruption-signal branch: fileSize == 0 AND physical > 1 page. PCV2's
-  // initCollectionState() sets fileSize=0 as the legitimate fresh-collection state, so
-  // the guard requires BOTH conditions to fire — a healthy fresh collection
-  // (fileSize == 0 && physical == 1 page) does NOT trigger the WARN.
+  // Corruption-signal branch: fileSize == 0 AND physical > 1 page.
+  // A healthy initialized empty collection with a state page does not trigger the WARN.
   //
   // WARN-log emission is NOT pinned here. The BTree sibling suite
   // (BTreeVerifyAndTruncateOrphansTest.verifyAndTruncateOrphansSkipsOnCorruptionSignal)
@@ -497,14 +542,18 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   // parallel capture rig here.
   @Test
   public void verifyAndTruncateOrphansSkipsOnCorruptionSignal() throws IOException {
-    // setStateFileSize(0) is the default post-create state; just extend physical
-    // past the state page.
+    setStateFileSize(0);
     assertThat(readFileSizeFromStatePage()).isEqualTo(0);
     makePage(FILE_ID, 1);
     pageCountByFile.put(FILE_ID, 2);
+    try (var entry = atomicOperation.allocatePageForWrite(CPM_FILE_ID, 0)) {
+      new MapEntryPoint(entry).setFileSize(1);
+    }
+    pageCountByFile.put(CPM_FILE_ID, 3);
 
     collection.verifyAndTruncateOrphans(atomicOperation, mockReadCache, mockWriteCache);
 
+    verify(atomicOperation, never()).loadPageForRead(CPM_FILE_ID, 0);
     verify(mockReadCache, never()).shrinkFile(anyLong(), anyLong(), eq(mockWriteCache));
   }
 

@@ -125,7 +125,7 @@ public class FreeSpaceMapTest {
   public void boundariesGrowthAndLowestMatch() throws IOException {
     final int[] indexes = {N - 1, N, N * N - 1, N * N, N * N + 1};
     manager.executeInsideAtomicOperation(
-        op -> Assert.assertEquals(1, op.filledUpTo(op.fileIdByName(mapFileName()))));
+        op -> Assert.assertEquals(0, op.filledUpTo(op.fileIdByName(mapFileName()))));
     for (int index : indexes) {
       manager.executeInsideAtomicOperation(op -> {
         map.updatePageFreeSpace(op, index, 512);
@@ -312,7 +312,7 @@ public class FreeSpaceMapTest {
     var collection = collection("invalidlimit");
     withCreationLock(collection::create);
     manager.executeInsideAtomicOperation(op -> {
-      try (var entry = op.loadPageForWrite(collection.getFileId(), 0, 1, true)) {
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 0)) {
         new PaginatedCollectionStateV2(entry).setFileSize(invalid);
       }
     });
@@ -327,6 +327,53 @@ public class FreeSpaceMapTest {
         cause.getMessage().contains("Invalid data page count " + invalid));
   }
 
+  @Test
+  public void openAcceptsInitializedEmptyDataRootBesidePagelessMap() throws IOException {
+    var collection = collection("emptydataroot");
+    withCreationLock(collection::create);
+    manager.executeInsideAtomicOperation(op -> {
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 0)) {
+        var state = new PaginatedCollectionStateV2(entry);
+        state.setFileSize(0);
+        state.setApproximateRecordsCount(0);
+      }
+    });
+    manager.executeInsideAtomicOperation(collection::open);
+    manager.executeInsideAtomicOperation(op -> {
+      Assert.assertEquals(0, collection.getEntries(op));
+      Assert.assertFalse(collection.exists(0, op));
+    });
+
+    var payload = new byte[] {7};
+    var record = manager.calculateInsideAtomicOperation(
+        op -> collection.createRecord(payload, (byte) 'b', null, op));
+    Assert.assertEquals(0, record.collectionPosition);
+    manager.executeInsideAtomicOperation(op -> Assert.assertArrayEquals(payload,
+        collection.readRecord(record.collectionPosition, op).toRawBuffer().buffer()));
+  }
+
+  @Test
+  public void openRejectsDataPagesWhenPositionMapHasNoPages() throws IOException {
+    var collection = collection("missingmaproot");
+    withCreationLock(collection::create);
+    manager.executeInsideAtomicOperation(op -> {
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 0)) {
+        new PaginatedCollectionStateV2(entry).setFileSize(1);
+      }
+      try (var entry = op.allocatePageForWrite(collection.getFileId(), 1)) {
+        new CollectionPage(entry).init();
+      }
+    });
+    var failure = Assert.assertThrows(StorageException.class,
+        () -> manager.executeInsideAtomicOperation(collection::open));
+    Throwable cause = failure;
+    while (cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    Assert.assertTrue(cause.toString(), cause instanceof PaginatedCollectionException);
+    Assert.assertTrue(cause.getMessage().contains("the position map has no pages"));
+  }
+
   // A one-page rebuild restores the data page with its normalized free space and record.
   // An empty collection rebuild has no qualifying page.
   @Test
@@ -337,10 +384,16 @@ public class FreeSpaceMapTest {
         identity(PageFileRole.FREE_SPACE_MAP, 9001));
     var rebuiltName = format == StorageFormat.LAYOUT_28
         ? PageFileNames.layout28(identity(PageFileRole.FREE_SPACE_MAP, 9001)) : "rebuildlimit.fsm";
+    var dirtyIdentity = identity(PageFileRole.DIRTY_PAGE_BIT_SET, 9001);
+    var dirtyName = dirtyIdentity == null
+        ? "rebuildlimit.dpb" : PageFileNames.layout28(dirtyIdentity);
     withCreationLock(op -> {
       op.deleteFile(op.fileIdByName(rebuiltName));
+      op.deleteFile(op.fileIdByName(dirtyName));
       collection.open(op);
       rebuiltMap.open(op);
+      Assert.assertEquals(0, op.filledUpTo(op.fileIdByName(rebuiltName)));
+      Assert.assertEquals(0, op.filledUpTo(op.fileIdByName(dirtyName)));
       Assert.assertEquals(-1, rebuiltMap.findFreePage(1, op));
     });
     final long[] position = new long[1];
@@ -350,7 +403,9 @@ public class FreeSpaceMapTest {
     });
     withCreationLock(op -> {
       op.deleteFile(op.fileIdByName(rebuiltName));
+      op.deleteFile(op.fileIdByName(dirtyName));
       collection.open(op);
+      Assert.assertEquals(1, op.filledUpTo(op.fileIdByName(dirtyName)));
       Assert.assertArrayEquals(new byte[] {1, 2, 3},
           collection.readRecord(position[0], op).toRawBuffer().buffer());
       try (var entry = op.loadPageForRead(collection.getFileId(), 0)) {

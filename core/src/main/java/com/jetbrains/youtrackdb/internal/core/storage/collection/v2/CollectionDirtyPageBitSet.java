@@ -39,6 +39,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   private long fileId;
 
   private final @Nullable PageFileIdentity identity;
+  private final @Nullable PaginatedCollectionV2 owner;
 
   public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
       String lockName) {
@@ -48,10 +49,16 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   public CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension,
       String lockName,
       @Nullable PageFileIdentity identity) {
+    this(storage, name, extension, lockName, identity, null);
+  }
+
+  CollectionDirtyPageBitSet(AbstractStorage storage, String name, String extension, String lockName,
+      @Nullable PageFileIdentity identity, @Nullable PaginatedCollectionV2 owner) {
     super(storage, name, extension, lockName, true);
     validateIdentity(storage, extension, identity, PageFileRole.DIRTY_PAGE_BIT_SET,
         PageFileRole.CONFIG_DIRTY_PAGE_BIT_SET);
     this.identity = identity;
+    this.owner = owner;
   }
 
   /**
@@ -62,11 +69,10 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   }
 
   /**
-   * Creates a new dirty page bit set file and initializes the first page to all zeros.
+   * Registers the dirty page bit set file without allocating pages.
    */
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName(), identity);
-    init(atomicOperation);
   }
 
   /** Rebuilds an absent auxiliary after its collection owner has been opened. */
@@ -76,12 +82,22 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
       return;
     }
     fileId = reconstructAuxiliary(atomicOperation, identity);
-    init(atomicOperation);
   }
 
-  private void init(final AtomicOperation atomicOperation) throws IOException {
-    // Fresh file -- append the first bit-set page (statically known-new at pageIndex 0).
-    try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
+  @Override
+  protected long getFileId() {
+    return fileId;
+  }
+
+  void initRoot(final AtomicOperation atomicOperation) throws IOException {
+    initPage(atomicOperation, 0);
+  }
+
+  private void initPage(AtomicOperation operation, long pageIndex) throws IOException {
+    if (pageIndex == 0 && owner != null) {
+      owner.markRootAllocation(operation);
+    }
+    try (final var cacheEntry = allocatePageForWrite(operation, fileId, pageIndex)) {
       final var page = new DirtyPageBitSetPage(cacheEntry);
       page.init();
     }
@@ -239,10 +255,7 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
         physicalSize(atomicOperation, fileId, PhysicalReadIntent.GROWTH_LOOP_PRE_READ);
 
     for (var i = filledUpTo; i <= requiredPageIndex; i++) {
-      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, i)) {
-        final var page = new DirtyPageBitSetPage(cacheEntry);
-        page.init();
-      }
+      initPage(atomicOperation, i);
     }
   }
 }

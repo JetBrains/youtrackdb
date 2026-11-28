@@ -448,11 +448,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   // --- Recovery-time orphan-truncation template method ---
 
   /**
-   * Returns the disk-cache file id of this component's primary data file. The four
-   * entry-point-equipped components (BTree, SharedLinkBagBTree, CollectionPositionMapV2,
-   * PaginatedCollectionV2) override this with their stored {@code fileId} field; EP-less
-   * components (FreeSpaceMap, CollectionDirtyPageBitSet, IndexHistogramManager) inherit the
-   * default-throw because the recovery-time orphan-truncation pass never iterates over them.
+   * Returns the cache file ID of this component's primary file. Components that expose
+   * a backing file ID override this method. Recovery uses it for orphan truncation.
+   * Collection root discovery also uses it for the free space map and dirty page bit set.
    */
   protected long getFileId() {
     throw new UnsupportedOperationException(
@@ -482,9 +480,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * <ul>
    *   <li>(a) a true {@code logical < physical} corruption shape that WAL replay is supposed
    *       to prevent — operators handle this through the storage-corruption runbook;</li>
-   *   <li>(b) a fresh-create + partial-flush-orphan case: a brand-new component whose
-   *       {@code create()} bumped physical via an allocation that reached AsyncFile but
-   *       crashed before the commit landed on disk, so the EP counter is still its initial
+   *   <li>(b) a bootstrap with a partial-flush orphan: an allocation extended the
+   *       physical file before a crash, but the EP counter is still its initial
    *       0 while physical now holds the partial-flushed orphan tail. The escape valve is
    *       the allocator-only {@code op.loadOrAddPageForWrite} contract — the next allocation
    *       observes the physical orphan via the {@code op.filledUpTo > knownIndex} check and
@@ -495,10 +492,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * <p>Both shapes are handled identically here: skip-with-WARN, leaving the truncate for
    * operator review. Asymmetry note: BTree / SLBB EPs {@code init()} their counter to
    * {@code 1}, so {@code logicalPages == 0} is itself anomalous; CPMV2 / PCV2 EPs
-   * {@code init()} their counter to {@code 0}, which is the legitimate post-create state — the
-   * {@code physicalBytes > pageSize} second clause is what discriminates a healthy fresh
-   * CPMV2 / PCV2 (physical == {@code pageSize}, one EP page only) from a real
-   * {@code logical < physical} shape.
+   * initialize their counters to {@code 0}. A collection file without pages needs no
+   * entry-point load or shrink. The second clause distinguishes an initialized empty
+   * collection file (one EP page) from a file with a zero counter and an orphan tail.
    *
    * <p>EP-read failures (e.g., a corrupted EP page surfaced by
    * {@code checksumMode=StoreAndThrow}) propagate the {@link IOException} through this
@@ -506,10 +502,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * intentional: without the EP we cannot compute the truncate target, and silently skipping
    * the component would re-introduce the partial-flush-orphan path the pass exists to fix.
    *
-   * <p>After the primary truncate dispatches, {@link #verifyAndTruncateOrphansSiblings} runs
-   * so components with embedded sibling files (PCV2's embedded CPM is the only current case)
-   * can delegate their sibling's truncate without exposing the embedded reference to the
-   * orchestrator.
+   * <p>{@link #verifyAndTruncateOrphansSiblings} checks the embedded position map even
+   * when the primary file has no pages. The corruption warning ends the pass before
+   * the sibling check.
    *
    * @param atomicOperation enclosing recovery-pass atomic operation
    * @param readCache       read cache the truncate dispatches through
@@ -522,13 +517,21 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       @Nonnull final WriteCache writeCache)
       throws IOException {
     final long fileId = getFileId();
-    final int logicalPages = readLogicalPageCountFromEntryPoint(atomicOperation);
+    final boolean allowsPageless = allowsPagelessOrphanCheck();
+    final int logicalPages;
+    final long physicalPages;
+    if (allowsPageless) {
+      physicalPages = physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+      if (physicalPages == 0) {
+        verifyAndTruncateOrphansSiblings(atomicOperation, readCache, writeCache);
+        return;
+      }
+      logicalPages = readLogicalPageCountFromEntryPoint(atomicOperation);
+    } else {
+      logicalPages = readLogicalPageCountFromEntryPoint(atomicOperation);
+      physicalPages = physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
+    }
     final int pageSize = writeCache.pageSize();
-    // Physical size in pages, read via the gated StorageComponent.physicalSize helper
-    // (RECOVERY_REBUILD intent — the recovery pass is a one-shot scan over committed
-    // pages to decide whether to drop a physical-orphan tail).
-    final long physicalPages =
-        physicalSize(atomicOperation, fileId, PhysicalReadIntent.RECOVERY_REBUILD);
     final long physicalBytes = physicalPages * (long) pageSize;
 
     if (logicalPages == 0 && physicalBytes > pageSize) {
@@ -549,6 +552,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // Hook for components with embedded sibling files (PCV2's embedded CPM is the only
     // current case). Default no-op; overridden where needed.
     verifyAndTruncateOrphansSiblings(atomicOperation, readCache, writeCache);
+  }
+
+  /** Whether an absent entry point is valid and sibling files need independent checks. */
+  protected boolean allowsPagelessOrphanCheck() {
+    return false;
   }
 
   /**

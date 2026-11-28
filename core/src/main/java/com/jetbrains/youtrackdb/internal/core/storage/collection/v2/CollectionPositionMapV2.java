@@ -114,6 +114,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   private volatile long fileId;
 
   private final @Nullable PageFileIdentity identity;
+  private final @Nullable PaginatedCollectionV2 owner;
 
   CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension) {
     this(storage, name, lockName, extension, null);
@@ -121,10 +122,16 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension,
       @Nullable PageFileIdentity identity) {
+    this(storage, name, lockName, extension, identity, null);
+  }
+
+  CollectionPositionMapV2(AbstractStorage storage, String name, String lockName, String extension,
+      @Nullable PageFileIdentity identity, @Nullable PaginatedCollectionV2 owner) {
     super(storage, name, extension, lockName, true);
     validateIdentity(storage, extension, identity, PageFileRole.POSITION_MAP,
         PageFileRole.CONFIG_POSITION_MAP);
     this.identity = identity;
+    this.owner = owner;
   }
 
   /** Opens an existing position-map file by name through the disk cache. */
@@ -132,31 +139,21 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     fileId = openFile(atomicOperation, getFullName(), identity);
   }
 
-  /**
-   * Creates a new position-map file and initializes its entry point (page 0) with a file size
-   * of zero. If the physical file already has pages (e.g., leftover from a partial previous
-   * creation), the existing page 0 is reused and reset.
-   */
+  /** Registers the position-map file without allocating pages. */
   public void create(final AtomicOperation atomicOperation) throws IOException {
     fileId = addFile(atomicOperation, getFullName(), identity);
+  }
 
-    // Bootstrap emptiness check on the EntryPoint page (chicken-and-egg): the page
-    // being inspected IS the EntryPoint itself, so logical bookkeeping (MapEntryPoint
-    // fileSize) is not yet available -- physical extent is the only source of truth.
-    if (physicalSize(atomicOperation, fileId, PhysicalReadIntent.BOOTSTRAP_EMPTINESS_CHECK)
-        == 0) {
-      // Fresh file -- append the entry-point page (statically known-new at pageIndex 0).
-      try (final var cacheEntry = allocatePageForWrite(atomicOperation, fileId, 0)) {
-        final var mapEntryPoint = new MapEntryPoint(cacheEntry);
-        mapEntryPoint.setFileSize(0);
-      }
-    } else {
-      // File already has pages -- reset the entry point.
-      try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, 0, false)) {
-        final var mapEntryPoint = new MapEntryPoint(cacheEntry);
-        mapEntryPoint.setFileSize(0);
-      }
+  void initRoot(final AtomicOperation atomicOperation) throws IOException {
+    try (final var entry = allocatePageForWrite(atomicOperation, fileId, 0)) {
+      new MapEntryPoint(entry).setFileSize(0);
     }
+  }
+
+  private boolean hasRoot(final AtomicOperation atomicOperation) {
+    return owner == null
+        ? physicalSize(atomicOperation, fileId, PhysicalReadIntent.DEFENSIVE_PRESENCE) > 0
+        : owner.hasPositionMapRoot(atomicOperation);
   }
 
   public void flush() {
@@ -168,6 +165,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   }
 
   public void truncate(final AtomicOperation atomicOperation) throws IOException {
+    if (!hasRoot(atomicOperation)) {
+      return;
+    }
     try (final var cacheEntry = loadPageForWrite(atomicOperation, fileId, 0, true)) {
       final var mapEntryPoint = new MapEntryPoint(cacheEntry);
       mapEntryPoint.setFileSize(0);
@@ -176,6 +176,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
   public void delete(final AtomicOperation atomicOperation) throws IOException {
     deleteFile(atomicOperation, fileId, identity);
+  }
+
+  @Override
+  protected boolean allowsPagelessOrphanCheck() {
+    return true;
   }
 
   @Override
@@ -195,7 +200,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   @Override
   protected String getLogicalCountFieldName() {
     // EP wrapper class MapEntryPoint stores the bucket-page count (NOT including the EP
-    // page itself) as fileSize; create() seeds it at 0. See create() at lines 133-153.
+    // page itself) as fileSize.
     return "fileSize";
   }
 
@@ -212,12 +217,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * This value does <em>not</em> include the entry-point page itself.
    */
   private long getLastPage(final AtomicOperation atomicOperation) throws IOException {
-    long lastPage;
-    try (final var entryPointEntry = loadPageForRead(atomicOperation, fileId, 0)) {
-      final var mapEntryPoint = new MapEntryPoint(entryPointEntry);
-      lastPage = mapEntryPoint.getFileSize();
-    }
-    return lastPage;
+    return hasRoot(atomicOperation) ? readLogicalPageCountFromEntryPoint(atomicOperation) : 0;
   }
 
   /**
@@ -233,6 +233,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    * @return the newly allocated global collection position
    */
   public long allocate(final AtomicOperation atomicOperation) throws IOException {
+    if (owner == null && !hasRoot(atomicOperation)) {
+      initRoot(atomicOperation);
+    }
     CacheEntry cacheEntry;
     var clear = false;
 
@@ -352,7 +355,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
 
     final var lastPage = getLastPage(atomicOperation);
-    if (pageIndex > lastPage) {
+    if (collectionPosition < 0 || pageIndex > lastPage) {
       throw new CollectionPositionMapException(storage.getName(),
           "Passed in collection position "
               + collectionPosition
@@ -378,7 +381,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     final var lastPage = getLastPage(atomicOperation);
 
-    if (pageIndex > lastPage) {
+    if (collectionPosition < 0 || pageIndex > lastPage) {
       return null;
     }
 
@@ -406,7 +409,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
 
     final var lastPage = getLastPage(atomicOperation);
 
-    if (pageIndex > lastPage) {
+    if (collectionPosition < 0 || pageIndex > lastPage) {
       return new CollectionPositionMapBucket.EntryWithStatus(
           CollectionPositionMapBucket.NOT_EXISTENT, null);
     }
@@ -429,6 +432,11 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       final long collectionPosition, final AtomicOperation atomicOperation) {
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
+
+    if (collectionPosition < 0 || !hasRoot(atomicOperation)) {
+      return new CollectionPositionMapBucket.EntryWithStatus(
+          CollectionPositionMapBucket.NOT_EXISTENT, null);
+    }
 
     final var lastPage = getLastPageOptimistic(atomicOperation);
     // Validate the entry point page stamp before trusting lastPage — a concurrent
@@ -467,6 +475,9 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   public void remove(final long collectionPosition, final long deletionVersion,
       final AtomicOperation atomicOperation)
       throws IOException {
+    if (collectionPosition < 0) {
+      throw new IllegalArgumentException("Negative collection position: " + collectionPosition);
+    }
     final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
@@ -598,7 +609,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       long collectionPosition,
       AtomicOperation atomicOperation,
       int limit) throws IOException {
-    if (collectionPosition == 0) {
+    if (collectionPosition <= 0) {
       return CommonConst.EMPTY_LONG_ARRAY;
     }
 
@@ -614,7 +625,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   CollectionPositionEntry[] lowerPositionsEntriesReversed(
       long collectionPosition,
       AtomicOperation atomicOperation) throws IOException {
-    if (collectionPosition == 0) {
+    if (collectionPosition <= 0) {
       return new CollectionPositionEntry[] {};
     }
 
@@ -660,7 +671,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
       index = Integer.MIN_VALUE;
     }
 
-    if (pageIndex < 0) {
+    if (pageIndex < 1) {
       return resultBuilder.emptyResult();
     }
 
@@ -696,7 +707,7 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
           result = resultBuilder.copyResult(result, entriesCount);
         }
       }
-    } while (result == null && pageIndex >= 0);
+    } while (result == null && pageIndex >= 1);
 
     if (result == null) {
       result = resultBuilder.emptyResult();
@@ -740,9 +751,10 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
    */
   public byte getStatus(final long collectionPosition, final AtomicOperation atomicOperation)
       throws IOException {
-    final var pageIndex =
-        (collectionPosition + CollectionPositionMapBucket.MAX_ENTRIES)
-            / CollectionPositionMapBucket.MAX_ENTRIES;
+    if (collectionPosition < 0) {
+      return CollectionPositionMapBucket.NOT_EXISTENT;
+    }
+    final var pageIndex = collectionPosition / CollectionPositionMapBucket.MAX_ENTRIES + 1;
     final var index = (int) (collectionPosition % CollectionPositionMapBucket.MAX_ENTRIES);
 
     final var lastPage = getLastPage(atomicOperation);
